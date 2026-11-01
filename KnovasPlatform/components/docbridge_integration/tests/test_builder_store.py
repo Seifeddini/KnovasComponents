@@ -251,3 +251,29 @@ def test_components_enrol_run_hold_and_take_commands(store, consultant):
     assert {c["command"]: c["result"] for c in store.commands(cid)} == {"run": "ok", "pause": None}
     store.update_component(cid, state="revoked")
     assert store.component(tenant, cid) is None and store.component(tenant, cid, any_state=True)["state"] == "revoked"
+
+
+def test_group_grants_end_on_their_day(identity_repo, consultant):
+    """Step B14 (migration 0018): a group grant with an end date stops counting after it, by itself."""
+    import datetime as _dt
+
+    today = _dt.date.today()
+    identity_repo.grant_access_group(consultant.id, "g-partner", by=consultant.id)
+    identity_repo.grant_access_group(consultant.id, "g-meier", ends_on=(today + _dt.timedelta(days=3)).isoformat())
+    identity_repo.grant_access_group(consultant.id, "g-alt", ends_on=(today - _dt.timedelta(days=1)).isoformat())
+    assert identity_repo.access_groups_of(consultant.id) == ("g-meier", "g-partner")
+    assert [g["group_id"] for g in identity_repo.access_grants_of(consultant.id)] == ["g-alt", "g-meier", "g-partner"]
+    assert identity_repo.members_of_groups() == {"g-meier": [str(consultant.id)], "g-partner": [str(consultant.id)]}
+    assert identity_repo.revoke_access_group(consultant.id, "g-meier")
+    assert not identity_repo.revoke_access_group(consultant.id, "g-meier")
+
+
+def test_an_enforcement_switch_takes_a_second_person(store, consultant, identity_repo):
+    other = identity_repo.create(email="zweite@example.org", display_name="Zweite", password="korrektes-pferd-batterie")
+    if isinstance(store, MemoryWorkspaceStore):
+        store.user_names[str(other.id)] = "Zweite"
+    rid = store.request_posture("tenant-b14", "enforcing", consultant.id)
+    assert not store.approve_posture("tenant-b14", rid, consultant.id, "ok")
+    assert store.approve_posture("tenant-b14", rid, other.id, "freigegeben")
+    [req] = store.posture_requests("tenant-b14")
+    assert req["approved_by_name"] == "Zweite" and req["requested_by_name"] == "Beraterin" and req["outcome"] == "freigegeben"

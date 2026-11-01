@@ -20,10 +20,12 @@ from builder import processes
 
 SECTIONS = {"ontology.types": "Typen", "ontology.relations": "Beziehungen", "packs": "Pakete",
             "processes": "Prozesse", "processes.rules": "Prozessregeln", "sources": "Quellen", "mappings": "Zuordnungen",
-            "spines": "Hierarchien", "pages": "Seiten", "profiles": "Profile", "profile_roles": "Rollen und Profile"}
+            "spines": "Hierarchien", "pages": "Seiten", "profiles": "Profile", "profile_roles": "Rollen und Profile",
+            "access.groups": "Zugriffsgruppen", "access.rules": "Ordnerregeln"}
 KINDS = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paketstand",
          "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle", "mappings": "Zuordnung",
-         "spines": "Hierarchie", "pages": "Seite", "profiles": "Profil", "profile_roles": "Rolle"}
+         "spines": "Hierarchie", "pages": "Seite", "profiles": "Profil", "profile_roles": "Rolle",
+         "access.groups": "Zugriffsgruppe", "access.rules": "Ordnerregel"}
 #: Change rows that are not about one element: where the draft came from.
 ORIGINS = {"import": "Paket importiert", "create": "Angelegt"}
 
@@ -49,6 +51,10 @@ def state_of(before: Optional[Mapping[str, Any]], after: Optional[Mapping[str, A
 
 def describe(item: Mapping[str, Any]) -> str:
     """One line for an element that is new."""
+    if "prefix" in item and "groups" in item:
+        return f"{item['prefix']} → {', '.join(item['groups'])}"
+    if set(item) <= {"key", "name", "parent"} and "name" in item:
+        return f"{item['name']}" + (f" unter {item['parent']}" if item.get("parent") else " unter den Administratoren")
     if isinstance(item.get("definition"), Mapping) and "audience" in item["definition"]:
         d = item["definition"]
         return f"{d.get('audience')} · {len(d.get('views') or [])} Ansichten · {item.get('file')}"

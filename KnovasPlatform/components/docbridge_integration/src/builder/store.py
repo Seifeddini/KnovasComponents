@@ -489,6 +489,36 @@ class WorkspaceStore:
         return [{"id": str(r[0]), "command": r[1], "args": r[2] or {}, "created_at": _iso(r[3]), "delivered_at": _iso(r[4]),
                  "done_at": _iso(r[5]), "result": r[6], "by": r[7]} for r in rows]
 
+    # -------------------------------------------------------- the access window (B14)
+
+    def request_posture(self, tenant: str, mode: str, actor_id) -> str:
+        row = self.conn.execute(
+            "INSERT INTO access_posture_request (tenant, mode, requested_by) VALUES (%s, %s, %s) RETURNING id",
+            (tenant, mode, actor_id)).fetchone()
+        return str(row[0])
+
+    def posture_requests(self, tenant: str, limit: int = 10) -> list[dict]:
+        rows = self.conn.execute(
+            """SELECT p.id, p.mode, p.requested_by, r.display_name, p.requested_at, a.display_name, p.approved_at, p.outcome
+                 FROM access_posture_request p
+                 LEFT JOIN users r ON r.id = p.requested_by LEFT JOIN users a ON a.id = p.approved_by
+                WHERE p.tenant = %s ORDER BY p.requested_at DESC LIMIT %s""", (tenant, limit)).fetchall()
+        return [{"id": str(x[0]), "mode": x[1], "requested_by": _uuid(x[2]), "requested_by_name": x[3],
+                 "requested_at": _iso(x[4]), "approved_by_name": x[5], "approved_at": _iso(x[6]), "outcome": x[7]}
+                for x in rows]
+
+    def approve_posture(self, tenant: str, request_id: str, actor_id, outcome: str) -> bool:
+        """A second administrator approves; never the one who asked (the table refuses it too)."""
+        try:
+            uuid.UUID(str(request_id))
+        except ValueError:
+            return False
+        row = self.conn.execute(
+            """UPDATE access_posture_request SET approved_by = %s, approved_at = now(), outcome = %s
+                WHERE tenant = %s AND id = %s AND approved_at IS NULL AND requested_by <> %s RETURNING id""",
+            (actor_id, outcome, tenant, request_id, actor_id)).fetchone()
+        return row is not None
+
     def served_by(self, component_id: str) -> dict:
         """The sources served through the component, in every workspace, and the mappings that read them."""
         sources, mappings = [], []

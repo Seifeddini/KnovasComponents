@@ -1744,3 +1744,116 @@ def test_components_enrol_run_and_alert(browser, components_server, shots):
     assert page.locator("[data-alert='offline']").count() == 1
     page.screenshot(path=shots / "b13-05-alert-start-page.png")
     page.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Step B14: the access window on the law-firm test tenant -- Kanzlei > Partner
+# > Mandatsteam Meier, a folder rule and two people; a partner sees the Meier
+# documents, an associate of another team does not, both explained; a group
+# moved after its impact preview. builder_harness.FakeAccess stands in for the
+# Brain's access groups and folder rules and decides readability as it does.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def access_server():
+    from builder_harness import FakeAccess, FakeEngine, MemoryDirectory, MemoryWorkspaceStore
+
+    admin = StandInUser({"admin"}, "Ada Admin", "ada@kanzlei.example")
+    store = MemoryWorkspaceStore({str(admin.id): admin.display_name})
+    directory = MemoryDirectory(store, [admin])
+    paula = directory.add(StandInUser({"member", "approver"}, "Paula Partnerin", "paula@kanzlei.example"))
+    hugo = directory.add(StandInUser({"member"}, "Hugo Huber", "hugo@kanzlei.example"))
+    brain = FakeAccess(directory, documents=["/Mandate/Meier/Vollmacht.pdf", "/Mandate/Meier/Honorar.docx",
+                                             "/Mandate/Huber/Klage.pdf"])
+    app = make_app(admin, store, tenant="kanzlei-test", engine=FakeEngine(), directory=directory, access=brain)
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield {"base": f"http://127.0.0.1:{server.server_port}", "brain": brain, "paula": paula, "hugo": hugo}
+    server.shutdown()
+
+
+def _confirm_impact(page):
+    dialog = page.locator("#b-ax-impact")
+    dialog.wait_for(state="visible")
+    dialog.get_by_role("button", name="Bestätigen").click()
+    page.wait_for_load_state("load")
+    dialog.wait_for(state="hidden")
+
+
+def _new_child(page, parent_row, name):
+    page.locator(f"[data-ax-group='{parent_row}'] .b-ax-name").click()
+    page.wait_for_selector(f"[data-ax-detail='{parent_row}']")
+    page.get_by_label("Neue Untergruppe").fill(name)
+    page.get_by_role("button", name="Anlegen …").click()
+    _confirm_impact(page)
+
+
+def test_access_window_of_a_law_firm(browser, access_server, shots):
+    s = access_server
+    base, brain = s["base"], s["brain"]
+    page = _page(browser, "1440", "light")
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    page.goto(f"{base}/builder/zugriff")
+
+    # Kanzlei under the administrators, Partner under it, two mandate teams under Partner.
+    _new_child(page, "g-admin", "Kanzlei")
+    _new_child(page, "g-kanzlei", "Partner")
+    _new_child(page, "g-partner", "Mandatsteam Meier")
+    _new_child(page, "g-partner", "Mandatsteam Huber")
+    tree = brain.tree()
+    assert [tree.name(g) for g in ["g-mandatsteam-meier"] + tree.ancestors("g-mandatsteam-meier")] == [
+        "Mandatsteam Meier", "Partner", "Kanzlei", "tenant-admin"]
+
+    # The Meier folder to the Meier team; Paula into Partner, Hugo into the Huber team.
+    page.locator("[data-ax-group='g-mandatsteam-meier'] .b-ax-name").click()
+    page.get_by_label("Ordner zuweisen").fill("/Mandate/Meier")
+    page.get_by_role("button", name="Zuweisen").click()
+    page.wait_for_selector("[data-ax-rules]")
+    for group, person in (("g-partner", "Paula Partnerin"), ("g-mandatsteam-huber", "Hugo Huber")):
+        page.locator(f"[data-ax-group='{group}'] .b-ax-name").click()
+        page.get_by_label("Person aufnehmen").select_option(label=person)
+        page.get_by_role("button", name="Aufnehmen").click()
+        page.wait_for_selector(f"[data-ax-member='{person}']")
+    page.locator("[data-ax-group='g-mandatsteam-meier'] .b-ax-name").click()
+    detail = page.inner_text(".b-ax-detail")
+    assert "2 Dokumente" in detail and "/Mandate/Meier" in detail and "Paula Partnerin" in detail
+    page.screenshot(path=shots / "b14-01-tree-and-group.png", full_page=True)
+
+    # Paula's effective access: Partner and everything below it, highlighted.
+    page.locator("[data-ax-person='Paula Partnerin'] a").click()
+    page.wait_for_selector(".b-ax-row.is-lit")
+    assert page.locator(".b-ax-row.is-lit").count() == 3
+    page.screenshot(path=shots / "b14-02-effective-access.png", full_page=True)
+
+    # Explained: the partner sees the Meier documents, the associate of the Huber team does not.
+    page.get_by_label("Wer").select_option(label="Paula Partnerin")
+    page.get_by_label("Dokument (Pfad)").fill("/Mandate/Meier/Vollmacht.pdf")
+    page.get_by_role("button", name="Erklären").click()
+    result = page.locator("[data-ax-explain-result]")
+    result.wait_for(state="visible")
+    assert "Sieht es" in result.inner_text() and "über die Gruppe Partner, die über Mandatsteam Meier steht" in result.inner_text()
+    result.scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b14-03-explain-partner.png")
+    page.get_by_label("Wer").select_option(label="Hugo Huber")
+    page.get_by_role("button", name="Erklären").click()
+    page.wait_for_function("() => document.querySelector('[data-ax-explain-result]').innerText.includes('Hugo Huber sieht')")
+    assert "Sieht es nicht" in result.inner_text() and "Mandatsteam Huber" in result.inner_text()
+    page.screenshot(path=shots / "b14-04-explain-associate.png")
+
+    # A move, dragged on the tree: the impact preview first -- Hugo would see the two Meier documents too.
+    page.goto(f"{base}/builder/zugriff?gruppe=g-mandatsteam-meier")
+    page.locator("[data-ax-group='g-mandatsteam-meier']").drag_to(page.locator("[data-ax-group='g-mandatsteam-huber']"))
+    dialog = page.locator("#b-ax-impact")
+    dialog.wait_for(state="visible")
+    assert "Mandatsteam Meier hängt künftig unter Mandatsteam Huber statt unter Partner" in dialog.inner_text()
+    assert "Hugo Huber: 2 Einträge" in dialog.inner_text()
+    page.screenshot(path=shots / "b14-05-move-impact.png")
+    dialog.get_by_role("button", name="Bestätigen").click()
+    page.wait_for_url("**gruppe=g-mandatsteam-meier**")
+    page.wait_for_load_state("networkidle")
+    assert brain.tree().parent("g-mandatsteam-meier") == "g-mandatsteam-huber"
+    assert "unter tenant-admin / Kanzlei / Partner / Mandatsteam Huber" in page.inner_text(".b-ax-detail")
+    page.screenshot(path=shots / "b14-06-moved.png")
+    page.context.close()

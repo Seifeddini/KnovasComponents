@@ -3,6 +3,7 @@ Knovas API client for document synchronization.
 Handles communication with Knovas knowledge base API.
 """
 
+import contextlib
 import requests
 import logging
 from typing import Iterator, List, Dict, Any, Optional, Tuple, Union
@@ -1585,6 +1586,26 @@ class KnovasAPIClient:
                 )
                 self._attempt_certificate_renewal()
     
+    @contextlib.contextmanager
+    def asserting_for(self, user):
+        """Requests in this block carry ``user``'s principal assertion instead of the signed-in person's.
+
+        For the access window's "explain access" (Brain Builder B14) only: an administrator asks the Brain
+        whether *that* person may read a document, and the Brain answers with its own policy. Per thread, so a
+        concurrent request of someone else keeps its own principal.
+        """
+        import threading
+
+        local = getattr(self, "_principal_local", None)
+        if local is None:
+            local = self._principal_local = threading.local()
+        previous = getattr(local, "user", None)
+        local.user = user
+        try:
+            yield
+        finally:
+            local.user = previous
+
     def attach_principal_broker(self, broker) -> None:
         """Bind the broker that signs the current user into every outbound body.
 
@@ -1604,7 +1625,8 @@ class KnovasAPIClient:
         """
         if self._principal_broker is None:
             return data
-        user = self._principal_broker.current_user()
+        # The access window asks "may this person read it?" as that person (asserting_for); otherwise the signed-in user.
+        user = getattr(getattr(self, "_principal_local", None), "user", None) or self._principal_broker.current_user()
         if user is None:
             raise PermissionError(
                 "No authenticated user for this request; refusing to call "
@@ -2958,6 +2980,15 @@ class KnovasAPIClient:
         return self._rbac_request(
             'PATCH', f'/secured/access_groups/{quote(str(identifier), safe="")}',
             data={'name': name})
+
+    def move_access_group(self, identifier: str, parent: str) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/access_groups/<id> with ``parent`` - hang the group under another (Brain Builder B14).
+
+        A Brain that does not move groups yet ignores the field; the caller reads the tree back to know.
+        """
+        return self._rbac_request(
+            'PATCH', f'/secured/access_groups/{quote(str(identifier), safe="")}',
+            data={'parent': str(parent)})
 
     def delete_access_group(self, identifier: str) -> bool:
         """DELETE /secured/access_groups/<id>. True, wenn geloescht."""

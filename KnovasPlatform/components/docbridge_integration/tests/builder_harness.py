@@ -61,6 +61,31 @@ class MemoryDirectory:
         self.passwords[email] = password
         return user
 
+    # The access window's group grants (B14), as identity.users.UserRepository keeps them.
+    def list_all(self):
+        return sorted(self.accounts.values(), key=lambda u: u.email)
+
+    def _grants(self):
+        if not hasattr(self, "group_grants"):
+            self.group_grants = {}
+        return self.group_grants
+
+    def access_grants_of(self, user_id):
+        return [{"group_id": g, "source": "manual", "ends_on": e, "granted_at": None}
+                for g, e in sorted(self._grants().get(str(user_id), {}).items())]
+
+    def access_groups_of(self, user_id):
+        from datetime import date
+
+        today = date.today().isoformat()
+        return tuple(g for g, e in sorted(self._grants().get(str(user_id), {}).items()) if not e or e >= today)
+
+    def grant_access_group(self, user_id, group_id, *, ends_on=None, by=None):
+        self._grants().setdefault(str(user_id), {})[str(group_id)] = ends_on
+
+    def revoke_access_group(self, user_id, group_id):
+        return self._grants().get(str(user_id), {}).pop(str(group_id), "gone") != "gone"
+
 
 class MemoryWorkspaceStore:
     """``builder.store.WorkspaceStore`` without PostgreSQL, for the click-dummy.
@@ -399,6 +424,23 @@ class MemoryWorkspaceStore:
         mine = [c for c in self._bag("commands") if c["component"] == component_id]
         return [{k: v for k, v in c.items() if k != "component"} for c in reversed(mine)][:limit]
 
+    def request_posture(self, tenant, mode, actor_id):
+        req = {"id": str(uuid.uuid4()), "tenant": tenant, "mode": mode, "requested_by": str(actor_id),
+               "requested_by_name": self._actor(actor_id)[1], "requested_at": self._now(), "approved_by_name": None,
+               "approved_at": None, "outcome": None}
+        self._bag("posture").insert(0, req)
+        return req["id"]
+
+    def posture_requests(self, tenant, limit=10):
+        return [{k: v for k, v in r.items() if k != "tenant"} for r in self._bag("posture") if r["tenant"] == tenant][:limit]
+
+    def approve_posture(self, tenant, request_id, actor_id, outcome):
+        req = next((r for r in self._bag("posture") if r["tenant"] == tenant and r["id"] == request_id), None)
+        if req is None or req["approved_at"] or req["requested_by"] == str(actor_id):
+            return False
+        req.update(approved_by_name=self._actor(actor_id)[1], approved_at=self._now(), outcome=outcome)
+        return True
+
     def served_by(self, component_id):
         sources, mappings = [], []
         for w in self.list():
@@ -568,6 +610,84 @@ def seed_from_runs(*runs):
     return {"nodes": nodes, "edges": edges}
 
 
+class FakeAccess:
+    """The Brain's access groups, folder rules and documents in memory (builder.access_backend.BrainAccess's face).
+
+    It decides readability as the Brain does: a document governed by the longest matching folder rule is read by
+    the members of the rule's groups and of every group above them.
+    """
+
+    def __init__(self, directory, documents=()):
+        self.directory = directory
+        self.groups = {"g-admin": {"group_id": "g-admin", "name": "tenant-admin", "is_admin": True, "parent_id": None}}
+        self.rule_rows = []
+        self.document_pointers = list(documents)
+        self.node_type_rows = []
+        self.posture_state = {"mode": "disabled", "backfill_complete": True}
+        self.moves_supported = True
+
+    def tree(self):
+        from builder.access import Tree
+
+        return Tree.of(copy.deepcopy(list(self.groups.values())))
+
+    def create(self, name, parent, acting_as):
+        gid = "g-" + "".join(c if c.isalnum() else "-" for c in name.lower()).strip("-")
+        self.groups[gid] = {"group_id": gid, "name": name, "is_admin": False, "parent_id": parent}
+        return gid
+
+    def rename(self, gid, name):
+        self.groups[gid]["name"] = name
+
+    def move(self, gid, parent):
+        from builder.access import AccessError
+
+        if not self.moves_supported:
+            raise AccessError("Das Brain hat die Gruppe nicht verschoben: diese Brain-Version kann Gruppen noch nicht "
+                              "umhängen (PATCH /secured/access_groups mit parent).", 501, "move_unsupported")
+        self.groups[gid]["parent_id"] = parent
+
+    def delete(self, gid):
+        del self.groups[gid]
+
+    def rules(self):
+        return copy.deepcopy(self.rule_rows)
+
+    def create_rule(self, prefix, groups, acting_as):
+        rule = {"rule_id": f"r{len(self.rule_rows) + 1}", "pointer_prefix": prefix, "access_groups": list(groups)}
+        self.rule_rows.append(rule)
+        return rule
+
+    def delete_rule(self, rule_id):
+        self.rule_rows = [r for r in self.rule_rows if r["rule_id"] != rule_id]
+
+    def _rule_of(self, pointer):
+        matching = [r for r in self.rule_rows if pointer.startswith(r["pointer_prefix"])]
+        return max(matching, key=lambda r: len(r["pointer_prefix"]), default=None)
+
+    def documents(self, gid):
+        n = sum(1 for d in self.document_pointers if gid in ((self._rule_of(d) or {}).get("access_groups") or []))
+        return n, False
+
+    def node_types(self):
+        return copy.deepcopy(self.node_type_rows)
+
+    def document_access(self, pointer):
+        rule = self._rule_of(pointer)
+        return {"pointer": pointer, "access_groups": list((rule or {}).get("access_groups") or []), "rule": rule}
+
+    def readable_as(self, user, pointer):
+        acl = self.document_access(pointer)["access_groups"]
+        if not acl:
+            return True
+        tree = self.tree()
+        mine = self.directory.access_groups_of(user.id)
+        return any(g == target or g in tree.ancestors(target) for target in acl for g in mine)
+
+    def posture(self):
+        return dict(self.posture_state)
+
+
 class MemorySecrets:
     """``platform_settings.SourceSecrets`` in memory: write-only to the builder, readable by the readers."""
 
@@ -639,7 +759,8 @@ def stand_in_readers(github_root=None, connector=None, http=None):
 
 def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None,
              secrets=None, readers=None, roles=None, roles_sink=None, sync=None, directory=None,
-             component_secrets=None, adapters=None, limits=None, signer=None, require_certificate=True) -> Flask:
+             component_secrets=None, adapters=None, limits=None, signer=None, require_certificate=True,
+             access=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -686,6 +807,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         component_secrets=(lambda: component_secrets) if component_secrets is not None else None,
         component_adapter=adapters,
         component_limits=(lambda: limits) if limits is not None else None,
+        access_backend=(lambda: access) if access is not None else None,
     ))
     if component_secrets is not None and store is not None:
         from web_interface.connector_protocol import create_connector_protocol_blueprint

@@ -42,6 +42,8 @@ from builder import team
 from builder import components as component_rules
 from builder import protocol as connector_protocol
 from builder.adapters import AdapterError
+from builder import access as access_rules
+from builder.access_edits import draft_tree
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +64,13 @@ ENDPOINT_PERMISSIONS = {
     "component_page": "view", "enrol_component": "manage", "rotate_component": "manage", "revoke_component": "manage",
     "component_schedule": "manage", "component_settings": "manage", "component_run": "edit",
     "component_pause": "publish", "component_resume": "publish", "component_plan": "review",
+    "access_page": "edit", "access_preview": "edit", "access_apply": "edit", "access_rules_add": "edit",
+    "access_rule_remove": "edit", "access_members": "manage", "access_explain": "manage", "access_posture": "manage",
+    "access_posture_approve": "manage",
 }
 #: Endpoints about the workspace chosen in the session rather than one in the address.
-SESSION_ENDPOINTS = frozenset({"stage", "mapping_page"})
+SESSION_ENDPOINTS = frozenset({"stage", "mapping_page", "access_page", "access_preview", "access_apply",
+                               "access_rules_add", "access_rule_remove"})
 #: Endpoints that need no workspace: a global role, or any running grant, opens them for reading.
 GLOBAL_ENDPOINTS = frozenset({"home", "stage", "styleguide"})
 #: The Platform's own roles when the app does not say which it has (identity's built-in four).
@@ -193,6 +199,7 @@ def create_builder_blueprint(
     component_secrets: Optional[Callable[[], Any]] = None,
     component_adapter: Optional[Callable[[Mapping[str, Any]], Any]] = None,
     component_limits: Optional[Callable[[], Mapping[str, Any]]] = None,
+    access_backend: Optional[Callable[[], Any]] = None,
     platform_roles: Optional[Callable[[], list]] = None,
     roles_sink: Optional[Callable[..., Any]] = None,
     sync_status: Optional[Callable[[], Mapping[str, Any]]] = None,
@@ -235,6 +242,10 @@ def create_builder_blueprint(
     over what a component that does not speak protocol v1 reports today
     (builder.adapters), or None; ``component_limits()`` the alert limits
     (builder.components.LIMITS) as the settings registry sets them (step B13).
+
+    ``access_backend()`` returns the Brain's access groups and folder rules
+    (builder.access_backend.BrainAccess on the Platform's client); the access
+    window (step B14) changes the live tree through it.
 
     ``platform_roles`` returns the Platform's role keys (its role table);
     ``roles_sink(mapping, user)`` writes the published role-to-profile
@@ -344,7 +355,8 @@ def create_builder_blueprint(
         section, _, key = str(path).partition("/")
         element = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paket",
                    "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle", "mappings": "Zuordnung",
-                   "spines": "Hierarchie", "pages": "Seite", "profiles": "Profil", "profile_roles": "Rolle"}.get(section)
+                   "spines": "Hierarchie", "pages": "Seite", "profiles": "Profil", "profile_roles": "Rolle",
+                   "access.groups": "Zugriffsgruppe", "access.rules": "Ordnerregel"}.get(section)
         return f"{element} {key}" if element and key else CHANGE_LABELS.get(path, path)
 
     @bp.app_template_filter("b_version_tag")
@@ -1185,6 +1197,416 @@ def create_builder_blueprint(
             return jsonify({"success": False, "error": str(exc)[:300] or type(exc).__name__}), 409
         return jsonify({"success": True})
 
+    # -------------------------------------------------------- the access window (B14)
+
+    class _DraftAccess:
+        """The access design of the chosen workspace's draft, through the same face as the Brain's."""
+
+        def __init__(self, store, workspace):
+            self.store, self.workspace = store, workspace
+
+        def model(self):
+            return self.store.model(self.workspace.id)
+
+        def tree(self):
+            return draft_tree(self.model())
+
+        def rules(self):
+            return [{"rule_id": r["key"], "pointer_prefix": r["prefix"], "access_groups": list(r.get("groups") or []),
+                     "source": r.get("source")} for r in (self.model().get("access") or {}).get("rules") or []]
+
+        def _edit(self, op):
+            self.store.edit(self.workspace.id, gate.current_user().id, lambda m: editing.apply(m, op))
+
+        def create(self, name, parent, acting_as):
+            self._edit({"op": "access.group.create", "name": name, "parent": parent})
+            return self.tree().by_name(name)
+
+        def rename(self, gid, name):
+            self._edit({"op": "access.group.rename", "key": gid, "name": name})
+
+        def move(self, gid, parent):
+            self._edit({"op": "access.group.move", "key": gid, "parent": parent})
+
+        def delete(self, gid):
+            self._edit({"op": "access.group.remove", "key": gid})
+
+        def create_rule(self, prefix, groups, acting_as):
+            self._edit({"op": "access.rule.add", "prefix": prefix, "groups": groups})
+            return {"pointer_prefix": prefix}
+
+        def delete_rule(self, rule_id):
+            self._edit({"op": "access.rule.remove", "key": rule_id})
+
+        def documents(self, gid):
+            return 0, False
+
+        def node_types(self):
+            return []
+
+        def posture(self):
+            return None
+
+    def _access_mode() -> str:
+        return "draft" if request.args.get("entwurf") else "live"
+
+    def _access_backend(mode: str):
+        """The tree the request works on: the tenant's live one (administrators), or the draft's design."""
+        if mode == "draft":
+            store = _store()
+            workspace = _current_workspace(store)
+            if workspace is None:
+                raise access_rules.AccessError("Wählen Sie zuerst einen Arbeitsbereich.", 409)
+            return _DraftAccess(store, workspace)
+        if not g.builder_access.may("manage"):
+            raise access_rules.AccessError("Den Baum des Mandanten ändern Administratoren; Berater entwerfen ihn im Entwurf.", 403)
+        if access_backend is None:
+            raise access_rules.AccessError("Diese Plattform liest die Zugriffsgruppen des Brains nicht.", 503)
+        return access_backend()
+
+    def _access_refused(exc):
+        return jsonify({"success": False, "error": exc.message, "code": exc.code}), exc.status
+
+    def _people() -> list:
+        directory = user_directory() if user_directory is not None else None
+        if directory is None or not hasattr(directory, "list_all"):
+            return []
+        out = []
+        for u in directory.list_all():
+            grants = directory.access_grants_of(u.id) if hasattr(directory, "access_grants_of") else []
+            out.append({"id": str(u.id), "name": u.display_name or u.email, "email": u.email,
+                        "roles": sorted(getattr(u, "roles", ()) or ()), "grants": grants, "user": u})
+        return out
+
+    def _running(grants: list) -> list:
+        from datetime import date
+
+        today = date.today().isoformat()
+        return [gr["group_id"] for gr in grants if not gr.get("ends_on") or gr["ends_on"] >= today]
+
+    def _assigned(tree, rules, node_types, backend, *, with_documents: bool) -> dict:
+        counts = {}
+        for gid in tree.groups:
+            docs, more = backend.documents(gid) if with_documents else (0, False)
+            counts[gid] = {"folder_rules": sum(1 for r in rules if gid in (r.get("access_groups") or [])),
+                           "node_types": sum(1 for t in node_types if gid in (t.get("required_groups") or [])),
+                           "documents": docs, "documents_more": more}
+        return counts
+
+    def _access_view(mode: str) -> dict:
+        backend = _access_backend(mode)
+        tree = backend.tree()
+        rules = backend.rules()
+        node_types = backend.node_types()
+        people = _people() if mode == "live" else []
+        members: dict = {}
+        for person in people:
+            for gid in _running(person["grants"]):
+                members.setdefault(gid, []).append(person["id"])
+        counts = _assigned(tree, rules, node_types, backend, with_documents=mode == "live")
+        for gid in tree.groups:
+            counts[gid]["members"] = len(members.get(gid, []))
+        names = {p["id"]: p["name"] for p in people}
+        chosen = request.args.get("gruppe")
+        if chosen not in tree.groups:
+            chosen = next((k for k in tree.groups if not tree.is_admin(k)), next(iter(tree.groups), None))
+        person = next((p for p in people if p["id"] == request.args.get("person")), None)
+        lit = access_rules.effective(tree, _running(person["grants"])) if person else []
+        detail = None
+        if chosen:
+            above = [{"group": tree.name(a), "people": [names.get(u, u) for u in members.get(a, [])]} for a in tree.ancestors(chosen)]
+            detail = {"id": chosen, "name": tree.name(chosen), "is_admin": tree.is_admin(chosen),
+                      "parent": tree.parent(chosen), "path": [tree.name(a) for a in reversed(tree.ancestors(chosen))],
+                      "members": [{"id": u, "name": names.get(u, u),
+                                   "ends_on": next((gr.get("ends_on") for p in people if p["id"] == u
+                                                    for gr in p["grants"] if gr["group_id"] == chosen), None)}
+                                  for u in members.get(chosen, [])],
+                      "above": [a for a in above if a["people"]],
+                      "rules": [r for r in rules if chosen in (r.get("access_groups") or [])],
+                      "node_types": [t.get("name") for t in node_types if chosen in (t.get("required_groups") or [])],
+                      "counts": counts.get(chosen, {})}
+        tenant = _platform_tenant()
+        store = _store()
+        workspace = _current_workspace(store) if store is not None else None
+        folders = []
+        if workspace is not None:
+            for src in (store.model(workspace.id) or {}).get("sources") or []:
+                folder = (src.get("settings") or {}).get("folder")
+                if folder:
+                    folders.append({"prefix": "/" + str(folder).strip("/"), "source": src.get("name")})
+        return {"mode": mode, "tree": tree.nested(counts, lit), "detail": detail, "groups": [
+                    {"id": k, "name": tree.name(k), "path": " / ".join([tree.name(a) for a in reversed(tree.ancestors(k))] + [tree.name(k)])}
+                    for k in tree.groups],
+                "people": [{k: v for k, v in p.items() if k != "user"} for p in people],
+                "person": person["id"] if person else None, "lit": lit, "folders": folders,
+                "posture": backend.posture(), "posture_requests": store.posture_requests(tenant) if mode == "live" and tenant and hasattr(store, "posture_requests") else [],
+                "me": str(gate.current_user().id), "workspace": workspace.name if workspace else None}
+
+    @bp.route("/zugriff")
+    def access_page():
+        """The access window: the group tree (left), a group (middle), the people (right), explain and posture."""
+        mode = _access_mode()
+        try:
+            view = _access_view(mode)
+        except access_rules.AccessError as exc:
+            if mode == "live" and exc.status == 403:
+                return redirect(url_for("builder.access_page", entwurf=1))
+            view = {"mode": mode, "error": exc.message}
+        stage = STAGES[0]
+        return _render("builder/access.html", stage=stage, stage_number=1, view=view)
+
+    def _access_change(body: Mapping[str, Any]) -> dict:
+        op = body.get("op")
+        if op not in ("create", "rename", "move", "delete"):
+            raise access_rules.AccessError("Anlegen, umbenennen, verschieben oder löschen?")
+        return {"op": op, "group": body.get("group"), "parent": body.get("parent"), "name": body.get("name")}
+
+    def _preview(backend, change: dict, mode: str) -> dict:
+        tree = backend.tree()
+        rules = backend.rules()
+        node_types = backend.node_types()
+        op = change["op"]
+        if op == "create":
+            access_rules.check_create(tree, change["name"], change["parent"])
+        elif op == "rename":
+            access_rules.check_rename(tree, change["group"], change["name"])
+        elif op == "move":
+            access_rules.check_move(tree, change["group"], change["parent"])
+        counts = _assigned(tree, rules, node_types, backend, with_documents=mode == "live" and op in ("move", "delete"))
+        if op == "delete":
+            people = _people() if mode == "live" else []
+            assigned = dict(counts.get(change["group"], {}))
+            assigned.pop("documents_more", None)
+            assigned["members"] = sum(1 for p in people if change["group"] in _running(p["grants"]))
+            access_rules.check_delete(tree, change["group"], assigned)
+        people = _people() if mode == "live" else []
+        members: dict = {}
+        for person in people:
+            for gid in _running(person["grants"]):
+                members.setdefault(gid, []).append(person["id"])
+        # What people see: documents and node types (a folder rule is how documents get there, not something seen).
+        items = {gid: c["documents"] + c["node_types"] for gid, c in counts.items()}
+        found = access_rules.impact(tree, change, members, items) if op in ("move", "delete") else \
+            {"gains": {}, "losses": {}, "items": 0, "people_gaining": 0, "people_losing": 0}
+        names = {p["id"]: p["name"] for p in people}
+        what = {"create": f"Neue Gruppe «{change['name']}» unter {tree.name(change['parent'])}",
+                "rename": f"{tree.name(change['group'])} heißt künftig «{change['name']}»",
+                "move": f"{tree.name(change['group'])} hängt künftig unter {tree.name(change['parent'])} statt unter "
+                        f"{tree.name(tree.parent(change['group']))}",
+                "delete": f"{tree.name(change['group'])} wird gelöscht"}[op]
+        return {"what": what, "gains": [{"name": names.get(u, u), "items": n} for u, n in sorted(found["gains"].items())],
+                "losses": [{"name": names.get(u, u), "items": n} for u, n in sorted(found["losses"].items()) if n],
+                "items": found["items"], "nobody": not found["gains"] and not any(found["losses"].values())}
+
+    @bp.route("/api/access/preview", methods=["POST"])
+    def access_preview():
+        """What a structural change would do -- who gains or loses sight of how many items -- before it is made."""
+        mode = _access_mode()
+        try:
+            backend = _access_backend(mode)
+            change = _access_change(request.get_json(silent=True) or {})
+            return jsonify({"success": True, "impact": _preview(backend, change, mode)})
+        except access_rules.AccessError as exc:
+            return _access_refused(exc)
+
+    @bp.route("/api/access/apply", methods=["POST"])
+    def access_apply():
+        """The change, after its preview was shown and confirmed; checked again, then made."""
+        mode = _access_mode()
+        body = request.get_json(silent=True) or {}
+        if body.get("confirmed") is not True:
+            return jsonify({"success": False, "error": "Erst die Wirkung ansehen und bestätigen."}), 409
+        try:
+            backend = _access_backend(mode)
+            change = _access_change(body)
+            _preview(backend, change, mode)
+            if change["op"] == "create":
+                made = backend.create(access_rules.check_create(backend.tree(), change["name"], change["parent"]),
+                                      change["parent"], ())
+                logger.info("Access window: group created (%s)", mode)
+                return jsonify({"success": True, "group": made})
+            if change["op"] == "rename":
+                backend.rename(change["group"], access_rules.check_rename(backend.tree(), change["group"], change["name"]))
+            elif change["op"] == "move":
+                backend.move(change["group"], change["parent"])
+            else:
+                backend.delete(change["group"])
+        except access_rules.AccessError as exc:
+            return _access_refused(exc)
+        except editing.EditError as exc:
+            return _refused(exc)
+        logger.info("Access window: group %s (%s)", change["op"], mode)
+        return jsonify({"success": True})
+
+    @bp.route("/api/access/rules", methods=["POST"])
+    def access_rules_add():
+        """A folder (a path prefix from a sync component's source) assigned to a group."""
+        mode = _access_mode()
+        body = request.get_json(silent=True) or {}
+        prefix = str(body.get("prefix") or "").strip()
+        if not prefix.startswith("/") or ".." in prefix.split("/"):
+            return jsonify({"success": False, "error": "Ordner: ein Pfad wie /Mandate/Meier, ohne «..»."}), 400
+        try:
+            backend = _access_backend(mode)
+            tree = backend.tree()
+            group = str(body.get("group") or "")
+            if group not in tree.groups:
+                raise access_rules.AccessError("Diese Gruppe gibt es nicht.", 404)
+            backend.create_rule(prefix, [group], ())
+        except access_rules.AccessError as exc:
+            return _access_refused(exc)
+        except editing.EditError as exc:
+            return _refused(exc)
+        logger.info("Access window: folder rule added (%s)", mode)
+        return jsonify({"success": True}), 201
+
+    @bp.route("/api/access/rules/remove", methods=["POST"])
+    def access_rule_remove():
+        mode = _access_mode()
+        try:
+            _access_backend(mode).delete_rule(str((request.get_json(silent=True) or {}).get("rule") or ""))
+        except access_rules.AccessError as exc:
+            return _access_refused(exc)
+        except editing.EditError as exc:
+            return _refused(exc)
+        return jsonify({"success": True})
+
+    @bp.route("/api/access/members", methods=["POST"])
+    def access_members():
+        """Put a person in a group (until a day, if given), or take them out: the Platform asserts it to the Brain."""
+        from datetime import date
+
+        body = request.get_json(silent=True) or {}
+        directory = user_directory() if user_directory is not None else None
+        if directory is None:
+            return jsonify({"success": False, "error": "Diese Plattform verwaltet keine Konten."}), 503
+        try:
+            tree = _access_backend("live").tree()
+        except access_rules.AccessError as exc:
+            return _access_refused(exc)
+        group, user_id = str(body.get("group") or ""), str(body.get("user") or "")
+        person = next((p for p in _people() if p["id"] == user_id), None)
+        if group not in tree.groups or person is None:
+            return jsonify({"success": False, "error": "Diese Person oder Gruppe gibt es nicht."}), 404
+        if body.get("remove"):
+            directory.revoke_access_group(user_id, group)
+            logger.info("Access window: a person left a group")
+            return jsonify({"success": True})
+        ends_on = str(body.get("ends_on") or "").strip() or None
+        if ends_on:
+            try:
+                if date.fromisoformat(ends_on) < date.today():
+                    raise ValueError
+            except ValueError:
+                return jsonify({"success": False, "error": "Bis: ein Datum ab heute, wie 2026-12-31."}), 400
+        directory.grant_access_group(user_id, group, ends_on=ends_on, by=gate.current_user().id)
+        logger.info("Access window: a person joined a group, ends: %s", bool(ends_on))
+        return jsonify({"success": True})
+
+    @bp.route("/api/access/explain", methods=["POST"])
+    def access_explain():
+        """Why a person sees a document, or why not: the Brain's answer for that person, and the path through the tree."""
+        body = request.get_json(silent=True) or {}
+        pointer = str(body.get("pointer") or "").strip()
+        person = next((p for p in _people() if p["id"] == str(body.get("user") or "")), None)
+        if person is None or not pointer:
+            return jsonify({"success": False, "error": "Wer, und welches Dokument (sein Pfad)?"}), 400
+        try:
+            backend = _access_backend("live")
+            tree = backend.tree()
+            rules = backend.rules()
+            acl = backend.document_access(pointer) or {}
+            readable = backend.readable_as(person["user"], pointer)
+        except access_rules.AccessError as exc:
+            return _access_refused(exc)
+        groups = [str(x) for x in acl.get("access_groups") or []]
+        rule = acl.get("rule") if isinstance(acl.get("rule"), Mapping) else None
+        if rule is None:
+            matching = [r for r in rules if pointer.startswith(str(r.get("pointer_prefix") or "\0"))]
+            rule = max(matching, key=lambda r: len(str(r.get("pointer_prefix"))), default=None)
+        if not groups and rule is not None:
+            groups = [str(x) for x in rule.get("access_groups") or []]
+        governor = f"die Ordnerregel {rule.get('pointer_prefix')}" if rule is not None else None
+        answer = access_rules.explain(tree, person["name"], _running(person["grants"]), groups, governor=governor,
+                                      readable=readable, item=f"«{pointer.rsplit('/', 1)[-1]}»")
+        logger.info("Access window: access explained (readable: %s)", readable)
+        return jsonify({"success": True, "answer": {**answer, "path": [tree.name(x) for x in answer["path"]]}})
+
+    @bp.route("/api/access/posture", methods=["POST"])
+    def access_posture():
+        """Ask to switch the tenant's RBAC enforcement; a second administrator approves."""
+        mode = (request.get_json(silent=True) or {}).get("mode")
+        if mode not in ("disabled", "enforcing"):
+            return jsonify({"success": False, "error": "Durchsetzung: aus oder an?"}), 400
+        tenant = _platform_tenant()
+        if not tenant:
+            return jsonify({"success": False, "error": "Diese Plattform kennt ihren Mandanten nicht."}), 409
+        _store().request_posture(tenant, mode, gate.current_user().id)
+        logger.info("Access window: enforcement switch requested (%s)", mode)
+        return jsonify({"success": True}), 201
+
+    @bp.route("/api/access/posture/<request_id>/approve", methods=["POST"])
+    def access_posture_approve(request_id: str):
+        tenant = _platform_tenant()
+        store = _store()
+        found = next((r for r in store.posture_requests(tenant or "") if r["id"] == request_id), None)
+        if found is None or found.get("approved_at"):
+            return jsonify({"success": False, "error": "Diese Anfrage gibt es nicht mehr."}), 404
+        if str(found.get("requested_by")) == str(gate.current_user().id):
+            return jsonify({"success": False, "error": "Freigeben muss eine zweite Person."}), 403
+        posture = None
+        try:
+            posture = _access_backend("live").posture()
+        except access_rules.AccessError:
+            pass
+        if found["mode"] == "enforcing" and posture is not None and not posture.get("backfill_complete"):
+            return jsonify({"success": False, "error": "Die ACL-Nachführung ist noch nicht abgeschlossen; erst dann durchsetzen."}), 409
+        outcome = "freigegeben; Knovas schaltet den Mandanten um (interne Schnittstelle)"
+        if not store.approve_posture(tenant, request_id, gate.current_user().id, outcome):
+            return jsonify({"success": False, "error": "Freigeben muss eine zweite Person."}), 403
+        logger.info("Access window: enforcement switch approved")
+        return jsonify({"success": True, "outcome": outcome})
+
+    def _publish_access(model) -> dict:
+        """The draft's access design onto the tenant: missing groups by name under their parent, then the folder
+        rules not there yet. Never deletes or moves anything live."""
+        design = model.get("access") or {}
+        if not design.get("groups") and not design.get("rules"):
+            return {"written": False, "why": "Der Entwurf entwirft keine Zugriffsgruppen."}
+        if access_backend is None:
+            return {"written": False, "why": "Diese Plattform liest die Zugriffsgruppen des Brains nicht."}
+        try:
+            backend = access_backend()
+            tree = backend.tree()
+            admin = next((k for k in tree.roots() if tree.is_admin(k)), None)
+            ids, made = {}, 0
+            pending = list(design.get("groups") or [])
+            while pending:
+                progress = False
+                for gr in list(pending):
+                    parent = admin if not gr.get("parent") else ids.get(gr["parent"])
+                    if gr.get("parent") and parent is None:
+                        continue
+                    existing = tree.by_name(gr["name"])
+                    ids[gr["key"]] = existing or backend.create(gr["name"], parent, ())
+                    made += 0 if existing else 1
+                    if not existing:
+                        tree = backend.tree()
+                    pending.remove(gr)
+                    progress = True
+                if not progress:
+                    break
+            have = {str(r.get("pointer_prefix")) for r in backend.rules()}
+            rules = 0
+            for r in design.get("rules") or []:
+                if r["prefix"] not in have:
+                    backend.create_rule(r["prefix"], [ids[g] for g in r.get("groups") or [] if g in ids], ())
+                    rules += 1
+        except Exception as exc:  # noqa: BLE001 - reported, the publish stands
+            logger.warning("Builder: the access design was not written (%s)", type(exc).__name__)
+            return {"written": False, "why": getattr(exc, "message", type(exc).__name__)}
+        return {"written": True, "groups": made, "rules": rules}
+
     # -------------------------------------------------------- operate (B10)
 
     def _editor_links(model) -> dict:
@@ -1765,6 +2187,7 @@ def create_builder_blueprint(
             summary["run_event"] = _run_event(engine, model, number, status, summary)
             summary["views"] = _hand_to_views(compiled, number)
             summary["roles"] = _publish_roles(model)
+            summary["access"] = _publish_access(model)
         store.record_run(current.id, kind="apply", actor_id=gate.current_user().id, tenant=tenant,
                          content_hash=content, bundle_hash=compiled.bundle_hash, status=status, summary=summary)
         logger.info("Builder publish: workspace %s, status %s, %d written, %d refused, version %s",

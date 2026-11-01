@@ -58,6 +58,14 @@
     },
     "mappings": {"type": "array", "items": {"$ref": "#/$defs/fileDefinition"}},
     "profiles": {"type": "array", "items": {"$ref": "#/$defs/fileDefinition"}},
+    "access": {
+      "description": "The draft's access design (step B14): the initial group tree and folder rules publishing creates on the tenant. Not part of a configuration package.",
+      "type": "object",
+      "properties": {
+        "groups": {"type": "array", "items": {"type": "object", "required": ["key", "name"]}},
+        "rules": {"type": "array", "items": {"type": "object", "required": ["key", "prefix", "groups"]}}
+      }
+    },
     "profile_roles": {
       "description": "Which profiles each Platform role sees (step B9); published to the setting views.profile_roles. Not part of a configuration package.",
       "type": "array",

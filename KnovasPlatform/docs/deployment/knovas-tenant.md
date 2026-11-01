@@ -224,6 +224,31 @@ sync) once one exists; a value on the page or in `VIEWS_CONFIG_SOURCE` still win
 duration, the plan's sha256. Counts and hashes only, no file names or values. Every run is audited
 (`brain_sync.probe`, `brain_sync.apply`). The token appears in no response, log or history.
 
+### Brain Builder: sync components and access (steps B13, B14)
+
+**Connector protocol v1** (`/api/connectors/v1`). Sync components enrolled in the builder call out to the Platform
+with a control token. Every call must also carry `X-Client-Cert-Fingerprint`: the sha256 of the client certificate,
+in hex. The TLS terminator in front of the Platform sets it from the certificate it verified. It must overwrite or
+strip any value the client sends, never pass one on.
+
+The Platform refuses calls without the header once a certificate was issued. A deployment with no TLS terminator that
+checks client certificates must say so explicitly; the control token alone then authenticates a component.
+
+| Setting | config key | env | default |
+|---|---|---|---|
+| Require the client certificate | `builder.components.require_client_certificate` | `BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT` | `true` |
+| A component is offline after (minutes) | `builder.components.offline_after_minutes` | `BUILDER_COMPONENT_OFFLINE_MINUTES` | `30` |
+| Warn when a component lags behind its source (hours) | `builder.components.lag_hours` | `BUILDER_COMPONENT_LAG_HOURS` | `24` |
+
+The two limits can also be set on the settings page.
+
+**The access window** (`/builder/zugriff`) changes the tenant's access groups through the Brain's
+`/secured/access_groups` and folder-rule routes:
+- **Moving a group** sends `PATCH /secured/access_groups/<id>` with `parent`. A Brain that cannot move groups yet
+  ignores the field. The window reads the tree back and says so.
+- **Group grants** with an end date (migration 0018) stop counting the day after they end. The principal assertion
+  reads only grants that still run.
+
 ### Start
 
 ```bash

@@ -46,7 +46,10 @@ SPINES = "spines"
 PAGES = "pages"
 PROFILES = "profiles"
 PROFILE_ROLES = "profile_roles"
-SECTIONS = (TYPES, RELATIONS, PACKS, PROCESSES, PROCESS_RULES, SOURCES, MAPPINGS, SPINES, PAGES, PROFILES, PROFILE_ROLES)
+ACCESS_GROUPS = "access.groups"
+ACCESS_RULES = "access.rules"
+SECTIONS = (TYPES, RELATIONS, PACKS, PROCESSES, PROCESS_RULES, SOURCES, MAPPINGS, SPINES, PAGES, PROFILES, PROFILE_ROLES,
+            ACCESS_GROUPS, ACCESS_RULES)
 #: The definition documents (step B9) and the file the package keeps each in.
 DOCUMENT_SECTIONS = {SPINES: "spines", PAGES: "pages"}
 #: The field that names an element of a section; "key" where not listed.
@@ -96,6 +99,12 @@ def _items(model: dict, section: str, *, create: bool = True) -> list:
         raise EditError("Unbekannter Teil des Modells.")
     if section in (PACKS, SOURCES, MAPPINGS, PROFILES, PROFILE_ROLES):
         return model.setdefault(section, []) if create else (model.get(section) or [])
+    if section in (ACCESS_GROUPS, ACCESS_RULES):
+        # The access design (step B14): the draft's initial group tree and folder rules.
+        part = section.split(".", 1)[1]
+        if not create:
+            return (model.get("access") or {}).get(part) or []
+        return model.setdefault("access", {}).setdefault(part, [])
     if section in DOCUMENT_SECTIONS:
         doc = model.get(section)
         if not isinstance(doc, dict):
@@ -135,6 +144,11 @@ def put(model: dict, change: Mapping[str, Any], *, reverse: bool = False) -> Non
             model["processes"].pop("rules", None)  # a rules list the edit made is gone again with its last rule
         if section == PROFILE_ROLES and not items:
             model.pop(PROFILE_ROLES, None)  # so is a role mapping
+        if section in (ACCESS_GROUPS, ACCESS_RULES) and not items:
+            access = model.get("access") or {}
+            access.pop(section.split(".", 1)[1], None)
+            if not access:
+                model.pop("access", None)   # and the access design with its last element
     else:
         items[index] = copy.deepcopy(after)
 
@@ -687,6 +701,7 @@ from builder import process_edits  # noqa: E402,F401  - late: it builds on the h
 from builder import source_edits  # noqa: E402,F401  - the source operations (step B7)
 from builder import mapping_edits  # noqa: E402,F401  - the mapping operations (step B8)
 from builder import view_edits  # noqa: E402,F401  - spines, pages, profiles and roles (step B9)
+from builder import access_edits  # noqa: E402,F401  - the access design of a draft (step B14)
 
 
 def apply(model: dict, op: Any) -> list[dict]:

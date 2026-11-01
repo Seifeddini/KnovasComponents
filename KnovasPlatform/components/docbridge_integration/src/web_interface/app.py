@@ -1924,6 +1924,11 @@ def create_app(config_path: Optional[str] = None):
                 return _adapters.GitHubRunnerAdapter(sync) if sync is not None else None
             return None
 
+        def _builder_access_backend():
+            from builder.access_backend import BrainAccess
+
+            return BrainAccess(api_client)
+
         def _builder_component_limits():
             resolver = app.extensions['platform_settings']
             return {'offline_after_minutes': resolver.value('builder.components.offline_after_minutes'),
@@ -1999,6 +2004,8 @@ def create_app(config_path: Optional[str] = None):
             component_secrets=_builder_component_secrets,
             component_adapter=_builder_component_adapter,
             component_limits=_builder_component_limits,
+            # The access window (B14): the Brain's groups and folder rules on this Platform's certificate.
+            access_backend=_builder_access_backend,
         ))
 
         # Connector protocol v1 (B13): components call out to these; each checks the component's own credential,
