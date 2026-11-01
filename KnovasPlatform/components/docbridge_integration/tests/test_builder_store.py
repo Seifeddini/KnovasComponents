@@ -157,3 +157,15 @@ def test_review_and_publish(store, consultant):
     assert [t["key"] for t in store.model(workspace_id)["ontology"]["types"]] == ["Invoice", "Reminder"]
     store.link_tenant(workspace_id, "other")
     assert store.get(workspace_id).tenant == "other"
+
+
+def test_health_reviews_keep_the_latest_per_type(store, consultant):
+    blank = package.read_package(package.blank_package("Muster AG")).model
+    workspace_id = store.create(name="Muster AG", model=blank, actor_id=consultant.id, source={"kind": "blank"})
+    assert store.reviews(workspace_id) == {}
+    store.record_review(workspace_id, "Invoice", consultant.id)
+    store.record_review(workspace_id, "Invoice", consultant.id)
+    store.record_review(workspace_id, "Mandate", consultant.id)
+    reviews = store.reviews(workspace_id)
+    assert set(reviews) == {"Invoice", "Mandate"} and reviews["Invoice"]["actor_name"] == "Beraterin"
+    assert reviews["Invoice"]["at"]
