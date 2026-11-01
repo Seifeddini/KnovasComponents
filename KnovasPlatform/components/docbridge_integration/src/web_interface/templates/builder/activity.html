@@ -1,0 +1,37 @@
+{# The workspace's activity (build plan step B11): who changed what, when --
+   edits, dry runs and publishes, approvals, comments, access. Expects
+   current_workspace and feed (newest first). #}
+{% extends 'builder/_base.html' %}
+{% set ws = current_workspace %}
+{% block title %}Aktivität · {{ ws.name }}{% endblock %}
+{% block main %}
+<header class="b-page-head">
+    <p class="b-step-count b-small"><a class="b-link-strong" href="{{ url_for('builder.workspace', workspace_id=ws.id) }}">{{ ws.name }}</a></p>
+    <h1 class="b-h1">Aktivität</h1>
+    <p class="b-muted">Wer was wann geändert, geprüft, kommentiert oder freigegeben hat.</p>
+</header>
+{% if feed %}
+<ol class="b-op-timeline b-act-feed" data-activity>
+    {% set day = namespace(value='') %}
+    {% for e in feed %}
+    {% set this_day = (e.at or '')[:10] %}
+    {% if this_day != day.value %}{% set day.value = this_day %}<li class="b-act-day">{{ (e.at | b_datetime)[:10] }}</li>{% endif %}
+    <li class="b-op-run is-{{ e.status or 'ok' }}" data-activity-kind="{{ e.kind }}">
+        <span class="b-op-run-at">{{ (e.at | b_datetime)[12:] }}</span>
+        <span class="b-op-run-what"><strong>{{ e.who }}</strong>
+        {% if e.kind == 'change' %}{{ 'importierte das Paket' if e.path == 'import' else 'legte den Arbeitsbereich an' if e.path == 'create' else 'änderte ' ~ (e.path | b_change_label) }}
+        {% elif e.kind == 'dry_run' %}startete einen Probelauf{% if e.summary.mapping %} der Zuordnung {{ e.summary.mapping }}{% endif %}
+        {% elif e.kind == 'apply' %}veröffentlichte{% if e.summary.published_number %} Version {{ e.summary.published_number }}{% endif %}
+        {% elif e.kind == 'approval' %}gab den Entwurf frei
+        {% elif e.kind == 'comment' %}kommentierte {{ e.path | b_change_label }}
+        {% elif e.kind == 'resolved' %}erledigte einen Kommentar zu {{ e.path | b_change_label }}
+        {% elif e.kind == 'granted' %}lud {{ e.email }} ein ({% for r in e.roles %}{{ role_labels.get(r, r) }}{% if not loop.last %}, {% endif %}{% endfor %}; bis {{ e.ends_on }})
+        {% elif e.kind == 'revoked' %}entzog {{ e.email }} den Zugang
+        {% endif %}</span>
+    </li>
+    {% endfor %}
+</ol>
+{% else %}
+<p class="b-muted">Noch keine Aktivität.</p>
+{% endif %}
+{% endblock %}

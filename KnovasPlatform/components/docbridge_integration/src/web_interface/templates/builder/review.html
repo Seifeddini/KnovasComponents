@@ -78,6 +78,11 @@
                 </div>
                 {% endfor %}
             </div>
+            {% set thread = comments.get(g.path) %}
+            <details class="b-cm-details" data-comment-target="{{ g.path }}" {% if thread and thread.open %}open{% endif %}>
+                <summary>Kommentare <span class="b-tag {{ 'b-tag--warning' if thread and thread.open else 'b-tag--good' }}" data-comment-count {% if not thread %}hidden{% endif %}>{% if thread %}{{ (thread.open ~ ' offen') if thread.open else 'erledigt' }}{% endif %}</span></summary>
+                <div data-comment-body></div>
+            </details>
         </div>
         {% endfor %}
     </section>
@@ -90,12 +95,14 @@
     {% if not ws.tenant %}
     <div class="b-callout b-callout--warning"><p class="b-callout-title">Der Arbeitsbereich ist mit keinem Mandanten verbunden.</p>
         {% if platform_tenant %}<p>Diese Plattform gehört zum Mandanten <span class="b-mono">{{ platform_tenant }}</span>.</p>
-        <button type="button" class="b-button b-button--secondary" data-publish-link>Mit diesem Mandanten verbinden</button>{% endif %}
+        {% if builder_access.may('publish') %}<button type="button" class="b-button b-button--secondary" data-publish-link>Mit diesem Mandanten verbinden</button>{% else %}<p class="b-small">Verbinden darf, wer veröffentlicht.</p>{% endif %}{% endif %}
     </div>
     {% elif engine_missing %}
     <div class="b-callout b-callout--warning"><p class="b-callout-title">{{ engine_missing }}</p></div>
-    {% else %}
+    {% elif builder_access.may('edit') %}
     <button type="button" class="b-button b-button--primary" data-publish-dry-run>Probelauf starten</button>
+    {% else %}
+    <p class="b-small b-muted">Den Probelauf startet, wer den Entwurf bearbeitet.</p>
     {% endif %}
     {% if dry_run %}
     {% set c = dry_run.summary.counts %}
@@ -134,11 +141,17 @@
     {% else %}
     <p class="b-muted">Eine zweite Person prüft die Änderungen und den Probelauf und gibt diesen Stand frei. Wer am Entwurf etwas geändert hat, kann ihn nicht freigeben. Jede spätere Änderung hebt die Freigabe auf.</p>
     {% endif %}
-    {% if is_author %}
+    {% set open_comments = comments.values() | sum(attribute='open') %}
+    {% if open_comments %}
+    <div class="b-callout b-callout--warning" data-open-comments><p class="b-callout-title">{{ open_comments }} {{ 'offener Kommentar' if open_comments == 1 else 'offene Kommentare' }}</p><p>Freigeben lässt sich, wenn alle Kommentare erledigt sind.</p></div>
+    {% endif %}
+    {% if not builder_access.may('review') %}
+    <p class="b-small b-muted">Freigeben darf, wer die Rolle Prüfer hat.</p>
+    {% elif is_author %}
     <p class="b-small b-muted">Sie haben an diesem Entwurf mitgearbeitet; die Freigabe gibt jemand anderes.</p>
     {% elif not dry_run %}
     <p class="b-small b-muted">Freigeben lässt sich nach einem Probelauf dieses Stands.</p>
-    {% else %}
+    {% elif not open_comments %}
     <button type="button" class="b-button b-button--primary" data-publish-approve>Diesen Stand freigeben</button>
     {% endif %}
 </li>
@@ -146,8 +159,12 @@
 <li class="b-rv-step" aria-labelledby="b-rv-publish">
     <h2 class="b-h2" id="b-rv-publish">Veröffentlichen</h2>
     <p class="b-muted">Schreibt die Ontologie beim Mandanten und hält das Bündel als veröffentlichten Stand fest, den die Ansichten der Plattform lesen. Gelöscht wird beim Mandanten nichts.</p>
+    {% if builder_access.may('publish') %}
     <button type="button" class="b-button b-button--primary" data-publish-apply {% if not approvals or not dry_run %}disabled{% endif %}>Veröffentlichen</button>
     {% if not approvals %}<p class="b-small b-muted">Erst nach der Freigabe.</p>{% endif %}
+    {% else %}
+    <p class="b-small b-muted">Veröffentlichen darf, wer die Rolle Veröffentlicher hat.</p>
+    {% endif %}
     <div class="b-callout" data-publish-result role="status" hidden></div>
 </li>
 </ol>

@@ -39,8 +39,9 @@ class TestTheGate:
         assert _client({"member"}).get("/builder/nichts").status_code == 403
         assert _client({"admin"}).get("/builder/nichts").status_code == 404
 
-    def test_admin_is_the_builder_role_until_the_builder_roles_exist(self):
-        assert BUILDER_ROLES == frozenset({"admin"})
+    def test_the_builder_roles(self):
+        assert BUILDER_ROLES == frozenset({"admin", "builder_author", "builder_reviewer", "builder_publisher",
+                                           "builder_viewer"})
 
 
 class TestTheShell:

@@ -28,6 +28,8 @@
 
 <div class="b-page-actions">
     <p class="b-muted">Angelegt am {{ ws.created_at | b_datetime }}</p>
+    <a class="b-button b-button--quiet" href="{{ url_for('builder.activity', workspace_id=ws.id) }}">Aktivität</a>
+    {% if builder_access and builder_access.may('manage') %}<a class="b-button b-button--quiet" href="{{ url_for('builder.team', workspace_id=ws.id) }}">Team</a>{% endif %}
     <a class="b-button b-button--secondary" href="{{ url_for('builder.export', workspace_id=ws.id) }}" download>Paket exportieren</a>
 </div>
 

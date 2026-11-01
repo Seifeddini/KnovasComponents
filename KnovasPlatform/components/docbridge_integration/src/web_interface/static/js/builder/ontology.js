@@ -573,7 +573,9 @@
         var serious = seriousProblems(node);
         if (serious.length) panelBody.appendChild(problemList(serious));
 
-        if (editor && node.editable) { editor.typePanel(node, panelBody); return; }
+        // Review comments on the element (step B11), named as the change log names it.
+        var commentTarget = node.source === 'model' ? 'ontology.types/' + node.key : null;
+        if (editor && node.editable) { editor.typePanel(node, panelBody); comments(commentTarget); return; }
 
         var parent = node.parent && nodesById[node.parent];
         var about = section('Beschreibung');
@@ -596,6 +598,14 @@
         inc.appendChild(relationList(node.incoming, 'in'));
         panelBody.appendChild(inc);
         if (editor) editor.readonlyNote(node, panelBody);
+        comments(commentTarget);
+    }
+
+    function comments(target) {
+        if (!target || !window.BuilderComments) return;
+        var holder = el('div', 'b-panel-section b-cm-panel');
+        panelBody.appendChild(holder);
+        window.BuilderComments.mount(holder, target);
     }
 
     function selectRelation(relationId) {
@@ -614,7 +624,12 @@
         if (r.retired) tags.appendChild(tag('Stillgelegt', 'warning'));
         var serious = (r.problems || []).filter(function (id) { return problemsById[id].severity !== 'info'; });
         if (serious.length) panelBody.appendChild(problemList(serious));
-        if (editor) { editor.relationPanel(r, panelBody); if (edges.length) fit(edges.union(edges.connectedNodes())); return; }
+        if (editor) {
+            editor.relationPanel(r, panelBody);
+            comments('ontology.relations/' + r.key);
+            if (edges.length) fit(edges.union(edges.connectedNodes()));
+            return;
+        }
         var about = section('Beschreibung');
         about.appendChild(dl([
             ['Name (de)', r.label.de], ['Name (en)', r.label.en], ['Lesart', r.sentence],

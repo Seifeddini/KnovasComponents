@@ -145,6 +145,7 @@ def test_review_and_publish(store, consultant):
     assert store.publish(workspace_id, consultant.id, "0" * 64, bundle, "a" * 64) is None
     assert store.publish(workspace_id, consultant.id, draft["content_hash"], bundle, "a" * 64) == 1
     assert store.draft(workspace_id) is None and store.approvals(workspace_id) == []
+    assert [a["content_hash"] for a in store.approval_history(workspace_id)] == [draft["content_hash"]]
     published = store.published_bundle(workspace_id)
     assert published["number"] == 1 and published["bundle"] == bundle
     assert store.get(workspace_id).published_number == 1
@@ -169,3 +170,42 @@ def test_health_reviews_keep_the_latest_per_type(store, consultant):
     reviews = store.reviews(workspace_id)
     assert set(reviews) == {"Invoice", "Mandate"} and reviews["Invoice"]["actor_name"] == "Beraterin"
     assert reviews["Invoice"]["at"]
+
+
+def test_grants_comments_and_the_access_log(store, consultant, identity_repo):
+    """Step B11 (migration 0016): one grant per person and workspace, comments until resolved, the access log."""
+    blank = package.read_package(package.blank_package("Muster AG")).model
+    workspace_id = store.create(name="Muster AG", model=blank, actor_id=consultant.id, source={"kind": "blank"})
+    guest = identity_repo.create(email="gast@extern.example", display_name="Gast", password="korrektes-pferd-batterie")
+    if isinstance(store, MemoryWorkspaceStore):
+        store.user_names[str(guest.id)] = "Gast"
+    first = store.grant_access(workspace_id, user_id=guest.id, email=guest.email, roles=["builder_author"],
+                               ends_on="2030-01-31", actor_id=consultant.id)
+    again = store.grant_access(workspace_id, user_id=guest.id, email=guest.email,
+                               roles=["builder_author", "builder_viewer"], ends_on="2030-02-28", actor_id=consultant.id)
+    assert first == again
+    [grant] = store.access_grants(workspace_id)
+    assert grant["roles"] == ["builder_author", "builder_viewer"] and grant["ends_on"] == "2030-02-28"
+    assert grant["invited_by_name"] == "Beraterin" and grant["revoked_at"] is None
+    assert store.grants_of(guest.id) == [{"workspace": workspace_id, "roles": ["builder_author", "builder_viewer"],
+                                          "ends_on": "2030-02-28"}]
+    assert store.revoke_access(workspace_id, grant["id"], consultant.id)
+    assert not store.revoke_access(workspace_id, grant["id"], consultant.id)
+    assert store.grants_of(guest.id) == []
+
+    comment = store.add_comment(workspace_id, "ontology.types/Invoice", "Name?", guest.id)
+    store.add_comment(workspace_id, "ontology.types/Other", "Und das?", consultant.id)
+    [mine] = store.comments(workspace_id, "ontology.types/Invoice")
+    assert mine["author_name"] == "Gast" and mine["body"] == "Name?" and mine["resolved_at"] is None
+    assert len(store.comments(workspace_id)) == 2
+    assert store.resolve_comment(workspace_id, comment, consultant.id)
+    assert not store.resolve_comment(workspace_id, comment, consultant.id)
+    assert store.comments(workspace_id, "ontology.types/Invoice")[0]["resolved_by_name"] == "Beraterin"
+
+    store.log_access(workspace_id, user_id=guest.id, email=guest.email, method="GET", action="workspace", status=200,
+                     via="grant")
+    store.log_access(workspace_id, user_id=guest.id, email=guest.email, method="POST", action="publish", status=403,
+                     via="grant")
+    log = store.access_log(workspace_id)
+    assert [(e["method"], e["action"], e["status"]) for e in log] == [("POST", "publish", 403), ("GET", "workspace", 200)]
+    assert log[0]["actor_name"] == "Gast" and log[0]["via"] == "grant"

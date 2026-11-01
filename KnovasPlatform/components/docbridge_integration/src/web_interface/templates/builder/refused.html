@@ -1,0 +1,23 @@
+{# A builder page refused (403): who is signed in lacks the permission, or their
+   access to the workspace has ended (step B11). Stands alone: the frame would
+   list workspaces the person may not see. Expects brand, asset_version,
+   platform_url, message. #}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kein Zugang · {{ brand }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/builder/tokens.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/builder/builder.css') }}?v={{ asset_version }}">
+</head>
+<body class="b-body">
+<main class="b-refused" id="b-main">
+    <h1 class="b-h1">Kein Zugang</h1>
+    <p data-refused>{{ message }}</p>
+    <p class="b-muted">Wer den Arbeitsbereich verwaltet, kann Ihnen eine Rolle geben oder den Zugang verlängern.</p>
+    <p><a class="b-link-strong" href="{{ platform_url }}">Zur Plattform</a></p>
+</main>
+</body>
+</html>

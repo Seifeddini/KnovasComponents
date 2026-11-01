@@ -39,6 +39,29 @@ class StandInGate:
         return self.user
 
 
+class MemoryDirectory:
+    """identity's UserRepository for the invitations (step B11): accounts by e-mail, made with a password."""
+
+    def __init__(self, store=None, users=()):
+        self.store = store
+        self.accounts = {u.email: u for u in users}
+        self.passwords = {}
+
+    def add(self, user):
+        self.accounts[user.email] = user
+        if self.store is not None:
+            self.store.user_names[str(user.id)] = user.display_name
+        return user
+
+    def get_by_email(self, email):
+        return self.accounts.get(email)
+
+    def create(self, *, email, display_name, password=None, must_change_password=False, created_by=None, **_):
+        user = self.add(StandInUser(frozenset(), display_name, email))
+        self.passwords[email] = password
+        return user
+
+
 class MemoryWorkspaceStore:
     """``builder.store.WorkspaceStore`` without PostgreSQL, for the click-dummy.
 
@@ -163,6 +186,10 @@ class MemoryWorkspaceStore:
         return [{k: a[k] for k in ("reviewer", "reviewer_name", "at", "content_hash")}
                 for a in self.rows[workspace_id]["approvals"] if a["version"] == draft["id"]]
 
+    def approval_history(self, workspace_id):
+        return [{k: a[k] for k in ("reviewer", "reviewer_name", "at", "content_hash")}
+                for a in self.rows[workspace_id]["approvals"]]
+
     def record_run(self, workspace_id, *, kind, actor_id, tenant, content_hash, bundle_hash, status, summary):
         actor, name = self._actor(actor_id)
         run = {"id": str(uuid.uuid4()), "kind": kind, "actor": actor, "actor_name": name, "tenant": tenant,
@@ -193,6 +220,63 @@ class MemoryWorkspaceStore:
 
     def link_tenant(self, workspace_id, tenant):
         self.rows[workspace_id]["tenant"] = tenant
+
+    # -------------------------------------------------------- the team (B11)
+
+    def grant_access(self, workspace_id, *, user_id, email, roles, ends_on, actor_id):
+        grants = self.rows[workspace_id].setdefault("grants", [])
+        old = next((g for g in grants if g["user_id"] == str(user_id)), None)
+        grant = {"id": old["id"] if old else str(uuid.uuid4()), "user_id": str(user_id), "email": email,
+                 "display_name": self.user_names.get(str(user_id)), "roles": list(roles), "ends_on": ends_on,
+                 "invited_at": self._now(), "invited_by_name": self._actor(actor_id)[1], "revoked_at": None,
+                 "revoked_by_name": None}
+        if old:
+            grants.remove(old)
+        grants.insert(0, grant)
+        return grant["id"]
+
+    def revoke_access(self, workspace_id, grant_id, actor_id):
+        grant = next((g for g in self.rows[workspace_id].get("grants") or [] if g["id"] == grant_id), None)
+        if grant is None or grant["revoked_at"]:
+            return False
+        grant.update(revoked_at=self._now(), revoked_by_name=self._actor(actor_id)[1])
+        return True
+
+    def access_grants(self, workspace_id):
+        return copy.deepcopy(self.rows[workspace_id].get("grants") or [])
+
+    def grants_of(self, user_id):
+        return [{"workspace": wid, "roles": list(g["roles"]), "ends_on": g["ends_on"]}
+                for wid, row in self.rows.items() for g in row.get("grants") or []
+                if g["user_id"] == str(user_id) and not g["revoked_at"]]
+
+    def add_comment(self, workspace_id, target, body, author_id):
+        actor, name = self._actor(author_id)
+        comment = {"id": str(uuid.uuid4()), "target": target, "body": body, "author": actor, "author_name": name,
+                   "at": self._now(), "resolved_at": None, "resolved_by_name": None}
+        self.rows[workspace_id].setdefault("comments", []).append(comment)
+        return comment["id"]
+
+    def comments(self, workspace_id, target=None):
+        return [copy.deepcopy(c) for c in self.rows[workspace_id].get("comments") or []
+                if target is None or c["target"] == target]
+
+    def resolve_comment(self, workspace_id, comment_id, actor_id):
+        comment = next((c for c in self.rows[workspace_id].get("comments") or [] if c["id"] == comment_id), None)
+        if comment is None or comment["resolved_at"]:
+            return False
+        comment.update(resolved_at=self._now(), resolved_by_name=self._actor(actor_id)[1])
+        return True
+
+    def log_access(self, workspace_id, *, user_id, email, method, action, status, via):
+        self.access_rows = getattr(self, "access_rows", [])
+        self.access_rows.insert(0, {"workspace": workspace_id, "at": self._now(), "user_id": str(user_id),
+                                    "email": email, "actor_name": self.user_names.get(str(user_id)) or email,
+                                    "method": method, "action": action, "status": status, "via": via})
+
+    def access_log(self, workspace_id, limit=100):
+        return [{k: v for k, v in r.items() if k != "workspace"}
+                for r in getattr(self, "access_rows", []) if r["workspace"] == workspace_id][:limit]
 
     def record_review(self, workspace_id, node_type, actor_id):
         self.rows[workspace_id].setdefault("reviews", {})[node_type] = {"at": self._now(),
@@ -444,7 +528,7 @@ def stand_in_readers(github_root=None, connector=None, http=None):
 
 
 def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None,
-             secrets=None, readers=None, roles=None, roles_sink=None, sync=None) -> Flask:
+             secrets=None, readers=None, roles=None, roles_sink=None, sync=None, directory=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -487,5 +571,6 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         platform_roles=(lambda: roles) if roles is not None else None,
         roles_sink=roles_sink,
         sync_status=(lambda: sync) if sync is not None else None,
+        user_directory=(lambda: directory) if directory is not None else None,
     ))
     return app

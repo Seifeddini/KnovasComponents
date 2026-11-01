@@ -249,6 +249,17 @@ class WorkspaceStore:
         return [{"reviewer": _uuid(r[0]), "reviewer_name": r[1], "at": _iso(r[2]), "content_hash": r[3]}
                 for r in rows]
 
+    def approval_history(self, workspace_id: str) -> list[dict]:
+        """Every approval of every version, oldest first (the activity feed)."""
+        rows = self.conn.execute(
+            """SELECT a.reviewer, u.display_name, a.at, a.content_hash
+                 FROM builder_approval a LEFT JOIN users u ON u.id = a.reviewer
+                WHERE a.workspace = %s ORDER BY a.at""",
+            (workspace_id,),
+        ).fetchall()
+        return [{"reviewer": _uuid(r[0]), "reviewer_name": r[1], "at": _iso(r[2]), "content_hash": r[3]}
+                for r in rows]
+
     def record_run(self, workspace_id: str, *, kind: str, actor_id, tenant: Optional[str], content_hash: str,
                    bundle_hash: Optional[str], status: str, summary: dict) -> str:
         draft = self.draft(workspace_id)
@@ -354,3 +365,105 @@ class WorkspaceStore:
             (tenant, kind, name, site, owner, json.dumps(settings), actor_id),
         ).fetchone()
         return str(row[0]) if row else None
+
+    # -------------------------------------------------------- the team (B11)
+
+    def grant_access(self, workspace_id: str, *, user_id, email: str, roles: list[str], ends_on: str, actor_id) -> str:
+        """Grant ``roles`` on one workspace until ``ends_on`` (an ISO date); a second grant replaces the first."""
+        row = self.conn.execute(
+            """INSERT INTO builder_access (workspace, user_id, email, roles, ends_on, invited_by)
+               VALUES (%s, %s, %s, %s, %s, %s)
+               ON CONFLICT (workspace, user_id) DO UPDATE
+                  SET roles = EXCLUDED.roles, ends_on = EXCLUDED.ends_on, email = EXCLUDED.email,
+                      invited_by = EXCLUDED.invited_by, invited_at = now(), revoked_by = NULL, revoked_at = NULL
+               RETURNING id""",
+            (workspace_id, user_id, email, list(roles), ends_on, actor_id),
+        ).fetchone()
+        return str(row[0])
+
+    def revoke_access(self, workspace_id: str, grant_id: str, actor_id) -> bool:
+        try:
+            uuid.UUID(str(grant_id))
+        except ValueError:
+            return False
+        row = self.conn.execute(
+            """UPDATE builder_access SET revoked_by = %s, revoked_at = now()
+                WHERE workspace = %s AND id = %s AND revoked_at IS NULL RETURNING id""",
+            (actor_id, workspace_id, grant_id),
+        ).fetchone()
+        return row is not None
+
+    def access_grants(self, workspace_id: str) -> list[dict]:
+        """Every grant on the workspace, newest first, with who holds it and who granted it."""
+        rows = self.conn.execute(
+            """SELECT a.id, a.user_id, a.email, u.display_name, a.roles, a.ends_on, a.invited_at, i.display_name,
+                      a.revoked_at, r.display_name
+                 FROM builder_access a
+                 LEFT JOIN users u ON u.id = a.user_id
+                 LEFT JOIN users i ON i.id = a.invited_by
+                 LEFT JOIN users r ON r.id = a.revoked_by
+                WHERE a.workspace = %s ORDER BY a.invited_at DESC""",
+            (workspace_id,),
+        ).fetchall()
+        return [{"id": str(r[0]), "user_id": _uuid(r[1]), "email": r[2], "display_name": r[3], "roles": list(r[4]),
+                 "ends_on": r[5].isoformat(), "invited_at": _iso(r[6]), "invited_by_name": r[7],
+                 "revoked_at": _iso(r[8]), "revoked_by_name": r[9]} for r in rows]
+
+    def grants_of(self, user_id) -> list[dict]:
+        """The user's grants that are not revoked (expired ones too: the caller tells them apart by ends_on)."""
+        rows = self.conn.execute(
+            "SELECT workspace, roles, ends_on FROM builder_access WHERE user_id = %s AND revoked_at IS NULL",
+            (user_id,),
+        ).fetchall()
+        return [{"workspace": str(r[0]), "roles": list(r[1]), "ends_on": r[2].isoformat()} for r in rows]
+
+    def add_comment(self, workspace_id: str, target: str, body: str, author_id) -> str:
+        row = self.conn.execute(
+            "INSERT INTO builder_comment (workspace, target, body, author) VALUES (%s, %s, %s, %s) RETURNING id",
+            (workspace_id, target, body, author_id),
+        ).fetchone()
+        return str(row[0])
+
+    def comments(self, workspace_id: str, target: Optional[str] = None) -> list[dict]:
+        """Comments, oldest first: all of the workspace, or those on one target."""
+        rows = self.conn.execute(
+            """SELECT c.id, c.target, c.body, c.author, u.display_name, c.at, c.resolved_at, r.display_name
+                 FROM builder_comment c
+                 LEFT JOIN users u ON u.id = c.author
+                 LEFT JOIN users r ON r.id = c.resolved_by
+                WHERE c.workspace = %s AND (%s::text IS NULL OR c.target = %s)
+                ORDER BY c.at, c.id""",
+            (workspace_id, target, target),
+        ).fetchall()
+        return [{"id": str(r[0]), "target": r[1], "body": r[2], "author": _uuid(r[3]), "author_name": r[4],
+                 "at": _iso(r[5]), "resolved_at": _iso(r[6]), "resolved_by_name": r[7]} for r in rows]
+
+    def resolve_comment(self, workspace_id: str, comment_id: str, actor_id) -> bool:
+        try:
+            uuid.UUID(str(comment_id))
+        except ValueError:
+            return False
+        row = self.conn.execute(
+            """UPDATE builder_comment SET resolved_by = %s, resolved_at = now()
+                WHERE workspace = %s AND id = %s AND resolved_at IS NULL RETURNING id""",
+            (actor_id, workspace_id, comment_id),
+        ).fetchone()
+        return row is not None
+
+    def log_access(self, workspace_id: Optional[str], *, user_id, email: str, method: str, action: str, status: int,
+                   via: str) -> None:
+        self.conn.execute(
+            """INSERT INTO builder_access_log (workspace, user_id, email_snapshot, method, action, status, via)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (workspace_id, user_id, email, method, action, status, via),
+        )
+
+    def access_log(self, workspace_id: str, limit: int = 100) -> list[dict]:
+        rows = self.conn.execute(
+            """SELECT l.at, l.user_id, l.email_snapshot, u.display_name, l.method, l.action, l.status, l.via
+                 FROM builder_access_log l LEFT JOIN users u ON u.id = l.user_id
+                WHERE l.workspace = %s ORDER BY l.at DESC, l.id DESC LIMIT %s""",
+            (workspace_id, limit),
+        ).fetchall()
+        return [{"at": _iso(r[0]), "user_id": _uuid(r[1]), "email": r[2], "actor_name": r[3] or r[2], "method": r[4],
+                 "action": r[5], "status": r[6], "via": r[7]} for r in rows]

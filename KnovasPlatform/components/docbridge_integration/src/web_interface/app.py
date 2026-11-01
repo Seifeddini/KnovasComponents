@@ -1747,9 +1747,14 @@ def create_app(config_path: Optional[str] = None):
         if identity_gate is None:
             return False
         try:
+            from builder.store import WorkspaceStore
             from web_interface.builder_routes import user_may_build
 
-            return user_may_build(identity_gate.current_user())
+            user = identity_gate.current_user()
+            if user is None:
+                return False
+            # A consultant holds no builder role, only a grant on one workspace.
+            return user_may_build(user, WorkspaceStore(identity_gate.connection()).grants_of(user.id))
         except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
             logger.warning('Builder-Eintrag nicht ermittelbar: %s', exc)
             return False
@@ -1954,6 +1959,8 @@ def create_app(config_path: Optional[str] = None):
             # Sources (B7): credentials only through the settings registry, reads only through a component.
             source_secrets=_builder_source_secrets,
             reader_factory=_builder_reader,
+            # The team (B11): inviting a consultant without an account makes one.
+            user_directory=lambda: identity_gate.users(),
             # Views (B9): the role table, and the published role mapping as the setting views.profile_roles.
             platform_roles=_builder_platform_roles,
             roles_sink=_builder_roles_sink,

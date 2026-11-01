@@ -11,6 +11,7 @@
     <title>{% block title %}Builder{% endblock %} · {{ brand }}</title>
     <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
     {% if csrf_token %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
+    {% if current_workspace %}<meta name="builder-comments-url" content="{{ url_for('builder.comments', workspace_id=current_workspace.id) }}">{% endif %}
     {# Before the stylesheets, so a chosen theme is there on the first paint. #}
     <script>
     (function () {
@@ -74,6 +75,11 @@
 
         <span class="b-topbar-spacer"></span>
 
+        {% if builder_access and builder_access.roles %}
+        <span class="b-tag b-access-chip" data-access-roles title="Ihre Rollen{{ ' in diesem Arbeitsbereich' if builder_access.via == 'grant' else '' }}">
+            {% for r in builder_access.roles %}{{ role_labels.get(r, r) }}{% if not loop.last %} · {% endif %}{% endfor %}{% if builder_access.via == 'grant' and builder_access.grant %} · bis {{ builder_access.grant.ends_on }}{% endif %}
+        </span>
+        {% endif %}
         {% if me %}
         <span class="b-user">
             <span class="b-avatar" aria-hidden="true">{{ (me.display_name or me.email or '?')[0] | upper }}</span>
@@ -120,6 +126,7 @@
 </div>
 <div class="b-toast-region" id="b-toasts" aria-live="polite"></div>
 <script src="{{ url_for('static', filename='js/builder/builder.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/builder/comments.js') }}?v={{ asset_version }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

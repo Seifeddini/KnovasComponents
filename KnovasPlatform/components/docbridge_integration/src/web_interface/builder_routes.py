@@ -10,10 +10,11 @@ navigation, the workspace switcher, an empty state per stage -- and the style
 guide at /builder/_styleguide.
 
 Every route is authorised on the route, not on whether the link is drawn: a
-``before_request`` on the blueprint refuses anyone without a builder role, so
-a stage added later is covered by default instead of by remembering. Until the
-builder's own roles exist (step B11: author, reviewer, publisher) the only
-builder role is ``admin``.
+``before_request`` on the blueprint looks up the permission the endpoint needs
+(``ENDPOINT_PERMISSIONS``; an endpoint not listed needs ``manage``) and refuses
+anyone whose roles -- their Platform roles, or their grant on the workspace the
+request is about (step B11, builder.team) -- do not give it. A stage added
+later is covered by default instead of by remembering.
 
 Takes the gate and a page-context callable rather than importing ``app.py``,
 so it can be exercised against a minimal Flask app, as the console is.
@@ -27,7 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Mapping, Optional
 
-from flask import (Blueprint, Response, abort, jsonify, redirect, render_template, request,
+from flask import (Blueprint, Response, abort, g, jsonify, redirect, render_template, request,
                    session, url_for)
 from markupsafe import Markup
 
@@ -37,11 +38,29 @@ from builder import views as brain_views
 from builder import operate
 from builder import sources as source_kinds
 from builder import packs as shipped_packs
+from builder import team
 
 logger = logging.getLogger(__name__)
 
-#: Roles that open the builder. Step B11 replaces this with the builder roles.
-BUILDER_ROLES = frozenset({"admin"})
+#: Roles that open the builder for every workspace (step B11: admin and the four builder roles).
+BUILDER_ROLES = team.BUILDER_ROLES
+#: The permission each endpoint needs (builder.team). Not listed: ``manage``.
+ENDPOINT_PERMISSIONS = {
+    "home": "view", "stage": "view", "workspace": "view", "pack_update": "view", "export": "view",
+    "mapping_page": "view", "published_bundle": "view", "styleguide": "view", "views_preview": "view",
+    "comments": "view", "activity": "view",
+    "import_preview": "edit", "import_package": "edit", "create_workspace": "edit", "edit_ontology": "edit",
+    "undo": "edit", "redo": "edit", "source_credential": "edit", "source_test": "edit", "source_sample": "edit",
+    "mapping_preview": "edit", "mapping_dry_run": "edit", "dry_run": "edit",
+    "add_comment": "comment", "resolve_comment": "resolve",
+    "approve": "review", "record_review": "review",
+    "publish": "publish", "link_tenant": "publish",
+    "register_component": "manage", "team": "manage", "grant_access": "manage", "revoke_access": "manage",
+}
+#: Endpoints about the workspace chosen in the session rather than one in the address.
+SESSION_ENDPOINTS = frozenset({"stage", "mapping_page"})
+#: Endpoints that need no workspace: a global role, or any running grant, opens them for reading.
+GLOBAL_ENDPOINTS = frozenset({"home", "stage", "styleguide"})
 #: The Platform's own roles when the app does not say which it has (identity's built-in four).
 PLATFORM_ROLES = ("admin", "approver", "ingestion_manager", "member")
 
@@ -126,9 +145,14 @@ STAGES_BY_SLUG: Mapping[str, Stage] = {stage.slug: stage for stage in STAGES}
 STYLEGUIDE_VIEWS = ("beide", "hell", "dunkel")
 
 
-def user_may_build(user) -> bool:
-    """Whether ``user`` holds a builder role. ``None`` (nobody signed in) may not."""
-    return user is not None and bool(BUILDER_ROLES & set(getattr(user, "roles", ()) or ()))
+def user_may_build(user, grants=()) -> bool:
+    """Whether ``user`` holds a builder role, or a running grant on a workspace. ``None`` (nobody signed in) may not."""
+    if user is None:
+        return False
+    from datetime import date
+
+    found = team.access(getattr(user, "roles", ()) or (), list(grants or ()), None, date.today())
+    return bool(found.permissions) or bool(found.workspaces)
 
 
 #: Where the chosen workspace is remembered between pages.
@@ -159,6 +183,7 @@ def create_builder_blueprint(
     publish_sink: Optional[Callable[..., Any]] = None,
     source_secrets: Optional[Callable[[], Any]] = None,
     reader_factory: Optional[Callable[..., Any]] = None,
+    user_directory: Optional[Callable[[], Any]] = None,
     platform_roles: Optional[Callable[[], list]] = None,
     roles_sink: Optional[Callable[..., Any]] = None,
     sync_status: Optional[Callable[[], Mapping[str, Any]]] = None,
@@ -192,6 +217,10 @@ def create_builder_blueprint(
     returns the reader of a source through the component that serves it
     (``builder.sources``): the only way the builder reads a source.
 
+    ``user_directory`` returns the Platform's accounts (identity's
+    UserRepository: ``get_by_email``, ``create``): inviting a consultant who
+    has no account makes one (step B11).
+
     ``platform_roles`` returns the Platform's role keys (its role table);
     ``roles_sink(mapping, user)`` writes the published role-to-profile
     mapping to the setting ``views.profile_roles`` (step B9).
@@ -207,6 +236,25 @@ def create_builder_blueprint(
     """
     bp = Blueprint("builder", __name__, url_prefix="/builder")
 
+    def _grants_of(user) -> list:
+        store = _store()
+        if store is None or not hasattr(store, "grants_of"):
+            return []
+        return store.grants_of(user.id)
+
+    def _access(user, workspace_id: Optional[str]) -> team.Access:
+        from datetime import date
+
+        return team.access(getattr(user, "roles", ()) or (), _grants_of(user), workspace_id, date.today())
+
+    def _refuse(message: str, status: int = 403):
+        if request.path.startswith("/builder/api/"):
+            return jsonify({"success": False, "error": message}), status
+        # 403, as the console does: the person is signed in and the builder is
+        # not a secret, so saying "not for you" is honest and makes a missing
+        # role easy to diagnose.
+        return render_template("builder/refused.html", **page_context(), message=message), status
+
     @bp.before_request
     def _require_builder_role():
         user = gate.current_user()
@@ -214,12 +262,54 @@ def create_builder_blueprint(
             if request.path.startswith("/builder/api/"):
                 return jsonify({"success": False, "error": "Nicht angemeldet."}), 401
             return redirect(url_for("login", next=request.full_path or "/builder"))
-        if not user_may_build(user):
-            # 403, as the console does: the person is signed in and the
-            # builder is not a secret, so saying "not for you" is honest and
-            # makes a missing role easy to diagnose.
-            abort(403)
-        return None
+        endpoint = (request.endpoint or "").rpartition(".")[2]
+        needed = ENDPOINT_PERMISSIONS.get(endpoint, "manage")
+        workspace_id = (request.view_args or {}).get("workspace_id")
+        if workspace_id is None and endpoint in SESSION_ENDPOINTS:
+            workspace_id = session.get(SESSION_WORKSPACE)
+        found = _access(user, workspace_id)
+        if workspace_id and endpoint in SESSION_ENDPOINTS and not found.may("view"):
+            # The workspace chosen earlier is no longer open to this person: choose again.
+            session.pop(SESSION_WORKSPACE, None)
+            workspace_id, found = None, _access(user, None)
+        g.builder_access = found
+        g.builder_workspace = workspace_id
+        if found.may(needed):
+            return None
+        if endpoint in GLOBAL_ENDPOINTS and needed == "view" and found.workspaces:
+            return None   # a consultant: the stages, with only their workspace to choose
+        if found.expired is not None:
+            return _refuse(f"Ihr Zugang zu diesem Arbeitsbereich ist am {found.expired['ends_on']} abgelaufen.")
+        if not found.permissions and not found.workspaces:
+            return _refuse("Der Brain Builder braucht eine Builder-Rolle.")
+        return _refuse(f"Dafür fehlt Ihnen die Berechtigung «{team.PERMISSION_LABELS[needed]}».")
+
+    @bp.after_request
+    def _log_access(response):
+        """Every request of a grant's holder, and every write of anyone: who, when, which action, the status."""
+        found = g.get("builder_access")
+        user = gate.current_user() if found is not None else None
+        # A refused try on an access that has run out counts as a grant holder's request too.
+        expired_try = found is not None and found.expired is not None and response.status_code == 403
+        if user is None or (found.via != "grant" and request.method == "GET" and not expired_try):
+            return response
+        store = _store()
+        if store is None or not hasattr(store, "log_access"):
+            return response
+        try:
+            store.log_access(g.get("builder_workspace"), user_id=user.id, email=getattr(user, "email", "") or "",
+                             method=request.method, action=(request.endpoint or "").rpartition(".")[2],
+                             status=response.status_code, via=found.via or ("grant" if expired_try else "role"))
+        except Exception as exc:  # noqa: BLE001 - the log never takes the request with it
+            logger.warning("Builder: access not logged (%s)", type(exc).__name__)
+        return response
+
+    @bp.app_context_processor
+    def _team_context():
+        found = g.get("builder_access")
+        if found is None:
+            return {}
+        return {"builder_access": found, "role_labels": team.ROLE_LABELS}
 
     @bp.app_template_filter("b_datetime")
     def _datetime(value):
@@ -265,9 +355,15 @@ def create_builder_blueprint(
             session.pop(SESSION_WORKSPACE, None)
         return workspace
 
+    def _visible(workspaces) -> list:
+        found = g.get("builder_access")
+        if found is None or found.via == "role":
+            return list(workspaces)
+        return [w for w in workspaces if w.id in found.workspaces]
+
     def _render(template: str, **values):
         store = _store()
-        workspaces = store.list() if store is not None else []
+        workspaces = _visible(store.list()) if store is not None else []
         values.setdefault("current_workspace", _current_workspace(store))
         return render_template(
             template,
@@ -618,6 +714,162 @@ def create_builder_blueprint(
             logger.warning("Builder: views.profile_roles not written: %s", type(exc).__name__)
             return {"written": False, "why": type(exc).__name__}
         return {"written": True}
+
+    # -------------------------------------------------------- the team (B11)
+
+    def _comment_threads(store, workspace_id: str) -> dict:
+        """{target: {"comments": [...], "open": n}} for the review page."""
+        threads: dict = {}
+        for c in store.comments(workspace_id):
+            t = threads.setdefault(c["target"], {"comments": [], "open": 0})
+            t["comments"].append(c)
+            t["open"] += 0 if c["resolved_at"] else 1
+        return threads
+
+    def _comment_view(store, workspace_id: str, target: str) -> list:
+        """A target's comments, each saying whether the element changed after it was written (addressed?)."""
+        changed = max((c["at"] for c in store.changes(workspace_id, limit=500) if c["path"] == target), default=None)
+        return [{**c, "changed_since": bool(changed and changed > c["at"]),
+                 "mine": str(c.get("author")) == str(gate.current_user().id)} for c in store.comments(workspace_id, target)]
+
+    def _target(value) -> str:
+        target = str(value or "").strip()
+        if not 1 <= len(target) <= 300 or any(ch in target for ch in "\n\r\t"):
+            raise ValueError("Unbekanntes Element.")
+        return target
+
+    @bp.route("/api/w/<workspace_id>/comments")
+    def comments(workspace_id: str):
+        """The comments on one element of the workspace (a change-set item or a canvas element)."""
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        try:
+            target = _target(request.args.get("target"))
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        found = g.get("builder_access")
+        return jsonify({"success": True, "comments": _comment_view(store, current.id, target),
+                        "may": {"comment": found.may("comment"), "resolve": found.may("resolve")}})
+
+    @bp.route("/api/w/<workspace_id>/comments", methods=["POST"])
+    def add_comment(workspace_id: str):
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        body = request.get_json(silent=True) or {}
+        try:
+            target = _target(body.get("target"))
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        text = str(body.get("body") or "").strip()
+        if not 1 <= len(text) <= 4000:
+            return jsonify({"success": False, "error": "Ein Kommentar hat 1 bis 4000 Zeichen."}), 400
+        store.add_comment(current.id, target, text, gate.current_user().id)
+        logger.info("Builder: comment added, workspace %s", current.id)   # never the text (GI-DATA-02/04)
+        return jsonify({"success": True, "comments": _comment_view(store, current.id, target)}), 201
+
+    @bp.route("/api/w/<workspace_id>/comments/<comment_id>/resolve", methods=["POST"])
+    def resolve_comment(workspace_id: str, comment_id: str):
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        if not store.resolve_comment(current.id, comment_id, gate.current_user().id):
+            return jsonify({"success": False, "error": "Diesen offenen Kommentar gibt es nicht."}), 404
+        target = next((c["target"] for c in store.comments(current.id) if c["id"] == comment_id), "")
+        logger.info("Builder: comment resolved, workspace %s", current.id)
+        return jsonify({"success": True, "comments": _comment_view(store, current.id, target)})
+
+    def _grant_state(grant: Mapping[str, Any]) -> str:
+        from datetime import date
+
+        if grant.get("revoked_at"):
+            return "revoked"
+        return "active" if date.fromisoformat(str(grant["ends_on"])[:10]) >= date.today() else "expired"
+
+    @bp.route("/w/<workspace_id>/team", endpoint="team")
+    def team_page(workspace_id: str):
+        """Who may work on the workspace: the grants (consultants), and the access log."""
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        grants = [{**gr, "state": _grant_state(gr)} for gr in store.access_grants(current.id)]
+        from datetime import date, timedelta
+
+        return _render("builder/team.html", stage=STAGES[0], stage_number=1, current_workspace=current,
+                       grants=grants, log=store.access_log(current.id, limit=100), roles=team_roles(),
+                       default_end=(date.today() + timedelta(days=30)).isoformat(),
+                       accounts=user_directory is not None)
+
+    def team_roles() -> list:
+        return [{"key": r, "label": team.ROLE_LABELS[r]} for r in team.ROLES]
+
+    @bp.route("/api/w/<workspace_id>/access", methods=["POST"])
+    def grant_access(workspace_id: str):
+        """Invite someone by e-mail to this workspace only, with roles and the day the access ends."""
+        import secrets as _secrets
+        from datetime import date
+
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        body = request.get_json(silent=True) or {}
+        email = str(body.get("email") or "").strip().lower()
+        if not re.match(r"^[^@\s]{1,64}@[^@\s]{1,255}\.[^@\s]{2,}$", email):
+            return jsonify({"success": False, "error": "E-Mail: eine Adresse wie name@firma.ch."}), 400
+        try:
+            roles, ends_on = team.check_grant(body.get("roles"), body.get("ends_on"), date.today())
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        if user_directory is None:
+            return jsonify({"success": False, "error": "Diese Plattform legt keine Konten an."}), 503
+        directory = user_directory()
+        me = gate.current_user()
+        user = directory.get_by_email(email)
+        password = None
+        if user is None:
+            # A new account for the consultant: a one-time password, shown once, changed at the first sign-in.
+            password = _secrets.token_urlsafe(18)
+            name = str(body.get("name") or "").strip()[:120] or email
+            user = directory.create(email=email, display_name=name, password=password, must_change_password=True,
+                                    created_by=me.id)
+        if str(user.id) == str(me.id):
+            return jsonify({"success": False, "error": "Sich selbst lädt man nicht ein."}), 400
+        grant_id = store.grant_access(current.id, user_id=user.id, email=email, roles=roles, ends_on=ends_on,
+                                      actor_id=me.id)
+        logger.info("Builder: access granted on workspace %s, %d roles, new account: %s", current.id, len(roles),
+                    password is not None)
+        return jsonify({"success": True, "id": grant_id, "email": email, "password": password, "ends_on": ends_on}), 201
+
+    @bp.route("/api/w/<workspace_id>/access/<grant_id>/revoke", methods=["POST"])
+    def revoke_access(workspace_id: str, grant_id: str):
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        if not store.revoke_access(current.id, grant_id, gate.current_user().id):
+            return jsonify({"success": False, "error": "Diesen Zugang gibt es nicht mehr."}), 404
+        logger.info("Builder: access revoked on workspace %s", current.id)
+        return jsonify({"success": True})
+
+    @bp.route("/w/<workspace_id>/aktivitaet")
+    def activity(workspace_id: str):
+        """The workspace's activity: who changed what, when -- edits, runs, approvals, comments, access."""
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        session[SESSION_WORKSPACE] = current.id
+        feed = [{"at": c["at"], "who": c.get("actor_name") or "–", "kind": "change", "path": c["path"]}
+                for c in store.changes(current.id, limit=200)]
+        feed += [{"at": r["at"], "who": r.get("actor_name") or "–", "kind": r["kind"], "status": r["status"],
+                  "summary": r.get("summary") or {}} for r in store.runs(current.id, limit=60)]
+        feed += [{"at": a["at"], "who": a.get("reviewer_name") or "–", "kind": "approval"} for a in store.approval_history(current.id)]
+        for c in store.comments(current.id):
+            feed.append({"at": c["at"], "who": c.get("author_name") or "–", "kind": "comment", "path": c["target"]})
+            if c["resolved_at"]:
+                feed.append({"at": c["resolved_at"], "who": c.get("resolved_by_name") or "–", "kind": "resolved",
+                             "path": c["target"]})
+        for gr in store.access_grants(current.id):
+            feed.append({"at": gr["invited_at"], "who": gr.get("invited_by_name") or "–", "kind": "granted",
+                         "email": gr["email"], "roles": gr["roles"], "ends_on": gr["ends_on"]})
+            if gr.get("revoked_at"):
+                feed.append({"at": gr["revoked_at"], "who": gr.get("revoked_by_name") or "–", "kind": "revoked",
+                             "email": gr["email"]})
+        feed.sort(key=lambda x: str(x.get("at") or ""), reverse=True)
+        return _render("builder/activity.html", stage=STAGES[0], stage_number=1, current_workspace=current,
+                       feed=feed[:300], role_labels=team.ROLE_LABELS)
 
     # -------------------------------------------------------- operate (B10)
 
@@ -1065,6 +1317,7 @@ def create_builder_blueprint(
             "engine_missing": engine.missing() if engine is not None else "Keine Veröffentlichung in dieser Umgebung.",
             "engine_version": engine.version() if engine is not None else None,
             "published": store.published_bundle(workspace.id),
+            "comments": _comment_threads(store, workspace.id),
         }
 
     def _publishable(store, workspace_id: str):
@@ -1141,6 +1394,9 @@ def create_builder_blueprint(
         me = str(gate.current_user().id)
         if me in _authors(store.draft_changes(current.id)):
             return jsonify({"success": False, "error": "Freigeben kann nur, wer an diesem Entwurf nichts geändert hat."}), 403
+        still_open = [c for c in store.comments(current.id) if not c["resolved_at"]]
+        if still_open:
+            return jsonify({"success": False, "error": f"Erst die offenen Kommentare klären ({len(still_open)})."}), 409
         if not any(r["kind"] == "dry_run" and r["content_hash"] == draft["content_hash"] and r["status"] != "failed"
                    for r in store.runs(current.id)):
             return jsonify({"success": False, "error": "Erst nach einem Probelauf dieses Stands."}), 409

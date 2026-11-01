@@ -1463,3 +1463,151 @@ def test_operate_client_zero(browser, operate_server, shots, import_zip):
     assert "Workaround" in page.inner_text("#b-onto-panel-title, [data-panel]")
     page.screenshot(path=shots / "b10-06-fix-in-ontology.png")
     page.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Step B11: the builder as a team tool. An outside consultant, invited to one
+# workspace, edits a draft and cannot publish; a reviewer comments and
+# approves; a publisher applies; the consultant's access ends on its day.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def team_server():
+    from builder_harness import FakeEngine, MemoryDirectory, MemoryWorkspaceStore
+
+    admin = StandInUser({"admin"}, "Ada Admin", "ada@knovas.example")
+    store = MemoryWorkspaceStore({str(admin.id): admin.display_name})
+    directory = MemoryDirectory(store, [admin])
+    reviewer = directory.add(StandInUser({"builder_reviewer"}, "Rolf Prüfer", "rolf@knovas.example"))
+    publisher = directory.add(StandInUser({"builder_publisher"}, "Paula Publiziert", "paula@knovas.example"))
+    app = make_app(admin, store, tenant="test-tenant-0001", engine=FakeEngine(), directory=directory)
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield {"base": f"http://127.0.0.1:{server.server_port}", "store": store, "directory": directory,
+           "gate": app.extensions["builder_gate"], "admin": admin, "reviewer": reviewer, "publisher": publisher}
+    server.shutdown()
+
+
+def _api(page, url, body=None):
+    """A request from the page itself: the signed-in person's session and the CSRF header, as the scripts send it."""
+    return page.evaluate("""async ([url, body]) => {
+        const r = await fetch(url, {method: body === null ? 'GET' : 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': 'harness'},
+            body: body === null ? undefined : JSON.stringify(body)});
+        return {status: r.status, body: await r.json()};
+    }""", [url, body])
+
+
+def test_a_team_with_an_outside_consultant(browser, team_server, shots, import_zip):
+    import datetime as _dt
+
+    s = team_server
+    base, store, gate = s["base"], s["store"], s["gate"]
+    page = _page(browser, "1440", "light")
+    page.set_viewport_size({"width": 1440, "height": 960})
+    _import_through_the_dialog(page, base, import_zip)
+    [workspace] = store.list()
+    wid = workspace.id
+    store.link_tenant(wid, "test-tenant-0001")
+
+    # The administrator invites a consultant to this workspace only: author, for two weeks.
+    page.goto(f"{base}/builder/w/{wid}/team")
+    page.fill("#b-tm-email", "bea.berater@extern.example")
+    page.fill("#b-tm-name", "Bea Berater")
+    ends = (_dt.date.today() + _dt.timedelta(days=14)).isoformat()
+    page.fill("#b-tm-end", ends)
+    page.get_by_role("button", name="Einladen").click()
+    page.wait_for_selector("[data-team-made]:not([hidden])")
+    assert page.inner_text("[data-team-password-value]")
+    page.screenshot(path=shots / "b11-01-invite.png")
+    consultant = s["directory"].get_by_email("bea.berater@extern.example")
+
+    # The consultant: this one workspace, an author's tools, and an edit of the draft.
+    gate.user = consultant
+    page.goto(f"{base}/builder/w/{wid}")
+    assert "Autor · bis " + ends in page.inner_text("header")
+    made = _api(page, f"/builder/api/w/{wid}/ontology",
+                {"op": "type.create", "key": "Workaround", "parent": "euo:Document", "label": {"de": "Umgehung", "en": "Workaround"}})
+    assert made["status"] == 200
+    _api(page, f"/builder/api/w/{wid}/ontology",
+         {"op": "type.update", "key": "Workaround", "set": {"description": "A temporary way around a known defect."}})
+    page.goto(f"{base}/builder/pruefen")
+    page.get_by_role("button", name="Probelauf starten").click()
+    page.wait_for_selector(".b-rv-counts")
+    review = page.inner_text("main")
+    assert "Veröffentlichen darf, wer die Rolle Veröffentlicher hat." in review
+    assert "Freigeben darf, wer die Rolle Prüfer hat." in review
+    assert _api(page, f"/builder/api/w/{wid}/publish", {"content_hash": store.draft(wid)["content_hash"]})["status"] == 403
+    page.screenshot(path=shots / "b11-02-consultant-cannot-publish.png", full_page=True)
+
+    # The reviewer comments on the change; the comment holds the approval back until it is resolved.
+    gate.user = s["reviewer"]
+    page.goto(f"{base}/builder/w/{wid}")
+    page.goto(f"{base}/builder/pruefen")
+    details = page.locator("details[data-comment-target='ontology.types/Workaround']")
+    details.locator("summary").click()
+    details.get_by_placeholder("Kommentar schreiben …").fill("Bitte ein Beispiel ergänzen.")
+    details.get_by_role("button", name="Kommentieren").click()
+    page.wait_for_selector("details[data-comment-target='ontology.types/Workaround'] .b-cm")
+    page.reload()
+    assert "1 offener Kommentar" in page.inner_text("main")
+    assert page.locator("[data-publish-approve]").count() == 0
+    page.locator("details[data-comment-target='ontology.types/Workaround']").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b11-03-review-comment.png")
+
+    # The consultant addresses it on the canvas: the example, and the comment resolved there.
+    gate.user = consultant
+    _api(page, f"/builder/api/w/{wid}/ontology", {"op": "type.update", "key": "Workaround",
+                                                  "set": {"example": "WA-17, export over the old share until the API is fixed."}})
+    page.goto(f"{base}/builder/ontologie#type:Workaround")
+    page.wait_for_selector("#b-onto-panel [data-comment-thread='ontology.types/Workaround'] .b-cm")
+    thread = page.locator("#b-onto-panel [data-comment-thread='ontology.types/Workaround']")
+    assert "seither geändert" in thread.inner_text()
+    thread.scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b11-04-comment-on-the-canvas.png")
+    thread.get_by_role("button", name="Erledigt").click()
+    page.wait_for_selector("#b-onto-panel .b-cm.is-resolved")
+
+    # A dry run of the state as it is now, then the reviewer approves and the publisher applies.
+    page.goto(f"{base}/builder/pruefen")
+    page.get_by_role("button", name="Probelauf starten").click()
+    page.wait_for_selector(".b-rv-counts")
+    gate.user = s["reviewer"]
+    page.reload()
+    page.get_by_role("button", name="Diesen Stand freigeben").click()
+    page.wait_for_selector(".b-rv-approvals")
+    assert "Freigegeben von Rolf Prüfer" in page.inner_text("main")
+    assert page.locator("[data-publish-apply]").count() == 0
+    page.screenshot(path=shots / "b11-05-reviewer-approves.png", full_page=True)
+    gate.user = s["publisher"]
+    page.reload()
+    page.get_by_role("button", name="Veröffentlichen").click()
+    page.wait_for_selector("text=Nichts zu veröffentlichen")
+    assert store.published_bundle(wid)["number"] == 1
+    page.screenshot(path=shots / "b11-06-publisher-applies.png")
+
+    # The activity feed: who did what, when.
+    page.goto(f"{base}/builder/w/{wid}/aktivitaet")
+    feed = page.inner_text("[data-activity]")
+    assert "Bea Berater" in feed and "änderte Typ Workaround" in feed and "Rolf Prüfer" in feed
+    assert "gab den Entwurf frei" in feed and "Paula Publiziert" in feed and "veröffentlichte Version 1" in feed
+    page.screenshot(path=shots / "b11-07-activity.png", full_page=True)
+
+    # The access ends by itself on its day (set to yesterday here).
+    store.grant_access(wid, user_id=consultant.id, email=consultant.email, roles=["builder_author"],
+                       ends_on=(_dt.date.today() - _dt.timedelta(days=1)).isoformat(), actor_id=s["admin"].id)
+    gate.user = consultant
+    page.goto(f"{base}/builder/w/{wid}")
+    assert "abgelaufen" in page.inner_text("[data-refused]")
+    page.screenshot(path=shots / "b11-08-access-expired.png")
+
+    # The team page: the grant now expired, and the access log of every request the consultant made.
+    gate.user = s["admin"]
+    page.goto(f"{base}/builder/w/{wid}/team")
+    assert page.locator("[data-grant-state='expired']").count() == 1
+    log = page.inner_text("[data-access-log]")
+    assert "POST publish" in log and "403" in log and "POST edit_ontology" in log
+    page.screenshot(path=shots / "b11-09-team-and-log.png", full_page=True)
+    page.context.close()

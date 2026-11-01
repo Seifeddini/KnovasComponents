@@ -1,0 +1,93 @@
+{# The workspace's team (build plan step B11): outside consultants invited to
+   this workspace only, with their roles and the day their access ends, and
+   the access log. Expects current_workspace, grants (with state active,
+   expired or revoked), log, roles, default_end, accounts.
+   static/js/builder/team.js sends the invitation and the revocation. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% set ws = current_workspace %}
+{% block title %}Team · {{ ws.name }}{% endblock %}
+{% block main %}
+<header class="b-page-head">
+    <p class="b-step-count b-small"><a class="b-link-strong" href="{{ url_for('builder.workspace', workspace_id=ws.id) }}">{{ ws.name }}</a></p>
+    <h1 class="b-h1">Team</h1>
+    <p class="b-muted">Wer am Arbeitsbereich mitarbeitet, ohne eine Builder-Rolle für alle zu haben: eingeladen per E-Mail, mit Rollen und einem Ende. Danach endet der Zugang von selbst.</p>
+</header>
+
+<section class="b-op-section" aria-labelledby="b-tm-invite-title" data-team
+         data-grant-url="{{ url_for('builder.grant_access', workspace_id=ws.id) }}"
+         data-revoke-url="{{ url_for('builder.revoke_access', workspace_id=ws.id, grant_id='GRANT') }}">
+    <h2 class="b-h2" id="b-tm-invite-title">Einladen</h2>
+    {% if accounts %}
+    <form class="b-tm-invite" novalidate data-team-invite>
+        <div class="b-vw-grid">
+            <div class="b-field"><label class="b-label" for="b-tm-email">E-Mail</label><input class="b-input" id="b-tm-email" name="email" type="email" autocomplete="off" required></div>
+            <div class="b-field"><label class="b-label" for="b-tm-name">Name</label><input class="b-input" id="b-tm-name" name="name" autocomplete="off"><span class="b-hint">Für ein neues Konto.</span></div>
+            <div class="b-field"><label class="b-label" for="b-tm-end">Zugang bis</label><input class="b-input" id="b-tm-end" name="ends_on" type="date" value="{{ default_end }}" required></div>
+        </div>
+        <fieldset class="b-vw-choices">
+            <legend class="b-label">Rollen in diesem Arbeitsbereich</legend>
+            {% for r in roles %}<label class="b-check"><input type="checkbox" name="roles" value="{{ r.key }}" {% if r.key == 'builder_author' %}checked{% endif %}><span>{{ r.label }}</span></label>{% endfor %}
+        </fieldset>
+        <div class="b-button-row"><button type="submit" class="b-button b-button--primary">Einladen</button></div>
+        <div class="b-callout b-callout--critical" data-team-error role="alert" hidden></div>
+    </form>
+    <div class="b-callout b-callout--good" data-team-made role="status" hidden>
+        <p class="b-callout-title">Eingeladen</p>
+        <p data-team-made-text></p>
+        <p data-team-password hidden>Einmalpasswort (wird nur jetzt gezeigt, beim ersten Anmelden geändert): <code class="b-mono" data-team-password-value></code></p>
+    </div>
+    {% else %}
+    <p class="b-muted">Diese Plattform legt keine Konten an.</p>
+    {% endif %}
+</section>
+
+<section class="b-op-section" aria-labelledby="b-tm-grants-title">
+    <h2 class="b-h2" id="b-tm-grants-title">Zugänge</h2>
+    {% if grants %}
+    <div class="b-table-wrap">
+        <table class="b-table b-table--compact">
+            <thead><tr><th scope="col">Person</th><th scope="col">Rollen</th><th scope="col">Bis</th><th scope="col">Stand</th><th scope="col">Eingeladen</th><th scope="col"><span class="b-visually-hidden">Aktion</span></th></tr></thead>
+            <tbody>
+            {% for gr in grants %}
+            <tr data-grant="{{ gr.email }}" data-grant-state="{{ gr.state }}">
+                <th scope="row">{{ gr.display_name or gr.email }}<br><span class="b-small b-muted">{{ gr.email }}</span></th>
+                <td>{% for r in gr.roles %}<span class="b-tag">{{ role_labels.get(r, r) }}</span> {% endfor %}</td>
+                <td>{{ gr.ends_on }}</td>
+                <td>{% if gr.state == 'active' %}<span class="b-tag b-tag--good">aktiv</span>{% elif gr.state == 'expired' %}<span class="b-tag b-tag--warning">abgelaufen</span>{% else %}<span class="b-tag">entzogen</span>{% if gr.revoked_by_name %}<br><span class="b-small b-muted">von {{ gr.revoked_by_name }}</span>{% endif %}{% endif %}</td>
+                <td>{{ gr.invited_at | b_datetime }}<br><span class="b-small b-muted">von {{ gr.invited_by_name or '–' }}</span></td>
+                <td>{% if gr.state == 'active' %}<button type="button" class="b-button b-button--quiet b-button--small" data-team-revoke="{{ gr.id }}">Entziehen</button>{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="b-muted">Noch niemand eingeladen.</p>
+    {% endif %}
+</section>
+
+<section class="b-op-section" aria-labelledby="b-tm-log-title">
+    <h2 class="b-h2" id="b-tm-log-title">Zugriffsprotokoll</h2>
+    <p class="b-muted b-small">Jede Anfrage eingeladener Personen und jede Änderung: wer, wann, welche Aktion, mit welchem Ergebnis. Kein Inhalt.</p>
+    {% if log %}
+    <div class="b-table-wrap">
+        <table class="b-table b-table--compact" data-access-log>
+            <thead><tr><th scope="col">Wann</th><th scope="col">Wer</th><th scope="col">Aktion</th><th scope="col">Ergebnis</th><th scope="col">Über</th></tr></thead>
+            <tbody>
+            {% for e in log %}
+            <tr><td>{{ e.at | b_datetime }}</td><td>{{ e.actor_name }}</td><td class="b-mono">{{ e.method }} {{ e.action }}</td>
+                <td><span class="b-tag {{ 'b-tag--good' if e.status < 400 else 'b-tag--critical' }}">{{ e.status }}</span></td>
+                <td>{{ 'Einladung' if e.via == 'grant' else 'Rolle' }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="b-muted">Noch nichts protokolliert.</p>
+    {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/team.js') }}?v={{ asset_version }}"></script>
+{% endblock %}
