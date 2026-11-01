@@ -205,6 +205,30 @@ def test_the_plan_leaves_out_the_types_the_engine_installs(monkeypatch):
     assert [t["key"] for t in model["ontology"]["types"]] == ["Unclassified", "Invoice"]  # the draft is untouched
 
 
+def test_an_alias_goes_under_its_class_s_ancestor():
+    """A type that names its own class as parent (Client Zero's GlossaryTerm under euo:Designation, Symbol under
+    eng:CodeArtifact) would stay unresolved in brain-runner; it goes where the class sits."""
+    model = package.read_package(package.blank_package("Muster")).model
+    model["ontology"]["types"] = [
+        {"key": "GlossaryTerm", "level": "core", "iri": "euo:Designation", "parent": "euo:Designation", "attributes": []},
+        {"key": "SourceFile", "level": "pack", "iri": "eng:CodeArtifact", "parent": "euo:InformationContentEntity",
+         "attributes": []},
+        {"key": "Symbol", "level": "pack", "iri": "eng:CodeArtifact", "parent": "eng:CodeArtifact", "attributes": []},
+        {"key": "Invoice", "level": "company", "parent": "euo:Transaction", "attributes": []},
+    ]
+    parents = {t["key"]: t.get("parent") for t in publisher.for_engine(model)["ontology"]["types"]}
+    assert parents == {"GlossaryTerm": "euo:InformationContentEntity", "SourceFile": "euo:InformationContentEntity",
+                       "Symbol": "euo:Software", "Invoice": "euo:Transaction"}
+    assert model["ontology"]["types"][0]["parent"] == "euo:Designation"   # the draft is untouched
+
+
+def test_an_unresolved_parent_reads_as_a_sentence():
+    [row] = publisher._rows({"unresolved_parents": [
+        {"type": "Symbol", "parent": "eng:CodeArtifact", "reason": "parent eng:CodeArtifact is neither ..."}]})
+    assert row["element"] == "Symbol" and row["status"] == "refused"
+    assert row["detail"].startswith("Elterntyp eng:CodeArtifact kennt der Mandant nicht")
+
+
 class TestTheBundle:
     """With a brain-runner that has the bundle and ontology modules (0.1.0 or newer)."""
 

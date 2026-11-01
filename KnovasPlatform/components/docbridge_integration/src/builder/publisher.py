@@ -49,6 +49,51 @@ def without_engine_types(model: Mapping[str, Any]) -> Mapping[str, Any]:
     return out
 
 
+def alias_parents(model: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The model with every alias type under its class's ancestor.
+
+    An alias stands for a catalog class and names that same class as its parent (parent == its own iri: a
+    glossary term that *is* the core's Designation, a code symbol that *is* a CodeArtifact). brain-runner looks for
+    another configured type that stands for the parent, finds only the type itself and leaves the type without a
+    parent ("unresolved parent"). Such a type takes the class's place: its parent becomes the class's nearest
+    ancestor in the catalogs (builder/packs) that another configured type stands for (that type) or that the core
+    has (the class itself)."""
+    types = [t for t in ((model.get("ontology") or {}).get("types") or []) if isinstance(t, Mapping)]
+    aliases = [t for t in types if t.get("parent") and t.get("parent") == t.get("iri")]
+    if not aliases:
+        return model
+    catalog = {c["id"]: c for p in shipped_packs.load() for c in p.get("types") or []}
+    core = {c["id"] for p in shipped_packs.load() if p.get("pack") == "core" for c in p.get("types") or []}
+    out = copy.deepcopy(dict(model))
+    for t in out["ontology"]["types"]:
+        if not isinstance(t, dict) or not t.get("parent") or t.get("parent") != t.get("iri"):
+            continue
+        others = {o.get("iri"): o.get("key") for o in out["ontology"]["types"]
+                  if isinstance(o, Mapping) and o.get("iri") and o.get("key") != t.get("key")}
+        queue, seen, parent = list((catalog.get(t["parent"]) or {}).get("parents") or []), set(), None
+        while queue and parent is None:
+            at = queue.pop(0)
+            if at in seen:
+                continue
+            seen.add(at)
+            if at in others:
+                parent = others[at]
+            elif at in core:
+                parent = at
+            else:
+                queue += list((catalog.get(at) or {}).get("parents") or [])
+        if parent:
+            t["parent"] = parent
+        else:
+            t.pop("parent", None)
+    return out
+
+
+def for_engine(model: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The model as the tenant's ontology is planned from (without_engine_types, alias_parents)."""
+    return alias_parents(without_engine_types(model))
+
+
 class EngineUnavailable(RuntimeError):
     """brain-runner is missing, or too old for what was asked."""
 
@@ -96,8 +141,16 @@ def _rows(plan: Mapping[str, Any]) -> list[dict]:
             element = f"{element}.{item['attribute']}"
         rows.append({"element": element, "status": "not_configured",
                      "detail": "Kann das Brain heute nicht halten" + (" (Werte)" if item.get("enum_values") else "")})
-    for name in plan.get("unresolved_parents") or []:
-        rows.append({"element": str(name), "status": "refused", "detail": "Elterntyp ist beim Mandanten unbekannt"})
+    for item in plan.get("unresolved_parents") or []:
+        if isinstance(item, Mapping):
+            parent = str(item.get("parent") or "")
+            reserved = "reserves" in str(item.get("reason") or "")
+            rows.append({"element": str(item.get("type") or ""), "status": "refused",
+                         "detail": (f"Elterntyp {parent} ist beim Mandanten für eigene Typen gesperrt" if reserved
+                                    else f"Elterntyp {parent} kennt der Mandant nicht")
+                                   + "; der Typ wird ohne Elterntyp angelegt"})
+        else:
+            rows.append({"element": str(item), "status": "refused", "detail": "Elterntyp ist beim Mandanten unbekannt"})
     return rows
 
 
@@ -162,7 +215,7 @@ class BrainRunnerEngine:
     def plan(self, model: Mapping[str, Any], tenant: str) -> dict:
         config, ontology = self._module("config"), self._module("ontology")
         with tempfile.TemporaryDirectory(prefix="builder-") as tmp:
-            _, manifest = self._write(without_engine_types(model), Path(tmp))
+            _, manifest = self._write(for_engine(model), Path(tmp))
             plan = ontology.plan(config.load(manifest), self._api_factory())
         # The tenant's engine types are not the configuration's to name: not "kann das Brain nicht halten".
         engine = shipped_packs.engine_types()
