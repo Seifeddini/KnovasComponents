@@ -86,7 +86,12 @@
     }
 
     function displayName(node) {
-        return node.class_name ? node.name + ' (' + node.class_name + ')' : node.name;
+        return node.name;
+    }
+
+    /* An alias: the company's name for an EUO class of another name (builder.ontology_view). */
+    function aliasText(node) {
+        return node.alias_of ? 'Alias für ' + node.class_name : '';
     }
 
     /* ---- filters ------------------------------------------------------ */
@@ -129,6 +134,7 @@
     }
 
     function cardLabel(node) {
+        if (node.alias_of) return '↪ ' + displayName(node) + '\n' + aliasText(node);
         var parts = [node.level === 'pack' && node.pack ? 'Paket ' + packName(node.pack) : (LEVELS[node.level] || node.level)];
         if (node.source === 'model') parts.push(node.attribute_count + (node.attribute_count === 1 ? ' Attribut' : ' Attribute'));
         if (node.meta) parts.push('◆ Meta');
@@ -145,12 +151,17 @@
             var classes = ['type', 'level-' + n.level];
             if (n.source !== 'model') classes.push('reference');
             if (n.meta) classes.push('meta');
+            if (n.alias_of) classes.push('alias');
             if (n.retired) classes.push('retired');
             if (n.editable) classes.push('editable');
             if (seriousProblems(n).length) classes.push('problem');
             nodes.push({ group: 'nodes', data: { id: n.id, label: cardLabel(n), level: n.level }, classes: classes.join(' ') });
             if (n.parent && nodesById[n.parent]) {
                 edges.push({ group: 'edges', data: { id: 'sub:' + n.id, source: n.id, target: n.parent }, classes: 'subtype' });
+            }
+            if (n.alias_of && nodesById[n.alias_of]) {
+                edges.push({ group: 'edges', data: { id: 'alias:' + n.id, source: n.id, target: n.alias_of, label: 'Alias für' },
+                             classes: 'alias' });
             }
         });
         data.relations.forEach(function (r) {
@@ -184,6 +195,18 @@
                 'border-style': 'dashed', 'border-width': 1.5, 'color': token('--color-text-muted'),
             } },
             { selector: 'node.meta', style: { 'border-style': 'double', 'border-width': 4 } },
+            /* An alias: dotted, with the class it stands for on its second line and a dotted line to it. */
+            { selector: 'node.alias', style: {
+                'border-style': 'dotted', 'border-width': 2.5, 'border-color': token('--color-accent'),
+                'background-color': token('--color-surface'),
+            } },
+            { selector: 'edge.alias', style: {
+                'width': 1.5, 'line-style': 'dotted', 'line-color': token('--color-accent'), 'curve-style': 'bezier',
+                'target-arrow-shape': 'vee', 'target-arrow-color': token('--color-accent'), 'opacity': 0.9,
+                'label': 'data(label)', 'font-family': sans, 'font-size': 10, 'color': token('--color-text-muted'),
+                'text-background-color': token('--color-surface'), 'text-background-opacity': 0.9,
+                'text-background-padding': 2, 'min-zoomed-font-size': 9,
+            } },
             { selector: 'node.problem', style: { 'border-color': token('--color-critical'), 'border-width': 3 } },
             { selector: 'node.retired', style: { 'border-style': 'dashed', 'opacity': 0.55 } },
             { selector: 'edge.relation.retired', style: { 'line-style': 'dashed' } },
@@ -563,6 +586,7 @@
         tags.appendChild(tag(LEVELS[node.level], node.level === 'core' ? null : 'accent'));
         if (node.pack) tags.appendChild(tag('Paket ' + packName(node.pack)));
         if (node.candidate !== null && node.candidate !== undefined) tags.appendChild(tag(node.candidate ? 'Kandidat für ' + packName(node.candidate) : 'Kandidat für ein Paket', 'accent'));
+        if (node.alias_of) tags.appendChild(tag(aliasText(node), 'accent'));
         if (node.meta) tags.appendChild(tag('Meta'));
         if (node.readonly) tags.appendChild(tag('Schreibgeschützt'));
         if (node.source !== 'model') tags.appendChild(tag('Bezugsklasse, nicht im Modell'));
@@ -708,6 +732,7 @@
             line.appendChild(name);
             if (node.label.de && node.label.de !== node.name) line.appendChild(el('span', 'b-muted', node.label.de));
             line.appendChild(tag(LEVELS[node.level], node.level === 'core' ? null : 'accent'));
+            if (node.alias_of) line.appendChild(tag(aliasText(node), 'accent'));
             if (node.meta) line.appendChild(tag('Meta'));
             if (node.level === 'pack' && node.pack) line.appendChild(tag(packName(node.pack)));
             if (node.retired) line.appendChild(tag('Stillgelegt', 'warning'));

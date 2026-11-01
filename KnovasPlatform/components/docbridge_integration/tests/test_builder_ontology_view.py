@@ -57,6 +57,7 @@ class TestTheTree:
                                            "parent": "euo:Agent", "attributes": []})
         agent = next(n for n in ontology_view.build(model)["nodes"] if n["key"] == "Agent")
         assert agent["id"] == "type:Agent" and agent["class_name"] == "AutomatedAgent"
+        assert agent["alias_of"] == "euo:AutomatedAgent"
         assert agent["parent"] == "euo:Agent" and agent["editable"] is True
 
     def test_an_alias_does_not_take_the_class_s_place(self):

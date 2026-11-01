@@ -55,6 +55,20 @@
     on('[data-publish-dry-run]', function (b) { act(b, root.dataset.dryRunUrl); });
     on('[data-publish-approve]', function (b) { act(b, root.dataset.approveUrl, { content_hash: hash }); });
 
+    /* An administrator approving their own changes: a reason and a tick first; the server checks both again. */
+    var self = root.querySelector('[data-publish-self]');
+    if (self) {
+        var reason = self.querySelector('[data-publish-self-reason]');
+        var tick = self.querySelector('[data-publish-self-confirm]');
+        var go = self.querySelector('[data-publish-self-approve]');
+        var ready = function () { go.disabled = !(tick.checked && reason.value.trim().length >= 3); };
+        reason.addEventListener('input', ready);
+        tick.addEventListener('change', ready);
+        go.addEventListener('click', function () {
+            act(go, root.dataset.approveUrl, { content_hash: hash, self_approve: true, reason: reason.value.trim() });
+        });
+    }
+
     var paths = confirmDialog ? Array.prototype.map.call(confirmDialog.querySelectorAll('[data-path]'), function (li) { return li.dataset.path; }) : [];
     on('[data-publish-apply]', function (b) {
         if (!paths.length) { act(b, root.dataset.publishUrl, { content_hash: hash }); return; }

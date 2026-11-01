@@ -22,7 +22,7 @@
         {% if e.kind == 'change' %}{{ 'importierte das Paket' if e.path == 'import' else 'legte den Arbeitsbereich an' if e.path == 'create' else 'änderte ' ~ (e.path | b_change_label) }}
         {% elif e.kind == 'dry_run' %}startete einen Probelauf{% if e.summary.mapping %} der Zuordnung {{ e.summary.mapping }}{% endif %}
         {% elif e.kind == 'apply' %}veröffentlichte{% if e.summary.published_number %} Version {{ e.summary.published_number }}{% endif %}
-        {% elif e.kind == 'approval' %}gab den Entwurf frei
+        {% elif e.kind == 'approval' %}gab den Entwurf frei{% if e.own_changes %} (Selbstfreigabe als Administrator){% endif %}
         {% elif e.kind == 'comment' %}kommentierte {{ e.path | b_change_label }}
         {% elif e.kind == 'resolved' %}erledigte einen Kommentar zu {{ e.path | b_change_label }}
         {% elif e.kind == 'granted' %}lud {{ e.email }} ein ({% for r in e.roles %}{{ role_labels.get(r, r) }}{% if not loop.last %}, {% endif %}{% endfor %}; bis {{ e.ends_on }})

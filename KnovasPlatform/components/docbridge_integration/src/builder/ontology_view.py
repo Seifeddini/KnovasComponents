@@ -169,10 +169,12 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
             "parent_ref": item.get("parent") or header_fields(description.get("en")).get("parent"),
             "problems": [],
         }
-        # The class it stands for, when its name is another: Account (Organization), Agent (AutomatedAgent).
+        # An alias: the company's name for an EUO class of another name -- Account for Organization, Agent
+        # for AutomatedAgent. It names the class it stands for (alias_of), and the view draws the link.
         iri = item.get("iri")
         if item.get("level") == "core" and iri in catalog and catalog[iri]["name"] != item["key"]:
             nodes[node_id]["class_name"] = catalog[iri]["name"]
+            nodes[node_id]["alias_of"] = iri
 
     def add_catalog(class_id: str) -> None:
         """A read-only node for a catalog class and the classes above it."""

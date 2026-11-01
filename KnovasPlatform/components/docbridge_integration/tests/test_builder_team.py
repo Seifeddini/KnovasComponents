@@ -118,6 +118,35 @@ class TestEveryRoute:
         draft = store.draft(wid)
         assert c.post(f"/builder/api/w/{wid}/approve", json={"content_hash": draft["content_hash"]}).status_code == 403
 
+    def test_an_administrator_approves_their_own_changes_only_deliberately(self, world):
+        store, wid = world["store"], world["id"]
+        c = world["as"]("admin")
+        c.get(f"/builder/w/{wid}")
+        assert _edit(c, wid).status_code == 200
+        c.post(f"/builder/api/w/{wid}/dry-run")
+        draft = store.draft(wid)
+        html = c.get("/builder/pruefen").get_data(as_text=True)
+        assert "data-publish-self-approve" in html and "data-publish-approve" not in html
+        plain = {"content_hash": draft["content_hash"]}
+        assert c.post(f"/builder/api/w/{wid}/approve", json=plain).status_code == 403
+        assert c.post(f"/builder/api/w/{wid}/approve", json={**plain, "self_approve": True, "reason": " "}).status_code == 400
+        assert store.approvals(wid) == []
+        answer = c.post(f"/builder/api/w/{wid}/approve",
+                        json={**plain, "self_approve": True, "reason": "Einzige Prüferin heute."})
+        assert answer.status_code == 200
+        [approval] = store.approvals(wid)
+        assert approval["own_changes"] is True and approval["reason"] == "Einzige Prüferin heute."
+        assert "Selbstfreigabe als Administrator" in c.get("/builder/pruefen").get_data(as_text=True)
+        assert "Selbstfreigabe als Administrator" in c.get(f"/builder/w/{wid}/aktivitaet").get_data(as_text=True)
+        # Anyone else who changed the draft still cannot, whatever they send.
+        both = world["directory"].add(StandInUser({"builder_author", "builder_reviewer"}, "Beide", "beide@example.org"))
+        c = world["as"](both)
+        _edit(c, wid, "Reminder")
+        c.post(f"/builder/api/w/{wid}/dry-run")
+        draft = store.draft(wid)
+        assert c.post(f"/builder/api/w/{wid}/approve", json={"content_hash": draft["content_hash"], "self_approve": True,
+                                                              "reason": "Ich darf das."}).status_code == 403
+
     def test_a_publisher_applies(self, world):
         store, wid = world["store"], world["id"]
         world["as"]("builder_author")

@@ -137,7 +137,7 @@
 <li class="b-rv-step" aria-labelledby="b-rv-approve">
     <h2 class="b-h2" id="b-rv-approve">Freigabe</h2>
     {% if approvals %}
-    <ul class="b-rv-approvals">{% for a in approvals %}<li>{{ icon('check') }} Freigegeben von {{ a.reviewer_name or '–' }}, {{ a.at | b_datetime }}</li>{% endfor %}</ul>
+    <ul class="b-rv-approvals">{% for a in approvals %}<li>{{ icon('check') }} Freigegeben von {{ a.reviewer_name or '–' }}, {{ a.at | b_datetime }}{% if a.own_changes %} <span class="b-tag b-tag--warning" data-self-approval>Selbstfreigabe als Administrator</span><br><span class="b-small b-muted">Begründung: {{ a.reason }}</span>{% endif %}</li>{% endfor %}</ul>
     {% else %}
     <p class="b-muted">Eine zweite Person prüft die Änderungen und den Probelauf und gibt diesen Stand frei. Wer am Entwurf etwas geändert hat, kann ihn nicht freigeben. Jede spätere Änderung hebt die Freigabe auf.</p>
     {% endif %}
@@ -147,10 +147,20 @@
     {% endif %}
     {% if not builder_access.may('review') %}
     <p class="b-small b-muted">Freigeben darf, wer die Rolle Prüfer hat.</p>
-    {% elif is_author %}
+    {% elif is_author and not may_self_approve %}
     <p class="b-small b-muted">Sie haben an diesem Entwurf mitgearbeitet; die Freigabe gibt jemand anderes.</p>
     {% elif not dry_run %}
     <p class="b-small b-muted">Freigeben lässt sich nach einem Probelauf dieses Stands.</p>
+    {% elif not open_comments and may_self_approve %}
+    <div class="b-rv-self" data-publish-self>
+        <p class="b-small b-muted">Sie haben an diesem Entwurf mitgearbeitet. Als Administrator können Sie ihn trotzdem freigeben; die Freigabe wird als Selbstfreigabe mit Ihrer Begründung angezeigt.</p>
+        <div class="b-field">
+            <label class="b-label" for="b-rv-self-reason">Begründung</label>
+            <textarea class="b-textarea" id="b-rv-self-reason" rows="2" maxlength="500" data-publish-self-reason placeholder="z. B. Einzige Person mit Prüferrolle; Probelauf gesehen."></textarea>
+        </div>
+        <label class="b-check"><input type="checkbox" data-publish-self-confirm> Ich gebe meine eigenen Änderungen als Administrator frei.</label>
+        <button type="button" class="b-button b-button--primary" data-publish-self-approve disabled>Selbst freigeben</button>
+    </div>
     {% elif not open_comments %}
     <button type="button" class="b-button b-button--primary" data-publish-approve>Diesen Stand freigeben</button>
     {% endif %}

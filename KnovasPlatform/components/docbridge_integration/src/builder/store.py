@@ -39,6 +39,11 @@ def _iso(value) -> Optional[str]:
     return value.isoformat() if value is not None else None
 
 
+def _approval(r) -> dict:
+    return {"reviewer": _uuid(r[0]), "reviewer_name": r[1], "at": _iso(r[2]), "content_hash": r[3],
+            "own_changes": bool(r[4]), "reason": r[5]}
+
+
 def _uuid(value) -> Optional[str]:
     return str(value) if value is not None else None
 
@@ -229,8 +234,10 @@ class WorkspaceStore:
         return [{"path": r[0], "before": r[1], "after": r[2], "actor": _uuid(r[3]), "actor_name": r[4],
                  "at": _iso(r[5])} for r in rows]
 
-    def approve(self, workspace_id: str, reviewer_id, content_hash: str) -> bool:
-        """Approve the draft as it is (``content_hash``); False when it changed since."""
+    def approve(self, workspace_id: str, reviewer_id, content_hash: str, *, own_changes: bool = False,
+                reason: Optional[str] = None) -> bool:
+        """Approve the draft as it is (``content_hash``); False when it changed since. ``own_changes``: an
+        administrator approving a draft they changed, with ``reason`` (migration 0020)."""
         with self.conn.transaction():
             row = self.conn.execute(
                 """SELECT id, content_hash FROM builder_version
@@ -240,34 +247,33 @@ class WorkspaceStore:
             if row is None or row[1] != content_hash:
                 return False
             self.conn.execute(
-                "INSERT INTO builder_approval (workspace, version, content_hash, reviewer) VALUES (%s, %s, %s, %s)",
-                (workspace_id, row[0], content_hash, reviewer_id),
+                """INSERT INTO builder_approval (workspace, version, content_hash, reviewer, own_changes, reason)
+                   VALUES (%s, %s, %s, %s, %s, %s)""",
+                (workspace_id, row[0], content_hash, reviewer_id, own_changes, reason),
             )
         return True
 
     def approvals(self, workspace_id: str) -> list[dict]:
         """The approvals of the current draft, each with the hash it approved."""
         rows = self.conn.execute(
-            """SELECT a.reviewer, u.display_name, a.at, a.content_hash
+            """SELECT a.reviewer, u.display_name, a.at, a.content_hash, a.own_changes, a.reason
                  FROM builder_approval a
                  JOIN builder_version v ON v.id = a.version AND v.state = 'draft'
                  LEFT JOIN users u ON u.id = a.reviewer
                 WHERE a.workspace = %s ORDER BY a.at""",
             (workspace_id,),
         ).fetchall()
-        return [{"reviewer": _uuid(r[0]), "reviewer_name": r[1], "at": _iso(r[2]), "content_hash": r[3]}
-                for r in rows]
+        return [_approval(r) for r in rows]
 
     def approval_history(self, workspace_id: str) -> list[dict]:
         """Every approval of every version, oldest first (the activity feed)."""
         rows = self.conn.execute(
-            """SELECT a.reviewer, u.display_name, a.at, a.content_hash
+            """SELECT a.reviewer, u.display_name, a.at, a.content_hash, a.own_changes, a.reason
                  FROM builder_approval a LEFT JOIN users u ON u.id = a.reviewer
                 WHERE a.workspace = %s ORDER BY a.at""",
             (workspace_id,),
         ).fetchall()
-        return [{"reviewer": _uuid(r[0]), "reviewer_name": r[1], "at": _iso(r[2]), "content_hash": r[3]}
-                for r in rows]
+        return [_approval(r) for r in rows]
 
     def record_run(self, workspace_id: str, *, kind: str, actor_id, tenant: Optional[str], content_hash: str,
                    bundle_hash: Optional[str], status: str, summary: dict) -> str:

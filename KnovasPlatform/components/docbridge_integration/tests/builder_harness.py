@@ -203,25 +203,27 @@ class MemoryWorkspaceStore:
         return [{k: copy.deepcopy(c.get(k)) for k in ("path", "before", "after", "actor", "actor_name", "at")}
                 for c in reversed(row["changes"]) if c.get("version") == version]
 
-    def approve(self, workspace_id, reviewer_id, content_hash_):
+    _APPROVAL = ("reviewer", "reviewer_name", "at", "content_hash", "own_changes", "reason")
+
+    def approve(self, workspace_id, reviewer_id, content_hash_, *, own_changes=False, reason=None):
         draft = self.draft(workspace_id)
         if draft is None or draft["content_hash"] != content_hash_:
             return False
         actor, name = self._actor(reviewer_id)
         self.rows[workspace_id]["approvals"].append({"reviewer": actor, "reviewer_name": name, "at": self._now(),
-                                                     "content_hash": content_hash_, "version": draft["id"]})
+                                                     "content_hash": content_hash_, "version": draft["id"],
+                                                     "own_changes": bool(own_changes), "reason": reason})
         return True
 
     def approvals(self, workspace_id):
         draft = self.draft(workspace_id)
         if draft is None:
             return []
-        return [{k: a[k] for k in ("reviewer", "reviewer_name", "at", "content_hash")}
+        return [{k: a[k] for k in self._APPROVAL}
                 for a in self.rows[workspace_id]["approvals"] if a["version"] == draft["id"]]
 
     def approval_history(self, workspace_id):
-        return [{k: a[k] for k in ("reviewer", "reviewer_name", "at", "content_hash")}
-                for a in self.rows[workspace_id]["approvals"]]
+        return [{k: a[k] for k in self._APPROVAL} for a in self.rows[workspace_id]["approvals"]]
 
     def record_run(self, workspace_id, *, kind, actor_id, tenant, content_hash, bundle_hash, status, summary):
         actor, name = self._actor(actor_id)

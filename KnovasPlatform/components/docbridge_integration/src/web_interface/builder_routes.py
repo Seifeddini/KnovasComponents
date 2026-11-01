@@ -899,7 +899,8 @@ def create_builder_blueprint(
                 for c in store.changes(current.id, limit=200)]
         feed += [{"at": r["at"], "who": r.get("actor_name") or "–", "kind": r["kind"], "status": r["status"],
                   "summary": r.get("summary") or {}} for r in store.runs(current.id, limit=60)]
-        feed += [{"at": a["at"], "who": a.get("reviewer_name") or "–", "kind": "approval"} for a in store.approval_history(current.id)]
+        feed += [{"at": a["at"], "who": a.get("reviewer_name") or "–", "kind": "approval", "own_changes": a.get("own_changes")}
+                 for a in store.approval_history(current.id)]
         for c in store.comments(current.id):
             feed.append({"at": c["at"], "who": c.get("author_name") or "–", "kind": "comment", "path": c["target"]})
             if c["resolved_at"]:
@@ -2076,6 +2077,7 @@ def create_builder_blueprint(
             "draft": draft, "changes": changes, "author": author, "authors": everything["authors"],
             "destructive": review.destructive(everything), "dry_run": dry_run, "approvals": approvals,
             "runs": runs[:10], "is_author": me in _authors(rows),
+            "may_self_approve": me in _authors(rows) and "admin" in set(gate.current_user().roles or ()),
             "engine_missing": engine.missing() if engine is not None else "Keine Veröffentlichung in dieser Umgebung.",
             "engine_version": engine.version() if engine is not None else None,
             "published": store.published_bundle(workspace.id),
@@ -2153,18 +2155,28 @@ def create_builder_blueprint(
         body = request.get_json(silent=True) or {}
         if draft is None or _hash_of(body) != draft["content_hash"]:
             return jsonify({"success": False, "error": "Der Entwurf hat sich seit dem Laden geändert."}), 409
-        me = str(gate.current_user().id)
-        if me in _authors(store.draft_changes(current.id)):
-            return jsonify({"success": False, "error": "Freigeben kann nur, wer an diesem Entwurf nichts geändert hat."}), 403
+        user = gate.current_user()
+        own_changes, reason = str(user.id) in _authors(store.draft_changes(current.id)), None
+        if own_changes:
+            # Four eyes: an author does not approve. An administrator may, deliberately and with a reason; the
+            # approval says so wherever it is shown.
+            if "admin" not in set(user.roles or ()):
+                return jsonify({"success": False, "error": "Freigeben kann nur, wer an diesem Entwurf nichts geändert hat."}), 403
+            if body.get("self_approve") is not True:
+                return jsonify({"success": False, "error": "Sie haben an diesem Entwurf mitgearbeitet. Als Administrator "
+                                                          "geben Sie ihn als Selbstfreigabe mit Begründung frei."}), 403
+            reason = str(body.get("reason") or "").strip()
+            if not 3 <= len(reason) <= 500:
+                return jsonify({"success": False, "error": "Eine Selbstfreigabe braucht eine Begründung (3 bis 500 Zeichen)."}), 400
         still_open = [c for c in store.comments(current.id) if not c["resolved_at"]]
         if still_open:
             return jsonify({"success": False, "error": f"Erst die offenen Kommentare klären ({len(still_open)})."}), 409
         if not any(r["kind"] == "dry_run" and r["content_hash"] == draft["content_hash"] and r["status"] != "failed"
                    for r in store.runs(current.id)):
             return jsonify({"success": False, "error": "Erst nach einem Probelauf dieses Stands."}), 409
-        if not store.approve(current.id, gate.current_user().id, draft["content_hash"]):
+        if not store.approve(current.id, user.id, draft["content_hash"], own_changes=own_changes, reason=reason):
             return jsonify({"success": False, "error": "Der Entwurf hat sich seit dem Laden geändert."}), 409
-        logger.info("Builder approval: workspace %s", current.id)
+        logger.info("Builder approval: workspace %s%s", current.id, ", own changes (administrator)" if own_changes else "")
         return jsonify({"success": True})
 
     @bp.route("/api/w/<workspace_id>/publish", methods=["POST"])
