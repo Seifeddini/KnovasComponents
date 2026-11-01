@@ -101,6 +101,13 @@ def ensure_part(model: dict, part: str) -> None:
         raise EditError(f"Das Paket dieses Arbeitsbereichs hat keine Datei dafür, und {exc} ist schon belegt.", 409)
 
 
+#: The levels of the company's own elements. "core" in a model is a term the package files under the EUO
+#: layer (KnowledgeBase's level: euo): it is still the company's term, loaded into the tenant as one
+#: (DEC-0004). The EUO's own classes are the reference catalog (packs/core), never elements of a model,
+#: and stay read-only; so do a pack's terms.
+OWN_LEVELS = ("company", "core")
+
+
 def _items(model: dict, section: str, *, create: bool = True) -> list:
     """The section's list of elements; without ``create``, an absent one reads as empty and is not added."""
     if section not in SECTIONS:
@@ -178,15 +185,15 @@ class _Edit:
 
     def own_type(self, key: Any) -> dict:
         item = self.type(key)
-        if item.get("level") != "company":
-            raise EditError(f"{key} gehört zum Kern oder zu einem Paket und ist schreibgeschützt.", 403)
+        if item.get("level") not in OWN_LEVELS:
+            raise EditError(f"{key} gehört zu einem Paket und ist schreibgeschützt.", 403)
         return item
 
     def extendable_type(self, key: Any) -> dict:
         """A type the company may add attributes to: its own, or a pack's."""
         item = self.type(key)
-        if item.get("level") not in ("company", "pack"):
-            raise EditError(f"{key} gehört zum Kern und ist schreibgeschützt.", 403)
+        if item.get("level") not in (*OWN_LEVELS, "pack"):
+            raise EditError(f"{key} ist schreibgeschützt.", 403)
         return item
 
     def relation(self, key: Any) -> dict:
@@ -485,13 +492,15 @@ def _unique_attribute(item: dict, name: str, skip: int | None = None) -> None:
 
 
 def _own_attribute(item: dict, index: int) -> None:
-    if item["attributes"][index].get("level", item.get("level")) != "company":
+    if item["attributes"][index].get("level", item.get("level")) not in OWN_LEVELS:
         raise EditError(f"{item['key']}.{item['attributes'][index]['name']} gehört zum Paket und ist schreibgeschützt.", 403)
 
 
 def _attribute_add(edit: _Edit, op: Mapping[str, Any]) -> None:
     old = edit.extendable_type(op.get("key"))
     attr = _attribute_input(op.get("attribute"))
+    if old.get("level") == "core":
+        attr["level"] = "core"  # filed with its type, as the package writes it
     _unique_attribute(old, attr["name"])
     new = copy.deepcopy(old)
     new.setdefault("attributes", []).append(attr)
@@ -572,14 +581,14 @@ def _relation_update(edit: _Edit, op: Mapping[str, Any]) -> None:
     if not isinstance(fields, Mapping):
         raise EditError("Keine Änderung angegeben.")
     new = copy.deepcopy(old)
-    _relation_fields(edit, new, fields, own=old.get("level") == "company")
+    _relation_fields(edit, new, fields, own=old.get("level") in OWN_LEVELS)
     edit.write(RELATIONS, old, new)
 
 
 def _relation_retire(edit: _Edit, op: Mapping[str, Any]) -> None:
     item = edit.relation(op.get("key"))
-    if item.get("level") != "company":
-        raise EditError(f"{item['key']} gehört zum Kern und ist schreibgeschützt.", 403)
+    if item.get("level") not in OWN_LEVELS:
+        raise EditError(f"{item['key']} gehört zu einem Paket und ist schreibgeschützt.", 403)
     _retire(edit, RELATIONS, item, op.get("retired", True))
 
 
@@ -634,14 +643,14 @@ def _pack_apply(edit: _Edit, op: Mapping[str, Any]) -> None:
         existing = edit.find(TYPES, key)
         if existing is None or existing.get("pack") == pack_id:
             continue
-        if existing.get("pack") or existing.get("level") not in ("company", "pack"):
+        if existing.get("pack") or existing.get("level") not in (*OWN_LEVELS, "pack"):
             clashes.append(key)
             foreign = True
         elif not take_over:
             clashes.append(key)
     if clashes:
-        raise EditError("Diese Typen gehören schon zu einem anderen Paket oder zum Kern; das Paket kann sie nicht "
-                        "übernehmen." if foreign else
+        raise EditError("Diese Typen gehören schon zu einem anderen Paket; das Paket kann sie nicht übernehmen."
+                        if foreign else
                         "Diese Typen gibt es im Arbeitsbereich schon als eigene; das Paket kann sie nicht übernehmen.",
                         409, clashes)
 
@@ -653,7 +662,7 @@ def _pack_apply(edit: _Edit, op: Mapping[str, Any]) -> None:
             # every attribute the pack does not bring, as the company's.
             taken_over = old.get("pack") != pack_id
             own = [a if a.get("level") == "company" else {**a, "level": "company"}
-                   for a in old.get("attributes") or [] if taken_over or a.get("level") == "company"]
+                   for a in old.get("attributes") or [] if taken_over or a.get("level") in OWN_LEVELS]
             names = {a["name"] for a in new.get("attributes") or []}
             new["attributes"] = list(new.get("attributes") or []) + [a for a in own if a["name"] not in names]
         edit.write(TYPES, old, new)

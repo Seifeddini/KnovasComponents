@@ -44,9 +44,20 @@ class TestTheTree:
     def test_a_core_type_in_the_model_is_that_core_class(self, view):
         organization = _node(view, "Organization")
         assert organization["id"] == "euo:Organization"
-        assert organization["readonly"] is True
+        # The company's term filed under the EUO: in the class's place, and the company's to edit.
+        assert organization["readonly"] is False and organization["editable"] is True
+        assert "class_name" not in organization
+        assert all(n["readonly"] for n in view["nodes"] if n["source"] != "model")
         assert _chain(view, organization)[:3] == ["Organization", "Party", "Agent"]
         assert sum(1 for n in view["nodes"] if n["id"] == "euo:Organization") == 1
+
+    def test_a_type_named_otherwise_than_its_class_says_which_class(self):
+        model = package.read_package(package.blank_package("Muster")).model
+        model["ontology"]["types"].append({"key": "Agent", "level": "core", "iri": "euo:AutomatedAgent",
+                                           "parent": "euo:Agent", "attributes": []})
+        agent = next(n for n in ontology_view.build(model)["nodes"] if n["key"] == "Agent")
+        assert agent["id"] == "euo:AutomatedAgent" and agent["class_name"] == "AutomatedAgent"
+        assert agent["parent"] == "euo:Agent" and agent["editable"] is True
 
     def test_classes_above_the_types_are_read_only_references(self, view):
         party = next(n for n in view["nodes"] if n["id"] == "euo:Party")

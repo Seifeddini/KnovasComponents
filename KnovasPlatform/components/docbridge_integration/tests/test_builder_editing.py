@@ -49,13 +49,23 @@ class TestTypes:
         with pytest.raises(editing.EditError, match="Kreis"):
             _apply(model, op="type.update", key="Invoice", set={"parent": "Reminder"})
 
-    def test_core_and_pack_types_are_read_only(self, model):
-        locked = [t["key"] for t in model["ontology"]["types"] if t["level"] != "company"]
+    def test_pack_types_are_read_only(self, model):
+        locked = [t["key"] for t in model["ontology"]["types"] if t["level"] == "pack"]
         assert locked
         for key in locked:
             with pytest.raises(editing.EditError) as refused:
                 _apply(model, op="type.update", key=key, set={"example": "x"})
             assert refused.value.status == 403
+
+    def test_a_type_the_package_files_under_the_euo_is_the_company_s_to_edit(self, model):
+        # KnowledgeBase's level: euo sorts a company term on paper; it is loaded as the company's (DEC-0004).
+        filed = next(t for t in model["ontology"]["types"] if t["level"] == "core")
+        _apply(model, op="type.update", key=filed["key"], set={"example": "x"})
+        _apply(model, op="attribute.add", key=filed["key"], attribute={"name": "owner_note"})
+        assert _type(model, filed["key"])["attributes"][-1]["level"] == "core"
+        assert package.read_package(package.write_package(model)).model == model
+        _apply(model, op="type.retire", key=filed["key"])
+        assert _type(model, filed["key"])["retired"] is True
 
     def test_the_description_keeps_its_header_and_follows_the_parent(self, model):
         _apply(model, op="type.create", key="Invoice")
@@ -135,14 +145,14 @@ class TestRelations:
         with pytest.raises(editing.EditError):
             _apply(model, op="relation.create", key="pays", domain=["Nobody"], range=["Invoice"])
 
-    def test_a_core_relation_takes_new_types_but_keeps_its_words(self, model):
+    def test_a_relation_filed_under_the_euo_is_the_company_s_to_edit(self, model):
         core = next((r for r in model["ontology"]["relations"] if r["level"] == "core"), None)
         if core is None:
             pytest.skip("the sample has no core relation")
         _apply(model, op="type.create", key="Invoice")
         _apply(model, op="relation.update", key=core["key"], set={"domain": list(core.get("domain") or []) + ["Invoice"]})
-        with pytest.raises(editing.EditError):
-            _apply(model, op="relation.update", key=core["key"], set={"family": "Other"})
+        _apply(model, op="relation.update", key=core["key"], set={"family": "Other"})
+        assert next(r for r in model["ontology"]["relations"] if r["key"] == core["key"])["family"] == "Other"
 
 
 class TestValidation:

@@ -143,8 +143,9 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
             "label": dict(item.get("label") or {}),
             "level": item.get("level") or "company",
             "source": "model",
-            "readonly": item.get("level") == "core",
-            "editable": (item.get("level") or "company") == "company",
+            # A core-level type of the model is the company's term filed under the EUO (editing.OWN_LEVELS).
+            "readonly": False,
+            "editable": (item.get("level") or "company") in ("company", "core"),
             # Pack types take the company's own attributes (step B4).
             "extendable": item.get("level") == "pack",
             "retired": bool(item.get("retired")),
@@ -164,6 +165,9 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
             "parent_ref": item.get("parent") or header_fields(description.get("en")).get("parent"),
             "problems": [],
         }
+        # The class it stands for, when its name is another: Agent is the class AutomatedAgent, under Agent.
+        if node_id in catalog and catalog[node_id]["name"] != item["key"]:
+            nodes[node_id]["class_name"] = catalog[node_id]["name"]
 
     def add_catalog(class_id: str) -> None:
         """A read-only node for a catalog class and the classes above it."""
@@ -348,7 +352,7 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
             "id": relation_id, "key": item["key"], "label": dict(item.get("label") or {}),
             "sentence": item.get("sentence") or "", "level": item.get("level") or "company",
             "family": item.get("family") or "", "reason": item.get("reason") or "",
-            "editable": (item.get("level") or "company") == "company", "retired": bool(item.get("retired")),
+            "editable": (item.get("level") or "company") in ("company", "core"), "retired": bool(item.get("retired")),
             "pack": item.get("pack"),
             "inverse": item.get("inverse"), "domain": [], "range": [],
             "domain_names": list(item.get("domain") or []), "range_names": list(item.get("range") or []),

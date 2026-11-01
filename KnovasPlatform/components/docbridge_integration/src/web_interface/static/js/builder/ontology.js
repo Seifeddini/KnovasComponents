@@ -86,7 +86,7 @@
     }
 
     function displayName(node) {
-        return node.name;
+        return node.class_name ? node.name + ' (' + node.class_name + ')' : node.name;
     }
 
     /* ---- filters ------------------------------------------------------ */

@@ -395,12 +395,12 @@ def lint(model: Mapping[str, Any], graph: Graph, *, now: dt.datetime, links: Map
 
     onto = model.get("ontology") or {}
     for t in onto.get("types") or []:
-        if t.get("retired") or t.get("level") == "core":
+        if t.get("retired"):
             continue
         if not _described(t):
             add("type_undescribed", t["key"], f"{t['key']} hat keine Beschreibung.", links["type"](t["key"]), "Ontologie")
         for a in t.get("attributes") or []:
-            if a.get("level", t.get("level")) == "company" and not _described(a):
+            if a.get("level", t.get("level")) in ("company", "core") and not _described(a):
                 add("attribute_undescribed", f"{t['key']}.{a['name']}", f"{t['key']}.{a['name']} hat keine Beschreibung.",
                     links["type"](t["key"]), "Ontologie")
 
