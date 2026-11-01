@@ -197,10 +197,12 @@ class TestTheEdits:
         with pytest.raises(editing.EditError):
             _apply(model, op="process.create", key=key)
 
-    def test_without_a_processes_file_no_process(self, model):
+    def test_without_a_processes_file_the_first_process_brings_one(self, model):
         del model["package"]["manifest"]["processes"]
-        with pytest.raises(editing.EditError, match="keine Prozessdatei"):
-            _apply(model, op="process.create", key="PROC-neu")
+        model["processes"] = None
+        _apply(model, op="process.create", key="PROC-neu")
+        assert model["package"]["manifest"]["processes"] == package.PART_PATHS["processes"]
+        assert b"PROC-neu" in package.write_package(model)[package.PART_PATHS["processes"]]
 
     def test_the_package_writes_the_processes_in_its_format(self, model):
         _apply(model, op="transition.add", key=KEY, **{"from": "closed", "to": "active"})

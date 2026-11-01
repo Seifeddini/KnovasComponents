@@ -28,9 +28,12 @@
 
 <div class="b-page-actions">
     <p class="b-muted">Angelegt am {{ ws.created_at | b_datetime }}</p>
+    <div class="b-button-row">
     <a class="b-button b-button--quiet" href="{{ url_for('builder.activity', workspace_id=ws.id) }}">Aktivität</a>
     {% if builder_access and builder_access.may('manage') %}<a class="b-button b-button--quiet" href="{{ url_for('builder.team', workspace_id=ws.id) }}">Team</a>{% endif %}
     <a class="b-button b-button--secondary" href="{{ url_for('builder.export', workspace_id=ws.id) }}" download>Paket exportieren</a>
+    {% if builder_access and builder_access.may('manage') %}<button type="button" class="b-button b-button--danger" data-ws-delete-open>Löschen …</button>{% endif %}
+    </div>
 </div>
 
 <section class="b-section" aria-labelledby="b-sections-title">
@@ -92,4 +95,34 @@
     <p class="b-muted">Noch keine Änderungen.</p>
     {% endif %}
 </section>
+
+{% if builder_access and builder_access.may('manage') %}
+<dialog class="b-dialog" id="b-ws-delete" aria-labelledby="b-ws-delete-title"
+        data-delete-url="{{ url_for('builder.delete_workspace', workspace_id=ws.id) }}">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-ws-delete-title">Arbeitsbereich löschen</h2>
+            <p class="b-muted">{{ ws.name }}</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ws-delete-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <p>Der Arbeitsbereich verschwindet aus der Liste und ist für niemanden mehr zu öffnen. Beim Mandanten ändert sich nichts: was veröffentlicht ist, bleibt veröffentlicht. Änderungen, Freigaben und Veröffentlichungen bleiben im Protokoll.</p>
+            <div class="b-field">
+                <label class="b-label" for="b-ws-delete-name">Zur Bestätigung den Namen eingeben</label>
+                <input class="b-input" id="b-ws-delete-name" name="name" autocomplete="off" spellcheck="false" required>
+            </div>
+            <div class="b-callout b-callout--critical" data-ws-delete-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ws-delete-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--danger" data-ws-delete-confirm disabled>Endgültig löschen</button>
+        </div>
+    </form>
+</dialog>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/workspace.js') }}?v={{ asset_version }}"></script>
 {% endblock %}

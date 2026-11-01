@@ -91,6 +91,10 @@ services:
     build:
       context: ./KnovasPlatform/components/docbridge_integration
       dockerfile: Dockerfile
+      # Build-time only: installs brain-runner (sources, dry run and publish in
+      # the Brain Builder, Sync von GitHub). Empty KB_READ_TOKEN builds without it.
+      secrets:
+        - kb_read_token
     env_file:
       - ./KnovasPlatform/.env.generated
     environment:
@@ -347,3 +351,8 @@ secrets:
   # `docker inspect`, in the process list, or in a support bundle.
   platform_db_password:
     file: ./secrets/platform_db_password
+  # Read-only GitHub token for the private KnowledgeBase repository, used only
+  # while docbridge-web is built (KB_READ_TOKEN in knovas.env). A build secret:
+  # it lands in no image layer, no build log and no `docker inspect`.
+  kb_read_token:
+    environment: KB_READ_TOKEN

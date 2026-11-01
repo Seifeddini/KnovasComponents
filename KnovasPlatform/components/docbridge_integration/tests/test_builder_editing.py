@@ -321,6 +321,25 @@ class TestPacks:
             _apply(model, op="pack.apply", pack="legal")
         assert refused.value.details == ["Matter"]
 
+    def test_a_pack_takes_over_a_type_of_the_same_name_when_asked(self):
+        model = package.read_package(package.blank_package("Muster")).model
+        _apply(model, op="type.create", key="Matter")
+        _apply(model, op="attribute.add", key="Matter", attribute={"name": "billing_partner"})
+        _apply(model, op="pack.apply", pack="legal", take_over=True)
+        matter = _type(model, "Matter")
+        assert matter["level"] == "pack" and matter["pack"] == "legal"
+        assert matter["attributes"][-1]["name"] == "billing_partner" and matter["attributes"][-1]["level"] == "company"
+
+    def test_a_type_of_another_pack_is_never_taken_over(self):
+        from builder import packs
+
+        model = package.read_package(package.blank_package("Muster")).model
+        key = packs.term_pack("fiduciary")["types"][0]["key"]
+        model["ontology"]["types"].append({"key": key, "level": "pack", "pack": "legal", "attributes": []})
+        with pytest.raises(editing.EditError) as refused:
+            _apply(model, op="pack.apply", pack="fiduciary", take_over=True)
+        assert refused.value.details == [key] and "anderen Paket" in refused.value.message
+
     def test_an_unknown_pack(self):
         model = package.read_package(package.blank_package("Muster")).model
         with pytest.raises(editing.EditError):

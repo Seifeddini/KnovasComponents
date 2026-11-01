@@ -21,6 +21,7 @@ from typing import Any, Mapping, Optional
 
 from builder import views as V
 from builder.editing import (OPERATIONS, PAGES, PROFILE_ROLES, PROFILES, SPINES, EditError, _Edit, _names, _set_text,
+                             ensure_part,
                              _text)
 
 SPINE_KEY = re.compile(r"^SPINE-[a-z-]+$")
@@ -483,6 +484,7 @@ def _profile(edit: _Edit, profile_id: Any) -> tuple[dict, dict]:
 
 
 def _profile_folder(edit: _Edit) -> str:
+    ensure_part(edit.model, "profiles")
     pattern = ((edit.model.get("package") or {}).get("manifest") or {}).get("profiles")
     if not isinstance(pattern, str):
         raise EditError("Das Paket dieses Arbeitsbereichs hat keinen Ordner für Profile.", 409)

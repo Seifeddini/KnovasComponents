@@ -1857,3 +1857,53 @@ def test_access_window_of_a_law_firm(browser, access_server, shots):
     assert "unter tenant-admin / Kanzlei / Partner / Mandatsteam Huber" in page.inner_text(".b-ax-detail")
     page.screenshot(path=shots / "b14-06-moved.png")
     page.context.close()
+
+
+
+# ---------------------------------------------------------------------------
+# A workspace made before its package had a processes file: the first process
+# brings the file. Then the workspace is deleted, its name typed to confirm.
+# ---------------------------------------------------------------------------
+
+
+def test_an_old_workspace_takes_a_process_and_is_deleted(browser, publishing_server, shots):
+    from builder import package
+
+    s = publishing_server
+    base, store = s["base"], s["store"]
+    model = package.read_package(package.blank_package("Alt AG")).model
+    for part in package.PART_PATHS:
+        model["package"]["manifest"].pop(part, None)
+        if part in package.EMPTY_PARTS:
+            model[part] = None
+    model["ontology"]["types"].append({"key": "Matter", "level": "company", "attributes": []})
+    wid = store.create(name="Alt AG", model=model, actor_id=s["author"].id, source={"kind": "blank"})
+
+    page = _page(browser, "1440", "light")
+    page.goto(f"{base}/builder/w/{wid}")
+    page.goto(f"{base}/builder/prozesse")
+    page.wait_for_selector("html[data-proc-ready='true']")
+    assert page.locator("[data-proc-new]").is_enabled()
+    page.locator("[data-proc-new]").click()
+    page.fill("#b-np-key", "PROC-aufnahme")
+    page.fill("#b-np-name", "Aufnahme")
+    page.locator("#b-proc-new").get_by_role("button", name="Prozess anlegen").click()
+    _wait_for(page, "() => window.__builderProcesses.data().processes.some(p => p.key === 'PROC-aufnahme')")
+    assert store.model(wid)["package"]["manifest"]["processes"] == "ontology/processes.yaml"
+    page.screenshot(path=shots / "fix-01-process-in-old-workspace.png")
+
+    page.goto(f"{base}/builder/w/{wid}")
+    page.get_by_role("button", name="Löschen …").click()
+    dialog = page.locator("#b-ws-delete")
+    confirm = dialog.get_by_role("button", name="Endgültig löschen")
+    page.fill("#b-ws-delete-name", "Alt")
+    assert confirm.is_disabled()
+    page.fill("#b-ws-delete-name", "Alt AG")
+    page.wait_for_selector("#b-ws-delete [data-ws-delete-confirm]:enabled")
+    page.wait_for_timeout(300)  # the button fades in
+    page.screenshot(path=shots / "fix-02-delete-workspace.png")
+    confirm.click()
+    page.wait_for_url(f"{base}/builder/arbeitsbereich")
+    assert store.get(wid) is None
+    assert "Alt AG" not in page.inner_text("main")
+    page.context.close()

@@ -161,13 +161,18 @@ The image installs a pinned release; the Platform never imports or runs code fro
 1. **The package in the image.**
    - The Dockerfile installs brain-runner at `BRAIN_RUNNER_GIT_REF` (today `0.1.1`, commit `43ea868e`, tag
      `brain-runner-v0.1.1` on KnowledgeBase: fetch for the sync, ontology plan and apply for the builder).
-   - KnowledgeBase is private, so the build needs a read-only token as a BuildKit secret, kept outside every checkout:
+   - KnowledgeBase is private, so the build needs a read-only token: a fine-grained GitHub token for
+     `Seifeddini/KnowledgeBase` only, permission **Contents: read**. Put it in `knovas.env` and rebuild:
 
      ```bash
-     docker compose build --secret id=kb_read_token,src=/path/outside/the/checkout/kb_read_token docbridge-web
+     KB_READ_TOKEN=github_pat_...          # in knovas.env
+     ./scripts/start.sh                     # or: docker compose --env-file knovas.env build docbridge-web
      ```
 
-   - Without the secret the image builds without brain-runner, and the sync page says the package is not installed.
+   - `docker-compose.yml` hands it to the build as the BuildKit secret `kb_read_token`; it lands in no image layer and
+     no log. (`docker compose build` has no `--secret` flag; the secret comes from the compose file.)
+   - Check the build output for `brain-runner 0.1.1`. Without the token the image builds without brain-runner, and the
+     sync page and the builder's source test say the package is not installed.
 2. **Settings** (Einstellungen → Ansichten und Wissensbasis, or pinned by the environment):
 
    | Setting | Key | Pinned by | Knovas |

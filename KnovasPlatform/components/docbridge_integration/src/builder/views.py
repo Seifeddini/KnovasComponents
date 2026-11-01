@@ -31,6 +31,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
+from builder import package
 from builder import processes as P
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schema"
@@ -433,7 +434,6 @@ def build(model: Mapping[str, Any], *, roles: Optional[Iterable[str]] = None) ->
         mine = [f for f in problems if f["area"] == area and f["item"] == key]
         return {s: sum(1 for f in mine if f["severity"] == s) for s in ("critical", "warning")}
 
-    manifest = (model.get("package") or {}).get("manifest") or {}
     profiles = []
     for e in model.get("profiles") or []:
         d = e.get("definition") or {}
@@ -450,7 +450,7 @@ def build(model: Mapping[str, Any], *, roles: Optional[Iterable[str]] = None) ->
     read = read_types(model)
     paged = {str(p.get("type")) for p in pages_of(model)}
     return {
-        "available": {part: part in manifest for part in ("spines", "pages", "profiles")},
+        "available": {part: package.part_available(model, part) for part in ("spines", "pages", "profiles")},
         "spines": [{**s, "problems": counts("spine", s.get("key"))} for s in spines_of(model)],
         "pages": [{**p, "problems": counts("page", p.get("key"))} for p in pages_of(model)],
         "profiles": profiles,

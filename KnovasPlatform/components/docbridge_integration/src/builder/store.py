@@ -79,7 +79,7 @@ class WorkspaceStore:
         )
 
     def list(self) -> list[Workspace]:
-        rows = self.conn.execute(self._SELECT + " ORDER BY lower(w.name), w.created_at").fetchall()
+        rows = self.conn.execute(self._SELECT + " WHERE w.deleted_at IS NULL ORDER BY lower(w.name), w.created_at").fetchall()
         return [self._workspace(row) for row in rows]
 
     def get(self, workspace_id: str) -> Optional[Workspace]:
@@ -87,7 +87,7 @@ class WorkspaceStore:
             uuid.UUID(str(workspace_id))
         except ValueError:
             return None
-        row = self.conn.execute(self._SELECT + " WHERE w.id = %s", (workspace_id,)).fetchone()
+        row = self.conn.execute(self._SELECT + " WHERE w.id = %s AND w.deleted_at IS NULL", (workspace_id,)).fetchone()
         return self._workspace(row) if row else None
 
     def model(self, workspace_id: str) -> Optional[dict]:
@@ -142,6 +142,15 @@ class WorkspaceStore:
                  json.dumps({**source, "content_hash": digest})),
             )
         return str(workspace_id)
+
+    def delete(self, workspace_id: str, actor_id) -> bool:
+        """Take the workspace out of every list and page; its history stays (migration 0019)."""
+        row = self.conn.execute(
+            """UPDATE builder_workspace SET deleted_at = now(), deleted_by = %s
+                WHERE id = %s AND deleted_at IS NULL RETURNING id""",
+            (actor_id, workspace_id),
+        ).fetchone()
+        return row is not None
 
     def edit(self, workspace_id: str, actor_id, mutate) -> tuple[dict, list[dict], Optional[str]]:
         """Change the draft with ``mutate(model) -> [{path, before, after}]``.

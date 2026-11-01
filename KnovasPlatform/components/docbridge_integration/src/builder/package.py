@@ -653,6 +653,46 @@ def company_key(name: str) -> str:
     return "-".join(words)[:40].strip("-") or "COMPANY"
 
 
+#: Where a package created here keeps each part, and what an empty one holds.
+PART_PATHS = {"processes": "ontology/processes.yaml", "spines": "ontology/spines.yaml",
+              "pages": "ontology/page-definitions.yaml", "owners": "ontology/owners.yaml",
+              "edit_sources": "ontology/edit-sources.yaml", "health": "health.yaml",
+              "mappings": "mappings/*.yaml", "profiles": "profiles/*.yaml"}
+EMPTY_PARTS = {"processes": {"processes": []}, "spines": {"spines": []}, "pages": {"pages": []},
+               "owners": {}, "edit_sources": {}, "health": {"types": {}}}
+
+
+class PartError(ValueError):
+    """The package cannot take the part: its usual place is another file."""
+
+
+def add_part(model: dict, part: str) -> None:
+    """Give the package ``part`` where it has none, at the place a new package
+    keeps it, empty: a workspace created before the part existed, or imported
+    from a package without it, gets it with its first element. A part the
+    manifest already names is left as it is."""
+    manifest = model.setdefault("package", {}).setdefault("manifest", {})
+    if part in manifest:
+        return
+    path = PART_PATHS[part]
+    taken = set(model["package"].get("files") or {}) | {v for v in manifest.values() if isinstance(v, str)}
+    if path in taken:
+        raise PartError(path)
+    manifest[part] = path
+    if part in EMPTY_PARTS and model.get(part) is None:
+        model[part] = copy.deepcopy(EMPTY_PARTS[part])
+
+
+def part_available(model: Mapping[str, Any], part: str) -> bool:
+    """Whether the package has ``part`` or can be given it (``add_part``)."""
+    package = model.get("package") or {}
+    manifest = package.get("manifest") or {}
+    if part in manifest:
+        return True
+    taken = set(package.get("files") or {}) | {v for v in manifest.values() if isinstance(v, str)}
+    return PART_PATHS[part] not in taken
+
+
 def blank_package(name: str) -> dict[str, bytes]:
     """The files of a package that holds only the company: where a workspace
     created in the builder, rather than imported, starts. Every part
@@ -661,19 +701,12 @@ def blank_package(name: str) -> dict[str, bytes]:
     exact shape."""
     ontology = {part: f"ontology/{part.replace('_', '-')}.yaml"
                 for part in ("terms", "relations", "descriptions", "node_descriptions")}
-    parts = {"processes": "ontology/processes.yaml", "spines": "ontology/spines.yaml",
-             "pages": "ontology/page-definitions.yaml", "owners": "ontology/owners.yaml",
-             "edit_sources": "ontology/edit-sources.yaml", "health": "health.yaml"}
     manifest = {
         "version": 1,
         "company": {"key": company_key(name), "name": name.strip()},
         "ontology": ontology,
-        **parts,
-        "mappings": "mappings/*.yaml",
-        "profiles": "profiles/*.yaml",
+        **PART_PATHS,
     }
-    empty = {"processes": {"processes": []}, "spines": {"spines": []}, "pages": {"pages": []},
-             "owners": {}, "edit_sources": {}, "health": {"types": {}}}
     files = {
         PACKAGE_FILE: dump_yaml(manifest),
         ontology["terms"]: dump_yaml({"node_types": []}),
@@ -681,7 +714,7 @@ def blank_package(name: str) -> dict[str, bytes]:
         ontology["descriptions"]: dump_yaml({}),
         ontology["node_descriptions"]: dump_yaml({}),
     }
-    files.update({parts[part]: dump_yaml(doc) for part, doc in empty.items()})
+    files.update({PART_PATHS[part]: dump_yaml(doc) for part, doc in EMPTY_PARTS.items()})
     return files
 
 

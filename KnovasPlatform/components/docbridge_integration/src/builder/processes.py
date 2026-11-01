@@ -28,6 +28,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
+from builder import package
+
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema" / "process-definition.schema.json"
 
 #: The rules report's rules (R0-R8) an exit criterion may name besides the document's own P-rules.
@@ -449,7 +451,7 @@ def build(model: Mapping[str, Any]) -> dict:
                  for r in sorted(onto.relations.values(), key=lambda r: r["key"]) if not r.get("retired")]
     roles = sorted({str(x) for p in processes for x in [p.get("owner_role")] + [s.get("owner_role") for s in p["steps"]] if x})
     return {
-        "available": "processes" in ((model.get("package") or {}).get("manifest") or {}),
+        "available": package.part_available(model, "processes"),
         "processes": processes,
         "problems": problems,
         "rules": rules,

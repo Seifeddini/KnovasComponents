@@ -143,6 +143,91 @@ class TestCreatingAWorkspace:
         assert "Neuer Arbeitsbereich" in html
 
 
+def _old_workspace(store, actor_id, name="Alt AG"):
+    """A workspace as the first version of "Neuer Arbeitsbereich" made it: no processes, spines, pages,
+    profiles or mappings in its package."""
+    model = package.read_package(package.blank_package(name)).model
+    for part in package.PART_PATHS:
+        model["package"]["manifest"].pop(part, None)
+        if part in package.EMPTY_PARTS:
+            model[part] = None
+    model["ontology"]["types"].append({"key": "Matter", "level": "company", "attributes": []})
+    return store.create(name=name, model=model, actor_id=actor_id, source={"kind": "blank"})
+
+
+class TestAWorkspaceFromBeforeTheParts:
+    def test_the_first_process_brings_the_processes_file(self):
+        client, store = _app()
+        wid = _old_workspace(store, None)
+        client.get(f"/builder/w/{wid}")
+        assert "data-proc-new disabled" not in client.get("/builder/prozesse").get_data(as_text=True)
+        response = client.post(f"/builder/api/w/{wid}/ontology?view=processes",
+                               json={"op": "process.create", "key": "PROC-intake", "name": "Aufnahme",
+                                     "instance_types": ["Matter"]})
+        assert response.status_code == 200, response.get_json()
+        files = package.write_package(store.model(wid))
+        assert b"PROC-intake" in files["ontology/processes.yaml"]
+        assert package.read_package(files).model["processes"]["processes"][0]["key"] == "PROC-intake"
+
+    def test_pages_profiles_and_mappings_too(self):
+        from builder import editing
+
+        client, store = _app()
+        wid = _old_workspace(store, None)
+        client.get(f"/builder/w/{wid}")
+        for op in ({"op": "page.create", "type": "Matter"}, {"op": "profile.create", "id": "partner", "audience": "Partner"}):
+            response = client.post(f"/builder/api/w/{wid}/ontology?view=views", json=op)
+            assert response.status_code == 200, (op, response.get_json())
+        model = store.model(wid)
+        manifest = model["package"]["manifest"]
+        assert manifest["pages"] == "ontology/page-definitions.yaml" and manifest["profiles"] == "profiles/*.yaml"
+        editing.ensure_part(model, "mappings")
+        assert manifest["mappings"] == "mappings/*.yaml"
+        files = package.write_package(model)
+        assert "profiles/partner.yaml" in files and "ontology/page-definitions.yaml" in files
+
+    def test_a_part_whose_place_is_taken_is_refused(self):
+        from builder import editing
+
+        model = package.read_package(package.blank_package("Alt AG")).model
+        model["package"]["manifest"].pop("processes")
+        model["package"]["manifest"]["notes"] = "ontology/processes.yaml"
+        assert not package.part_available(model, "processes")
+        with pytest.raises(editing.EditError):
+            editing.apply(model, {"op": "process.create", "key": "PROC-intake", "instance_types": []})
+
+
+def _delete(client, wid, name):
+    return client.post(f"/builder/api/w/{wid}/delete", json={"name": name})
+
+
+class TestDeletingAWorkspace:
+    def test_the_name_confirms_and_the_workspace_leaves_every_list(self):
+        client, store = _app()
+        wid = _create(client, "Weg AG").get_json()["url"].rsplit("/", 1)[1]
+        html = client.get(f"/builder/w/{wid}").get_data(as_text=True)
+        assert "data-ws-delete-open" in html and 'id="b-ws-delete"' in html
+        assert _delete(client, wid, "Weg").status_code == 400
+        assert store.get(wid) is not None
+        response = _delete(client, wid, "Weg AG")
+        assert response.status_code == 200 and response.get_json()["url"] == "/builder/arbeitsbereich"
+        assert store.list() == [] and store.get(wid) is None
+        assert client.get(f"/builder/w/{wid}").status_code == 404
+        assert _delete(client, wid, "Weg AG").status_code == 404
+        with client.session_transaction() as session:
+            assert "builder_workspace" not in session
+        assert store.rows[wid]["changes"]  # the history stays
+
+    @pytest.mark.parametrize("role", ["builder_author", "builder_reviewer", "builder_publisher", "builder_viewer"])
+    def test_only_who_manages_the_builder_deletes(self, role):
+        admin_client, store = _app()
+        wid = _create(admin_client, "Bleibt AG").get_json()["url"].rsplit("/", 1)[1]
+        client, _ = _app(roles=(role,), store=store)
+        assert "data-ws-delete-open" not in client.get(f"/builder/w/{wid}").get_data(as_text=True)
+        assert _delete(client, wid, "Bleibt AG").status_code == 403
+        assert store.get(wid) is not None
+
+
 class TestTheScreens:
     def test_the_list_shows_each_workspace_with_its_counts(self, sample_zip):
         client, _ = _app()

@@ -32,7 +32,7 @@ import copy
 import re
 from typing import Any, Callable, Iterable, Mapping
 
-from builder import ontology_view
+from builder import ontology_view, package
 from builder import packs as shipped_packs
 
 TYPES = "ontology.types"
@@ -93,6 +93,14 @@ def key_of(section: str, item: Mapping[str, Any]) -> Any:
     return item.get(key_field(section))
 
 
+def ensure_part(model: dict, part: str) -> None:
+    """The package's ``part``, added where it has none (package.add_part)."""
+    try:
+        package.add_part(model, part)
+    except package.PartError as exc:
+        raise EditError(f"Das Paket dieses Arbeitsbereichs hat keine Datei dafür, und {exc} ist schon belegt.", 409)
+
+
 def _items(model: dict, section: str, *, create: bool = True) -> list:
     """The section's list of elements; without ``create``, an absent one reads as empty and is not added."""
     if section not in SECTIONS:
@@ -110,8 +118,7 @@ def _items(model: dict, section: str, *, create: bool = True) -> list:
         if not isinstance(doc, dict):
             if not create:
                 return []
-            if section not in ((model.get("package") or {}).get("manifest") or {}):
-                raise EditError("Das Paket dieses Arbeitsbereichs hat keine Datei dafür.", 409)
+            ensure_part(model, section)
             doc = model[section] = {"version": 1, section: []}
         return doc.setdefault(section, []) if create else (doc.get(section) or [])
     if section in (PROCESSES, PROCESS_RULES):
@@ -618,21 +625,35 @@ def _pack_apply(edit: _Edit, op: Mapping[str, Any]) -> None:
     if pack is None:
         raise EditError(f"Das Paket «{pack_id}» gibt es nicht.", 404)
     shipped_types = {t["key"]: t for t in pack.get("types") or []}
-    clashes = []
+    # ``take_over``: a type of the same name without a pack becomes the pack's -- for a workspace read from the
+    # tenant, which does not say which pack a type came from. Otherwise the company's own type is a clash; one of
+    # another pack or of the core always is.
+    take_over = op.get("take_over") is True
+    clashes, foreign = [], False
     for key in shipped_types:
         existing = edit.find(TYPES, key)
-        if existing is not None and (existing.get("level") != "pack" or existing.get("pack") != pack_id):
+        if existing is None or existing.get("pack") == pack_id:
+            continue
+        if existing.get("pack") or existing.get("level") not in ("company", "pack"):
+            clashes.append(key)
+            foreign = True
+        elif not take_over:
             clashes.append(key)
     if clashes:
-        raise EditError("Diese Typen gibt es im Arbeitsbereich schon als eigene; das Paket kann sie nicht übernehmen.",
+        raise EditError("Diese Typen gehören schon zu einem anderen Paket oder zum Kern; das Paket kann sie nicht "
+                        "übernehmen." if foreign else
+                        "Diese Typen gibt es im Arbeitsbereich schon als eigene; das Paket kann sie nicht übernehmen.",
                         409, clashes)
 
     for key, shipped in shipped_types.items():
         old = edit.find(TYPES, key)
         new = _pack_term(shipped, pack_id)
         if old is not None:
-            # The company's own attributes on the pack's type stay, after the pack's.
-            own = [a for a in old.get("attributes") or [] if a.get("level") == "company"]
+            # The company's own attributes on the pack's type stay, after the pack's; a type taken over keeps
+            # every attribute the pack does not bring, as the company's.
+            taken_over = old.get("pack") != pack_id
+            own = [a if a.get("level") == "company" else {**a, "level": "company"}
+                   for a in old.get("attributes") or [] if taken_over or a.get("level") == "company"]
             names = {a["name"] for a in new.get("attributes") or []}
             new["attributes"] = list(new.get("attributes") or []) + [a for a in own if a["name"] not in names]
         edit.write(TYPES, old, new)

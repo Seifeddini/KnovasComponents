@@ -60,7 +60,7 @@ ENDPOINT_PERMISSIONS = {
     "add_comment": "comment", "resolve_comment": "resolve",
     "approve": "review", "record_review": "review",
     "publish": "publish", "link_tenant": "publish",
-    "register_component": "manage", "team": "manage", "grant_access": "manage", "revoke_access": "manage",
+    "register_component": "manage", "team": "manage", "delete_workspace": "manage", "grant_access": "manage", "revoke_access": "manage",
     "component_page": "view", "enrol_component": "manage", "rotate_component": "manage", "revoke_component": "manage",
     "component_schedule": "manage", "component_settings": "manage", "component_run": "edit",
     "component_pause": "publish", "component_resume": "publish", "component_plan": "review",
@@ -501,6 +501,21 @@ def create_builder_blueprint(
             pack_updates={u["key"]: u for u in editing.pack_updates(model)},
         )
 
+    @bp.route("/api/w/<workspace_id>/delete", methods=["POST"])
+    def delete_workspace(workspace_id: str):
+        """Delete a workspace: gone from every list and page, its history kept. The name, typed again, confirms."""
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        typed = str((request.get_json(silent=True) or {}).get("name") or "").strip()
+        if typed != current.name.strip():
+            return jsonify({"success": False, "error": "Bitte den Namen des Arbeitsbereichs genau so eingeben."}), 400
+        if not store.delete(current.id, gate.current_user().id):
+            abort(404)
+        logger.info("Builder workspace deleted: %s", current.id)
+        if session.get(SESSION_WORKSPACE) == current.id:
+            session.pop(SESSION_WORKSPACE, None)
+        return jsonify({"success": True, "url": url_for("builder.stage", slug=STAGES[0].slug)})
+
     @bp.route("/w/<workspace_id>/pakete/<pack_id>")
     def pack_update(workspace_id: str, pack_id: str):
         """What updating a pack would change, for review before it is applied."""
@@ -610,7 +625,8 @@ def create_builder_blueprint(
         chosen = [str(p) for p in request.form.getlist("packs") if str(p).strip()]
         try:
             for pack_id in dict.fromkeys(chosen):
-                editing.apply(model, {"op": "pack.apply", "pack": pack_id})
+                # The tenant's types do not say which pack they came from: a pack takes over its own by name.
+                editing.apply(model, {"op": "pack.apply", "pack": pack_id, "take_over": start == "tenant"})
         except editing.EditError as exc:
             return _refused(exc)
         # A workspace read from the tenant belongs to it.

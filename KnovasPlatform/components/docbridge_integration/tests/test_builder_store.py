@@ -68,6 +68,15 @@ def test_a_created_workspace_records_its_creation(store, consultant):
     assert store.model(workspace_id) == blank
 
 
+def test_a_deleted_workspace_leaves_the_list_and_keeps_its_history(store, consultant):
+    blank = package.read_package(package.blank_package("Weg AG")).model
+    workspace_id = store.create(name="Weg AG", model=blank, actor_id=consultant.id, source={"kind": "blank"})
+    assert store.delete(workspace_id, consultant.id) is True
+    assert store.get(workspace_id) is None and store.list() == []
+    assert store.delete(workspace_id, consultant.id) is False
+    assert [c["path"] for c in store.changes(workspace_id)] == ["create"]
+
+
 def test_the_list_is_sorted_by_name(store, model, consultant):
     for name in ("zeta", "Alpha", "beta"):
         store.create_from_import(name=name, model=model, actor_id=consultant.id, source=_source())

@@ -19,7 +19,8 @@ import re
 from typing import Any, Mapping, Optional
 
 from builder import processes as P
-from builder.editing import (OPERATIONS, PROCESS_RULES, PROCESSES, EditError, _Edit, _names, _set_text, _text)
+from builder.editing import (OPERATIONS, PROCESS_RULES, PROCESSES, EditError, _Edit, _names, _set_text, _text,
+                             ensure_part)
 
 PROCESS_KEY = re.compile(r"^PROC-[a-z]+(-[a-z]+)*$")
 STEP_ID = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -136,13 +137,12 @@ def _path_input(raw: Any, what: str) -> list[dict]:
 # ------------------------------------------------------------------ processes
 
 def _process_create(edit: _Edit, op: Mapping[str, Any]) -> None:
-    if "processes" not in ((edit.model.get("package") or {}).get("manifest") or {}):
-        raise EditError("Dieses Paket hat keine Prozessdatei (processes in brain-config.yaml).", 409)
     key = _text(op.get("key"), "Schlüssel", limit=80)
     if not PROCESS_KEY.match(key):
         raise EditError("Schlüssel: PROC- und kleine Wörter mit Bindestrich, z. B. PROC-mandatsaufnahme.")
     if edit.find(PROCESSES, key) is not None:
         raise EditError(f"Den Prozess «{key}» gibt es schon.")
+    ensure_part(edit.model, "processes")  # a workspace from before the processes file, or a package without one
     name = _text(op.get("name"), "Name", limit=200) or key
     types = _names(op.get("instance_types"), "Instanztypen")
     process: dict[str, Any] = {"key": key, "name": name, "instance_types": types, "governing_fact": "status",

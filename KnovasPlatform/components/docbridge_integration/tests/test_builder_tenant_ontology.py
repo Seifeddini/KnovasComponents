@@ -83,6 +83,20 @@ class TestTheWizard:
         response = client.post("/builder/api/workspaces", data={"name": "Knovas", "start": "tenant"})
         assert response.status_code == 502 and store.list() == []
 
+    def test_a_pack_takes_over_the_tenant_types_of_its_names(self):
+        from builder import packs
+
+        shipped = packs.term_pack("software")["types"]
+        listing = [{"id": i, "name": t["key"], "description": f"{t['key']} / {t['key']} — read from the tenant"}
+                   for i, t in enumerate(shipped[:3], start=1)]
+        client, store = self._client(listing=(listing, lambda type_id: [{"name": "tenant_only", "datatype": "text"}]))
+        response = client.post("/builder/api/workspaces", data={"name": "Knovas", "start": "tenant", "packs": ["software"]})
+        assert response.status_code == 201, response.get_json()
+        model = store.model(store.list()[0].id)
+        first = next(t for t in model["ontology"]["types"] if t["key"] == shipped[0]["key"])
+        assert first["pack"] == "software"
+        assert any(a["name"] == "tenant_only" and a["level"] == "company" for a in first["attributes"])
+
     def test_packs_still_combine(self):
         client, store = self._client()
         response = client.post("/builder/api/workspaces", data={"name": "Knovas", "start": "tenant", "packs": ["legal"]})

@@ -16,7 +16,7 @@ import posixpath
 from typing import Any, Mapping
 
 from builder import mappings as M
-from builder.editing import MAPPINGS, OPERATIONS, SOURCES, EditError, _Edit, _names, _text
+from builder.editing import MAPPINGS, OPERATIONS, SOURCES, EditError, _Edit, _names, _text, ensure_part
 
 DEFAULT_PRIORITY = 10
 
@@ -89,6 +89,7 @@ def _steps(entry: dict) -> dict:
 # ------------------------------------------------------------------ mappings
 
 def _mapping_create(edit: _Edit, op: Mapping[str, Any]) -> None:
+    ensure_part(edit.model, "mappings")
     manifest = (edit.model.get("package") or {}).get("manifest") or {}
     pattern = manifest.get("mappings")
     if not isinstance(pattern, str):

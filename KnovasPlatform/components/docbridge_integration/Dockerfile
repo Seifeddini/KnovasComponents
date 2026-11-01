@@ -92,9 +92,10 @@ PY
 
 # brain-runner (Sync von GitHub, WP KC-0.2): the knowledge base's mapping runner as a pinned release, installed
 # from its git tag's commit; the Platform imports the installed package, never code from the repository.
-# The repository is private: the build reads a read-only token from the BuildKit secret `kb_read_token` (a file
-# outside every checkout), through git's url rewrite, so it lands in no layer and no log:
-#   docker compose build --secret id=kb_read_token,src=/path/outside/the/checkout/kb_read_token docbridge-web
+# The repository is private: the build reads a read-only token from the BuildKit secret `kb_read_token`, through
+# git's url rewrite, so it lands in no layer and no log. docker-compose.yml passes KB_READ_TOKEN from knovas.env:
+#   KB_READ_TOKEN=github_pat_... in knovas.env, then ./scripts/start.sh (or docker compose --env-file knovas.env build)
+# Without compose: docker build --secret id=kb_read_token,env=KB_READ_TOKEN .
 # --no-deps: its dependencies are the Platform's (requirements.txt pins PyYAML, jsonschema and requests; jmespath
 # and defusedxml are pinned there at the package's versions). The package pins requests==2.34.2; the Platform
 # keeps 2.32.0 until both agree (a pin in a library is too strict; noted for KnowledgeBase).

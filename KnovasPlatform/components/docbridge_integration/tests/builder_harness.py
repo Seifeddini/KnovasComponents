@@ -122,12 +122,20 @@ class MemoryWorkspaceStore:
         )
 
     def list(self):
-        rows = sorted(self.rows.values(), key=lambda r: (r["name"].lower(), r["created_at"]))
+        rows = sorted((r for r in self.rows.values() if not r.get("deleted_at")),
+                      key=lambda r: (r["name"].lower(), r["created_at"]))
         return [self._workspace(r) for r in rows]
 
     def get(self, workspace_id):
         row = self.rows.get(str(workspace_id))
-        return self._workspace(row) if row else None
+        return self._workspace(row) if row and not row.get("deleted_at") else None
+
+    def delete(self, workspace_id, actor_id):
+        row = self.rows.get(str(workspace_id))
+        if row is None or row.get("deleted_at"):
+            return False
+        row["deleted_at"], row["deleted_by"] = self._now(), self._actor(actor_id)[0]
+        return True
 
     def model(self, workspace_id):
         row = self.rows.get(str(workspace_id))
