@@ -4,6 +4,7 @@
    the server; static/js/builder/operate.js records a health review. #}
 {% extends 'builder/_base.html' %}
 {% from 'builder/_icons.html' import icon %}
+{% from 'builder/_alerts.html' import alerts_box %}
 {% block title %}{{ stage.label }} · {{ current_workspace.name }}{% endblock %}
 
 {% macro share(value, label, detail) -%}
@@ -37,6 +38,8 @@
     <a href="#b-op-lint">Ordnung <span class="b-tab-count">{{ lint.values() | sum(attribute='count') }}</span></a>
     <a href="#b-op-coverage">Abdeckung</a>
 </nav>
+
+{{ alerts_box(component_alerts or []) }}
 
 {% if read_error %}
 <div class="b-callout b-callout--warning" role="status"><p class="b-callout-title">Der Mandant wurde nicht gelesen</p><p>{{ read_error }} Gesundheit, Ordnung und Abdeckung zählen deshalb nichts.</p></div>

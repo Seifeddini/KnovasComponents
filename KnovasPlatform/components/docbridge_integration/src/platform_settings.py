@@ -112,6 +112,14 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
             "Welche Profile des Definitionsbündels die Rollen der Plattform sehen (Profil-Id oder Zielgruppe). "
             "Leer: alle sehen alle Profile.",
             "role_map", "tenant", env=("VIEWS_PROFILE_ROLES",)),
+    Setting("builder.components.offline_after_minutes", "Komponente offline nach (Minuten)",
+            "Ohne Herzschlag so lange gilt eine Synchronisationskomponente als offline und der Brain Builder warnt.",
+            "number", "installation", env=("BUILDER_COMPONENT_OFFLINE_MINUTES",), integer=True, minimum=2,
+            maximum=10_080, fallback=30),
+    Setting("builder.components.lag_hours", "Rückstand einer Komponente (Stunden)",
+            "Liegt eine Komponente so weit hinter ihrer Quelle, warnt der Brain Builder.",
+            "number", "installation", env=("BUILDER_COMPONENT_LAG_HOURS",), integer=True, minimum=1, maximum=720,
+            fallback=24),
     Setting("views.map_fact_budget", "Lesebudget der Systemkarte",
             "Wie viele Fakten eine Ebene der Systemkarte höchstens liest (bezahlt aus dem Lesebudget des Mandanten).",
             "number", "installation", env=("VIEWS_MAP_FACT_BUDGET",), integer=True, minimum=0, maximum=10_000,
@@ -318,7 +326,8 @@ class SettingStore:
             "INSERT INTO platform_settings (tenant, key, value, secret, updated_by, updated_at) "
             "VALUES (%s, %s, NULL, %s, %s, now()) ON CONFLICT (tenant, key) DO UPDATE SET value = NULL, "
             "secret = EXCLUDED.secret, updated_by = EXCLUDED.updated_by, updated_at = now()",
-            (tenant, key, sealed, str(user.id)))
+            (tenant, key, sealed, str(user.id) if user is not None else None))
+        # No user: a sync component enrolling (step B13) -- the audit entry has no actor.
         self._audit(user, key, tenant, SECRET_SET, SECRET_SET)
 
     def clear(self, key: str, tenant: str, user: Any, old: Any = None) -> None:
@@ -630,6 +639,8 @@ def test_repository_access(repo: str, token: Optional[str], make: Callable[[str,
 #: A source's credential is a secret of the registry under this prefix: one key per workspace and source,
 #: sealed with the deployment's key, audited as changed, never returned.
 SOURCE_SECRET_PREFIX = "builder.sources."
+#: The sync components' token hashes (step B13): enrolment and control tokens, never their plain values.
+COMPONENT_SECRET_PREFIX = "builder.components."
 
 
 def source_secret_key(workspace_id: str, source_key: str) -> str:
@@ -637,12 +648,16 @@ def source_secret_key(workspace_id: str, source_key: str) -> str:
 
 
 class SourceSecrets:
-    """Write-only credentials for the builder's sources, kept like every other secret of the registry."""
+    """Write-only credentials for the builder's sources, kept like every other secret of the registry.
 
-    def __init__(self, store: SettingStore, box: SecretBox, tenant: str):
+    ``prefix`` names the keys it may write: the sources' (step B7) or the sync components' (step B13).
+    """
+
+    def __init__(self, store: SettingStore, box: SecretBox, tenant: str, prefix: str = SOURCE_SECRET_PREFIX):
         self._store = store
         self._box = box
         self.tenant = str(tenant or "")
+        self.prefix = prefix
 
     @property
     def available(self) -> bool:
@@ -653,8 +668,8 @@ class SourceSecrets:
         return self._box.reason if not self._box.available else "Kein Mandant: ohne ihn gibt es keine Geheimnisse."
 
     def put(self, key: str, value: str, user: Any) -> None:
-        if not key.startswith(SOURCE_SECRET_PREFIX):
-            raise SettingError("Kein Schlüssel einer Quelle.")
+        if not key.startswith(self.prefix):
+            raise SettingError("Kein Schlüssel dieses Bereichs.")
         if not self.available:
             raise NoSecretKey(self.reason)
         self._store.put_secret(key, self.tenant, self._box.seal(value), user)

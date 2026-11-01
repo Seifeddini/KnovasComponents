@@ -286,21 +286,131 @@ class MemoryWorkspaceStore:
         return copy.deepcopy(self.rows[workspace_id].get("reviews") or {})
 
     # Sync components (B7), per tenant.
-    def components(self, tenant):
-        found = [c for c in self.component_rows if c["tenant"] == tenant]
+    _COMPONENT_DEFAULTS = {"transport": "adapter", "paused": False, "schedule": {"mode": "manual"}, "version": "",
+                           "capabilities": [], "enrol_expires_at": None, "enrolled_at": None,
+                           "certificate_fingerprint": None, "last_heartbeat_at": None, "reported_state": None,
+                           "lag_seconds": None, "open_errors": 0, "revoked_at": None}
+
+    def components(self, tenant, *, every=False):
+        states = ("registered", "enrolled", "pending", "revoked") if every else ("registered", "enrolled")
+        found = [c for c in self.component_rows if c["tenant"] == tenant and c["state"] in states]
         return [{k: copy.deepcopy(v) for k, v in c.items() if k != "tenant"} for c in sorted(found, key=lambda c: c["name"])]
 
-    def component(self, tenant, component_id):
-        return next((c for c in self.components(tenant) if c["id"] == component_id), None)
+    def component(self, tenant, component_id, *, any_state=False):
+        return next((c for c in self.components(tenant, every=any_state) if c["id"] == component_id), None)
 
     def register_component(self, tenant, *, kind, name, site, owner, settings, actor_id):
         if any(c["tenant"] == tenant and c["name"] == name for c in self.component_rows):
             return None
         row = {"id": str(uuid.uuid4()), "tenant": tenant, "kind": kind, "name": name, "site": site, "owner": owner,
                "settings": copy.deepcopy(settings), "state": "registered", "registered_at": self._now(),
-               "registered_by_name": self._actor(actor_id)[1]}
+               "registered_by_name": self._actor(actor_id)[1], **copy.deepcopy(self._COMPONENT_DEFAULTS)}
         self.component_rows.append(row)
         return row["id"]
+
+    # -------------------------------------------------------- enrolment and monitoring (B13)
+
+    def create_component(self, tenant, *, kind, name, site, owner, actor_id, enrol_expires_at):
+        cid = self.register_component(tenant, kind=kind, name=name, site=site, owner=owner, settings={}, actor_id=actor_id)
+        if cid is not None:
+            self.update_component(cid, state="pending", enrol_expires_at=enrol_expires_at)
+            self._row(cid)["transport"] = "v1"
+        return cid
+
+    def _row(self, component_id):
+        return next(c for c in self.component_rows if c["id"] == component_id)
+
+    def update_component(self, component_id, **fields):
+        row = self._row(component_id)
+        unknown = set(fields) - set(self._COMPONENT_DEFAULTS) - {"state", "name", "site", "owner", "settings"}
+        if unknown:
+            raise ValueError(f"not a component field: {sorted(unknown)}")
+        row.update(copy.deepcopy(fields))
+
+    def pending_components(self, tenant):
+        return [c for c in self.components(tenant, every=True) if c["state"] == "pending"]
+
+    def _bag(self, name):
+        if not hasattr(self, "_component_bags"):
+            self._component_bags = {}
+        return self._component_bags.setdefault(name, [])
+
+    def add_event(self, component_id, code, counts):
+        self._bag("events").insert(0, {"component": component_id, "at": self._now(), "code": code,
+                                       "counts": dict(counts or {})})
+
+    def events(self, component_id, limit=50):
+        return [{k: e[k] for k in ("at", "code", "counts")} for e in self._bag("events") if e["component"] == component_id][:limit]
+
+    def add_run(self, component_id, *, kind, status, started_at, finished_at, duration_ms, added, changed, retired,
+                errors, requested_by=None):
+        run = {"id": str(uuid.uuid4()), "component": component_id, "kind": kind, "status": status,
+               "started_at": started_at or self._now(), "finished_at": finished_at, "duration_ms": duration_ms,
+               "added": added, "changed": changed, "retired": retired, "errors": errors}
+        self._bag("runs").append(run)
+        return run["id"]
+
+    def component_runs(self, component_id, limit=30):
+        mine = [r for r in self._bag("runs") if r["component"] == component_id]
+        return [{k: v for k, v in r.items() if k != "component"}
+                for r in sorted(mine, key=lambda r: r["started_at"], reverse=True)][:limit]
+
+    def add_held(self, component_id, *, mapping, retire, share):
+        plan = {"id": str(uuid.uuid4()), "component": component_id, "mapping": mapping, "held_at": self._now(),
+                "retire": dict(retire or {}), "share": share, "state": "held", "decided_by_name": None,
+                "decided_at": None, "reason": ""}
+        self._bag("held").insert(0, plan)
+        return plan["id"]
+
+    def held_plans(self, component_id):
+        return [{k: v for k, v in h.items() if k != "component"} for h in self._bag("held") if h["component"] == component_id]
+
+    def decide_held(self, component_id, plan_id, *, approve, actor_id, reason):
+        plan = next((h for h in self._bag("held") if h["component"] == component_id and h["id"] == plan_id), None)
+        if plan is None or plan["state"] != "held":
+            return False
+        plan.update(state="approved" if approve else "rejected", decided_by_name=self._actor(actor_id)[1],
+                    decided_at=self._now(), reason=reason)
+        return True
+
+    def add_command(self, component_id, command, args, actor_id):
+        cmd = {"id": str(uuid.uuid4()), "component": component_id, "command": command, "args": dict(args or {}),
+               "created_at": self._now(), "delivered_at": None, "done_at": None, "result": None,
+               "by": self._actor(actor_id)[1]}
+        self._bag("commands").append(cmd)
+        return cmd["id"]
+
+    def deliver_commands(self, component_id, at):
+        out = []
+        for cmd in self._bag("commands"):
+            if cmd["component"] == component_id and cmd["delivered_at"] is None:
+                cmd["delivered_at"] = at
+                out.append({k: copy.deepcopy(cmd[k]) for k in ("id", "command", "args", "created_at")})
+        return out
+
+    def finish_command(self, component_id, command_id, result, at):
+        cmd = next((c for c in self._bag("commands") if c["component"] == component_id and c["id"] == command_id), None)
+        if cmd is None or cmd["done_at"] is not None:
+            return False
+        cmd.update(done_at=at, result=result)
+        return True
+
+    def commands(self, component_id, limit=20):
+        mine = [c for c in self._bag("commands") if c["component"] == component_id]
+        return [{k: v for k, v in c.items() if k != "component"} for c in reversed(mine)][:limit]
+
+    def served_by(self, component_id):
+        sources, mappings = [], []
+        for w in self.list():
+            model = self.model(w.id) or {}
+            mine = [s for s in model.get("sources") or [] if s.get("component") == component_id]
+            keys = {s.get("key") for s in mine}
+            sources += [{"workspace": w.id, "workspace_name": w.name, "key": s.get("key"), "name": s.get("name"),
+                         "kind": s.get("kind"), "settings": s.get("settings") or {}} for s in mine]
+            mappings += [{"workspace": w.id, "id": (m.get("definition") or {}).get("id"),
+                          "source": (m.get("builder") or {}).get("source")}
+                         for m in model.get("mappings") or [] if (m.get("builder") or {}).get("source") in keys]
+        return {"sources": sources, "mappings": mappings}
 
 
 class FakeEngine:
@@ -528,7 +638,8 @@ def stand_in_readers(github_root=None, connector=None, http=None):
 
 
 def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None,
-             secrets=None, readers=None, roles=None, roles_sink=None, sync=None, directory=None) -> Flask:
+             secrets=None, readers=None, roles=None, roles_sink=None, sync=None, directory=None,
+             component_secrets=None, adapters=None, limits=None, signer=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -572,5 +683,64 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         roles_sink=roles_sink,
         sync_status=(lambda: sync) if sync is not None else None,
         user_directory=(lambda: directory) if directory is not None else None,
+        component_secrets=(lambda: component_secrets) if component_secrets is not None else None,
+        component_adapter=adapters,
+        component_limits=(lambda: limits) if limits is not None else None,
     ))
+    if component_secrets is not None and store is not None:
+        from web_interface.connector_protocol import create_connector_protocol_blueprint
+
+        app.register_blueprint(create_connector_protocol_blueprint(
+            store_factory=lambda: store, secrets=lambda: component_secrets, tenant_provider=lambda: tenant,
+            signer=signer or fake_signer))
     return app
+
+
+def fake_signer(csr, name):
+    """The Brain's /secured/sign_certificate, standing in: a certificate whose body is derived from the CSR."""
+    import base64
+    import hashlib
+
+    body = base64.b64encode(hashlib.sha256(csr.encode("utf-8")).digest() * 8).decode("ascii")
+    return {"certificate": f"-----BEGIN CERTIFICATE-----\n{body}\n-----END CERTIFICATE-----\n", "certificate_chain": None}
+
+
+FAKE_CSR = "-----BEGIN CERTIFICATE REQUEST-----\nMIIBfake\n-----END CERTIFICATE REQUEST-----\n"
+
+
+class ProtocolClient:
+    """A component speaking connector protocol v1 to the Platform, as the KnovasConnector and the GitHub runner
+    will (KN-1, KB-3.1): enrol, heartbeat, take its commands, report its runs and the plans its guard holds."""
+
+    def __init__(self, http, base="/api/connectors/v1"):
+        self.http, self.base = http, base
+        self.component = self.token = self.certificate = None
+
+    def _send(self, method, path, body=None, auth=True):
+        headers = {}
+        if auth:
+            headers = {"Authorization": f"Bearer {self.token}", "X-Component": self.component or ""}
+        return self.http.open(self.base + path, method=method, json=body, headers=headers)
+
+    def enrol(self, token, version="2.4.0", capabilities=("dry_run", "apply", "held_plans")):
+        answer = self._send("POST", "/enrol", {"token": token, "csr": FAKE_CSR, "version": version,
+                                               "capabilities": list(capabilities)}, auth=False)
+        if answer.status_code == 201:
+            body = answer.get_json()
+            self.component, self.token, self.certificate = body["component"], body["control_token"], body["certificate"]
+        return answer
+
+    def heartbeat(self, **body):
+        return self._send("POST", "/heartbeat", {"state": "online", "version": "2.4.0", **body})
+
+    def config(self):
+        return self._send("GET", "/config")
+
+    def report_run(self, **body):
+        return self._send("POST", "/runs", body)
+
+    def done(self, command_id, result="ok"):
+        return self._send("POST", f"/commands/{command_id}/done", {"result": result})
+
+    def events(self, *events):
+        return self._send("POST", "/events", {"events": list(events)})

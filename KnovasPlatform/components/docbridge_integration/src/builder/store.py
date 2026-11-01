@@ -333,28 +333,175 @@ class WorkspaceStore:
 
     # -------------------------------------------------------- sync components (B7)
 
-    _COMPONENT = """SELECT c.id, c.kind, c.name, c.site, c.owner, c.settings, c.state, c.registered_at, u.display_name
+    _COMPONENT = """SELECT c.id, c.kind, c.name, c.site, c.owner, c.settings, c.state, c.registered_at, u.display_name,
+                           c.transport, c.paused, c.schedule, c.version, c.capabilities, c.enrol_expires_at,
+                           c.enrolled_at, c.certificate_fingerprint, c.last_heartbeat_at, c.reported_state,
+                           c.lag_seconds, c.open_errors, c.revoked_at
                       FROM builder_component c LEFT JOIN users u ON u.id = c.registered_by"""
+    #: The states a source may be read through (B7) or a component may run in.
+    _USABLE = "('registered', 'enrolled')"
 
     @staticmethod
     def _component(row) -> dict:
         return {"id": str(row[0]), "kind": row[1], "name": row[2], "site": row[3], "owner": row[4],
-                "settings": row[5] or {}, "state": row[6], "registered_at": _iso(row[7]), "registered_by_name": row[8]}
+                "settings": row[5] or {}, "state": row[6], "registered_at": _iso(row[7]), "registered_by_name": row[8],
+                "transport": row[9], "paused": bool(row[10]), "schedule": row[11] or {"mode": "manual"},
+                "version": row[12] or "", "capabilities": list(row[13] or []), "enrol_expires_at": _iso(row[14]),
+                "enrolled_at": _iso(row[15]), "certificate_fingerprint": row[16], "last_heartbeat_at": _iso(row[17]),
+                "reported_state": row[18], "lag_seconds": row[19], "open_errors": row[20] or 0,
+                "revoked_at": _iso(row[21])}
 
-    def components(self, tenant: str) -> list[dict]:
-        """The tenant's registered sync components, by name."""
-        rows = self.conn.execute(self._COMPONENT + " WHERE c.tenant = %s AND c.state = 'registered' ORDER BY c.name",
+    def components(self, tenant: str, *, every: bool = False) -> list[dict]:
+        """The tenant's sync components a source can use, by name; ``every``: pending and revoked ones too."""
+        states = "('registered', 'enrolled', 'pending', 'revoked')" if every else self._USABLE
+        rows = self.conn.execute(self._COMPONENT + f" WHERE c.tenant = %s AND c.state IN {states} ORDER BY c.name",
                                  (tenant,)).fetchall()
         return [self._component(r) for r in rows]
 
-    def component(self, tenant: str, component_id: str) -> Optional[dict]:
+    def component(self, tenant: str, component_id: str, *, any_state: bool = False) -> Optional[dict]:
         try:
             uuid.UUID(str(component_id))
         except ValueError:
             return None
-        row = self.conn.execute(self._COMPONENT + " WHERE c.tenant = %s AND c.id = %s AND c.state = 'registered'",
+        states = "('registered', 'enrolled', 'pending', 'revoked')" if any_state else self._USABLE
+        row = self.conn.execute(self._COMPONENT + f" WHERE c.tenant = %s AND c.id = %s AND c.state IN {states}",
                                 (tenant, component_id)).fetchone()
         return self._component(row) if row else None
+
+    # -------------------------------------------------------- enrolment and monitoring (B13)
+
+    def create_component(self, tenant: str, *, kind: str, name: str, site: str, owner: str, actor_id,
+                         enrol_expires_at: str) -> Optional[str]:
+        """A component that speaks protocol v1, waiting for its enrolment; None when the name is taken."""
+        row = self.conn.execute(
+            """INSERT INTO builder_component (tenant, kind, name, site, owner, registered_by, state, transport,
+                                              enrol_expires_at)
+               VALUES (%s, %s, %s, %s, %s, %s, 'pending', 'v1', %s) ON CONFLICT (tenant, name) DO NOTHING RETURNING id""",
+            (tenant, kind, name, site, owner, actor_id, enrol_expires_at),
+        ).fetchone()
+        return str(row[0]) if row else None
+
+    _UPDATABLE = {"state", "paused", "schedule", "version", "capabilities", "enrol_expires_at", "enrolled_at",
+                  "certificate_fingerprint", "last_heartbeat_at", "reported_state", "lag_seconds", "open_errors",
+                  "revoked_at", "name", "site", "owner", "settings"}
+
+    def update_component(self, component_id: str, **fields) -> None:
+        unknown = set(fields) - self._UPDATABLE
+        if unknown:
+            raise ValueError(f"not a component field: {sorted(unknown)}")
+        if not fields:
+            return
+        names = sorted(fields)
+        values = [json.dumps(fields[n]) if n in ("schedule", "capabilities", "settings") else fields[n] for n in names]
+        sets = ", ".join(f"{n} = %s::jsonb" if n in ("schedule", "capabilities", "settings") else f"{n} = %s" for n in names)
+        self.conn.execute(f"UPDATE builder_component SET {sets} WHERE id = %s", (*values, component_id))
+
+    def pending_components(self, tenant: str) -> list[dict]:
+        rows = self.conn.execute(self._COMPONENT + " WHERE c.tenant = %s AND c.state = 'pending'", (tenant,)).fetchall()
+        return [self._component(r) for r in rows]
+
+    def add_event(self, component_id: str, code: str, counts: dict) -> None:
+        self.conn.execute("INSERT INTO builder_component_event (component, code, counts) VALUES (%s, %s, %s::jsonb)",
+                          (component_id, code, json.dumps(counts or {})))
+
+    def events(self, component_id: str, limit: int = 50) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT at, code, counts FROM builder_component_event WHERE component = %s ORDER BY at DESC, id DESC LIMIT %s",
+            (component_id, limit)).fetchall()
+        return [{"at": _iso(r[0]), "code": r[1], "counts": r[2] or {}} for r in rows]
+
+    def add_run(self, component_id: str, *, kind: str, status: str, started_at: Optional[str], finished_at: Optional[str],
+                duration_ms: int, added: int, changed: int, retired: int, errors: int, requested_by=None) -> str:
+        row = self.conn.execute(
+            """INSERT INTO builder_component_run (component, kind, status, started_at, finished_at, duration_ms, added,
+                                                  changed, retired, errors, requested_by)
+               VALUES (%s, %s, %s, COALESCE(%s::timestamptz, now()), %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (component_id, kind, status, started_at, finished_at, duration_ms, added, changed, retired, errors,
+             requested_by)).fetchone()
+        return str(row[0])
+
+    def component_runs(self, component_id: str, limit: int = 30) -> list[dict]:
+        rows = self.conn.execute(
+            """SELECT id, kind, status, started_at, finished_at, duration_ms, added, changed, retired, errors
+                 FROM builder_component_run WHERE component = %s ORDER BY started_at DESC LIMIT %s""",
+            (component_id, limit)).fetchall()
+        return [{"id": str(r[0]), "kind": r[1], "status": r[2], "started_at": _iso(r[3]), "finished_at": _iso(r[4]),
+                 "duration_ms": r[5], "added": r[6], "changed": r[7], "retired": r[8], "errors": r[9]} for r in rows]
+
+    def add_held(self, component_id: str, *, mapping: str, retire: dict, share: Optional[float]) -> str:
+        row = self.conn.execute(
+            "INSERT INTO builder_held_plan (component, mapping, retire, share) VALUES (%s, %s, %s::jsonb, %s) RETURNING id",
+            (component_id, mapping, json.dumps(retire or {}), share)).fetchone()
+        return str(row[0])
+
+    def held_plans(self, component_id: str) -> list[dict]:
+        rows = self.conn.execute(
+            """SELECT h.id, h.mapping, h.held_at, h.retire, h.share, h.state, u.display_name, h.decided_at, h.reason
+                 FROM builder_held_plan h LEFT JOIN users u ON u.id = h.decided_by
+                WHERE h.component = %s ORDER BY h.held_at DESC LIMIT 100""",
+            (component_id,)).fetchall()
+        return [{"id": str(r[0]), "mapping": r[1], "held_at": _iso(r[2]), "retire": r[3] or {}, "share": r[4],
+                 "state": r[5], "decided_by_name": r[6], "decided_at": _iso(r[7]), "reason": r[8]} for r in rows]
+
+    def decide_held(self, component_id: str, plan_id: str, *, approve: bool, actor_id, reason: str) -> bool:
+        try:
+            uuid.UUID(str(plan_id))
+        except ValueError:
+            return False
+        row = self.conn.execute(
+            """UPDATE builder_held_plan SET state = %s, decided_by = %s, decided_at = now(), reason = %s
+                WHERE component = %s AND id = %s AND state = 'held' RETURNING id""",
+            ("approved" if approve else "rejected", actor_id, reason, component_id, plan_id)).fetchone()
+        return row is not None
+
+    def add_command(self, component_id: str, command: str, args: dict, actor_id) -> str:
+        row = self.conn.execute(
+            """INSERT INTO builder_component_command (component, command, args, created_by)
+               VALUES (%s, %s, %s::jsonb, %s) RETURNING id""",
+            (component_id, command, json.dumps(args or {}), actor_id)).fetchone()
+        return str(row[0])
+
+    def deliver_commands(self, component_id: str, at: str) -> list[dict]:
+        """The commands not yet delivered, marked delivered now: a component gets each one once."""
+        rows = self.conn.execute(
+            """UPDATE builder_component_command SET delivered_at = %s
+                WHERE component = %s AND delivered_at IS NULL RETURNING id, command, args, created_at""",
+            (at, component_id)).fetchall()
+        return sorted(({"id": str(r[0]), "command": r[1], "args": r[2] or {}, "created_at": _iso(r[3])} for r in rows),
+                      key=lambda c: c["created_at"])
+
+    def finish_command(self, component_id: str, command_id: str, result: str, at: str) -> bool:
+        try:
+            uuid.UUID(str(command_id))
+        except ValueError:
+            return False
+        row = self.conn.execute(
+            """UPDATE builder_component_command SET done_at = %s, result = %s
+                WHERE component = %s AND id = %s AND done_at IS NULL RETURNING id""",
+            (at, result, component_id, command_id)).fetchone()
+        return row is not None
+
+    def commands(self, component_id: str, limit: int = 20) -> list[dict]:
+        rows = self.conn.execute(
+            """SELECT c.id, c.command, c.args, c.created_at, c.delivered_at, c.done_at, c.result, u.display_name
+                 FROM builder_component_command c LEFT JOIN users u ON u.id = c.created_by
+                WHERE c.component = %s ORDER BY c.created_at DESC LIMIT %s""", (component_id, limit)).fetchall()
+        return [{"id": str(r[0]), "command": r[1], "args": r[2] or {}, "created_at": _iso(r[3]), "delivered_at": _iso(r[4]),
+                 "done_at": _iso(r[5]), "result": r[6], "by": r[7]} for r in rows]
+
+    def served_by(self, component_id: str) -> dict:
+        """The sources served through the component, in every workspace, and the mappings that read them."""
+        sources, mappings = [], []
+        for w in self.list():
+            model = self.model(w.id) or {}
+            mine = [s for s in model.get("sources") or [] if s.get("component") == component_id]
+            keys = {s.get("key") for s in mine}
+            sources += [{"workspace": w.id, "workspace_name": w.name, "key": s.get("key"), "name": s.get("name"),
+                         "kind": s.get("kind"), "settings": s.get("settings") or {}} for s in mine]
+            mappings += [{"workspace": w.id, "id": (m.get("definition") or {}).get("id"),
+                          "source": (m.get("builder") or {}).get("source")}
+                         for m in model.get("mappings") or [] if (m.get("builder") or {}).get("source") in keys]
+        return {"sources": sources, "mappings": mappings}
 
     def register_component(self, tenant: str, *, kind: str, name: str, site: str, owner: str, settings: dict,
                            actor_id) -> Optional[str]:

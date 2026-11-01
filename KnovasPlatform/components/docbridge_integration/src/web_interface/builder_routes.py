@@ -39,6 +39,9 @@ from builder import operate
 from builder import sources as source_kinds
 from builder import packs as shipped_packs
 from builder import team
+from builder import components as component_rules
+from builder import protocol as connector_protocol
+from builder.adapters import AdapterError
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,9 @@ ENDPOINT_PERMISSIONS = {
     "approve": "review", "record_review": "review",
     "publish": "publish", "link_tenant": "publish",
     "register_component": "manage", "team": "manage", "grant_access": "manage", "revoke_access": "manage",
+    "component_page": "view", "enrol_component": "manage", "rotate_component": "manage", "revoke_component": "manage",
+    "component_schedule": "manage", "component_settings": "manage", "component_run": "edit",
+    "component_pause": "publish", "component_resume": "publish", "component_plan": "review",
 }
 #: Endpoints about the workspace chosen in the session rather than one in the address.
 SESSION_ENDPOINTS = frozenset({"stage", "mapping_page"})
@@ -184,6 +190,9 @@ def create_builder_blueprint(
     source_secrets: Optional[Callable[[], Any]] = None,
     reader_factory: Optional[Callable[..., Any]] = None,
     user_directory: Optional[Callable[[], Any]] = None,
+    component_secrets: Optional[Callable[[], Any]] = None,
+    component_adapter: Optional[Callable[[Mapping[str, Any]], Any]] = None,
+    component_limits: Optional[Callable[[], Mapping[str, Any]]] = None,
     platform_roles: Optional[Callable[[], list]] = None,
     roles_sink: Optional[Callable[..., Any]] = None,
     sync_status: Optional[Callable[[], Mapping[str, Any]]] = None,
@@ -220,6 +229,12 @@ def create_builder_blueprint(
     ``user_directory`` returns the Platform's accounts (identity's
     UserRepository: ``get_by_email``, ``create``): inviting a consultant who
     has no account makes one (step B11).
+
+    ``component_secrets`` returns the settings registry's store of the sync
+    components' token hashes; ``component_adapter(component)`` the adapter
+    over what a component that does not speak protocol v1 reports today
+    (builder.adapters), or None; ``component_limits()`` the alert limits
+    (builder.components.LIMITS) as the settings registry sets them (step B13).
 
     ``platform_roles`` returns the Platform's role keys (its role table);
     ``roles_sink(mapping, user)`` writes the published role-to-profile
@@ -404,7 +419,8 @@ def create_builder_blueprint(
             abort(404)
         number = STAGES.index(current) + 1
         if current is STAGES[0]:
-            return _render("builder/workspaces.html", stage=current, stage_number=number)
+            return _render("builder/workspaces.html", stage=current, stage_number=number,
+                           component_alerts=_component_overview(_store())["alerts"])
         if current.slug == "pruefen":
             store = _store()
             workspace = _current_workspace(store)
@@ -426,7 +442,7 @@ def create_builder_blueprint(
                                brain=brain_views.build(store.model(workspace.id), roles=_roles()))
         if current.slug == "verbinden":
             return _render("builder/components.html", stage=current, stage_number=number,
-                           **_components_context(_store()))
+                           **_components_context(_store()), **_registry_context(_store()))
         if current.slug == "quellen":
             store = _store()
             workspace = _current_workspace(store)
@@ -871,6 +887,295 @@ def create_builder_blueprint(
         return _render("builder/activity.html", stage=STAGES[0], stage_number=1, current_workspace=current,
                        feed=feed[:300], role_labels=team.ROLE_LABELS)
 
+    # -------------------------------------------------------- sync components (B13)
+
+    def _limits() -> dict:
+        found = dict(component_rules.LIMITS)
+        try:
+            found.update({k: v for k, v in (component_limits() if component_limits else {}).items() if v})
+        except Exception as exc:  # noqa: BLE001 - the defaults hold
+            logger.warning("Builder: component limits not readable (%s)", type(exc).__name__)
+        return found
+
+    def _component_secrets():
+        if component_secrets is None:
+            raise connector_protocol.ProtocolError(503, "no_secrets", "Diese Plattform speichert keine Geheimnisse.")
+        found = component_secrets()
+        if not getattr(found, "available", True):
+            raise connector_protocol.ProtocolError(503, "no_secrets", found.reason)
+        return found
+
+    def _adapter(component: Mapping[str, Any]):
+        if component.get("transport") == "v1" or component_adapter is None:
+            return None
+        try:
+            return component_adapter(component)
+        except Exception as exc:  # noqa: BLE001 - shown as offline
+            logger.warning("Builder: no adapter for a component (%s)", type(exc).__name__)
+            return None
+
+    def _observed(component: Mapping[str, Any]) -> tuple[dict, list, list]:
+        """The component as the registry shows it, its runs and its held plans: from its own reports (v1), or
+        through its adapter (what it reports today), or -- the HTTP/JSON reader, part of the Platform -- online."""
+        store = _store()
+        if component.get("transport") == "v1":
+            return dict(component), store.component_runs(component["id"]), store.held_plans(component["id"])
+        adapter = _adapter(component)
+        now = datetime.now().astimezone().isoformat()
+        if adapter is None:
+            return {**component, "last_heartbeat_at": now, "reported_state": "online"}, [], []
+        seen = adapter.observe()
+        merged = {**component, "last_heartbeat_at": seen.get("heartbeat_at") if seen.get("reachable") else None,
+                  "reported_state": seen.get("reported_state"), "version": seen.get("version") or component.get("version"),
+                  "open_errors": seen.get("open_errors", 0), "lag_seconds": seen.get("lag_seconds"),
+                  "paused": bool(seen.get("paused")) or component.get("paused"),
+                  "capabilities": seen.get("capabilities") or []}
+        return merged, adapter.runs(), adapter.held()
+
+    def _component_overview(store) -> dict:
+        from datetime import timezone
+
+        tenant = _platform_tenant()
+        if store is None or not tenant or not hasattr(store, "component_runs"):
+            return {"rows": [], "alerts": [], "limits": _limits()}
+        now = datetime.now(timezone.utc)
+        limits = _limits()
+        rows, runs, held, seen = [], {}, {}, []
+        for c in store.components(tenant, every=True):
+            observed, c_runs, c_held = _observed(c)
+            seen.append(observed)
+            runs[c["id"]], held[c["id"]] = c_runs, c_held
+            rows.append(component_rules.row(observed, c_runs, c_held, now, limits))
+        return {"rows": rows, "alerts": component_rules.alerts(seen, runs, held, now, limits), "limits": limits}
+
+    def _registry_context(store) -> dict:
+        overview = _component_overview(store)
+        state, kind = request.args.get("zustand") or None, request.args.get("art") or None
+        return {"registry": component_rules.registry(overview["rows"], state=state, kind=kind),
+                "registry_all": len(overview["rows"]), "component_alerts": overview["alerts"],
+                "limits": overview["limits"], "state_filter": state, "kind_filter": kind,
+                "registry_states": component_rules.STATES, "enrol_kinds": component_rules.KINDS,
+                "protocol_url": request.host_url.rstrip("/") + "/api/connectors/v1"}
+
+    def _component_or_404(component_id: str) -> dict:
+        tenant = _platform_tenant()
+        store = _store()
+        found = store.component(tenant, component_id, any_state=True) if store is not None and tenant else None
+        if found is None:
+            abort(404)
+        return found
+
+    def _protocol_refused(exc):
+        return jsonify({"success": False, "error": exc.message}), exc.status
+
+    @bp.route("/komponenten/<component_id>")
+    def component_page(component_id: str):
+        """One component: what it serves and runs, its schedule, runs, held plans, last events and commands."""
+        from datetime import timezone
+
+        store = _store()
+        component = _component_or_404(component_id)
+        observed, runs, held = _observed(component)
+        now = datetime.now(timezone.utc)
+        limits = _limits()
+        row = component_rules.row(observed, runs, held, now, limits)
+        stage = STAGES_BY_SLUG["verbinden"]
+        return _render("builder/component.html", stage=stage, stage_number=STAGES.index(stage) + 1,
+                       component=observed, row=row, runs=runs[:30], held=held, served=store.served_by(component_id),
+                       events=store.events(component_id, 50) if component.get("transport") == "v1" else [],
+                       commands=store.commands(component_id) if component.get("transport") == "v1" else [],
+                       alerts=component_rules.alerts([observed], {component_id: runs}, {component_id: held}, now, limits),
+                       chart=_run_chart(runs[:30]), kinds=component_rules.KINDS, limits=limits,
+                       protocol_url=request.host_url.rstrip("/") + "/api/connectors/v1",
+                       days=component_rules.DAYS)
+
+    def _run_chart(runs: list) -> dict:
+        """The run history as bars, oldest left: duration high, items and errors marked."""
+        ordered = list(reversed(runs))
+        longest = max([int(r.get("duration_ms") or 0) for r in ordered] + [1])
+        most = max([int(r.get("added") or 0) + int(r.get("changed") or 0) + int(r.get("retired") or 0) for r in ordered] + [1])
+        bars = []
+        for i, r in enumerate(ordered):
+            items = int(r.get("added") or 0) + int(r.get("changed") or 0) + int(r.get("retired") or 0)
+            bars.append({"x": 8 + i * 22, "height": max(2, round(100 * int(r.get("duration_ms") or 0) / longest)),
+                         "items_y": 112 - round(100 * items / most), "items": items, "errors": int(r.get("errors") or 0),
+                         "status": r.get("status"), "kind": r.get("kind"), "at": r.get("started_at"),
+                         "seconds": round(int(r.get("duration_ms") or 0) / 1000, 1)})
+        return {"bars": bars, "width": max(240, 16 + 22 * len(bars)), "longest_s": round(longest / 1000, 1), "most": most}
+
+    @bp.route("/api/components/enrol", methods=["POST"])
+    def enrol_component():
+        """The wizard: a component that speaks protocol v1, and its one-time enrolment token (shown once, 24 h)."""
+        from datetime import timedelta, timezone
+
+        store = _store()
+        tenant = _platform_tenant()
+        if store is None or not tenant:
+            return jsonify({"success": False, "error": "Diese Plattform kennt ihren Mandanten nicht."}), 409
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name") or "").strip()
+        if not 1 <= len(name) <= 120:
+            return jsonify({"success": False, "error": "Name: 1 bis 120 Zeichen."}), 400
+        now = datetime.now(timezone.utc)
+        try:
+            component_id, token = connector_protocol.issue_enrolment(
+                store, _component_secrets(), tenant, kind=str(body.get("kind") or ""), name=name,
+                site=str(body.get("site") or "").strip()[:120], owner=str(body.get("owner") or "").strip()[:120],
+                actor=gate.current_user(), now=now)
+        except connector_protocol.ProtocolError as exc:
+            return _protocol_refused(exc)
+        logger.info("Builder: enrolment token issued for component %s", component_id)
+        return jsonify({"success": True, "id": component_id, "token": token,
+                        "expires_at": (now + timedelta(hours=component_rules.ENROL_HOURS)).isoformat(),
+                        "url": url_for("builder.component_page", component_id=component_id)}), 201
+
+    @bp.route("/api/components/<component_id>/rotate", methods=["POST"])
+    def rotate_component(component_id: str):
+        from datetime import timezone
+
+        _component_or_404(component_id)
+        try:
+            token = connector_protocol.rotate_enrolment(_store(), _component_secrets(), _platform_tenant(), component_id,
+                                                        gate.current_user(), datetime.now(timezone.utc))
+        except connector_protocol.ProtocolError as exc:
+            return _protocol_refused(exc)
+        logger.info("Builder: component %s rotated", component_id)
+        return jsonify({"success": True, "token": token})
+
+    @bp.route("/api/components/<component_id>/revoke", methods=["POST"])
+    def revoke_component(component_id: str):
+        from datetime import timezone
+
+        component = _component_or_404(component_id)
+        if component.get("transport") != "v1":
+            _store().update_component(component_id, state="revoked")
+        else:
+            try:
+                connector_protocol.revoke(_store(), _component_secrets(), _platform_tenant(), component_id,
+                                          gate.current_user(), datetime.now(timezone.utc))
+            except connector_protocol.ProtocolError as exc:
+                return _protocol_refused(exc)
+        logger.info("Builder: component %s revoked", component_id)
+        return jsonify({"success": True})
+
+    def _command(component: Mapping[str, Any], command: str, args: dict, event: str) -> None:
+        store = _store()
+        store.add_command(component["id"], command, args, gate.current_user().id)
+        store.add_event(component["id"], event, {})
+
+    @bp.route("/api/components/<component_id>/run", methods=["POST"])
+    def component_run(component_id: str):
+        """Run now: a dry run, or -- for whoever may publish -- an apply after a dry run."""
+        component = _component_or_404(component_id)
+        kind = (request.get_json(silent=True) or {}).get("kind")
+        if kind not in ("dry_run", "apply"):
+            return jsonify({"success": False, "error": "Probelauf oder Anwenden?"}), 400
+        if kind == "apply" and not g.builder_access.may("publish"):
+            return jsonify({"success": False, "error": "Anwenden darf, wer veröffentlicht."}), 403
+        if component.get("state") in ("revoked", "pending") or component.get("paused"):
+            return jsonify({"success": False, "error": "Die Komponente läuft nicht (pausiert, widerrufen oder nicht angemeldet)."}), 409
+        if component.get("transport") == "v1":
+            if kind == "apply" and not any(r["kind"] == "dry_run" and r["status"] in ("ok", "held")
+                                           for r in _store().component_runs(component_id, 5)):
+                return jsonify({"success": False, "error": "Erst ein Probelauf: Angewendet wird, was ein Probelauf gezeigt hat."}), 409
+            _command(component, "run", {"kind": kind}, "run.requested")
+            return jsonify({"success": True, "queued": True})
+        adapter = _adapter(component)
+        if adapter is None:
+            return jsonify({"success": False, "error": "Diese Komponente lässt sich hier nicht starten."}), 409
+        try:
+            adapter.run(kind, gate.current_user())
+        except AdapterError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 409
+        except Exception as exc:  # noqa: BLE001 - the sync's own refusal
+            return jsonify({"success": False, "error": str(exc)[:300] or type(exc).__name__}), 409
+        return jsonify({"success": True, "queued": False})
+
+    def _pause(component_id: str, paused: bool):
+        component = _component_or_404(component_id)
+        if component.get("transport") == "v1":
+            _store().update_component(component_id, paused=paused)
+            _command(component, "pause" if paused else "resume", {}, "paused" if paused else "resumed")
+            return jsonify({"success": True})
+        adapter = _adapter(component)
+        try:
+            if adapter is None:
+                raise AdapterError("Diese Komponente lässt sich hier nicht pausieren.")
+            adapter.pause(gate.current_user()) if paused else adapter.resume(gate.current_user())
+        except AdapterError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 409
+        _store().update_component(component_id, paused=paused)
+        return jsonify({"success": True})
+
+    @bp.route("/api/components/<component_id>/pause", methods=["POST"])
+    def component_pause(component_id: str):
+        return _pause(component_id, True)
+
+    @bp.route("/api/components/<component_id>/resume", methods=["POST"])
+    def component_resume(component_id: str):
+        return _pause(component_id, False)
+
+    @bp.route("/api/components/<component_id>/schedule", methods=["POST"])
+    def component_schedule(component_id: str):
+        component = _component_or_404(component_id)
+        try:
+            schedule = component_rules.check_schedule((request.get_json(silent=True) or {}).get("schedule"))
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        _store().update_component(component_id, schedule=schedule)
+        _store().add_event(component_id, "schedule.changed", {})
+        if component.get("transport") == "v1":
+            _command(component, "reload_config", {}, "config.changed")
+        return jsonify({"success": True, "schedule": schedule, "text": component_rules.schedule_text(schedule)})
+
+    @bp.route("/api/components/<component_id>/settings", methods=["POST"])
+    def component_settings(component_id: str):
+        """Name, site, owner (and a connector's address). What it runs -- sources, mappings, folder rules -- changes
+        in a workspace draft and goes through the review (step B5)."""
+        component = _component_or_404(component_id)
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name") or component["name"]).strip()
+        if not 1 <= len(name) <= 120:
+            return jsonify({"success": False, "error": "Name: 1 bis 120 Zeichen."}), 400
+        fields = {"name": name, "site": str(body.get("site", component.get("site")) or "").strip()[:120],
+                  "owner": str(body.get("owner", component.get("owner")) or "").strip()[:120]}
+        _store().update_component(component_id, **fields)
+        _store().add_event(component_id, "config.changed", {})
+        if component.get("transport") == "v1":
+            _command(component, "reload_config", {}, "config.changed")
+        return jsonify({"success": True})
+
+    @bp.route("/api/components/<component_id>/plans/<plan_id>", methods=["POST"])
+    def component_plan(component_id: str, plan_id: str):
+        """Approve or reject a plan the deletion guard held, as brain-runner holds them; a reason is required."""
+        component = _component_or_404(component_id)
+        body = request.get_json(silent=True) or {}
+        approve = bool(body.get("approve"))
+        reason = str(body.get("reason") or "").strip()[:500]
+        if approve and not reason:
+            return jsonify({"success": False, "error": "Warum dürfen diese Knoten stillgelegt werden? Ein Grund ist nötig."}), 400
+        store = _store()
+        if component.get("transport") == "v1":
+            plan = next((h for h in store.held_plans(component_id) if h["id"] == plan_id and h["state"] == "held"), None)
+            if plan is None or not store.decide_held(component_id, plan_id, approve=approve, actor_id=gate.current_user().id,
+                                                     reason=reason):
+                return jsonify({"success": False, "error": "Diesen zurückgehaltenen Plan gibt es nicht mehr."}), 404
+            _command(component, "approve_plan" if approve else "reject_plan",
+                     {"plan": plan_id, "mapping": plan["mapping"], "reason": reason},
+                     "plan.approved" if approve else "plan.rejected")
+            return jsonify({"success": True})
+        adapter = _adapter(component)
+        plan = next((h for h in (adapter.held() if adapter else []) if h["id"] == plan_id), None)
+        if plan is None:
+            return jsonify({"success": False, "error": "Diesen zurückgehaltenen Plan gibt es nicht mehr."}), 404
+        try:
+            adapter.decide(plan["mapping"], approve, reason, gate.current_user())
+        except AdapterError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 409
+        except Exception as exc:  # noqa: BLE001 - the sync's own refusal
+            return jsonify({"success": False, "error": str(exc)[:300] or type(exc).__name__}), 409
+        return jsonify({"success": True})
+
     # -------------------------------------------------------- operate (B10)
 
     def _editor_links(model) -> dict:
@@ -930,6 +1235,7 @@ def create_builder_blueprint(
             "history": operate.history(runs, sync_runs, graph),
             "lint": lint,
             "coverage": operate.coverage(model, graph, request.args.get("hierarchie"), now=now),
+            "component_alerts": _component_overview(store)["alerts"],
         }
 
     @bp.route("/api/w/<workspace_id>/reviews", methods=["POST"])

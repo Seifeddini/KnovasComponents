@@ -1611,3 +1611,136 @@ def test_a_team_with_an_outside_consultant(browser, team_server, shots, import_z
     assert "POST publish" in log and "403" in log and "POST edit_ontology" in log
     page.screenshot(path=shots / "b11-09-team-and-log.png", full_page=True)
     page.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Step B13: enrolling and monitoring sync components. A file-share connector
+# and the GitHub runner enrol through the wizard and speak protocol v1
+# (played by builder_harness.ProtocolClient); a dry run, a held plan and its
+# approval, an apply, pause and resume; one goes offline and the alert shows.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def components_server():
+    from builder_harness import FakeEngine, MemorySecrets, MemoryWorkspaceStore
+
+    admin = StandInUser({"admin"}, "Ada Admin")
+    store = MemoryWorkspaceStore({str(admin.id): admin.display_name})
+    app = make_app(admin, store, tenant="test-tenant-0001", engine=FakeEngine(), component_secrets=MemorySecrets())
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield {"base": f"http://127.0.0.1:{server.server_port}", "store": store, "app": app, "admin": admin}
+    server.shutdown()
+
+
+def _enrol_through_the_wizard(page, kind_label, name, site, owner, shots=None, prefix=""):
+    page.get_by_role("button", name="Komponente anmelden").click()
+    wizard = page.locator("#b-enrol")
+    wizard.get_by_text(kind_label, exact=True).click()
+    if shots:
+        page.screenshot(path=shots / f"{prefix}-1-kind.png")
+    wizard.get_by_role("button", name="Weiter").click()
+    wizard.get_by_label("Name").fill(name)
+    wizard.get_by_label("Standort").fill(site)
+    wizard.get_by_label("Verantwortlich").fill(owner)
+    wizard.get_by_role("button", name="Token erzeugen").click()
+    token = wizard.locator("[data-enrol-token]")
+    token.wait_for(state="visible")
+    if shots:
+        page.screenshot(path=shots / f"{prefix}-2-token.png")
+    value = token.input_value()
+    wizard.get_by_role("button", name="Abbrechen").click()
+    page.wait_for_load_state("load")
+    return value
+
+
+def test_components_enrol_run_and_alert(browser, components_server, shots):
+    import datetime as _dt
+
+    from builder_harness import ProtocolClient
+
+    s = components_server
+    base, store = s["base"], s["store"]
+    http = s["app"].test_client()
+    page = _page(browser, "1440", "light")
+    page.set_viewport_size({"width": 1440, "height": 960})
+
+    # The wizard: a file-share connector, its one-time token shown once; it enrols and appears online.
+    page.goto(f"{base}/builder/verbinden")
+    token = _enrol_through_the_wizard(page, "Dateiablage / DMS (KnovasConnector)", "Dateiablage Zürich", "Büro Zürich",
+                                      "IT Kanzlei", shots, "b13-01-wizard")
+    share = ProtocolClient(http)
+    assert share.enrol(token, version="2.4.0").status_code == 201
+    assert share.heartbeat(lag_seconds=420).status_code == 200
+    token = _enrol_through_the_wizard(page, "GitHub-Runner", "GitHub-Runner", "Plattform", "Engineering")
+    runner = ProtocolClient(http)
+    assert runner.enrol(token, version="brain-runner 0.1.1").status_code == 201
+    runner.heartbeat(lag_seconds=3600, version="brain-runner 0.1.1")
+    page.goto(f"{base}/builder/verbinden")
+    assert page.locator("[data-component-state='online']").count() == 2
+
+    # A dry run from the detail page: the connector takes it with its next heartbeat and reports a held plan.
+    page.locator("a", has_text="Dateiablage Zürich").click()
+    page.get_by_role("button", name="Probelauf jetzt").click()
+    page.wait_for_selector("[data-cp-result]:not([hidden])")
+    [command] = share.heartbeat().get_json()["commands"]
+    t0 = _dt.datetime(2026, 11, 1, 6, tzinfo=_dt.timezone.utc)
+    for n, (kind, status, added, changed, retired, errors, seconds) in enumerate((
+            ("apply", "ok", 214, 0, 0, 0, 95), ("dry_run", "ok", 3, 11, 0, 0, 12), ("apply", "ok", 3, 11, 0, 0, 20),
+            ("apply", "failed", 0, 0, 0, 2, 4), ("dry_run", "ok", 1, 4, 0, 0, 10))):
+        start = t0 - _dt.timedelta(days=5 - n)
+        share.report_run(kind=kind, status=status, started_at=start.isoformat(),
+                         finished_at=(start + _dt.timedelta(seconds=seconds)).isoformat(), duration_ms=seconds * 1000,
+                         added=added, changed=changed, retired=retired, errors=errors)
+    share.report_run(kind="dry_run", status="held", started_at=t0.isoformat(),
+                     finished_at=(t0 + _dt.timedelta(seconds=14)).isoformat(), duration_ms=14000, added=2, changed=6,
+                     retired=58, errors=0, held=[{"mapping": "ablage-akten", "retire": {"Akte": 58}, "share": 0.27}],
+                     command=command["id"])
+    share.events({"code": "scan.finished", "counts": {"files": 1873, "folders": 212}})
+    share.heartbeat()
+
+    # The held plan, approved with a reason; the decision goes to the connector.
+    page.reload()
+    plan = page.locator("[data-cp-plan='ablage-akten']")
+    plan.get_by_placeholder("Grund der Freigabe").fill("Alte Akten 2019 sind ins Archiv gewandert.")
+    plan.get_by_role("button", name="Freigeben").click()
+    page.wait_for_selector("[data-cp-plan='ablage-akten'].is-approved")
+    [decision] = share.heartbeat().get_json()["commands"]
+    assert decision["command"] == "approve_plan"
+    share.done(decision["id"])
+
+    # An apply after confirming; pause and resume.
+    page.get_by_role("button", name="Jetzt anwenden").click()
+    page.locator("#b-cp-confirm").get_by_role("button", name="Anwenden").click()
+    page.wait_for_selector("[data-cp-result]:not([hidden])")
+    [apply_cmd] = share.heartbeat().get_json()["commands"]
+    assert apply_cmd["args"] == {"kind": "apply"}
+    finish = t0 + _dt.timedelta(minutes=5)
+    share.report_run(kind="apply", status="ok", started_at=finish.isoformat(),
+                     finished_at=(finish + _dt.timedelta(seconds=41)).isoformat(), duration_ms=41000, added=2, changed=6,
+                     retired=58, errors=0, command=apply_cmd["id"])
+    page.reload()
+    page.get_by_role("button", name="Pausieren").click()
+    page.wait_for_selector("[data-cp-state='paused']")
+    assert share.heartbeat().get_json()["paused"]
+    page.get_by_role("button", name="Fortsetzen").click()
+    page.wait_for_selector("[data-cp-state='online']")
+    share.heartbeat()
+    page.reload()
+    assert "ablage-akten" in page.inner_text("main") and "scan.finished" in page.inner_text("[data-cp-events]")
+    page.screenshot(path=shots / "b13-03-detail.png", full_page=True)
+
+    # The GitHub runner stops reporting: offline beyond the limit, first in the registry, an alert everywhere.
+    store.update_component(runner.component, last_heartbeat_at=(_dt.datetime.now(_dt.timezone.utc)
+                                                                - _dt.timedelta(hours=2)).isoformat())
+    page.goto(f"{base}/builder/verbinden")
+    first = page.locator("[data-comp-table] tbody tr").first
+    assert first.get_attribute("data-component") == "GitHub-Runner" and first.get_attribute("data-component-state") == "offline"
+    assert "GitHub-Runner ist offline seit 2 Stunden." in page.inner_text("[data-component-alerts]")
+    page.screenshot(path=shots / "b13-04-registry.png", full_page=True)
+    page.goto(f"{base}/builder/arbeitsbereich")
+    assert page.locator("[data-alert='offline']").count() == 1
+    page.screenshot(path=shots / "b13-05-alert-start-page.png")
+    page.context.close()

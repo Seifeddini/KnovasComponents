@@ -1,0 +1,19 @@
+{# The sync components' alerts (build plan step B13): offline beyond the limit,
+   two failed runs in a row, lag beyond the limit, a plan held more than a day.
+   Shown on the start page, the registry and the Betrieb stage. #}
+{% macro alerts_box(alerts) %}
+{% if alerts %}
+<section class="b-alerts" aria-labelledby="b-alerts-title" data-component-alerts>
+    <h2 class="b-h3" id="b-alerts-title">Warnungen der Komponenten</h2>
+    <ul>
+        {% for a in alerts %}
+        <li class="b-alert b-alert--{{ a.severity }}" data-alert="{{ a.code }}">
+            <span class="b-tag b-tag--{{ a.severity }}"><span class="b-tag-dot"></span>{{ {'offline': 'Offline', 'failed_twice': 'Fehlgeschlagen', 'lag': 'Rückstand', 'held_plan': 'Wartet'}.get(a.code, a.code) }}</span>
+            <span>{{ a.text }}</span>
+            <a class="b-link-strong b-small" href="{{ url_for('builder.component_page', component_id=a.component) }}">Ansehen</a>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+{% endmacro %}

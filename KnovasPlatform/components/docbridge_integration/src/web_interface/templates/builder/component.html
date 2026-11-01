@@ -1,0 +1,210 @@
+{# One sync component (build plan step B13): what it serves and runs, its
+   schedule, its runs as a chart, the plans its deletion guard holds, its
+   last events (codes and counts only) and the commands sent to it. Expects
+   component, row (builder.components.row), runs, held, served, events,
+   commands, alerts, chart, kinds, limits, protocol_url, days.
+   static/js/builder/component.js sends the actions. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% from 'builder/_alerts.html' import alerts_box %}
+{% set c = component %}
+{% set v1 = c.transport == 'v1' %}
+{% block title %}{{ c.name }} · Komponente{% endblock %}
+{% block main %}
+<header class="b-page-head" data-cp
+        data-run-url="{{ url_for('builder.component_run', component_id=c.id) }}"
+        data-pause-url="{{ url_for('builder.component_pause', component_id=c.id) }}"
+        data-resume-url="{{ url_for('builder.component_resume', component_id=c.id) }}"
+        data-rotate-url="{{ url_for('builder.rotate_component', component_id=c.id) }}"
+        data-revoke-url="{{ url_for('builder.revoke_component', component_id=c.id) }}"
+        data-schedule-url="{{ url_for('builder.component_schedule', component_id=c.id) }}"
+        data-settings-url="{{ url_for('builder.component_settings', component_id=c.id) }}"
+        data-plan-url="{{ url_for('builder.component_plan', component_id=c.id, plan_id='PLAN') }}">
+    <p class="b-step-count b-small"><a class="b-link-strong" href="{{ url_for('builder.stage', slug='verbinden') }}">Komponenten</a></p>
+    <h1 class="b-h1">{{ c.name }}</h1>
+    <div class="b-tag-row">
+        <span class="b-tag b-reg-state is-{{ row.state }}" data-cp-state="{{ row.state }}"><span class="b-tag-dot"></span>{{ row.state_label }}</span>
+        <span class="b-tag">{{ row.kind_label }}</span>
+        <span class="b-tag">{{ 'Protokoll v1' if v1 else 'Adapter: was sie heute meldet' }}</span>
+        {% if c.version %}<span class="b-tag b-mono">{{ c.version }}</span>{% endif %}
+        {% if c.site %}<span class="b-tag">{{ c.site }}</span>{% endif %}
+        {% if c.owner %}<span class="b-tag">{{ c.owner }}</span>{% endif %}
+        <span class="b-tag">Zuletzt gemeldet {{ c.last_heartbeat_at | b_datetime }}</span>
+    </div>
+    {% if row.state not in ('revoked', 'pending') %}
+    <div class="b-button-row b-cp-actions">
+        <button type="button" class="b-button b-button--secondary" data-cp-run="dry_run" {% if row.state == 'paused' %}disabled{% endif %}>Probelauf jetzt</button>
+        <button type="button" class="b-button b-button--secondary" data-cp-run="apply" {% if row.state == 'paused' %}disabled{% endif %}>Jetzt anwenden</button>
+        {% if row.state == 'paused' %}<button type="button" class="b-button b-button--primary" data-cp-resume>Fortsetzen</button>
+        {% else %}<button type="button" class="b-button b-button--quiet" data-cp-pause>Pausieren</button>{% endif %}
+        {% if v1 %}<button type="button" class="b-button b-button--quiet" data-cp-rotate>Token erneuern</button>{% endif %}
+        <button type="button" class="b-button b-button--quiet b-cp-danger" data-cp-revoke>Widerrufen</button>
+    </div>
+    {% endif %}
+    <div class="b-callout" data-cp-result role="status" hidden></div>
+</header>
+
+{% if row.state == 'pending' %}
+<div class="b-callout b-callout--warning" role="status">
+    <p class="b-callout-title">Wartet auf die Anmeldung</p>
+    <p>Das Einmal-Token gilt bis {{ c.enrol_expires_at | b_datetime }}. Die Komponente meldet sich bei <code class="b-mono">{{ protocol_url }}/enrol</code> an. Ist das Token verloren oder abgelaufen: ein neues erzeugen.</p>
+    <button type="button" class="b-button b-button--secondary" data-cp-rotate>Neues Einmal-Token</button>
+</div>
+{% elif row.state == 'revoked' %}
+<div class="b-callout b-callout--critical" role="status"><p class="b-callout-title">Widerrufen</p><p>Zertifikat und Steuer-Token gelten nicht mehr. Die Komponente kann sich nicht mehr melden.</p></div>
+{% endif %}
+<div class="b-callout b-callout--good" data-cp-token-box role="status" hidden>
+    <p class="b-callout-title">Neues Einmal-Token</p>
+    <p>Wird nur jetzt gezeigt, gilt 24 Stunden. Das bisherige Zertifikat und der Steuer-Token gelten ab jetzt nicht mehr.</p>
+    <input class="b-input b-mono" readonly data-cp-token aria-label="Einmal-Token">
+</div>
+
+{{ alerts_box(alerts) }}
+
+<div class="b-cp-layout">
+    <div class="b-cp-main">
+        <section class="b-op-section" aria-labelledby="b-cp-runs-title">
+            <h2 class="b-h2" id="b-cp-runs-title">Läufe</h2>
+            {% if chart.bars %}
+            <figure class="b-cp-chart">
+                <svg viewBox="0 0 {{ chart.width }} 132" width="100%" height="160" role="img" aria-labelledby="b-cp-chart-cap" preserveAspectRatio="none">
+                    <line x1="0" y1="112" x2="{{ chart.width }}" y2="112" class="b-cp-axis"/>
+                    {% for b in chart.bars %}
+                    <g data-cp-bar="{{ b.status }}">
+                        <title>{{ b.at | b_datetime }} · {{ 'Probelauf' if b.kind == 'dry_run' else 'Anwenden' }} · {{ b.seconds }} s · {{ b.items }} Einträge · {{ b.errors }} Fehler</title>
+                        <rect x="{{ b.x }}" y="{{ 112 - b.height }}" width="14" height="{{ b.height }}" class="b-cp-bar is-{{ b.status }} is-{{ b.kind }}"/>
+                        <circle cx="{{ b.x + 7 }}" cy="{{ b.items_y }}" r="3" class="b-cp-items"/>
+                        {% if b.errors %}<text x="{{ b.x + 7 }}" y="126" text-anchor="middle" class="b-cp-error">{{ b.errors }}</text>{% endif %}
+                    </g>
+                    {% endfor %}
+                </svg>
+                <figcaption id="b-cp-chart-cap" class="b-small b-muted">Je Lauf, ältester links: Balken = Dauer (bis {{ chart.longest_s }} s), Punkt = Einträge (bis {{ chart.most }}), Zahl unten = Fehler. Hell = Probelauf, voll = Anwenden; rot = fehlgeschlagen, gelb = zurückgehalten.</figcaption>
+            </figure>
+            <div class="b-table-wrap">
+                <table class="b-table b-table--compact" data-cp-runs>
+                    <thead><tr><th scope="col">Wann</th><th scope="col">Was</th><th scope="col">Ergebnis</th><th scope="col" class="is-num">Dauer</th><th scope="col" class="is-num">+ / ~ / −</th><th scope="col" class="is-num">Fehler</th></tr></thead>
+                    <tbody>{% for r in runs[:10] %}<tr><td>{{ r.started_at | b_datetime }}</td><td>{{ 'Probelauf' if r.kind == 'dry_run' else 'Anwenden' }}</td>
+                        <td><span class="b-reg-run is-{{ r.status }}">{{ {'ok': 'ok', 'held': 'zurückgehalten', 'failed': 'fehlgeschlagen', 'running': 'läuft'}.get(r.status, r.status) }}</span></td>
+                        <td class="is-num">{{ ((r.duration_ms or 0) / 1000) | round(1) }} s</td><td class="is-num">{{ r.added }} / {{ r.changed }} / {{ r.retired }}</td><td class="is-num">{{ r.errors }}</td></tr>{% endfor %}</tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="b-muted">Noch kein Lauf gemeldet.</p>
+            {% endif %}
+        </section>
+
+        <section class="b-op-section" aria-labelledby="b-cp-held-title">
+            <h2 class="b-h2" id="b-cp-held-title">Zurückgehaltene Pläne</h2>
+            <p class="b-small b-muted">Der Löschschutz hält einen Plan an, der zu viel stilllegen würde. Freigeben braucht einen Grund; Ablehnen lässt den nächsten Lauf neu planen.</p>
+            {% set waiting = held | selectattr('state', 'equalto', 'held') | list %}
+            {% if held %}
+            <ul class="b-cp-held">
+                {% for h in held %}
+                <li class="b-cp-plan is-{{ h.state }}" data-cp-plan="{{ h.mapping }}">
+                    <div><strong class="b-mono">{{ h.mapping }}</strong> · {{ h.retire.values() | sum }} stilllegen{% if h.share %} ({{ (h.share * 100) | round | int }} %){% endif %}
+                        <br><span class="b-small b-muted">seit {{ h.held_at | b_datetime }}{% if h.state != 'held' %} · {{ 'freigegeben' if h.state == 'approved' else 'abgelehnt' }} von {{ h.decided_by_name or '–' }}{% if h.reason %}: {{ h.reason }}{% endif %}{% endif %}</span></div>
+                    {% if h.state == 'held' %}
+                    <div class="b-cp-decide">
+                        <label class="b-visually-hidden" for="b-cp-reason-{{ loop.index }}">Grund</label>
+                        <input class="b-input" id="b-cp-reason-{{ loop.index }}" placeholder="Grund der Freigabe" data-cp-reason>
+                        <button type="button" class="b-button b-button--primary b-button--small" data-cp-approve="{{ h.id }}">Freigeben</button>
+                        <button type="button" class="b-button b-button--quiet b-button--small" data-cp-reject="{{ h.id }}">Ablehnen</button>
+                    </div>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="b-muted">Nichts zurückgehalten.</p>
+            {% endif %}
+        </section>
+
+        <section class="b-op-section" aria-labelledby="b-cp-events-title">
+            <h2 class="b-h2" id="b-cp-events-title">Letzte Ereignisse</h2>
+            <p class="b-small b-muted">Codes und Zahlen, nie Dokumentnamen oder Inhalte.</p>
+            {% if events %}
+            <div class="b-table-wrap"><table class="b-table b-table--compact" data-cp-events>
+                <thead><tr><th scope="col">Wann</th><th scope="col">Code</th><th scope="col">Zahlen</th></tr></thead>
+                <tbody>{% for e in events %}<tr><td>{{ e.at | b_datetime }}</td><td class="b-mono">{{ e.code }}</td><td class="b-mono">{% for k, n in e.counts.items() %}{{ k }}={{ n }}{% if not loop.last %} {% endif %}{% endfor %}</td></tr>{% endfor %}</tbody>
+            </table></div>
+            {% else %}
+            <p class="b-muted">{{ 'Noch keine Ereignisse.' if v1 else 'Ereignisse meldet eine Komponente erst mit dem Protokoll v1.' }}</p>
+            {% endif %}
+        </section>
+    </div>
+
+    <aside class="b-cp-side">
+        <section class="b-op-section" aria-labelledby="b-cp-serves-title">
+            <h2 class="b-h3" id="b-cp-serves-title">Liest</h2>
+            {% if served.sources %}
+            <ul class="b-cp-list">{% for s in served.sources %}<li><strong>{{ s.name }}</strong> <span class="b-small b-muted">{{ s.workspace_name }}</span></li>{% endfor %}</ul>
+            {% else %}<p class="b-muted b-small">Noch keine Quelle.</p>{% endif %}
+            <h3 class="b-h3">Führt aus</h3>
+            {% if served.mappings %}
+            <ul class="b-cp-list">{% for m in served.mappings %}<li class="b-mono">{{ m.id }}</li>{% endfor %}</ul>
+            {% else %}<p class="b-muted b-small">Keine Zuordnung.</p>{% endif %}
+            <h3 class="b-h3">Ordnerregeln</h3>
+            <p class="b-muted b-small">Kommen mit der Zugriffsverwaltung (B14).</p>
+            <p class="b-small">Quellen, Zuordnungen und Ordnerregeln ändern sich in einem Entwurf und gehen durch die Prüfung. <a class="b-link-strong" href="{{ url_for('builder.stage', slug='quellen') }}">Zu den Quellen</a></p>
+        </section>
+
+        <section class="b-op-section" aria-labelledby="b-cp-schedule-title">
+            <h2 class="b-h3" id="b-cp-schedule-title">Zeitplan</h2>
+            <p class="b-small">Jetzt: <strong data-cp-schedule-text>{{ row.schedule_text }}</strong></p>
+            <form class="b-cp-schedule" novalidate data-cp-schedule>
+                {% set sch = c.schedule or {'mode': 'manual'} %}
+                <fieldset class="b-vw-choices"><legend class="b-label">Wann sie läuft</legend>
+                    <label class="b-check"><input type="radio" name="mode" value="manual" {% if sch.mode == 'manual' %}checked{% endif %}><span>Manuell</span></label>
+                    <label class="b-check"><input type="radio" name="mode" value="interval" {% if sch.mode == 'interval' %}checked{% endif %}><span>Regelmäßig</span></label>
+                    <label class="b-check"><input type="radio" name="mode" value="window" {% if sch.mode == 'window' %}checked{% endif %}><span>Im Zeitfenster</span></label>
+                </fieldset>
+                <div class="b-field"><label class="b-label" for="b-cp-every">Alle … Minuten</label><input class="b-input" id="b-cp-every" name="every_minutes" inputmode="numeric" value="{{ sch.every_minutes or 60 }}"></div>
+                <fieldset class="b-vw-choices" data-cp-window><legend class="b-label">Tage</legend>
+                    {% for d in days %}<label class="b-check"><input type="checkbox" name="days" value="{{ d }}" {% if d in (sch.days or []) %}checked{% endif %}><span>{{ d | capitalize }}</span></label>{% endfor %}
+                </fieldset>
+                <div class="b-ed-pair" data-cp-window>
+                    <div class="b-field"><label class="b-label" for="b-cp-from">Von</label><input class="b-input" id="b-cp-from" name="from" value="{{ sch['from'] or '22:00' }}"></div>
+                    <div class="b-field"><label class="b-label" for="b-cp-to">Bis</label><input class="b-input" id="b-cp-to" name="to" value="{{ sch.to or '05:00' }}"></div>
+                </div>
+                <button type="submit" class="b-button b-button--secondary b-button--small">Zeitplan übernehmen</button>
+            </form>
+        </section>
+
+        <section class="b-op-section" aria-labelledby="b-cp-settings-title">
+            <h2 class="b-h3" id="b-cp-settings-title">Angaben</h2>
+            <form class="b-cp-settings" novalidate data-cp-settings>
+                <div class="b-field"><label class="b-label" for="b-cp-name">Name</label><input class="b-input" id="b-cp-name" name="name" value="{{ c.name }}"></div>
+                <div class="b-field"><label class="b-label" for="b-cp-site">Standort</label><input class="b-input" id="b-cp-site" name="site" value="{{ c.site or '' }}"></div>
+                <div class="b-field"><label class="b-label" for="b-cp-owner">Verantwortlich</label><input class="b-input" id="b-cp-owner" name="owner" value="{{ c.owner or '' }}"></div>
+                <button type="submit" class="b-button b-button--secondary b-button--small">Angaben übernehmen</button>
+            </form>
+        </section>
+
+        {% if commands %}
+        <section class="b-op-section" aria-labelledby="b-cp-commands-title">
+            <h2 class="b-h3" id="b-cp-commands-title">Befehle</h2>
+            <ul class="b-cp-list" data-cp-commands>
+                {% for cmd in commands %}
+                <li><span class="b-mono">{{ cmd.command }}{% if cmd.args.kind %} {{ cmd.args.kind }}{% endif %}</span> <span class="b-small b-muted">{{ cmd.created_at | b_datetime }} · {{ cmd.by or '–' }} ·
+                    {% if cmd.done_at %}{{ cmd.result }}{% elif cmd.delivered_at %}zugestellt{% else %}wartet auf den nächsten Herzschlag{% endif %}</span></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+    </aside>
+</div>
+
+<dialog class="b-dialog" id="b-cp-confirm" aria-labelledby="b-cp-confirm-title">
+    <div class="b-dialog-head"><div>
+        <h2 class="b-h2" id="b-cp-confirm-title">Jetzt anwenden?</h2>
+        <p class="b-muted">Schreibt, was der letzte Probelauf gezeigt hat, in das Brain des Mandanten. Was der Löschschutz anhält, bleibt angehalten.</p>
+    </div></div>
+    <div class="b-dialog-foot">
+        <button type="button" class="b-button b-button--quiet" data-cp-confirm-cancel>Abbrechen</button>
+        <button type="button" class="b-button b-button--primary" data-cp-confirm-go>Anwenden</button>
+    </div>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/component.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

@@ -1387,6 +1387,9 @@ def create_app(config_path: Optional[str] = None):
         # ambient credential for a forged request to ride on.
         if request.endpoint.startswith('experiments_api.'):
             return None
+        # Connector protocol v1 (Brain Builder B13): components send their own token, never a browser cookie.
+        if request.endpoint.startswith('connector_protocol.'):
+            return None
         csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
         if not _csrf_token_is_valid(csrf_header):
             return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
@@ -1900,6 +1903,32 @@ def create_app(config_path: Optional[str] = None):
             app.extensions['platform_settings'].save(user, {'views.profile_roles': mapping or None},
                                                      roles=_builder_platform_roles())
 
+        def _builder_component_secrets():
+            """The sync components' token hashes in the settings registry, for this Platform's tenant."""
+            import platform_settings as _ps
+
+            return _ps.SourceSecrets(_ps.SettingStore(identity_gate.connection()),
+                                     app.extensions['platform_settings'].box, str(api_client.customer_id or ''),
+                                     prefix=_ps.COMPONENT_SECRET_PREFIX)
+
+        def _builder_component_adapter(component):
+            """What a component that does not speak protocol v1 yet reports today (builder.adapters)."""
+            from builder import adapters as _adapters
+
+            if component['kind'] == 'knovas_connector':
+                base = (component.get('settings') or {}).get('base_url')
+                client = KnovasConnectorClient(base, principal_broker=principal_broker) if base else rc_client
+                return _adapters.KnovasConnectorAdapter(client) if client is not None else None
+            if component['kind'] == 'github_runner':
+                sync = app.extensions.get('brain_sync')
+                return _adapters.GitHubRunnerAdapter(sync) if sync is not None else None
+            return None
+
+        def _builder_component_limits():
+            resolver = app.extensions['platform_settings']
+            return {'offline_after_minutes': resolver.value('builder.components.offline_after_minutes'),
+                    'lag_hours': resolver.value('builder.components.lag_hours')}
+
         def _builder_sync_status():
             sync = app.extensions.get('brain_sync')
             if sync is None:
@@ -1966,7 +1995,25 @@ def create_app(config_path: Optional[str] = None):
             roles_sink=_builder_roles_sink,
             # Betrieb (B10): the sync's mapping state, runs and evaluation.
             sync_status=_builder_sync_status,
+            # Sync components (B13): token hashes in the settings registry, adapters over what they report today.
+            component_secrets=_builder_component_secrets,
+            component_adapter=_builder_component_adapter,
+            component_limits=_builder_component_limits,
         ))
+
+        # Connector protocol v1 (B13): components call out to these; each checks the component's own credential,
+        # so the session gate and the CSRF gate stand aside for them.
+        from web_interface.connector_protocol import ENDPOINTS as _PROTOCOL_ENDPOINTS
+        from web_interface.connector_protocol import create_connector_protocol_blueprint
+
+        app.register_blueprint(create_connector_protocol_blueprint(
+            store_factory=lambda: WorkspaceStore(identity_gate.connection()),
+            secrets=_builder_component_secrets,
+            tenant_provider=lambda: api_client.customer_id,
+            # The Brain signs a component's certificate for this Platform's tenant.
+            signer=lambda csr, name: api_client.sign_certificate(csr, validity_days=365, organisation=name),
+        ))
+        identity_gate.allow_bearer_endpoints(_PROTOCOL_ENDPOINTS)
 
         from identity.node_grants import NodeGrantStore
         from web_interface.graph_routes import create_graph_blueprint

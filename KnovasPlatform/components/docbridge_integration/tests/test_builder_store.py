@@ -209,3 +209,45 @@ def test_grants_comments_and_the_access_log(store, consultant, identity_repo):
     log = store.access_log(workspace_id)
     assert [(e["method"], e["action"], e["status"]) for e in log] == [("POST", "publish", 403), ("GET", "workspace", 200)]
     assert log[0]["actor_name"] == "Gast" and log[0]["via"] == "grant"
+
+
+def test_components_enrol_run_hold_and_take_commands(store, consultant):
+    """Step B13 (migration 0017): a v1 component from pending to enrolled, its runs, held plans, events, commands."""
+    tenant = "tenant-b13"
+    cid = store.create_component(tenant, kind="knovas_connector", name="Ablage", site="Zürich", owner="IT",
+                                 actor_id=consultant.id, enrol_expires_at="2030-01-01T00:00:00+00:00")
+    assert store.create_component(tenant, kind="github_runner", name="Ablage", site="", owner="", actor_id=consultant.id,
+                                  enrol_expires_at="2030-01-01T00:00:00+00:00") is None
+    assert store.component(tenant, cid) is None                       # pending: no source reads through it yet
+    [pending] = store.pending_components(tenant)
+    assert pending["transport"] == "v1" and pending["schedule"] == {"mode": "manual"}
+    store.update_component(cid, state="enrolled", version="2.4.0", capabilities=["dry_run"], certificate_fingerprint="ab",
+                           last_heartbeat_at="2026-11-01T10:00:00+00:00", reported_state="online",
+                           schedule={"mode": "interval", "every_minutes": 60}, paused=True)
+    c = store.component(tenant, cid)
+    assert c["state"] == "enrolled" and c["capabilities"] == ["dry_run"] and c["paused"] is True
+    assert c["schedule"] == {"mode": "interval", "every_minutes": 60}
+    with pytest.raises(ValueError):
+        store.update_component(cid, tenant="other")
+
+    store.add_run(cid, kind="dry_run", status="held", started_at="2026-11-01T10:00:00+00:00",
+                  finished_at="2026-11-01T10:01:00+00:00", duration_ms=60000, added=1, changed=2, retired=40, errors=0)
+    [run] = store.component_runs(cid)
+    assert (run["kind"], run["status"], run["retired"]) == ("dry_run", "held", 40)
+    plan = store.add_held(cid, mapping="ablage-akten", retire={"Akte": 40}, share=0.31)
+    assert store.decide_held(cid, plan, approve=True, actor_id=consultant.id, reason="geprüft")
+    assert not store.decide_held(cid, plan, approve=False, actor_id=consultant.id, reason="")
+    [held] = store.held_plans(cid)
+    assert held["state"] == "approved" and held["decided_by_name"] == "Beraterin" and held["retire"] == {"Akte": 40}
+
+    store.add_event(cid, "plan.held", {"retire": 40})
+    assert store.events(cid)[0]["code"] == "plan.held" and store.events(cid)[0]["counts"] == {"retire": 40}
+    first = store.add_command(cid, "run", {"kind": "dry_run"}, consultant.id)
+    store.add_command(cid, "pause", {}, consultant.id)
+    assert [c["command"] for c in store.deliver_commands(cid, "2026-11-01T10:02:00+00:00")] == ["run", "pause"]
+    assert store.deliver_commands(cid, "2026-11-01T10:03:00+00:00") == []
+    assert store.finish_command(cid, first, "ok", "2026-11-01T10:04:00+00:00")
+    assert not store.finish_command(cid, first, "ok", "2026-11-01T10:05:00+00:00")
+    assert {c["command"]: c["result"] for c in store.commands(cid)} == {"run": "ok", "pause": None}
+    store.update_component(cid, state="revoked")
+    assert store.component(tenant, cid) is None and store.component(tenant, cid, any_state=True)["state"] == "revoked"

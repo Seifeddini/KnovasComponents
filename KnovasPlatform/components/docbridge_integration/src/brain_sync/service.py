@@ -252,7 +252,7 @@ class SyncService:
 
     # -- Anwenden ---------------------------------------------------------------------------------------------------------
 
-    def apply(self, user: Any) -> str:
+    def apply(self, user: Any, approve_guard: Optional[str] = None) -> str:
         s, token = self._ready(), self._token()
         tenant, ref = self._tenant(), self._tenant_ref()
         store = self._store()
@@ -285,15 +285,18 @@ class SyncService:
             store.progress(run_id, "anwenden", counts=probe["counts"], plan_sha256=probe["plan_sha256"], files_fetched=0)
         finally:
             store.close()
-        self._background(lambda: self._apply(run_id, user, s, probe))
+        self._background(lambda: self._apply(run_id, user, s, probe, approve_guard))
         return run_id
 
-    def _apply(self, run_id: str, user: Any, s: Dict[str, Any], probe: Dict[str, Any]) -> None:
+    def _apply(self, run_id: str, user: Any, s: Dict[str, Any], probe: Dict[str, Any],
+               approve_guard: Optional[str] = None) -> None:
         store = self._store()
         step = "anwenden"
         try:
             commit = probe["commit"]
-            report = self.runner.apply(self._dir() / "plans" / f"{probe['id']}.json", self._state())
+            plan = self._dir() / "plans" / f"{probe['id']}.json"
+            report = (self.runner.apply(plan, self._state(), approve_guard=approve_guard) if approve_guard
+                      else self.runner.apply(plan, self._state()))
             if report["errors"]:
                 store.finish(run_id, "failed", user=user,
                              result=f"anwenden: {report['errors']} Schreibfehler; Brain teilweise geschrieben, Probelauf erneut")

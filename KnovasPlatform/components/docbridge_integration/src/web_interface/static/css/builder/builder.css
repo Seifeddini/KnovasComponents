@@ -1667,3 +1667,53 @@ a.b-stat:hover { border-color: var(--color-border-strong); box-shadow: var(--sha
 .b-act-day { list-style: none; margin-top: var(--space-2); font-weight: var(--weight-semibold); color: var(--color-text-muted); font-size: var(--text-xs); }
 .b-act-feed { max-height: none; }
 .b-act-feed .b-op-run { grid-template-columns: 4rem minmax(0, 1fr); }
+
+/* ---- Sync components (step B13) ------------------------------------------ */
+
+.b-alerts { margin: var(--space-2) 0; padding: var(--space-1) var(--space-2); border: var(--border-width) solid var(--color-critical); border-radius: var(--radius-m); background: var(--color-critical-soft); }
+.b-alerts .b-h3 { margin: 0 0 var(--space-half); }
+.b-alerts ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-half); }
+.b-alert { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.b-reg-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.b-reg-filters .b-select { width: auto; }
+.b-reg .is-num { text-align: right; font-variant-numeric: tabular-nums; }
+.b-reg td, .b-reg th { vertical-align: top; }
+/* A component's state: the dot carries the colour, the word the meaning. */
+.b-reg-state.is-online .b-tag-dot { background: var(--color-good); }
+.b-reg-state.is-offline { background: var(--color-critical-soft); color: var(--color-critical); }
+.b-reg-state.is-offline .b-tag-dot { background: var(--color-critical); }
+.b-reg-state.is-degraded { background: var(--color-warning-soft); }
+.b-reg-state.is-degraded .b-tag-dot { background: var(--color-warning); }
+.b-reg-state.is-paused .b-tag-dot, .b-reg-state.is-pending .b-tag-dot, .b-reg-state.is-revoked .b-tag-dot { background: var(--color-text-muted); }
+.b-reg-run.is-failed { color: var(--color-critical); font-weight: var(--weight-semibold); }
+.b-reg-run.is-held { color: var(--color-warning); font-weight: var(--weight-semibold); }
+.b-enrol-kinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-1); margin: 0; padding: 0; border: 0; }
+.b-enrol-kinds legend { margin-bottom: var(--space-1); }
+.b-enrol-kind { cursor: pointer; display: flex; flex-direction: column; gap: var(--space-half); }
+.b-enrol-kind:has(input:checked) { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.b-enrol-kind.is-planned { opacity: 0.6; cursor: not-allowed; }
+.b-cp-actions { margin-top: var(--space-2); }
+.b-cp-danger { color: var(--color-critical); }
+.b-cp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--space-3); align-items: start; }
+.b-cp-side { display: flex; flex-direction: column; gap: var(--space-1); }
+.b-cp-side .b-op-section { margin-top: var(--space-2); padding: var(--space-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-m); background: var(--color-surface); }
+.b-cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.b-cp-chart { margin: 0; padding: var(--space-1); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-m); background: var(--color-surface); }
+.b-cp-axis { stroke: var(--color-border-strong); stroke-width: 1; }
+.b-cp-bar { fill: var(--color-accent); }
+.b-cp-bar.is-dry_run { fill: var(--color-accent-soft); stroke: var(--color-accent); stroke-width: 1; }
+.b-cp-bar.is-failed { fill: var(--color-critical); stroke: none; }
+.b-cp-bar.is-held { fill: var(--color-warning); stroke: none; }
+.b-cp-items { fill: var(--color-text); }
+.b-cp-error { fill: var(--color-critical); font-size: 10px; font-weight: 600; }
+.b-cp-held { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.b-cp-plan { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1); padding: var(--space-1) var(--space-2); border-left: 3px solid var(--color-warning); border-radius: var(--radius-s); background: var(--color-surface); }
+.b-cp-plan.is-approved { border-left-color: var(--color-good); }
+.b-cp-plan.is-rejected { border-left-color: var(--color-border-strong); }
+.b-cp-decide { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-half); }
+.b-cp-decide .b-input { width: 16rem; }
+.b-cp-schedule, .b-cp-settings { display: flex; flex-direction: column; gap: var(--space-1); align-items: flex-start; }
+
+@media (max-width: 1099px) {
+    .b-cp-layout { grid-template-columns: minmax(0, 1fr); }
+}

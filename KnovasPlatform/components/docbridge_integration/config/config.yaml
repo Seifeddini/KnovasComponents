@@ -384,6 +384,13 @@ brain_sync:
   # Per tenant: the source cache, the runner's state, the fetched configuration, plans and outputs.
   storage_dir: "${BRAIN_SYNC_STORAGE_DIR:-/app/data/brain-sync}"
 
+# The Brain Builder's sync components (build plan step B13): when the registry and the alerts call one offline
+# (no heartbeat for this many minutes) and how far behind its source it may fall before they warn.
+builder:
+  components:
+    offline_after_minutes: "${BUILDER_COMPONENT_OFFLINE_MINUTES:-30}"
+    lag_hours: "${BUILDER_COMPONENT_LAG_HOURS:-24}"
+
 open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"
   companion_enabled: "${OPEN_COMPANION_ENABLED:-false}"

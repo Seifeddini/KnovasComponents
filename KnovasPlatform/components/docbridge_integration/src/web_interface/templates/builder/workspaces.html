@@ -2,6 +2,7 @@
    Expects workspace_list (builder.store.Workspace), import_enabled. #}
 {% extends 'builder/_base.html' %}
 {% from 'builder/_icons.html' import icon %}
+{% from 'builder/_alerts.html' import alerts_box %}
 {% block title %}{{ stage.label }}{% endblock %}
 {% block main %}
 <header class="b-page-head">
@@ -9,6 +10,8 @@
     <h1 class="b-h1">{{ stage.label }}</h1>
     <p class="b-muted">{{ stage.summary }}</p>
 </header>
+
+{{ alerts_box(component_alerts or []) }}
 
 {% if workspace_list %}
 <div class="b-page-actions">

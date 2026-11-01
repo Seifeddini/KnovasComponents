@@ -112,15 +112,18 @@ class PackageRunner:
         return {"counts": _counts(plan), "plan_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
                 "files_downloaded": int(source.get("files_downloaded") or 0)}
 
-    def apply(self, plan_path: Path, state_path: Path) -> Dict[str, Any]:
-        """Apply exactly the plan file (the package refuses a plan its state has moved past)."""
+    def apply(self, plan_path: Path, state_path: Path, approve_guard: Optional[str] = None) -> Dict[str, Any]:
+        """Apply exactly the plan file (the package refuses a plan its state has moved past).
+
+        ``approve_guard``: the reason a person gave for releasing what the deletion guard held (step B13);
+        brain-runner records it on the mapping's state and its run record."""
         from brain_runner.apply import NotApprovable, StalePlan, apply
         from brain_runner.state import Locked, State, lock
 
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         try:
             with lock(state_path):
-                rep = apply(self._brain_api(), plan, State.load(state_path))
+                rep = apply(self._brain_api(), plan, State.load(state_path), approve_guard=approve_guard)
         except (StalePlan, Locked, NotApprovable) as exc:
             raise RunnerError(f"Anwenden verweigert ({type(exc).__name__}): Probelauf erneut ausführen.") from None
         return {"writes": rep.get("writes"), "errors": len(rep.get("errors") or []),
