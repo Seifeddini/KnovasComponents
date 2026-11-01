@@ -1316,3 +1316,150 @@ def test_views_of_client_zero(browser, views_server, shots, import_zip):
     assert s["written"] == [{"approver": ["cto"]}]
     page.screenshot(path=shots / "b9-08-published.png", full_page=True)
     page.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Step B10: operating Client Zero once published. The stand-in tenant holds
+# Client Zero's seed and sample nodes and what its mappings make of the
+# KnowledgeBase checkout ($BUILDER_KB_CHECKOUT), read as brain-runner's
+# snapshot reads a tenant; the sync's state and runs stand in for the
+# Platform's sync. A few items are seeded so every tidiness kind shows.
+# ---------------------------------------------------------------------------
+
+
+def _client_zero_graph(model, checkout):
+    from brain_runner.mapping import run_mapping
+    from brain_runner.sources.local import LocalSource
+
+    from builder import mappings as mapping_rules
+    from builder import package as pkg
+    from builder_harness import seed_from_runs, seed_graph
+
+    root = Path(os.environ["KNOWLEDGEBASE_CLIENT_ZERO"])
+    seed = pkg.load_yaml((root / "ontology/seed.yaml").read_bytes())
+    sample = pkg.load_yaml((root / "ontology/sample.yaml").read_bytes())
+    source = LocalSource(Path(checkout))
+    runs = []
+    for entry in model["mappings"]:
+        try:
+            runs.append(run_mapping(mapping_rules._written(entry["definition"]), source))
+        except Exception:  # noqa: BLE001 - a mapping that reads git history: not in an archive
+            continue
+    decision = next(n for n in sample["nodes"] if n["type"] == "Decision")
+    seeded = {"nodes": [
+        # Near-identical names: the same decision entered twice.
+        {"type": "Decision", "key": decision["key"] + "-copy", "name": decision["name"] + ".", "facts": {"status": "proposed"}},
+    ], "edges": []}
+    plan = next(n for n in sample["nodes"] if n["type"] == "FeaturePlan")
+    return seed_graph(seed, sample, seed_from_runs(*runs), seeded, at="2026-10-30T09:00:00+00:00",
+                      ages={plan["key"]: "2026-08-01T09:00:00+00:00"})
+
+
+@pytest.fixture
+def operate_server():
+    from builder_harness import FakeEngine, MemoryWorkspaceStore
+
+    author = StandInUser({"admin"}, "Alex Beispiel")
+    store = MemoryWorkspaceStore({str(author.id): author.display_name})
+    engine = FakeEngine(tenant_types={})
+    sync = {}
+    app = make_app(author, store, tenant="test-tenant-0001", engine=engine, sync=sync)
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield {"base": f"http://127.0.0.1:{server.server_port}", "store": store, "engine": engine, "sync": sync,
+           "author": author}
+    server.shutdown()
+
+
+def test_operate_client_zero(browser, operate_server, shots, import_zip):
+    from builder import editing
+
+    s = operate_server
+    base, store = s["base"], s["store"]
+    checkout = os.environ.get("BUILDER_KB_CHECKOUT")
+    if not checkout or not os.environ.get("KNOWLEDGEBASE_CLIENT_ZERO"):
+        pytest.skip("needs $BUILDER_KB_CHECKOUT and $KNOWLEDGEBASE_CLIENT_ZERO")
+    page = _page(browser, "1440", "light")
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    _import_through_the_dialog(page, base, import_zip)
+    [workspace] = store.list()
+    if not (store.model(workspace.id)["health"] or {}).get("types"):
+        pytest.skip("needs the Client Zero package in $BUILDER_IMPORT_ZIP")
+
+    # A type and an attribute added without a description: the tidiness list names them.
+    for op in ({"op": "type.create", "key": "Workaround", "parent": "euo:Document", "label": {"de": "Umgehung", "en": "Workaround"}},
+               {"op": "attribute.add", "key": "Workaround", "attribute": {"name": "expires_on", "datatype": "date"}}):
+        store.edit(workspace.id, s["author"].id, lambda m, op=op: editing.apply(m, op))
+    model = store.model(workspace.id)
+    s["engine"].graph = _client_zero_graph(model, checkout)
+
+    # The sync's state: one mapping ready, one stale, one held by the deletion guard.
+    s["sync"].update({
+        "state": {"mappings": {
+            "component-manifest": {"conditions": {"Ready": {"status": "True", "message": "151 source items"},
+                                                  "Stale": {"status": "False"}, "Degraded": {"status": "False"}},
+                                   "observed": {"added": 3, "modified": 12, "retired": 0, "drift": 0, "nodes_in_brain": 151},
+                                   "last_run_at": "2026-10-31T06:00:00+00:00", "last_success_at": "2026-10-31T06:00:00+00:00"},
+            "spec-design-decisions": {"conditions": {"Ready": {"status": "False"}, "Degraded": {"status": "False"},
+                                             "Stale": {"status": "True", "message": "window 7 d passed"}},
+                              "last_run_at": "2026-10-20T06:00:00+00:00", "last_success_at": "2026-10-20T06:00:00+00:00"},
+            "golden-invariants": {"conditions": {"Ready": {"status": "False"}, "Stale": {"status": "False"},
+                                                 "Degraded": {"status": "True", "reason": "DeletionGuard",
+                                                              "message": "would retire 40 of 166 (24 %)"}},
+                                  "last_run_at": "2026-10-31T06:00:00+00:00"}}},
+        "runs": [{"id": "r2", "kind": "probe", "status": "ok", "started_by": "siran@knovas.example",
+                  "started_at": "2026-10-31T06:00:00+00:00", "finished_at": "2026-10-31T06:02:00+00:00",
+                  "counts": {"golden-invariants": {"add": 0, "change": 2, "retire": 40, "blocked": True, "guard_tripped": True},
+                             "component-manifest": {"add": 3, "change": 12, "retire": 0}},
+                  "result": "Probelauf: 2 Zuordnungen geplant"},
+                 {"id": "r1", "kind": "apply", "status": "ok", "started_by": None, "started_at": "2026-10-30T06:00:00+00:00",
+                  "finished_at": "2026-10-30T06:05:00+00:00", "counts": {"component-manifest": {"add": 148}},
+                  "result": "angewendet: 148 Schreibvorgänge"}],
+    })
+    store.link_tenant(workspace.id, "test-tenant-0001")
+    draft = store.draft(workspace.id)
+    store.record_run(workspace.id, kind="apply", actor_id=s["author"].id, tenant="test-tenant-0001",
+                     content_hash=draft["content_hash"], bundle_hash="h", status="ok",
+                     summary={"published_number": 1, "written": 412, "refused": []})
+    store.publish(workspace.id, s["author"].id, draft["content_hash"], {"sections": {}}, "h")
+
+    page.goto(f"{base}/builder/betrieb")
+    page.wait_for_selector("[data-op-type='FeaturePlan']")
+    health = page.inner_text("#b-op-health")
+    assert "Component" in health and "ROLE-ENGINE-OWNER" in health
+    nodes = int(page.inner_text("[data-op-type='Component'] td.is-num"))
+    assert nodes > 100
+    page.screenshot(path=shots / "b10-01-health.png")
+
+    # Every tidiness kind has at least one item, each with where it is fixed.
+    for kind in ("type_undescribed", "attribute_undescribed", "slot_empty", "orphan", "duplicate", "wrong_level", "stale_claim"):
+        group = page.locator(f"[data-op-lint='{kind}']")
+        count = int(group.locator("summary .b-tag").inner_text())
+        assert count >= 1, kind
+        assert group.locator("a", has_text="Beheben").count() >= 1, kind
+
+    page.locator("#b-op-status").scroll_into_view_if_needed()
+    status = page.inner_text("#b-op-status")
+    assert "Löschschutz: 40 stilllegen" in status and "Gestört" in status and "Veraltet" in status
+    page.screenshot(path=shots / "b10-02-mappings.png")
+    page.locator("#b-op-history").scroll_into_view_if_needed()
+    assert "Version 1 veröffentlicht" in page.inner_text("#b-op-history")
+    page.screenshot(path=shots / "b10-03-history.png")
+    page.locator("#b-op-lint").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b10-04-tidiness.png")
+    page.locator("#b-op-coverage").scroll_into_view_if_needed()
+    assert page.locator("[data-op-coverage='SPINE-product'] td.is-filled").count() >= 1
+    assert page.locator("[data-op-coverage='SPINE-product'] td.is-missing").count() >= 1
+    page.screenshot(path=shots / "b10-05-coverage.png")
+
+    # A health review moves the next one.
+    page.locator("[data-op-review='FeaturePlan']").click()
+    page.wait_for_selector("[data-op-type='FeaturePlan'] >> text=zuletzt Alex Beispiel")
+
+    # An item links to the editor where it is fixed: the undescribed type opens in the ontology.
+    page.locator("[data-op-lint='type_undescribed'] a", has_text="Beheben").first.click()
+    page.wait_for_function("() => window.__builderOntology && document.querySelector('[data-panel]:not([hidden])')")
+    assert "Workaround" in page.inner_text("#b-onto-panel-title, [data-panel]")
+    page.screenshot(path=shots / "b10-06-fix-in-ontology.png")
+    page.context.close()

@@ -304,6 +304,22 @@ class WorkspaceStore:
     def link_tenant(self, workspace_id: str, tenant: str) -> None:
         self.conn.execute("UPDATE builder_workspace SET tenant = %s WHERE id = %s", (tenant, workspace_id))
 
+    # -------------------------------------------------------- health reviews (B10)
+
+    def record_review(self, workspace_id: str, node_type: str, actor_id) -> None:
+        self.conn.execute("INSERT INTO builder_review (workspace, node_type, reviewed_by) VALUES (%s, %s, %s)",
+                          (workspace_id, node_type, actor_id))
+
+    def reviews(self, workspace_id: str) -> dict:
+        """The latest review of each type: {type: {at, actor_name}}."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT ON (r.node_type) r.node_type, r.at, u.display_name
+                 FROM builder_review r LEFT JOIN users u ON u.id = r.reviewed_by
+                WHERE r.workspace = %s ORDER BY r.node_type, r.at DESC""",
+            (workspace_id,),
+        ).fetchall()
+        return {r[0]: {"at": _iso(r[1]), "actor_name": r[2]} for r in rows}
+
     # -------------------------------------------------------- sync components (B7)
 
     _COMPONENT = """SELECT c.id, c.kind, c.name, c.site, c.owner, c.settings, c.state, c.registered_at, u.display_name

@@ -150,6 +150,21 @@ class SyncService:
     def history(self, limit: int = 20) -> List[Dict[str, Any]]:
         return self._with_store(lambda s: s.history(self._tenant(), limit))
 
+    def state(self) -> Optional[Dict[str, Any]]:
+        """brain-runner's state of the tenant's mappings (conditions, observed counts, guard approvals), or None."""
+        try:
+            return json.loads(self._state().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def evaluation(self) -> Optional[Dict[str, Any]]:
+        """The last sync's evaluation (brain-runner evaluate: rule results per process instance), or None."""
+        cur = self.current()
+        try:
+            return json.loads(Path(cur["evaluation"]).read_text(encoding="utf-8")) if cur else None
+        except (OSError, ValueError, KeyError):
+            return None
+
     # -- Neuen Stand holen ------------------------------------------------------------------------------------------------
 
     def check(self, user: Any) -> Dict[str, Any]:

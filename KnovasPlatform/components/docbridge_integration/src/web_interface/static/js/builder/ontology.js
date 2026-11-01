@@ -951,6 +951,12 @@
             setConnectMode: setConnectMode,
         };
         if (editor) editor.start(window.__builderOntology, { el: el, tag: tag, section: section, LEVELS: LEVELS, COMMON: COMMON, isBelow: isBelow });
+        // A link from elsewhere (the Betrieb stage's tidiness list) opens one type: #type:Invoice.
+        var wanted = decodeURIComponent((window.location.hash || '').slice(1));
+        if (wanted && nodesById[wanted]) {
+            select(wanted);
+            cy.animate({ center: { eles: cy.getElementById(wanted) } }, { duration: 0 });
+        }
     }
 
     /* A new view from the server after an edit: redraw, keep the viewport,

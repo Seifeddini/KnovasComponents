@@ -1263,6 +1263,16 @@
         if (withPreview) preview();
     }
 
+    // A link from elsewhere (the Betrieb stage's tidiness list) opens one element: #page:PAGE-x, #spine:SPINE-x, #profile:id.
+    var wanted = decodeURIComponent((window.location.hash || '').slice(1)).split(':');
+    if (wanted.length === 2) {
+        var tabOf = { page: 'pages', spine: 'spines', profile: 'profiles', roles: 'roles' };
+        if (tabOf[wanted[0]]) state.tab = tabOf[wanted[0]];
+        if (wanted[0] === 'page') state.page = wanted[1];
+        if (wanted[0] === 'spine') state.spine = wanted[1];
+        if (wanted[0] === 'profile') state.profile = wanted[1];
+    }
+
     window.__builderViews = { data: function () { return data; }, state: state, render: render };
     render();
 })();

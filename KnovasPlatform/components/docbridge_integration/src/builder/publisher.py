@@ -57,6 +57,7 @@ class Engine(Protocol):
     def apply(self, model: Mapping[str, Any], tenant: str, plan: dict) -> dict: ...
     def run_event(self, model: Mapping[str, Any], **facts: Any) -> dict: ...
     def mapping_plan(self, model: Mapping[str, Any], mapping_id: str, run: Any) -> dict: ...
+    def read(self, model: Mapping[str, Any], types: set[str]) -> dict: ...
 
 
 def _rows(plan: Mapping[str, Any]) -> list[dict]:
@@ -174,3 +175,15 @@ class BrainRunnerEngine:
             node_types, schema_types = diff.snapshot_types(cfg, [mapping_id])
             snap = snapshot.read(self._api_factory(), node_types, schema_types)
             return diff.plan(cfg, {mapping_id: run}, snap, state.State(None))
+
+    def read(self, model: Mapping[str, Any], types: set[str]) -> dict:
+        """What the tenant holds of ``types`` (step B10): brain-runner's snapshot as plain data -- nodes with
+        their facts valid now, and every edge between them. Read only."""
+        snapshot = self._module("snapshot")
+        snap = snapshot.read(self._api_factory(), set(types))
+        return {"taken_at": snap.taken_at,
+                "nodes": [{"id": n.id, "type": n.type, "name": n.name, "description": n.description,
+                           "facts": {k: {"value": r.get("value"), "valid_from": r.get("valid_from"),
+                                         "created_at": r.get("created_at")} for k, r in n.facts.items()}}
+                          for n in snap.nodes.values()],
+                "edges": [e for e in snap.edges if e["lo"] in snap.nodes and e["hi"] in snap.nodes]}

@@ -1895,6 +1895,12 @@ def create_app(config_path: Optional[str] = None):
             app.extensions['platform_settings'].save(user, {'views.profile_roles': mapping or None},
                                                      roles=_builder_platform_roles())
 
+        def _builder_sync_status():
+            sync = app.extensions.get('brain_sync')
+            if sync is None:
+                return None
+            return {'state': sync.state(), 'runs': sync.history(50), 'evaluation': sync.evaluation()}
+
         def _builder_reader(component, source, secret, workspace_id):
             """A source's reader through the component that serves it (builder.sources)."""
             import hashlib as _hashlib
@@ -1951,6 +1957,8 @@ def create_app(config_path: Optional[str] = None):
             # Views (B9): the role table, and the published role mapping as the setting views.profile_roles.
             platform_roles=_builder_platform_roles,
             roles_sink=_builder_roles_sink,
+            # Betrieb (B10): the sync's mapping state, runs and evaluation.
+            sync_status=_builder_sync_status,
         ))
 
         from identity.node_grants import NodeGrantStore

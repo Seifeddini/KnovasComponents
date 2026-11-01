@@ -1,0 +1,191 @@
+{# Stage 8 (build plan step B10): operating a published Brain. Expects
+   current_workspace and builder_routes._operate_context: published, read_error,
+   taken_at, node_count, health, status, sync, history, lint, coverage. Drawn on
+   the server; static/js/builder/operate.js records a health review. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% block title %}{{ stage.label }} · {{ current_workspace.name }}{% endblock %}
+
+{% macro share(value, label, detail) -%}
+{% if value is none %}<span class="b-op-num b-muted" title="{{ detail }}">–</span>
+{% else %}<span class="b-op-num {{ 'is-good' if value >= 90 else 'is-warning' if value >= 60 else 'is-critical' }}" title="{{ detail }}">
+    <span class="b-op-value">{{ value }}&thinsp;%</span>
+    <span class="b-op-bar" aria-hidden="true"><span style="width: {{ value }}%"></span></span>
+    <span class="b-visually-hidden">{{ label }}</span>
+</span>{% endif %}
+{%- endmacro %}
+
+{% macro condition(name) -%}
+<span class="b-tag {{ {'Ready': 'b-tag--good', 'Stale': 'b-tag--warning', 'Degraded': 'b-tag--critical'}.get(name, '') }}"><span class="b-tag-dot"></span>{{ {'Ready': 'Bereit', 'Stale': 'Veraltet', 'Degraded': 'Gestört'}.get(name, 'Unbekannt') }}</span>
+{%- endmacro %}
+
+{% block main %}
+<header class="b-page-head">
+    <p class="b-step-count b-small">Stufe {{ stage_number }} von {{ stages | length }} · {{ current_workspace.name }}</p>
+    <h1 class="b-h1">{{ stage.label }}</h1>
+    <div class="b-tag-row">
+        <span class="b-tag b-tag--good"><span class="b-tag-dot"></span>Veröffentlicht {{ published.number }}</span>
+        <span class="b-tag">seit {{ published.published_at | b_datetime }}</span>
+        {% if not read_error %}<span class="b-tag" data-op-nodes>{{ node_count }} Knoten gelesen{% if taken_at %} · {{ taken_at | b_datetime }}{% endif %}</span>{% endif %}
+    </div>
+</header>
+
+<nav class="b-op-nav" aria-label="Abschnitte">
+    <a href="#b-op-health">Gesundheit</a>
+    <a href="#b-op-status">Zuordnungen und Quellen</a>
+    <a href="#b-op-history">Laufhistorie</a>
+    <a href="#b-op-lint">Ordnung <span class="b-tab-count">{{ lint.values() | sum(attribute='count') }}</span></a>
+    <a href="#b-op-coverage">Abdeckung</a>
+</nav>
+
+{% if read_error %}
+<div class="b-callout b-callout--warning" role="status"><p class="b-callout-title">Der Mandant wurde nicht gelesen</p><p>{{ read_error }} Gesundheit, Ordnung und Abdeckung zählen deshalb nichts.</p></div>
+{% endif %}
+
+<section class="b-op-section" id="b-op-health" aria-labelledby="b-op-health-title"
+         data-op-root data-review-url="{{ url_for('builder.record_review', workspace_id=current_workspace.id) }}">
+    <h2 class="b-h2" id="b-op-health-title">Gesundheit je Typ</h2>
+    <p class="b-muted b-small">Korrektheit: bestätigt innerhalb der Frist. Vollständigkeit: alle Pflichtfelder da. Konformität: die prüfbaren Regeln bestanden.</p>
+    {% if health %}
+    <div class="b-table-wrap">
+        <table class="b-table b-op-health">
+            <thead><tr><th scope="col">Typ</th><th scope="col" class="is-num">Knoten</th><th scope="col">Korrektheit</th><th scope="col">Vollständigkeit</th><th scope="col">Konformität</th><th scope="col">Verantwortlich</th><th scope="col">Nächste Prüfung</th><th scope="col"><span class="b-visually-hidden">Aktion</span></th></tr></thead>
+            <tbody>
+            {% for h in health %}
+            <tr data-op-type="{{ h.type }}">
+                <th scope="row" class="b-mono">{{ h.type }}</th>
+                <td class="is-num">{{ h.nodes }}</td>
+                <td>{{ share(h.correctness, 'Korrektheit', h.detail.fresh ~ ' von ' ~ h.nodes ~ ' bestätigt innerhalb ' ~ (h.detail.stale_after or '–')) }}</td>
+                <td>{{ share(h.completeness, 'Vollständigkeit', h.detail.complete ~ ' von ' ~ h.nodes ~ ' mit ' ~ (h.detail.required | join(', '))) }}</td>
+                <td>{{ share(h.compliance, 'Konformität', h.detail.passed ~ ' von ' ~ h.detail.checks ~ ' Prüfungen bestanden' ~ ((' · nicht prüfbar: ' ~ (h.detail.unevaluable | join(', '))) if h.detail.unevaluable else '')) }}
+                    {% if h.detail.unevaluable %}<span class="b-small b-muted b-op-note">{{ h.detail.unevaluable | join(', ') }} nicht prüfbar</span>{% endif %}</td>
+                <td class="b-mono">{{ h.owner_role or '–' }}</td>
+                <td>{% if h.due %}{{ h.due | b_datetime }}{% if h.overdue %} <span class="b-tag b-tag--critical">überfällig</span>{% endif %}<br><span class="b-small b-muted">alle {{ h.review_every }}{% if h.reviewed_by %} · zuletzt {{ h.reviewed_by }}{% endif %}</span>{% else %}–{% endif %}</td>
+                <td><button type="button" class="b-button b-button--quiet b-button--small" data-op-review="{{ h.type }}">Geprüft</button></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="b-muted">Der Arbeitsbereich hat keinen Gesundheitsteil.</p>
+    {% endif %}
+</section>
+
+<section class="b-op-section" id="b-op-status" aria-labelledby="b-op-status-title">
+    <h2 class="b-h2" id="b-op-status-title">Zuordnungen und Quellen</h2>
+    <div class="b-tag-row b-op-counts">
+        <span class="b-tag b-tag--good">{{ status.counts.Ready }} bereit</span>
+        <span class="b-tag b-tag--warning">{{ status.counts.Stale }} veraltet</span>
+        <span class="b-tag b-tag--critical">{{ status.counts.Degraded }} gestört</span>
+        <span class="b-tag">{{ status.counts.Unbekannt }} ohne Lauf</span>
+        {% if status.held %}<span class="b-tag b-tag--warning"><span class="b-tag-dot"></span>{{ status.held | length }} {{ 'Plan wartet' if status.held | length == 1 else 'Pläne warten' }} auf Freigabe</span>{% endif %}
+    </div>
+    {% if not sync.available %}<p class="b-small b-muted">{% if sync.error %}Der Stand der Synchronisation ließ sich nicht lesen ({{ sync.error }}).{% else %}Diese Plattform synchronisiert nicht; der Zustand kommt allein aus den Probeläufen des Builders.{% endif %}</p>{% endif %}
+    {% if status.mappings %}
+    <div class="b-table-wrap">
+        <table class="b-table b-table--compact b-op-mappings">
+            <thead><tr><th scope="col">Zuordnung</th><th scope="col">Zustand</th><th scope="col">Letzter Lauf</th><th scope="col" class="is-num">neu</th><th scope="col" class="is-num">geändert</th><th scope="col" class="is-num">stillgelegt</th><th scope="col" class="is-num">Abweichung</th><th scope="col">Fehler</th><th scope="col">Zurückgehalten</th></tr></thead>
+            <tbody>
+            {% for m in status.mappings %}
+            <tr data-op-mapping="{{ m.id }}">
+                <th scope="row"><a class="b-link-strong b-mono" href="{{ url_for('builder.mapping_page', mapping_id=m.id) }}">{{ m.id }}</a><br><span class="b-small b-muted">{{ m.types | join(', ') }}</span></th>
+                <td>{{ condition(m.condition) }}{% if m.reason %}<br><span class="b-small b-muted">{{ m.reason }}</span>{% endif %}</td>
+                <td>{{ m.last_run_at | b_datetime }}</td>
+                <td class="is-num">{{ m.counts.added }}</td><td class="is-num">{{ m.counts.modified }}</td><td class="is-num">{{ m.counts.retired }}</td><td class="is-num">{{ m.counts.drift }}</td>
+                <td>{% for e in m.errors %}<span class="b-small b-error">{{ e }}</span>{% if not loop.last %}<br>{% endif %}{% else %}–{% endfor %}</td>
+                <td>{% if m.held %}<span class="b-tag b-tag--warning">{{ m.held.why }}: {{ m.held.retire }} stilllegen</span><br><span class="b-small b-muted">seit {{ m.held.at | b_datetime }}</span>{% else %}–{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    {% if status.sources %}
+    <h3 class="b-h3">Quellen</h3>
+    <ul class="b-op-sources">
+        {% for s in status.sources %}
+        <li data-op-source="{{ s.key }}">{{ condition(s.condition) }} <strong>{{ s.name }}</strong> <span class="b-small b-muted">{{ s.kind }} · {{ s.mappings | length }} Zuordnungen{% if s.held %} · {{ s.held }} zurückgehalten{% endif %}</span></li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</section>
+
+<section class="b-op-section" id="b-op-history" aria-labelledby="b-op-history-title">
+    <h2 class="b-h2" id="b-op-history-title">Laufhistorie</h2>
+    {% if history %}
+    <ol class="b-op-timeline">
+        {% for r in history %}
+        <li class="b-op-run is-{{ r.status or 'unknown' }}" data-op-run="{{ r.kind }}">
+            <span class="b-op-run-at">{{ r.at | b_datetime }}</span>
+            <span class="b-op-run-what"><strong>{{ r.what }}</strong> <span class="b-muted">· {{ r.who }}</span></span>
+            <span class="b-op-run-changed b-small">{{ r.changed }}{% if r.detail %} · <span class="b-muted">{{ r.detail }}</span>{% endif %}</span>
+            <span class="b-tag {{ {'ok': 'b-tag--good', 'failed': 'b-tag--critical', 'refused': 'b-tag--warning'}.get(r.status, '') }}">{{ {'ok': 'ok', 'failed': 'fehlgeschlagen', 'refused': 'abgelehnt', 'running': 'läuft'}.get(r.status, r.status or '–') }}</span>
+        </li>
+        {% endfor %}
+    </ol>
+    {% else %}
+    <p class="b-muted">Noch keine Läufe.</p>
+    {% endif %}
+</section>
+
+<section class="b-op-section" id="b-op-lint" aria-labelledby="b-op-lint-title">
+    <h2 class="b-h2" id="b-op-lint-title">Ordnung im Modell</h2>
+    <p class="b-muted b-small">Was aufzuräumen ist, und wo es behoben wird.</p>
+    <div class="b-op-lint">
+        {% for kind, group in lint.items() %}
+        <details class="b-op-lint-group" data-op-lint="{{ kind }}" {% if group.count %}open{% endif %}>
+            <summary><span class="b-op-lint-label">{{ group.label }}</span> <span class="b-tag {{ 'b-tag--warning' if group.count else 'b-tag--good' }}">{{ group.count }}</span></summary>
+            {% if group['items'] %}
+            <ul>
+                {% for item in group['items'][:8] %}
+                <li><span>{{ item.message }}</span>{% if item.url %} <a class="b-link-strong b-small" href="{{ item.url }}">Beheben: {{ item.where }}</a>{% endif %}</li>
+                {% endfor %}
+            </ul>
+            {% if group.count > 8 %}<p class="b-small b-muted">und {{ group.count - 8 }} weitere</p>{% endif %}
+            {% else %}
+            <p class="b-small b-muted">Nichts gefunden.</p>
+            {% endif %}
+        </details>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="b-op-section" id="b-op-coverage" aria-labelledby="b-op-coverage-title">
+    <h2 class="b-h2" id="b-op-coverage-title">Abdeckung</h2>
+    {% if coverage %}
+    <nav class="b-tag-row" aria-label="Hierarchie">
+        {% for s in coverage.spines %}
+        <a class="b-tag {{ 'b-tag--accent' if s.key == coverage.spine else '' }}" href="?hierarchie={{ s.key }}#b-op-coverage" {% if s.key == coverage.spine %}aria-current="true"{% endif %}>{{ s.name or s.key }}</a>
+        {% endfor %}
+    </nav>
+    <p class="b-muted b-small">Ebenen nach unten, die Abschnitte der Seite jedes Ebenentyps nach rechts.</p>
+    <div class="b-table-wrap">
+        <table class="b-table b-table--compact b-op-coverage" data-op-coverage="{{ coverage.spine }}">
+            <thead><tr><th scope="col">Ebene</th>{% for c in coverage.columns %}<th scope="col"><span class="b-op-col">{{ c }}</span></th>{% endfor %}</tr></thead>
+            <tbody>
+            {% for r in coverage.rows %}
+            <tr>
+                <th scope="row">{{ r.name }}<br><span class="b-small b-muted">{{ r.nodes }} Knoten{% if not r.page %} · keine Seite{% endif %}</span></th>
+                {% for c in coverage.columns %}
+                {% set cell = r.cells.get(c) %}
+                {% if cell %}
+                <td class="b-op-cell is-{{ cell.state }}" title="{{ cell.filled }} von {{ cell.nodes }} gefüllt{% if cell.stale %}, {{ cell.stale }} veraltet{% endif %}">{{ cell.filled }}/{{ cell.nodes }}<span class="b-visually-hidden"> {{ {'filled': 'gefüllt', 'missing': 'fehlt', 'stale': 'veraltet', 'empty': 'keine Knoten'}[cell.state] }}</span></td>
+                {% else %}
+                <td class="b-op-cell is-none"></td>
+                {% endif %}
+                {% endfor %}
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="b-op-legend b-small" aria-hidden="true"><span class="b-op-cell is-filled"></span>gefüllt <span class="b-op-cell is-missing"></span>fehlt <span class="b-op-cell is-stale"></span>veraltet <span class="b-op-cell is-empty"></span>keine Knoten</p>
+    {% else %}
+    <p class="b-muted">Der Arbeitsbereich hat keine Hierarchie.</p>
+    {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/operate.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

@@ -194,6 +194,13 @@ class MemoryWorkspaceStore:
     def link_tenant(self, workspace_id, tenant):
         self.rows[workspace_id]["tenant"] = tenant
 
+    def record_review(self, workspace_id, node_type, actor_id):
+        self.rows[workspace_id].setdefault("reviews", {})[node_type] = {"at": self._now(),
+                                                                       "actor_name": self._actor(actor_id)[1]}
+
+    def reviews(self, workspace_id):
+        return copy.deepcopy(self.rows[workspace_id].get("reviews") or {})
+
     # Sync components (B7), per tenant.
     def components(self, tenant):
         found = [c for c in self.component_rows if c["tenant"] == tenant]
@@ -310,6 +317,62 @@ class FakeEngine:
         self.events.append(facts)
         return {"written": True, "key": f"EVT-builder-publish-v{facts['version']}", "errors": [], "why": None}
 
+    def read(self, model, types):
+        """The stand-in tenant's graph (``self.graph``, as ``seed_graph`` makes it) for ``types``."""
+        graph = getattr(self, "graph", None) or {"taken_at": None, "nodes": [], "edges": []}
+        nodes = [n for n in graph["nodes"] if n["type"] in types]
+        ids = {n["id"] for n in nodes}
+        return {"taken_at": graph.get("taken_at"), "nodes": copy.deepcopy(nodes),
+                "edges": [dict(e) for e in graph["edges"] if e["lo"] in ids and e["hi"] in ids]}
+
+
+def seed_graph(*documents, at="2026-10-30T09:00:00+00:00", ages=None):
+    """A tenant's graph from seed documents ({nodes: [{type, key, name, facts, description?}], edges: [{from,
+    relation, to}]}), as brain-runner's snapshot gives it: every fact valid from ``at``, or ``ages[key]``."""
+    nodes, by_key, edges = [], {}, []
+    for doc in documents:
+        for raw in (doc or {}).get("nodes") or []:
+            if not isinstance(raw, dict) or not raw.get("type") or not raw.get("key"):
+                continue
+            when = (ages or {}).get(raw["key"]) or raw.get("seen") or at
+            facts = {"key": {"value": raw["key"], "valid_from": when, "created_at": when}}
+            for name, value in (raw.get("facts") or {}).items():
+                facts[name] = {"value": str(value), "valid_from": when, "created_at": when}
+            if raw.get("source"):
+                facts["source"] = {"value": str(raw["source"]), "valid_from": when, "created_at": when}
+            known = by_key.get(raw["key"])
+            if known is not None and known["type"] == raw["type"]:
+                # The tenant holds one node per type and key: a second source adds to it.
+                known["facts"].update({k: v for k, v in facts.items() if k not in known["facts"]})
+                known["description"] = known["description"] or str(raw.get("description") or "")
+                continue
+            node = {"id": f"n{len(nodes) + 1}", "type": raw["type"], "name": str(raw.get("name") or ""),
+                    "description": str(raw.get("description") or ""), "facts": facts}
+            nodes.append(node)
+            by_key.setdefault(raw["key"], node)
+        for raw in (doc or {}).get("edges") or []:
+            lo, hi = by_key.get(str(raw.get("from"))), by_key.get(str(raw.get("to")))
+            if lo and hi and raw.get("relation") and not any(
+                    e["lo"] == lo["id"] and e["hi"] == hi["id"] and e["relation"] == raw["relation"] for e in edges):
+                edges.append({"id": f"e{len(edges) + 1}", "lo": lo["id"], "hi": hi["id"], "relation": raw["relation"]})
+    return {"taken_at": at, "nodes": nodes, "edges": edges}
+
+
+def seed_from_runs(*runs):
+    """brain-runner mapping runs as a seed document: each candidate a node (facts as written, seen as of its
+    source item), each of its relations an edge."""
+    nodes, edges = [], []
+    for run in runs:
+        for c in run.candidates:
+            seen = str(c.seen or "")
+            nodes.append({"type": c.type, "key": c.key, "name": c.name, "description": c.description or "",
+                          "facts": {k: v.value for k, v in c.facts.items()},
+                          "seen": (seen + "T00:00:00+00:00") if len(seen) == 10 else (seen or None)})
+            for r in c.relations:
+                ends = (r["to_key"], c.key) if r.get("direction") == "in" else (c.key, r["to_key"])
+                edges.append({"from": ends[0], "relation": r["relation"], "to": ends[1]})
+    return {"nodes": nodes, "edges": edges}
+
 
 class MemorySecrets:
     """``platform_settings.SourceSecrets`` in memory: write-only to the builder, readable by the readers."""
@@ -381,7 +444,7 @@ def stand_in_readers(github_root=None, connector=None, http=None):
 
 
 def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None,
-             secrets=None, readers=None, roles=None, roles_sink=None) -> Flask:
+             secrets=None, readers=None, roles=None, roles_sink=None, sync=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -423,5 +486,6 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         reader_factory=readers,
         platform_roles=(lambda: roles) if roles is not None else None,
         roles_sink=roles_sink,
+        sync_status=(lambda: sync) if sync is not None else None,
     ))
     return app

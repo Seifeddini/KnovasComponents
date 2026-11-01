@@ -34,6 +34,7 @@ from markupsafe import Markup
 from builder import editing, ontology_view, package, processes, publisher, review, tenant_ontology as tenant_reader
 from builder import mappings as mapping_rules
 from builder import views as brain_views
+from builder import operate
 from builder import sources as source_kinds
 from builder import packs as shipped_packs
 
@@ -160,6 +161,7 @@ def create_builder_blueprint(
     reader_factory: Optional[Callable[..., Any]] = None,
     platform_roles: Optional[Callable[[], list]] = None,
     roles_sink: Optional[Callable[..., Any]] = None,
+    sync_status: Optional[Callable[[], Mapping[str, Any]]] = None,
 ):
     """Build the /builder blueprint.
 
@@ -193,6 +195,10 @@ def create_builder_blueprint(
     ``platform_roles`` returns the Platform's role keys (its role table);
     ``roles_sink(mapping, user)`` writes the published role-to-profile
     mapping to the setting ``views.profile_roles`` (step B9).
+
+    ``sync_status()`` returns the Platform's sync as the Betrieb stage reads
+    it (step B10): ``state`` (brain-runner's state of the mappings), ``runs``
+    (the sync's run history) and ``evaluation``; None where nothing syncs.
 
     ``engine_factory`` returns the engine that compiles, dry-runs and applies
     a version (``builder.publisher.BrainRunnerEngine`` on the Platform's
@@ -309,6 +315,12 @@ def create_builder_blueprint(
             if workspace is not None:
                 return _render("builder/review.html", stage=current, stage_number=number,
                                current_workspace=workspace, **_review_context(store, workspace))
+        if current.slug == "betrieb":
+            store = _store()
+            workspace = _current_workspace(store)
+            if workspace is not None and store.published_bundle(workspace.id) is not None:
+                return _render("builder/operate.html", stage=current, stage_number=number,
+                               current_workspace=workspace, **_operate_context(store, workspace))
         if current.slug == "ansichten":
             store = _store()
             workspace = _current_workspace(store)
@@ -606,6 +618,79 @@ def create_builder_blueprint(
             logger.warning("Builder: views.profile_roles not written: %s", type(exc).__name__)
             return {"written": False, "why": type(exc).__name__}
         return {"written": True}
+
+    # -------------------------------------------------------- operate (B10)
+
+    def _editor_links(model) -> dict:
+        emitted_by: dict[str, str] = {}
+        for m in model.get("mappings") or []:
+            d = m.get("definition") or {}
+            for e in d.get("emits") or []:
+                emitted_by.setdefault(str(e.get("type")), str(d.get("id")))
+        ontology_url = url_for("builder.stage", slug="ontologie")
+        views_url = url_for("builder.stage", slug="ansichten")
+        return {"type": lambda key: f"{ontology_url}#type:{key}",
+                "page": lambda key: f"{views_url}#page:{key}",
+                "spine": lambda key: f"{views_url}#spine:{key}",
+                "mapping": lambda type_key: url_for("builder.mapping_page", mapping_id=emitted_by[type_key])
+                if type_key in emitted_by else None}
+
+    def _sync() -> dict:
+        try:
+            found = sync_status() if sync_status is not None else None
+        except Exception as exc:  # noqa: BLE001 - the screen says the sync could not be read
+            logger.warning("Builder: the sync's status is not readable (%s)", type(exc).__name__)
+            return {"error": type(exc).__name__}
+        return dict(found or {})
+
+    def _operate_context(store, workspace) -> dict:
+        from datetime import timezone
+
+        model = store.model(workspace.id)
+        published = store.published_bundle(workspace.id)
+        now = datetime.now(timezone.utc)
+        tenant = _platform_tenant()
+        engine = _engine()
+        snapshot, read_error = {"nodes": [], "edges": []}, None
+        if not workspace.tenant or workspace.tenant != tenant:
+            read_error = "Der Arbeitsbereich ist nicht mit dem Mandanten dieser Plattform verbunden."
+        elif engine is None or engine.missing():
+            read_error = engine.missing() if engine is not None else "Diese Umgebung liest den Mandanten nicht."
+        else:
+            try:
+                snapshot = engine.read(model, operate.read_types(model))
+            except Exception as exc:  # noqa: BLE001 - the screen says the tenant could not be read
+                logger.warning("Builder: the tenant could not be read for the Betrieb stage (%s)", type(exc).__name__)
+                read_error = f"Der Mandant ließ sich nicht lesen ({type(exc).__name__})."
+        graph = operate.Graph(snapshot)
+        sync = _sync()
+        runs = store.runs(workspace.id, limit=60)
+        sync_runs = list(sync.get("runs") or [])
+        lint = operate.lint(model, graph, now=now, links=_editor_links(model))
+        logger.info("Builder Betrieb: workspace %s, %d nodes read, %d lint items", workspace.id, len(graph.nodes),
+                    sum(v["count"] for v in lint.values()))
+        return {
+            "published": published, "read_error": read_error, "taken_at": graph.taken_at, "node_count": len(graph.nodes),
+            "health": operate.health(model, graph, now=now, reviews=store.reviews(workspace.id),
+                                     published_at=published.get("published_at"), evaluation=sync.get("evaluation")),
+            "status": operate.mappings_status(model, state=sync.get("state"), sync_runs=sync_runs, builder_runs=runs),
+            "sync": {"available": sync_status is not None and "error" not in sync, "error": sync.get("error")},
+            "history": operate.history(runs, sync_runs, graph),
+            "lint": lint,
+            "coverage": operate.coverage(model, graph, request.args.get("hierarchie"), now=now),
+        }
+
+    @bp.route("/api/w/<workspace_id>/reviews", methods=["POST"])
+    def record_review(workspace_id: str):
+        """The owner has reviewed a type's health: its next review is due review_every later."""
+        store = _store()
+        current = _workspace_or_404(store, workspace_id)
+        node_type = str((request.get_json(silent=True) or {}).get("type") or "")
+        if node_type not in ((store.model(current.id).get("health") or {}).get("types") or {}):
+            return jsonify({"success": False, "error": "Diesen Typ führt der Gesundheitsteil nicht."}), 404
+        store.record_review(current.id, node_type, gate.current_user().id)
+        logger.info("Builder: health review recorded, workspace %s", current.id)
+        return jsonify({"success": True})
 
     # -------------------------------------------------------- components and sources (B7)
 
