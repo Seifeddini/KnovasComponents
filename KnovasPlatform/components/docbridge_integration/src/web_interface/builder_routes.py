@@ -33,6 +33,7 @@ from markupsafe import Markup
 
 from builder import editing, ontology_view, package, processes, publisher, review, tenant_ontology as tenant_reader
 from builder import mappings as mapping_rules
+from builder import views as brain_views
 from builder import sources as source_kinds
 from builder import packs as shipped_packs
 
@@ -40,6 +41,8 @@ logger = logging.getLogger(__name__)
 
 #: Roles that open the builder. Step B11 replaces this with the builder roles.
 BUILDER_ROLES = frozenset({"admin"})
+#: The Platform's own roles when the app does not say which it has (identity's built-in four).
+PLATFORM_ROLES = ("admin", "approver", "ingestion_manager", "member")
 
 
 @dataclass(frozen=True)
@@ -155,6 +158,8 @@ def create_builder_blueprint(
     publish_sink: Optional[Callable[..., Any]] = None,
     source_secrets: Optional[Callable[[], Any]] = None,
     reader_factory: Optional[Callable[..., Any]] = None,
+    platform_roles: Optional[Callable[[], list]] = None,
+    roles_sink: Optional[Callable[..., Any]] = None,
 ):
     """Build the /builder blueprint.
 
@@ -184,6 +189,10 @@ def create_builder_blueprint(
     tenant). ``reader_factory(component, source, secret, workspace_id)``
     returns the reader of a source through the component that serves it
     (``builder.sources``): the only way the builder reads a source.
+
+    ``platform_roles`` returns the Platform's role keys (its role table);
+    ``roles_sink(mapping, user)`` writes the published role-to-profile
+    mapping to the setting ``views.profile_roles`` (step B9).
 
     ``engine_factory`` returns the engine that compiles, dry-runs and applies
     a version (``builder.publisher.BrainRunnerEngine`` on the Platform's
@@ -223,7 +232,8 @@ def create_builder_blueprint(
     def _change_label(path):
         section, _, key = str(path).partition("/")
         element = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paket",
-                   "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle", "mappings": "Zuordnung"}.get(section)
+                   "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle", "mappings": "Zuordnung",
+                   "spines": "Hierarchie", "pages": "Seite", "profiles": "Profil", "profile_roles": "Rolle"}.get(section)
         return f"{element} {key}" if element and key else CHANGE_LABELS.get(path, path)
 
     @bp.app_template_filter("b_version_tag")
@@ -299,6 +309,13 @@ def create_builder_blueprint(
             if workspace is not None:
                 return _render("builder/review.html", stage=current, stage_number=number,
                                current_workspace=workspace, **_review_context(store, workspace))
+        if current.slug == "ansichten":
+            store = _store()
+            workspace = _current_workspace(store)
+            if workspace is not None:
+                return _render("builder/views.html", stage=current, stage_number=number,
+                               current_workspace=workspace, history=_history_counts(workspace.id),
+                               brain=brain_views.build(store.model(workspace.id), roles=_roles()))
         if current.slug == "verbinden":
             return _render("builder/components.html", stage=current, stage_number=number,
                            **_components_context(_store()))
@@ -495,6 +512,8 @@ def create_builder_blueprint(
             view = {"sources": _sources_view(store, model)}
         elif wanted == "mapping":
             view = {"mapping": _mapping_view(model, request.args.get("mapping") or "")}
+        elif wanted == "views":
+            view = {"views": brain_views.build(model, roles=_roles())}
         else:
             view = {"ontology": ontology_view.build(model)}
         return jsonify({"success": True, "changes": len(changes),
@@ -516,6 +535,7 @@ def create_builder_blueprint(
         op = request.get_json(silent=True)
         try:
             _check_source_op(store, op)
+            _check_role_op(op)
             model, changes, batch = store.edit(current.id, gate.current_user().id,
                                                lambda m: editing.apply(m, op))
         except editing.EditError as exc:
@@ -547,6 +567,45 @@ def create_builder_blueprint(
         history[give].append(batch)
         _save_history(current.id, history)
         return _edited(store, current.id, model, changes, take)
+
+    # -------------------------------------------------------- views and roles (B9)
+
+    def _roles() -> list:
+        try:
+            found = platform_roles() if platform_roles is not None else None
+        except Exception as exc:  # noqa: BLE001 - the role table could not be read: the built-in four
+            logger.warning("Builder: the Platform's roles are not readable (%s)", type(exc).__name__)
+            found = None
+        return sorted(str(r) for r in found) if found else list(PLATFORM_ROLES)
+
+    def _check_role_op(op) -> None:
+        """A role mapping names a role the Platform has."""
+        if isinstance(op, Mapping) and op.get("op") == "roles.set" and op.get("role") not in _roles():
+            raise editing.EditError(f"Die Rolle «{op.get('role')}» gibt es auf der Plattform nicht.", 404)
+
+    @bp.route("/api/w/<workspace_id>/views/preview", methods=["POST"])
+    def views_preview(workspace_id: str):
+        """A profile's start view and one of its pages, drawn from sample data made from the workspace."""
+        store, current = _editable_workspace(workspace_id)
+        body = request.get_json(silent=True) or {}
+        result = brain_views.preview(store.model(current.id), str(body.get("profile") or ""),
+                                     view_id=body.get("view") or None, page_key=body.get("page") or None)
+        if result is None:
+            return jsonify({"success": False, "error": "Dieses Profil gibt es nicht."}), 404
+        return jsonify({"success": True, "preview": result})
+
+    def _publish_roles(model) -> dict:
+        """The published role mapping becomes views.profile_roles; its failure is reported, the publish stands."""
+        if "profile_roles" not in model:
+            return {"written": False, "why": "Der Arbeitsbereich legt keine Rollen fest."}
+        if roles_sink is None:
+            return {"written": False, "why": "Diese Plattform schreibt keine Einstellungen."}
+        try:
+            roles_sink(brain_views.profile_roles(model), gate.current_user())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Builder: views.profile_roles not written: %s", type(exc).__name__)
+            return {"written": False, "why": type(exc).__name__}
+        return {"written": True}
 
     # -------------------------------------------------------- components and sources (B7)
 
@@ -1049,6 +1108,7 @@ def create_builder_blueprint(
         if number is not None:
             summary["run_event"] = _run_event(engine, model, number, status, summary)
             summary["views"] = _hand_to_views(compiled, number)
+            summary["roles"] = _publish_roles(model)
         store.record_run(current.id, kind="apply", actor_id=gate.current_user().id, tenant=tenant,
                          content_hash=content, bundle_hash=compiled.bundle_hash, status=status, summary=summary)
         logger.info("Builder publish: workspace %s, status %s, %d written, %d refused, version %s",

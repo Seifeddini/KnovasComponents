@@ -1176,3 +1176,143 @@ def test_mapping_client_zero(browser, mapping_server, shots, import_zip):
     assert any(m["definition"]["id"] == "ablage-akten" for m in published["mappings"])
     page.screenshot(path=shots / "b8-09-published.png")
     page.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Step B9: how the company sees its Brain -- the CTO profile of Client Zero,
+# a new view, a page's slots, a role; previewed and published through B5.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def views_server():
+    from builder_harness import FakeEngine, MemoryWorkspaceStore
+
+    author, reviewer = StandInUser({"admin"}, "Alex Beispiel"), StandInUser({"admin"}, "Robin Muster")
+    store = MemoryWorkspaceStore({str(author.id): author.display_name, str(reviewer.id): reviewer.display_name})
+    engine = FakeEngine(tenant_types={})
+    written = []
+    app = make_app(author, store, tenant="test-tenant-0001", engine=engine,
+                   roles=["admin", "approver", "ingestion_manager", "member"],
+                   roles_sink=lambda mapping, who: written.append(mapping))
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield {"base": f"http://127.0.0.1:{server.server_port}", "store": store, "engine": engine, "written": written,
+           "gate": app.extensions["builder_gate"], "author": author, "reviewer": reviewer}
+    server.shutdown()
+
+
+_VIEWS = "window.__builderViews"
+
+
+def _views_idle(page):
+    page.wait_for_function("() => !document.documentElement.dataset.viewsBusy")
+    # The toasts that confirmed the edits would cover the screenshot.
+    page.evaluate("() => document.querySelectorAll('#b-toasts .b-toast').forEach(t => t.remove())")
+
+
+def test_views_of_client_zero(browser, views_server, shots, import_zip):
+    s = views_server
+    base, store = s["base"], s["store"]
+    page = _page(browser, "1440", "light")
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    _import_through_the_dialog(page, base, import_zip)
+    [workspace] = store.list()
+    if not any(e["definition"].get("id") == "cto" for e in store.model(workspace.id)["profiles"]):
+        pytest.skip("needs the Client Zero package in $BUILDER_IMPORT_ZIP")
+
+    # The CTO profile, its start view (the system map) and its first page from sample data.
+    page.goto(f"{base}/builder/ansichten")
+    page.locator("[data-views-item='cto']").click()
+    _views_idle(page)
+    page.wait_for_selector("[data-views-preview-view='system-map']")
+    assert "SYS-KNOVAS-SEMANTIX" in page.inner_text("[data-views-preview]")
+    assert page.locator("[data-views-preview-page='PAGE-system']").count() == 1
+    page.screenshot(path=shots / "b9-01-cto-profile.png")
+
+    # A new view: open risks as a list, with the component each affects.
+    page.get_by_role("button", name="Ansicht hinzufügen").click()
+    dialog = page.locator("#b-vw-dialog")
+    dialog.get_by_label("Kennung").fill("open-risks")
+    dialog.get_by_label("Beschriftung", exact=True).first.fill("Offene Risiken")
+    dialog.get_by_label("Darstellung").select_option("list")
+    dialog.get_by_label("Wurzeltypen").fill("Risk")
+    dialog.get_by_label("Spalten").fill("status, owner")
+    dialog.get_by_role("button", name="Pfad hinzufügen").click()
+    path = dialog.locator(".b-vw-path").last
+    path.get_by_label("Beschriftung").fill("Komponente")
+    hop = path.get_by_label("Nächster Schritt des Pfads")
+    offered = hop.locator("option").all_inner_texts()
+    assert "affects → Component" in offered
+    hop.select_option(label="affects → Component")
+    page.screenshot(path=shots / "b9-02-new-view.png")
+    dialog.get_by_role("button", name="Ansicht hinzufügen").click()
+    page.wait_for_function(f"() => {_VIEWS}.data().profiles.find(p => p.id === 'cto').definition.views.some(v => v.id === 'open-risks')")
+    _views_idle(page)
+    page.wait_for_selector("[data-views-preview-view='open-risks']")
+    assert "Komponente" in page.inner_text("[data-views-preview-view='open-risks']")
+    page.screenshot(path=shots / "b9-03-view-preview.png")
+
+    # A page's slots: the component page shows its calls first and gets an "Einordnung" slot of facts.
+    page.get_by_role("tab", name="Seiten").click()
+    page.locator("[data-views-item='PAGE-component']").click()
+    _views_idle(page)
+    page.get_by_role("button", name="Ruft auf und wird aufgerufen von nach oben").click()
+    page.wait_for_function(f"() => {_VIEWS}.data().pages.find(p => p.key === 'PAGE-component').sections[5].id === 'calls'")
+    page.get_by_role("button", name="Abschnitt hinzufügen").click()
+    dialog.get_by_label("Kennung").fill("classification")
+    dialog.get_by_label("Titel (de)").fill("Einordnung")
+    dialog.get_by_label("Titel (en)").fill("Classification")
+    dialog.get_by_label("Darstellung").select_option("table")
+    dialog.get_by_label("Inhalt").select_option("facts")
+    dialog.get_by_label("Attribute").fill("alloy_status, design_pattern")
+    dialog.get_by_role("button", name="Abschnitt hinzufügen").click()
+    page.wait_for_function(f"() => {_VIEWS}.data().pages.find(p => p.key === 'PAGE-component').sections.some(s => s.id === 'classification')")
+    _views_idle(page)
+    page.wait_for_selector("[data-views-preview-slot='classification']")
+    assert "alloy_status" in page.inner_text("[data-views-preview-slot='classification']")
+    page.screenshot(path=shots / "b9-04-page-slots.png")
+
+    # A spine as a tree of levels, one level open.
+    page.get_by_role("tab", name="Hierarchien").click()
+    page.locator("[data-views-level='L5']").first.click()
+    page.wait_for_selector("[data-views-level-form='L5']")
+    _views_idle(page)
+    page.locator("[data-views-level-form='L5']").scroll_into_view_if_needed()
+    page.screenshot(path=shots / "b9-05-spine-tree.png")
+
+    # A role: approvers see the CTO profile.
+    page.get_by_role("tab", name="Rollen").click()
+    page.get_by_label("approver sieht CTO").check()
+    page.wait_for_function(f"() => ({_VIEWS}.data().role_map.approver || []).includes('cto')")
+    _views_idle(page)
+    page.screenshot(path=shots / "b9-06-roles.png")
+
+    # Published through B5: the change set names the view, the slots and the role; the bundle holds them.
+    page.goto(f"{base}/builder/pruefen")
+    page.get_by_role("button", name="Mit diesem Mandanten verbinden").click()
+    page.wait_for_selector("[data-publish-dry-run]")
+    main = page.inner_text("main")
+    assert "Ansicht Offene Risiken" in main and "Abschnitt Einordnung" in main and "sieht cto" in main
+    page.screenshot(path=shots / "b9-07-change-set.png", full_page=True)
+    page.get_by_role("button", name="Probelauf starten").click()
+    page.wait_for_selector(".b-rv-counts")
+    s["gate"].user = s["reviewer"]
+    page.reload()
+    page.get_by_role("button", name="Diesen Stand freigeben").click()
+    page.wait_for_selector(".b-rv-approvals")
+    s["gate"].user = s["author"]
+    page.reload()
+    page.get_by_role("button", name="Veröffentlichen").click()
+    page.wait_for_selector("text=Nichts zu veröffentlichen")
+    assert store.published_bundle(workspace.id)["number"] == 1
+    # The published model compiled by brain-runner itself: the bundle the views read.
+    from builder.publisher import BrainRunnerEngine
+    sections = BrainRunnerEngine(lambda: None).compile(store.model(workspace.id)).bundle["sections"]
+    component = next(p for p in sections["pages"]["pages"] if p["key"] == "PAGE-component")
+    assert [x["id"] for x in component["sections"]][-1] == "classification"
+    assert any(v["id"] == "open-risks" for v in sections["profiles"]["cto"]["views"])
+    assert s["written"] == [{"approver": ["cto"]}]
+    page.screenshot(path=shots / "b9-08-published.png", full_page=True)
+    page.context.close()

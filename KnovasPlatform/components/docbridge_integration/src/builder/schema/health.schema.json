@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/client-zero/health.schema.json",
+  "title": "Health definitions",
+  "description": "health.yaml: per node type, who owns its health, how often it is reviewed, which fields it must and should carry, when an item counts as stale, and which rules it must comply with (DC-34 health in three numbers: correctness, completeness, compliance; DC-81 a scorecard per type with an owner and a review rhythm).",
+  "type": "object",
+  "required": ["version", "types"],
+  "properties": {
+    "version": {"type": "integer", "minimum": 1},
+    "types": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["owner_role", "review_every", "required", "recommended", "stale_after", "compliance"],
+        "properties": {
+          "owner_role": {"type": "string", "pattern": "^ROLE-[A-Z0-9-]+$", "description": "A role key that owners.yaml resolves to a Role in seed.yaml."},
+          "review_every": {"$ref": "#/$defs/duration"},
+          "required": {"type": "array", "items": {"type": "string"}, "description": "Fields every item must carry: name, description or an attribute of the type (completeness)."},
+          "recommended": {"type": "array", "items": {"type": "string"}, "description": "Fields an item should carry; missing ones are warnings."},
+          "stale_after": {"$ref": "#/$defs/duration", "description": "An item not seen in its source (last_seen) or not confirmed (last_confirmed) for longer is stale."},
+          "compliance": {"type": "array", "items": {"type": "string", "pattern": "^(R[0-9]|P-[a-z-]+)$"}, "description": "Rule ids (report rules R0–R8, process rules P-*) the type must comply with."},
+          "note": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "duration": {"type": "string", "pattern": "^[0-9]+ (h|d|w)$", "description": "Number and unit as text: '30 d', '2 w'."}
+  }
+}

@@ -42,7 +42,13 @@ PROCESSES = "processes"
 PROCESS_RULES = "processes.rules"
 SOURCES = "sources"
 MAPPINGS = "mappings"
-SECTIONS = (TYPES, RELATIONS, PACKS, PROCESSES, PROCESS_RULES, SOURCES, MAPPINGS)
+SPINES = "spines"
+PAGES = "pages"
+PROFILES = "profiles"
+PROFILE_ROLES = "profile_roles"
+SECTIONS = (TYPES, RELATIONS, PACKS, PROCESSES, PROCESS_RULES, SOURCES, MAPPINGS, SPINES, PAGES, PROFILES, PROFILE_ROLES)
+#: The definition documents (step B9) and the file the package keeps each in.
+DOCUMENT_SECTIONS = {SPINES: "spines", PAGES: "pages"}
 #: The field that names an element of a section; "key" where not listed.
 KEY_FIELDS = {PROCESS_RULES: "id"}
 
@@ -78,8 +84,8 @@ def key_field(section: str) -> str:
 
 
 def key_of(section: str, item: Mapping[str, Any]) -> Any:
-    """The name of an element: a mapping is named by its definition's id (a file of the package)."""
-    if section == MAPPINGS:
+    """The name of an element: a mapping or profile is named by its definition's id (a file of the package)."""
+    if section in (MAPPINGS, PROFILES):
         return (item.get("definition") or {}).get("id")
     return item.get(key_field(section))
 
@@ -88,8 +94,17 @@ def _items(model: dict, section: str, *, create: bool = True) -> list:
     """The section's list of elements; without ``create``, an absent one reads as empty and is not added."""
     if section not in SECTIONS:
         raise EditError("Unbekannter Teil des Modells.")
-    if section in (PACKS, SOURCES, MAPPINGS):
+    if section in (PACKS, SOURCES, MAPPINGS, PROFILES, PROFILE_ROLES):
         return model.setdefault(section, []) if create else (model.get(section) or [])
+    if section in DOCUMENT_SECTIONS:
+        doc = model.get(section)
+        if not isinstance(doc, dict):
+            if not create:
+                return []
+            if section not in ((model.get("package") or {}).get("manifest") or {}):
+                raise EditError("Das Paket dieses Arbeitsbereichs hat keine Datei dafür.", 409)
+            doc = model[section] = {"version": 1, section: []}
+        return doc.setdefault(section, []) if create else (doc.get(section) or [])
     if section in (PROCESSES, PROCESS_RULES):
         name = "processes" if section == PROCESSES else "rules"
         doc = model.get("processes")
@@ -118,6 +133,8 @@ def put(model: dict, change: Mapping[str, Any], *, reverse: bool = False) -> Non
         del items[index]
         if section == PROCESS_RULES and not items:
             model["processes"].pop("rules", None)  # a rules list the edit made is gone again with its last rule
+        if section == PROFILE_ROLES and not items:
+            model.pop(PROFILE_ROLES, None)  # so is a role mapping
     else:
         items[index] = copy.deepcopy(after)
 
@@ -669,6 +686,7 @@ OPERATIONS: dict[str, Callable[[_Edit, Mapping[str, Any]], None]] = {
 from builder import process_edits  # noqa: E402,F401  - late: it builds on the helpers above
 from builder import source_edits  # noqa: E402,F401  - the source operations (step B7)
 from builder import mapping_edits  # noqa: E402,F401  - the mapping operations (step B8)
+from builder import view_edits  # noqa: E402,F401  - spines, pages, profiles and roles (step B9)
 
 
 def apply(model: dict, op: Any) -> list[dict]:

@@ -58,6 +58,12 @@
     },
     "mappings": {"type": "array", "items": {"$ref": "#/$defs/fileDefinition"}},
     "profiles": {"type": "array", "items": {"$ref": "#/$defs/fileDefinition"}},
+    "profile_roles": {
+      "description": "Which profiles each Platform role sees (step B9); published to the setting views.profile_roles. Not part of a configuration package.",
+      "type": "array",
+      "items": {"type": "object", "required": ["key", "profiles"],
+                "properties": {"key": {"type": "string"}, "profiles": {"type": "array", "items": {"type": "string"}}}}
+    },
     "packs": {
       "description": "The packs the workspace uses, with the version it took over (step B4).",
       "type": "array",

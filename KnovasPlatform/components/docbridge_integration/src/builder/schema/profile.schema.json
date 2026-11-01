@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/client-zero/profile.schema.json",
+  "title": "Application or agent profile",
+  "description": "One profile (handbook, Part C; DC-45): what a consumer of the brain sees, in which views and pages, which governed edits it may make, which context packs it gets, and its rights. Build from the consumer (DEC-0037): a part of the ontology is configured because a profile reads it.",
+  "type": "object",
+  "required": ["id", "audience", "lens", "views", "pages", "actions", "context_packs", "rights"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+    "audience": {"type": "string", "minLength": 1, "description": "Who uses the profile, in plain words."},
+    "role": {"type": "string", "pattern": "^ROLE-[A-Z0-9-]+$", "description": "The role the profile serves, when one exists in seed.yaml."},
+    "description": {"type": "string"},
+    "delivered_through": {"type": "string", "description": "Platform, secured API, CI job, …"},
+    "lens": {
+      "type": "object",
+      "required": ["spines", "types", "relations"],
+      "properties": {
+        "spines": {"type": "array", "items": {"type": "string"}, "description": "Spine keys from spines.yaml the profile sees."},
+        "types": {"type": "array", "items": {"type": "string"}, "description": "Node types the profile sees; * = every type."},
+        "relations": {"type": "array", "items": {"type": "string"}, "description": "Relations the profile follows; * = every relation."}
+      },
+      "additionalProperties": false
+    },
+    "views": {"type": "array", "items": {"$ref": "#/$defs/view"}},
+    "pages": {"type": "array", "items": {"type": "string", "pattern": "^PAGE-[a-z0-9-]+$"}, "description": "Page keys from page-definitions.yaml."},
+    "actions": {"type": "array", "items": {"$ref": "#/$defs/action"}},
+    "context_packs": {"type": "array", "items": {"$ref": "#/$defs/context_pack"}},
+    "rights": {
+      "type": "object",
+      "required": ["read", "write"],
+      "properties": {
+        "read": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "Node types the profile may read; * = every type in its lens."},
+        "write": {"enum": ["none", "propose", "actions"], "description": "none: reads only; propose: every output is a proposal a person accepts; actions: only through the profile's actions."}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "hop": {
+      "type": "object",
+      "required": ["relation", "direction", "to_type"],
+      "properties": {"relation": {"type": "string"}, "direction": {"enum": ["out", "in"]}, "to_type": {"type": "string"}},
+      "additionalProperties": false
+    },
+    "labelled_path": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "label": {"type": "string"},
+        "path": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/hop"}},
+        "where": {
+          "type": "object",
+          "required": ["fact"],
+          "properties": {
+            "fact": {"type": "string"},
+            "equals": {"type": "string"},
+            "in": {"type": "array", "items": {"type": "string"}},
+            "not_in": {"type": "array", "items": {"type": "string"}}
+          },
+          "additionalProperties": false,
+          "description": "Keeps only the items at the end of the path whose fact matches (as in page definitions)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "view": {
+      "type": "object",
+      "required": ["id", "render", "definition"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "label": {"type": "string"},
+        "render": {"enum": ["trace", "board", "tree", "matrix", "list", "doc", "map"]},
+        "definition": {
+          "type": "object",
+          "properties": {
+            "description": {"type": "string"},
+            "root_types": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "The types the view starts from."},
+            "paths": {"type": "array", "items": {"$ref": "#/$defs/labelled_path"}, "description": "Relation paths from the root types, in display order."},
+            "process": {"type": "string", "pattern": "^PROC-[a-z0-9-]+$", "description": "A board's columns: the steps of this process."},
+            "spine": {"type": "string", "pattern": "^SPINE-[a-z0-9-]+$", "description": "A tree's levels: this spine."},
+            "group_by": {"type": "string", "description": "A type the rows are grouped under (e.g. Component)."},
+            "color_by": {"type": "array", "items": {"type": "string"}, "description": "What colours the items: a fact, docs_completeness, check_status, rule results."},
+            "columns": {"type": "array", "items": {"type": "string"}},
+            "rules": {"type": "array", "items": {"type": "string"}, "description": "Rule ids the view shows results of."}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "action": {
+      "type": "object",
+      "required": ["id", "label", "target_type", "change", "criteria", "writeback", "autonomy"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "label": {"type": "string"},
+        "target_type": {"type": "string"},
+        "change": {"type": "string", "description": "The field (`<Type>.<fact>`, name, description) or relation (`<From> <relation> <To>`) the action changes; an entry of edit-sources.yaml."},
+        "to_value": {"type": "string", "description": "The value the action sets, when it sets one (e.g. approved)."},
+        "criteria": {"type": "array", "items": {"type": "string", "pattern": "^(R[0-9]|P-[a-z-]+)$"}, "description": "Rule ids that must pass before the action is offered (DC-42)."},
+        "writeback": {"enum": ["pull_request"], "description": "How the change reaches its source (DC-43): a pull request on the source file (DEC-0034, source-owned)."},
+        "autonomy": {"enum": ["person_commits"], "description": "A person commits every change; nothing is applied automatically (DC-76 later)."}
+      },
+      "additionalProperties": false
+    },
+    "context_pack": {
+      "type": "object",
+      "required": ["id", "root_type", "include", "budget_tokens"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "description": {"type": "string"},
+        "root_type": {"type": "string"},
+        "include": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/labelled_path"}, "description": "Relation paths from the root, each with what it adds to the pack."},
+        "with_source_paths": {"type": "boolean", "default": true, "description": "Each item carries the file path where it is defined."},
+        "budget_tokens": {"type": "integer", "minimum": 1000}
+      },
+      "additionalProperties": false
+    }
+  }
+}

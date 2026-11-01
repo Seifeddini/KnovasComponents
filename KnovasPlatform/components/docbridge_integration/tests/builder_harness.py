@@ -381,7 +381,7 @@ def stand_in_readers(github_root=None, connector=None, http=None):
 
 
 def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None,
-             secrets=None, readers=None) -> Flask:
+             secrets=None, readers=None, roles=None, roles_sink=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -421,5 +421,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         publish_sink=publish_sink,
         source_secrets=(lambda: secrets) if secrets is not None else None,
         reader_factory=readers,
+        platform_roles=(lambda: roles) if roles is not None else None,
+        roles_sink=roles_sink,
     ))
     return app

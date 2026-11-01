@@ -19,9 +19,11 @@ from typing import Any, Iterable, Mapping, Optional
 from builder import processes
 
 SECTIONS = {"ontology.types": "Typen", "ontology.relations": "Beziehungen", "packs": "Pakete",
-            "processes": "Prozesse", "processes.rules": "Prozessregeln", "sources": "Quellen", "mappings": "Zuordnungen"}
+            "processes": "Prozesse", "processes.rules": "Prozessregeln", "sources": "Quellen", "mappings": "Zuordnungen",
+            "spines": "Hierarchien", "pages": "Seiten", "profiles": "Profile", "profile_roles": "Rollen und Profile"}
 KINDS = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paketstand",
-         "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle", "mappings": "Zuordnung"}
+         "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle", "mappings": "Zuordnung",
+         "spines": "Hierarchie", "pages": "Seite", "profiles": "Profil", "profile_roles": "Rolle"}
 #: Change rows that are not about one element: where the draft came from.
 ORIGINS = {"import": "Paket importiert", "create": "Angelegt"}
 
@@ -47,6 +49,16 @@ def state_of(before: Optional[Mapping[str, Any]], after: Optional[Mapping[str, A
 
 def describe(item: Mapping[str, Any]) -> str:
     """One line for an element that is new."""
+    if isinstance(item.get("definition"), Mapping) and "audience" in item["definition"]:
+        d = item["definition"]
+        return f"{d.get('audience')} · {len(d.get('views') or [])} Ansichten · {item.get('file')}"
+    if "profiles" in item and "key" in item and len(item) == 2:
+        return f"sieht {', '.join(item['profiles'])}"
+    if "levels" in item:
+        return f"{item.get('name') or item.get('key')} · " + " → ".join(str(lv.get("name")) for lv in item["levels"])
+    if "sections" in item:
+        return f"Seite für {item.get('type')} · " + ", ".join(
+            str((s.get("title") or {}).get("de") or s.get("id")) for s in item["sections"])
     if "steps" in item:
         steps = processes.step_ids(item)
         return f"{item.get('name') or item.get('key')} · {len(steps)} Schritte" + (f": {' → '.join(steps)}" if steps else "")
@@ -154,6 +166,54 @@ def process_lines(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[d
     return lines
 
 
+def _ordered_lines(old: list, new: list, key: str, label: str, name) -> list[dict]:
+    """Added, removed, changed and reordered elements of two lists keyed by ``key``."""
+    lines = []
+    o = {str(x.get(key)): x for x in old if isinstance(x, Mapping)}
+    n = {str(x.get(key)): x for x in new if isinstance(x, Mapping)}
+    for k, x in n.items():
+        if k not in o:
+            lines.append({"sign": "added", "text": f"{label} {name(x)}"})
+        elif o[k] != x:
+            lines.append({"sign": "changed", "text": f"{label} {name(x)} geändert"})
+    for k, x in o.items():
+        if k not in n:
+            lines.append({"sign": "removed", "text": f"{label} {name(x)}"})
+    if [k for k in o if k in n] != [k for k in n if k in o]:
+        lines.append({"sign": "changed", "text": f"Reihenfolge: {label}"})
+    return lines
+
+
+def view_lines(section: str, before: Mapping[str, Any], after: Mapping[str, Any]) -> list[dict]:
+    """The differences between two versions of a spine, page, profile or role mapping (step B9)."""
+    if section == "spines":
+        lines = _ordered_lines(before.get("levels") or [], after.get("levels") or [], "id", "Ebene",
+                               lambda lv: lv.get("name") or lv.get("id"))
+        lines += _ordered_lines(before.get("branches") or [], after.get("branches") or [], "key", "Zweig",
+                                lambda b: b.get("name") or b.get("key"))
+        fields = (("name", "Name"), ("description", "Beschreibung"))
+    elif section == "pages":
+        lines = _ordered_lines(before.get("sections") or [], after.get("sections") or [], "id", "Abschnitt",
+                               lambda s: (s.get("title") or {}).get("de") or s.get("id"))
+        fields = (("name", "Name"), ("type", "Typ"), ("filter", "Schlüsselanfang"))
+    elif section == "profiles":
+        before, after = before.get("definition") or {}, after.get("definition") or {}
+        lines = _ordered_lines(before.get("views") or [], after.get("views") or [], "id", "Ansicht",
+                               lambda v: v.get("label") or v.get("id"))
+        old_pages, new_pages = before.get("pages") or [], after.get("pages") or []
+        lines += [{"sign": "added", "text": f"Seite {p}"} for p in new_pages if p not in old_pages]
+        lines += [{"sign": "removed", "text": f"Seite {p}"} for p in old_pages if p not in new_pages]
+        fields = (("audience", "Zielgruppe"), ("description", "Beschreibung"), ("role", "Rolle"),
+                  ("delivered_through", "Ausgeliefert über"), ("lens", "Blickfeld"), ("actions", "Aktionen"),
+                  ("rights", "Rechte"))
+    else:
+        old, new = before.get("profiles") or [], after.get("profiles") or []
+        return ([{"sign": "added", "text": f"sieht {p}"} for p in new if p not in old]
+                + [{"sign": "removed", "text": f"sieht {p} nicht mehr"} for p in old if p not in new])
+    return lines + [{"sign": "changed", "text": f"{label} geändert"}
+                    for f, label in fields if before.get(f) != after.get(f)]
+
+
 def element_diff(path: str, before: Optional[Mapping[str, Any]], after: Optional[Mapping[str, Any]]) -> dict:
     """One element's group of diff lines."""
     section, _, key = path.partition("/")
@@ -167,8 +227,11 @@ def element_diff(path: str, before: Optional[Mapping[str, Any]], after: Optional
         lines = [{"sign": "added", "text": "Wieder aktiv"}] + field_lines(
             {**(before or {}), "retired": False}, {**(after or {}), "retired": False})
     elif state == "changed":
-        compare = process_lines if section == "processes" else field_lines
-        lines = compare(before or {}, after or {}) or [{"sign": "changed", "text": "Kleine Änderungen"}]
+        if section in ("spines", "pages", "profiles", "profile_roles"):
+            lines = view_lines(section, before or {}, after or {})
+        else:
+            lines = (process_lines if section == "processes" else field_lines)(before or {}, after or {})
+        lines = lines or [{"sign": "changed", "text": "Kleine Änderungen"}]
     else:
         lines = []
     return {"section": section, "kind": KINDS.get(section, section), "key": key, "path": path, "state": state,

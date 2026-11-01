@@ -1,0 +1,88 @@
+{# Stage 6 (build plan step B9): how the company sees its Brain. Expects
+   current_workspace, history ({undo, redo} counts) and brain
+   (builder.views.build). static/js/builder/views.js draws the four tabs --
+   profiles with their views, pages with their slots, spines as trees of
+   levels, the role mapping -- and the preview, and sends every edit to the
+   same edit route as the ontology (builder.editing). #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% set c = brain.counts %}
+{% block title %}{{ stage.label }} · {{ current_workspace.name }}{% endblock %}
+{% block main %}
+<header class="b-onto-head">
+    <div class="b-page-head" style="margin-bottom: 0">
+        <p class="b-step-count b-small">Stufe {{ stage_number }} von {{ stages | length }} · {{ current_workspace.name }}</p>
+        <h1 class="b-h1">{{ stage.label }}</h1>
+    </div>
+    <div class="b-tag-row" data-views-head>
+        <span class="b-tag">{{ c.profiles }} Profile</span>
+        <span class="b-tag">{{ c.pages }} Seiten</span>
+        <span class="b-tag">{{ c.spines }} Hierarchien</span>
+        {% if c.problems.critical %}<span class="b-tag b-tag--critical"><span class="b-tag-dot"></span>{{ c.problems.critical }} {{ 'Problem' if c.problems.critical == 1 else 'Probleme' }}</span>{% endif %}
+        {% if c.problems.warning %}<span class="b-tag b-tag--warning"><span class="b-tag-dot"></span>{{ c.problems.warning }} {{ 'Warnung' if c.problems.warning == 1 else 'Warnungen' }}</span>{% endif %}
+        <span class="b-tag b-tag--accent">Entwurf {{ current_workspace.draft_number or '' }}</span>
+    </div>
+    <div class="b-onto-edit-bar" data-views-root
+         data-edit-url="{{ url_for('builder.edit_ontology', workspace_id=current_workspace.id, view='views') }}"
+         data-undo-url="{{ url_for('builder.undo', workspace_id=current_workspace.id, view='views') }}"
+         data-redo-url="{{ url_for('builder.redo', workspace_id=current_workspace.id, view='views') }}"
+         data-preview-url="{{ url_for('builder.views_preview', workspace_id=current_workspace.id) }}"
+         data-undo="{{ history.undo }}" data-redo="{{ history.redo }}">
+        <button type="button" class="b-button b-button--quiet" data-views-undo {% if not history.undo %}disabled{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Rückgängig</button>
+        <button type="button" class="b-button b-button--quiet" data-views-redo {% if not history.redo %}disabled{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>Wiederherstellen</button>
+        <button type="button" class="b-button b-button--primary" data-views-new>{{ icon('plus') }}<span data-views-new-label>Neues Profil</span></button>
+    </div>
+</header>
+
+<div class="b-tablist" role="tablist" aria-label="Teile der Ansichten" data-views-tabs>
+    <button type="button" class="b-tab" role="tab" aria-selected="true" data-views-tab="profiles">Profile <span class="b-tab-count">{{ c.profiles }}</span></button>
+    <button type="button" class="b-tab" role="tab" aria-selected="false" data-views-tab="pages">Seiten <span class="b-tab-count">{{ c.pages }}</span></button>
+    <button type="button" class="b-tab" role="tab" aria-selected="false" data-views-tab="spines">Hierarchien <span class="b-tab-count">{{ c.spines }}</span></button>
+    <button type="button" class="b-tab" role="tab" aria-selected="false" data-views-tab="roles">Rollen</button>
+</div>
+
+<div class="b-vw-layout" data-views-layout>
+    <nav class="b-proc-list" aria-label="Auswahl">
+        <ul data-views-list></ul>
+        <p class="b-muted b-small" data-views-list-empty hidden></p>
+        <section class="b-proc-check" aria-labelledby="b-vw-check-title">
+            <h2 class="b-h3" id="b-vw-check-title">Prüfung</h2>
+            <ul class="b-proc-check-list" aria-live="polite" data-views-check></ul>
+        </section>
+    </nav>
+    <section class="b-vw-editor" aria-label="Bearbeiten" data-views-editor></section>
+    <aside class="b-vw-preview" aria-labelledby="b-vw-preview-title" data-views-preview-pane>
+        <div class="b-vw-preview-head">
+            <h2 class="b-h3" id="b-vw-preview-title">Vorschau</h2>
+            <span class="b-tag">Beispieldaten aus dem Arbeitsbereich</span>
+        </div>
+        <div class="b-vw-preview-body" data-views-preview aria-live="polite"></div>
+    </aside>
+</div>
+
+<script type="application/json" id="b-views-data">{{ brain | tojson }}</script>
+<datalist id="b-vw-types">{% for t in brain.types %}<option value="{{ t.key }}">{{ t.name }}</option>{% endfor %}</datalist>
+
+<dialog class="b-dialog b-dialog--wide" id="b-vw-dialog" aria-labelledby="b-vw-dialog-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-vw-dialog-title" data-vw-dialog-title></h2>
+            <p class="b-muted" data-vw-dialog-text></p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-vw-dialog-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body" data-vw-dialog-body></div>
+        <div class="b-dialog-body" style="padding-top: 0"><div class="b-callout b-callout--critical" data-vw-dialog-error role="alert" hidden></div></div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-vw-dialog-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary" data-vw-dialog-submit>Übernehmen</button>
+        </div>
+    </form>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/views.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

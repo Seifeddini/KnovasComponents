@@ -1887,6 +1887,14 @@ def create_app(config_path: Optional[str] = None):
             return _ps.SourceSecrets(_ps.SettingStore(identity_gate.connection()),
                                      app.extensions['platform_settings'].box, str(api_client.customer_id or ''))
 
+        def _builder_platform_roles():
+            return [r[0] for r in identity_gate.connection().execute('SELECT key FROM roles ORDER BY key').fetchall()]
+
+        def _builder_roles_sink(mapping, user):
+            """Write the published role mapping through the settings registry (audited like a page edit)."""
+            app.extensions['platform_settings'].save(user, {'views.profile_roles': mapping or None},
+                                                     roles=_builder_platform_roles())
+
         def _builder_reader(component, source, secret, workspace_id):
             """A source's reader through the component that serves it (builder.sources)."""
             import hashlib as _hashlib
@@ -1940,6 +1948,9 @@ def create_app(config_path: Optional[str] = None):
             # Sources (B7): credentials only through the settings registry, reads only through a component.
             source_secrets=_builder_source_secrets,
             reader_factory=_builder_reader,
+            # Views (B9): the role table, and the published role mapping as the setting views.profile_roles.
+            platform_roles=_builder_platform_roles,
+            roles_sink=_builder_roles_sink,
         ))
 
         from identity.node_grants import NodeGrantStore

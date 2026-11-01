@@ -584,7 +584,38 @@ def write_package(model: Mapping[str, Any]) -> dict[str, bytes]:
     for path, text in (model["package"].get("files") or {}).items():
         files[path] = text.encode("utf-8")
     _regenerate_processes(model, manifest, files)
+    _regenerate_definitions(model, manifest, files)
     return files
+
+
+def _regenerate_definitions(model: Mapping[str, Any], manifest: Mapping[str, Any], files: dict[str, bytes]) -> None:
+    """The machine form of the spines and pages, when the manifest names one and they changed (step B9).
+
+    As for the processes: brain-runner bundles ``generated.spines`` and
+    ``generated.pages`` instead of the YAML, so unchanged definitions keep the
+    file byte for byte and changed ones replace its list.
+    """
+    from builder import views  # late: views reads the schema files
+
+    generated = manifest.get("generated")
+    if not isinstance(generated, dict):
+        return
+    for part, normalise in (("spines", views.normalise_spines), ("pages", views.normalise_pages)):
+        path = generated.get(part)
+        doc = model.get(part)
+        if not path or path not in files or not isinstance(doc, dict):
+            continue
+        try:
+            kept = json.loads(files[path].decode("utf-8"))
+        except ValueError:
+            kept = {}
+        normal = normalise(doc)
+        if kept.get(part) == normal[part]:
+            continue
+        out = dict(kept) or {"version": normal["version"]}
+        out.update(version=normal["version"], generated_at=datetime.date.today().isoformat())
+        out[part] = normal[part]
+        files[path] = (json.dumps(out, indent=1, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def _regenerate_processes(model: Mapping[str, Any], manifest: Mapping[str, Any], files: dict[str, bytes]) -> None:
