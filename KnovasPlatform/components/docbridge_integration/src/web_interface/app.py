@@ -2019,6 +2019,8 @@ def create_app(config_path: Optional[str] = None):
             access_backend=_builder_access_backend,
             # Views by description: Claude on the settings registry's API key (builder.assistant.*).
             assistant_client=_builder_assistant,
+            # Relations and hierarchies from what the tenant's links show (builder.brain_shape).
+            tenant_graph=lambda: (api_client.graph_node_types(), api_client.graph_nodes(), api_client.graph_edges()),
         ))
 
         # Connector protocol v1 (B13): components call out to these; each checks the component's own credential,

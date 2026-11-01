@@ -147,6 +147,21 @@
             return payload;
         });
     }
+    /* Like edit, to another route of the views stage (it answers with the views and the history too). */
+    function sendTo(url, body) {
+        if (pending) return Promise.resolve({ success: false, error: 'Einen Moment, die letzte Änderung läuft noch.' });
+        pending = true;
+        working(1);
+        return post(url, body).then(function (payload) {
+            pending = false;
+            working(-1);
+            if (!payload.success) return payload;
+            history = payload.history || history;
+            data = payload.views;
+            render();
+            return payload;
+        });
+    }
     function editOrToast(op) {
         return edit(op).then(function (payload) {
             if (!payload.success && payload.error) toast(payload.error, (payload.details || []).join(', '), 'critical');
@@ -253,7 +268,7 @@
         event.preventDefault();
         var op;
         try { op = dialogSubmit(); } catch (message) { dialogError.textContent = String(message); dialogError.hidden = false; return; }
-        edit(op).then(function (payload) {
+        (op && op.url ? sendTo(op.url, op.body) : edit(op)).then(function (payload) {
             if (!payload.success) {
                 dialogError.textContent = (payload.error || 'Das hat nicht geklappt.') + (payload.details && payload.details.length ? ' ' + payload.details.join(', ') : '');
                 dialogError.hidden = false;
@@ -263,6 +278,67 @@
             if (op.after) op.after();
         });
     });
+
+    /* ---- from the Brain: relations and hierarchies its links already show ---- */
+
+    (function () {
+        var shapeButton = document.querySelector('[data-views-shape]');
+        if (!shapeButton) return;
+        function levelText(h) {
+            return h.levels.map(function (lv) { return lv.types.map(typeName).join(' / ') + ' (' + lv.nodes + ')'; }).join(' → ');
+        }
+        shapeButton.addEventListener('click', function () {
+            shapeButton.disabled = true;
+            working(1);
+            fetch(shapeButton.dataset.url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+                .then(function (r) { return r.json(); }, function () { return { success: false, error: 'Der Server ist nicht erreichbar.' }; })
+                .then(function (shape) {
+                    shapeButton.disabled = false;
+                    working(-1);
+                    if (!shape.success) { toast(shape.error || 'Das Brain ist gerade nicht lesbar.', '', 'critical'); return; }
+                    if (!shape.relations.length && !shape.hierarchies.length) {
+                        toast('Nichts Neues im Brain', 'Seine Verbindungen zeigen keine Beziehung und keine Hierarchie, die der Entwurf nicht schon hat.');
+                        return;
+                    }
+                    openDialog('Aus dem Brain ableiten',
+                        shape.counts.edges + ' Verbindungen zwischen ' + shape.counts.nodes + ' Knoten gelesen. Gewählt wird in den Entwurf übernommen; Rückgängig nimmt alles zurück.',
+                        'Übernehmen', function (body) {
+                            var boxes = [];
+                            function group(title, items, text) {
+                                if (!items.length) return;
+                                body.appendChild(el('h3', 'b-h3', title));
+                                items.forEach(function (it) {
+                                    var c = checkbox(text(it), true, 'chosen');
+                                    c.input.value = it.id;
+                                    boxes.push(c.input);
+                                    body.appendChild(c.wrap);
+                                });
+                            }
+                            group('Hierarchien', shape.hierarchies, function (h) { return h.name + ': ' + levelText(h); });
+                            group('Beziehungen', shape.relations, function (r) {
+                                return r.key + (r.new ? '' : ' (erweitern)') + ': ' + r.domain.map(typeName).join(', ') + ' → '
+                                    + r.range.map(typeName).join(', ') + ' · ' + r.links + ' Verbindungen';
+                            });
+                            if (shape.skipped.length) body.appendChild(el('p', 'b-small b-muted', 'Nicht übernehmbar (Name oder unbekannte Typen): ' + shape.skipped.slice(0, 12).join(', ')));
+                            if (shape.hierarchies.length) body.appendChild(el('p', 'b-small b-muted', 'Eine Hierarchie braucht ihre Beziehungen: sie werden mit übernommen, wenn sie fehlen.'));
+                            return function () {
+                                var chosen = boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+                                if (!chosen.length) throw 'Wählen Sie mindestens einen Vorschlag.';
+                                // a hierarchy's links come along (the server orders relations first)
+                                shape.hierarchies.forEach(function (h) {
+                                    if (chosen.indexOf(h.id) < 0) return;
+                                    h.levels.forEach(function (lv) {
+                                        if (lv.link && chosen.indexOf('rel:' + lv.link.relation) < 0
+                                            && shape.relations.some(function (r) { return r.id === 'rel:' + lv.link.relation; })) chosen.push('rel:' + lv.link.relation);
+                                    });
+                                });
+                                return { url: shapeButton.dataset.url, body: { chosen: chosen },
+                                         after: function () { state.tab = 'spines'; state.spine = null; render(); toast('Aus dem Brain übernommen', chosen.length + ' Vorschläge'); } };
+                            };
+                        });
+                });
+        });
+    })();
 
     /* ---- the path picker -------------------------------------------------- */
 

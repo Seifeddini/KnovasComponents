@@ -32,6 +32,9 @@
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Rückgängig</button>
         <button type="button" class="b-button b-button--quiet" data-views-redo {% if not history.redo %}disabled{% endif %}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>Wiederherstellen</button>
+        {% if shape_ready %}<button type="button" class="b-button b-button--secondary" data-views-shape
+                data-url="{{ url_for('builder.brain_shape', workspace_id=current_workspace.id) }}"
+                title="Beziehungen und Hierarchien übernehmen, die das Brain in seinen Verbindungen schon hat">Aus dem Brain ableiten</button>{% endif %}
         <button type="button" class="b-button b-button--primary" data-views-new>{{ icon('plus') }}<span data-views-new-label>Neues Profil</span></button>
     </div>
 </header>

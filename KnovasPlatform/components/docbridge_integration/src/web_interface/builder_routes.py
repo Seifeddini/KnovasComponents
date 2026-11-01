@@ -55,7 +55,7 @@ ENDPOINT_PERMISSIONS = {
     "mapping_page": "view", "published_bundle": "view", "styleguide": "view", "views_preview": "view",
     "comments": "view", "activity": "view",
     "import_preview": "edit", "import_package": "edit", "create_workspace": "edit", "edit_ontology": "edit",
-    "undo": "edit", "redo": "edit", "views_assistant": "edit", "source_credential": "edit", "source_test": "edit", "source_sample": "edit",
+    "undo": "edit", "redo": "edit", "views_assistant": "edit", "brain_shape": "edit", "source_credential": "edit", "source_test": "edit", "source_sample": "edit",
     "mapping_preview": "edit", "mapping_dry_run": "edit", "dry_run": "edit",
     "add_comment": "comment", "resolve_comment": "resolve",
     "approve": "review", "record_review": "review",
@@ -204,6 +204,7 @@ def create_builder_blueprint(
     roles_sink: Optional[Callable[..., Any]] = None,
     sync_status: Optional[Callable[[], Mapping[str, Any]]] = None,
     assistant_client: Optional[Callable[[], Optional[tuple]]] = None,
+    tenant_graph: Optional[Callable[[], tuple]] = None,
 ):
     """Build the /builder blueprint.
 
@@ -453,7 +454,8 @@ def create_builder_blueprint(
                 return _render("builder/views.html", stage=current, stage_number=number,
                                current_workspace=workspace, history=_history_counts(workspace.id),
                                brain=brain_views.build(store.model(workspace.id), roles=_roles()),
-                               assistant_ready=_assistant() is not None)
+                               assistant_ready=_assistant() is not None,
+                               shape_ready=tenant_graph is not None and _platform_tenant() is not None)
         if current.slug == "verbinden":
             return _render("builder/components.html", stage=current, stage_number=number,
                            **_components_context(_store()), **_registry_context(_store()))
@@ -723,6 +725,55 @@ def create_builder_blueprint(
         return _edited(store, current.id, model, changes, take)
 
     # -------------------------------------------------------- views and roles (B9)
+
+    def _brain_shape(store, current):
+        """The relations and hierarchies the tenant's links show (builder.brain_shape), read through this Platform's
+        certificate; a workspace of another tenant is refused (the tenant comes from the certificate only)."""
+        from builder import brain_shape
+
+        if tenant_graph is None or _platform_tenant() is None:
+            raise editing.EditError("Diese Plattform liest keinen Mandanten.", 409)
+        if current.tenant and current.tenant != _platform_tenant():
+            raise editing.EditError("Dieser Arbeitsbereich gehört zu einem anderen Mandanten.", 409)
+        try:
+            node_types, nodes, edges = tenant_graph()
+        except Exception as exc:  # noqa: BLE001 - the Brain could not be read: said, not raised
+            logger.warning("Builder brain shape: the tenant's graph is not readable (%s)", type(exc).__name__)
+            raise editing.EditError("Das Brain des Mandanten ist gerade nicht lesbar.", 502)
+        shape = brain_shape.derive(store.model(current.id), node_types or [], nodes or [], edges or [])
+        logger.info("Builder brain shape: workspace %s, %d edges, %d relation and %d hierarchy proposals",
+                    current.id, shape.counts.get("edges", 0), len(shape.relations), len(shape.hierarchies))
+        return shape
+
+    @bp.route("/api/w/<workspace_id>/brain-shape", methods=["GET", "POST"])
+    def brain_shape(workspace_id: str):
+        """GET: what the tenant's links show, as proposals. POST {chosen: [ids]}: take those over into the draft,
+        derived again here (the browser sends ids, never operations), as one batch."""
+        from builder import brain_shape as shapes
+
+        store, current = _editable_workspace(workspace_id)
+        try:
+            shape = _brain_shape(store, current)
+        except editing.EditError as exc:
+            return _refused(exc)
+        if request.method == "GET":
+            return jsonify({"success": True, **shapes.as_view(shape)})
+        chosen = (request.get_json(silent=True) or {}).get("chosen") or []
+        ops = shapes.operations(shape, [str(c) for c in chosen if isinstance(c, str)])
+        if not ops:
+            return jsonify({"success": False, "error": "Nichts ausgewählt."}), 400
+        try:
+            model, changes, batch = store.edit(current.id, gate.current_user().id,
+                                               lambda m: [c for op in ops for c in editing.apply(m, op)])
+        except editing.EditError as exc:
+            return _refused(exc)
+        if batch:
+            history = _history(current.id)
+            history["undo"].append(batch)
+            history["redo"] = []
+            _save_history(current.id, history)
+        return jsonify({"success": True, "changes": len(changes), "history": _history_counts(current.id),
+                        "views": brain_views.build(model, roles=_roles())})
 
     def _assistant():
         """(client, model name) of the views assistant, or None: no API key in the settings registry."""
