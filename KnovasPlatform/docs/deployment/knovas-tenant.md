@@ -171,6 +171,9 @@ The image installs a pinned release; the Platform never imports or runs code fro
 
    - `docker-compose.yml` hands it to the build as the BuildKit secret `kb_read_token`; it lands in no image layer and
      no log. (`docker compose build` has no `--secret` flag; the secret comes from the compose file.)
+   - `start.sh` also takes the token from `.env` (it runs compose with `--env-file knovas.env`, which skips `.env`)
+     and says after the build whether brain-runner is installed. A layer built without the token is rebuilt once a
+     token is given (build argument `KB_READ_TOKEN_GIVEN`; a secret alone does not change the layer cache).
    - Check the build output for `brain-runner 0.1.1`. Without the token the image builds without brain-runner, and the
      sync page and the builder's source test say the package is not installed.
 2. **Settings** (Einstellungen → Ansichten und Wissensbasis, or pinned by the environment):

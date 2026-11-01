@@ -155,6 +155,37 @@ class TestRelations:
         assert next(r for r in model["ontology"]["relations"] if r["key"] == core["key"])["family"] == "Other"
 
 
+class TestReset:
+    def test_it_empties_the_company_s_ontology_and_keeps_the_packs(self, model):
+        own = [t["key"] for t in model["ontology"]["types"] if t["level"] in ("company", "core")]
+        packs = [t["key"] for t in model["ontology"]["types"] if t["level"] == "pack"]
+        assert own and packs
+        with pytest.raises(editing.EditError):
+            _apply(model, op="ontology.reset")
+        changes = _apply(model, op="ontology.reset", confirm=True)
+        assert [t["key"] for t in model["ontology"]["types"]] == packs
+        assert all(r["level"] == "pack" for r in model["ontology"]["relations"])
+        assert {c["path"] for c in changes} >= {f"ontology.types/{k}" for k in own}
+        with pytest.raises(editing.EditError):
+            _apply(model, op="ontology.reset", confirm=True)  # nothing left to reset
+
+    def test_one_undo_brings_it_back(self):
+        user = StandInUser({"admin"})
+        store = MemoryWorkspaceStore({str(user.id): user.display_name})
+        before = package.read_package(package.files_from_directory(SAMPLE_PACKAGE)).model
+        wid = store.create(name="Muster", model=copy.deepcopy(before), actor_id=None, source={"kind": "import"})
+        client = make_app(user, store).test_client()
+        client.get(f"/builder/w/{wid}")
+        html = client.get("/builder/ontologie").get_data(as_text=True)
+        assert "data-onto-reset-open" in html and 'id="b-onto-reset"' in html
+        assert client.post(f"/builder/api/w/{wid}/ontology", json={"op": "ontology.reset", "confirm": True}).status_code == 200
+        assert all(t["level"] == "pack" for t in store.model(wid)["ontology"]["types"])
+        assert client.post(f"/builder/api/w/{wid}/undo").status_code == 200
+        after = store.model(wid)["ontology"]
+        for section in ("types", "relations"):  # back in full; restored elements come after the packs'
+            assert sorted(after[section], key=lambda e: e["key"]) == sorted(before["ontology"][section], key=lambda e: e["key"])
+
+
 class TestValidation:
     def test_problems_appear_and_clear(self, model):
         _apply(model, op="type.create", key="Invoice", label={"de": "Rechnung", "en": "Invoice"})

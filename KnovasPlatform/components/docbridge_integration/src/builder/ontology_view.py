@@ -118,15 +118,19 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
     types = list(ontology.get("types") or [])
     problems = _Problems()
 
-    # Node ids. A core-level type whose iri names a core class *is* that class
-    # as the company uses it, and takes its id (the first such type does).
-    # Any other type only maps to a class: pack and company types often name
-    # the class they specialise, which is their parent, not themselves.
+    # Node ids. A core-level type whose iri names a core class of its own name
+    # *is* that class as the company uses it, and takes its id. A type of
+    # another name only stands for the class -- an alias (Account for
+    # Organization) or a narrower name (FeaturePlan for Plan) -- and hangs
+    # under its own parent: taking the class's place would put the class's
+    # subclasses under the alias. Pack and company types often name the class
+    # they specialise, which is their parent, not themselves.
     key_to_id: dict[str, str] = {}
     claimed: set[str] = set()
     for item in types:
         iri = item.get("iri")
-        if item.get("level") == "core" and iri in catalog and iri not in claimed:
+        if (item.get("level") == "core" and iri in catalog and iri not in claimed
+                and catalog[iri]["name"] == item["key"]):
             key_to_id[item["key"]] = iri
             claimed.add(iri)
         else:
@@ -165,9 +169,10 @@ def build(model: Mapping[str, Any], packs: Iterable[Mapping[str, Any]] | None = 
             "parent_ref": item.get("parent") or header_fields(description.get("en")).get("parent"),
             "problems": [],
         }
-        # The class it stands for, when its name is another: Agent is the class AutomatedAgent, under Agent.
-        if node_id in catalog and catalog[node_id]["name"] != item["key"]:
-            nodes[node_id]["class_name"] = catalog[node_id]["name"]
+        # The class it stands for, when its name is another: Account (Organization), Agent (AutomatedAgent).
+        iri = item.get("iri")
+        if item.get("level") == "core" and iri in catalog and catalog[iri]["name"] != item["key"]:
+            nodes[node_id]["class_name"] = catalog[iri]["name"]
 
     def add_catalog(class_id: str) -> None:
         """A read-only node for a catalog class and the classes above it."""

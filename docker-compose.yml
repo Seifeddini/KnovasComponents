@@ -95,6 +95,9 @@ services:
       # the Brain Builder, Sync von GitHub). Empty KB_READ_TOKEN builds without it.
       secrets:
         - kb_read_token
+      args:
+        # Not the token: only whether there is one, so the brain-runner layer is rebuilt when one is added.
+        KB_READ_TOKEN_GIVEN: ${KB_READ_TOKEN:+yes}
     env_file:
       - ./KnovasPlatform/.env.generated
     environment:

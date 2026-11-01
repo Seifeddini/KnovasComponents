@@ -56,8 +56,20 @@ class TestTheTree:
         model["ontology"]["types"].append({"key": "Agent", "level": "core", "iri": "euo:AutomatedAgent",
                                            "parent": "euo:Agent", "attributes": []})
         agent = next(n for n in ontology_view.build(model)["nodes"] if n["key"] == "Agent")
-        assert agent["id"] == "euo:AutomatedAgent" and agent["class_name"] == "AutomatedAgent"
+        assert agent["id"] == "type:Agent" and agent["class_name"] == "AutomatedAgent"
         assert agent["parent"] == "euo:Agent" and agent["editable"] is True
+
+    def test_an_alias_does_not_take_the_class_s_place(self):
+        # Two names for euo:Organization, as a package may have: neither takes the class's place, so the
+        # class's own subclasses (Company, under LegalEntity) stay under Organization, not under an alias.
+        model = package.read_package(package.blank_package("Muster")).model
+        for key in ("Account", "Company"):
+            model["ontology"]["types"].append({"key": key, "level": "core", "iri": "euo:Organization",
+                                               "parent": "euo:Party", "attributes": []})
+        nodes = {n["id"]: n for n in ontology_view.build(model)["nodes"]}
+        assert nodes["type:Account"]["parent"] == "euo:Party" and nodes["type:Account"]["class_name"] == "Organization"
+        assert nodes["type:Company"]["parent"] == "euo:Party" and nodes["type:Company"]["class_name"] == "Organization"
+        assert nodes["euo:Organization"]["source"] == "core" and nodes["euo:Organization"]["name"] == "Organization"
 
     def test_classes_above_the_types_are_read_only_references(self, view):
         party = next(n for n in view["nodes"] if n["id"] == "euo:Party")

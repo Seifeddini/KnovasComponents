@@ -31,6 +31,9 @@
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Rückgängig</button>
         <button type="button" class="b-button b-button--quiet" data-onto-redo {% if not history.redo %}disabled{% endif %}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>Wiederherstellen</button>
+        {% set own_types = ontology.nodes | selectattr('source', 'equalto', 'model') | rejectattr('level', 'equalto', 'pack') | list %}
+        {% set own_relations = ontology.relations | selectattr('editable') | list %}
+        {% if own_types or own_relations %}<button type="button" class="b-button b-button--quiet" data-onto-reset-open>Zurücksetzen …</button>{% endif %}
         <button type="button" class="b-button b-button--primary" data-onto-new-type>{{ icon('plus') }}Neuer Typ</button>
     </div>
 </header>
@@ -158,6 +161,29 @@
 
 <datalist id="b-ed-families">{% for f in ontology.families %}<option value="{{ f }}">{% endfor %}</datalist>
 <datalist id="b-ed-relation-names">{% for n in ontology.relation_names %}<option value="{{ n }}">{% endfor %}</datalist>
+
+{% if own_types or own_relations %}
+<dialog class="b-dialog" id="b-onto-reset" aria-labelledby="b-onto-reset-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-onto-reset-title">Ontologie zurücksetzen</h2>
+            <p class="b-muted">{{ current_workspace.name }}</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <p>Der Entwurf verliert alle eigenen Typen und Beziehungen der Firma: <strong>{{ own_types | length }} Typen</strong> und <strong>{{ own_relations | length }} Beziehungen</strong>, auch die der EUO-Ebene. Der Kern und die Branchenpakete bleiben.</p>
+            <p class="b-muted">Prozesse, Zuordnungen und Seiten, die diese Typen nennen, zeigen danach Probleme. «Rückgängig» holt alles in einem Schritt zurück. Beim Mandanten ändert sich erst etwas nach Probelauf, Freigabe und Veröffentlichung.</p>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--danger">Zurücksetzen</button>
+        </div>
+    </form>
+</dialog>
+{% endif %}
 
 <dialog class="b-dialog" id="b-onto-new-type" aria-labelledby="b-onto-new-type-title">
     <div class="b-dialog-head">

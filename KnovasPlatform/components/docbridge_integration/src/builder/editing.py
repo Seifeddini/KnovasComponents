@@ -432,6 +432,19 @@ def _retire(edit: _Edit, section: str, item: dict, retired: Any) -> None:
     edit.write(section, item, new)
 
 
+def _ontology_reset(edit: _Edit, op: Mapping[str, Any]) -> None:
+    """The draft's own ontology emptied: every type and relation of the company's (OWN_LEVELS) goes; the packs
+    and the EUO stay. One batch, so one undo brings it back; a publish shows what it would retire first."""
+    if op.get("confirm") is not True:
+        raise EditError("Zurücksetzen braucht eine Bestätigung.")
+    for section in (RELATIONS, TYPES):
+        for item in list(_items(edit.model, section, create=False)):
+            if (item.get("level") or "company") in OWN_LEVELS:
+                edit.write(section, item, None)
+    if not edit.changes:
+        raise EditError("Die Ontologie hat keine eigenen Typen oder Beziehungen.", 409)
+
+
 def _type_retire(edit: _Edit, op: Mapping[str, Any]) -> None:
     _retire(edit, TYPES, edit.own_type(op.get("key")), op.get("retired", True))
 
@@ -715,6 +728,7 @@ OPERATIONS: dict[str, Callable[[_Edit, Mapping[str, Any]], None]] = {
     "type.update": _type_update,
     "type.rename": _type_rename,
     "type.retire": _type_retire,
+    "ontology.reset": _ontology_reset,
     "attribute.add": _attribute_add,
     "attribute.update": _attribute_update,
     "attribute.remove": _attribute_remove,

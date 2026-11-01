@@ -594,6 +594,7 @@
 
     var typeDialog = document.getElementById('b-onto-new-type');
     var relationDialog = document.getElementById('b-onto-new-relation');
+    var resetDialog = document.getElementById('b-onto-reset');
     var lastOpener = null;
 
     function openDialog(dialog) {
@@ -608,7 +609,7 @@
         box.hidden = false;
     }
 
-    [typeDialog, relationDialog].forEach(function (dialog) {
+    [typeDialog, relationDialog, resetDialog].forEach(function (dialog) {
         if (!dialog) return;
         Array.prototype.forEach.call(dialog.querySelectorAll('[data-ed-close]'), function (b) {
             b.addEventListener('click', function () { dialog.close(); });
@@ -625,6 +626,19 @@
                 o.options.forEach(function (x) { g.appendChild(option(x, value)); });
                 selectEl.appendChild(g);
             } else selectEl.appendChild(option(o, value));
+        });
+    }
+
+    var resetOpener = document.querySelector('[data-onto-reset-open]');
+    if (resetDialog && resetOpener) {
+        resetOpener.addEventListener('click', function () { openDialog(resetDialog); });
+        resetDialog.querySelector('form').addEventListener('submit', function (event) {
+            event.preventDefault();
+            post(root.dataset.editUrl, { op: 'ontology.reset', confirm: true }).then(function (payload) {
+                if (!payload.success) { dialogError(resetDialog, payload); return; }
+                // The whole tree changed: draw it afresh; the undo stack holds the reset as one step.
+                window.location.reload();
+            });
         });
     }
 

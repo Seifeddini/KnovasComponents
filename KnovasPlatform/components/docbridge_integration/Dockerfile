@@ -101,6 +101,9 @@ PY
 # keeps 2.32.0 until both agree (a pin in a library is too strict; noted for KnowledgeBase).
 ARG BRAIN_RUNNER_VERSION=0.1.1
 ARG BRAIN_RUNNER_GIT_REF=43ea868e85b1be8ffa6299aa35289e74e28bf000
+# "yes" when a token is given (docker-compose.yml). A secret is not part of the layer cache: without this, a
+# layer built once without the token stays cached, and adding the token later never runs the install.
+ARG KB_READ_TOKEN_GIVEN=no
 RUN --mount=type=secret,id=kb_read_token,required=false     if [ -s /run/secrets/kb_read_token ]; then       git config --global url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf "https://github.com/"       && pip install --no-cache-dir --no-deps         "brain-runner @ git+https://github.com/Seifeddini/KnowledgeBase.git@${BRAIN_RUNNER_GIT_REF}#subdirectory=scripts/brain_runner"       && git config --global --unset-all url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf       && python -c "import brain_runner, os; assert brain_runner.__version__ == os.environ['BRAIN_RUNNER_VERSION'], brain_runner.__version__; print('brain-runner', brain_runner.__version__)";     else       echo "brain-runner not installed: no kb_read_token build secret (Sync von GitHub stays unavailable)";     fi
 
 # Copy application code
