@@ -62,7 +62,9 @@ fi
 if [[ -n "$KB_TOKEN" ]]; then
   export KB_READ_TOKEN="$KB_TOKEN"
 else
-  unset KB_READ_TOKEN   # one exported in the login shell would otherwise still reach the build
+  # Empty, not unset: compose reads knovas.env itself (--env-file) and the shell's value wins over the file's,
+  # so only an empty one keeps a refused token (or one exported in the login shell) out of the build.
+  export KB_READ_TOKEN=""
 fi
 if [[ -n "${KB_READ_TOKEN:-}" ]]; then
   :
