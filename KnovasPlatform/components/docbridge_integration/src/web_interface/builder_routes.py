@@ -836,7 +836,26 @@ def create_builder_blueprint(
         kind = source_kinds.SOURCE_KINDS.get(source.get("kind"), {})
         if kind.get("credential_required") and not secret:
             raise source_kinds.ReaderError("Für diese Quelle ist noch kein Zugang gesetzt.")
-        return reader_factory(component, source, secret, current.id)
+        try:
+            return reader_factory(component, source, secret, current.id)
+        except source_kinds.ReaderError:
+            raise
+        except ImportError as exc:
+            # The GitHub runner reads through brain-runner; an image built without it cannot.
+            logger.warning("Builder: source reader unavailable, kind %s, %s", source.get("kind"), type(exc).__name__)
+            raise source_kinds.ReaderError("Diese Installation kann die Quelle nicht lesen: brain-runner ist nicht "
+                                           "installiert (das Image wurde ohne den Build-Schlüssel kb_read_token gebaut).") from None
+        except Exception as exc:  # noqa: BLE001 - said on the page, never an HTML error page
+            logger.warning("Builder: source reader not opened, kind %s, %s", source.get("kind"), type(exc).__name__)
+            raise source_kinds.ReaderError(f"Die Quelle ließ sich nicht öffnen ({type(exc).__name__}).") from None
+
+    def _read_failed(source, exc: Exception, what: str):
+        """A read that failed, as the JSON the page shows; the log carries the kind and the error's type only."""
+        if isinstance(exc, source_kinds.ReaderError):
+            logger.info("Builder: source %s failed, kind %s", what, source.get("kind"))
+            return jsonify({"success": False, "error": str(exc)}), 502
+        logger.warning("Builder: source %s failed, kind %s, %s", what, source.get("kind"), type(exc).__name__)
+        return jsonify({"success": False, "error": f"Die Quelle ließ sich nicht lesen ({type(exc).__name__})."}), 502
 
     @bp.route("/api/w/<workspace_id>/sources/<key>/test", methods=["POST"])
     def source_test(workspace_id: str, key: str):
@@ -844,9 +863,8 @@ def create_builder_blueprint(
         store, current, _, source = _source_of(workspace_id, key)
         try:
             result = _reader(store, current, source).test()
-        except source_kinds.ReaderError as exc:
-            logger.info("Builder: source test failed, kind %s", source.get("kind"))
-            return jsonify({"success": False, "error": str(exc)}), 502
+        except Exception as exc:  # noqa: BLE001 - every failure is answered as JSON
+            return _read_failed(source, exc, "test")
         # Counts only: what the source holds goes to the page, never into the log (GI-DATA-02/04).
         logger.info("Builder: source test, kind %s, %d collections", source.get("kind"), len(result["collections"]))
         return jsonify({"success": True, "result": result})
@@ -860,8 +878,8 @@ def create_builder_blueprint(
             return jsonify({"success": False, "error": "Welche Auswahl?"}), 400
         try:
             items = _reader(store, current, source).sample(collection, source_kinds.SAMPLE_LIMIT)
-        except source_kinds.ReaderError as exc:
-            return jsonify({"success": False, "error": str(exc)}), 502
+        except Exception as exc:  # noqa: BLE001 - every failure is answered as JSON
+            return _read_failed(source, exc, "sample")
         logger.info("Builder: source sample, kind %s, %d items", source.get("kind"), len(items))
         return jsonify({"success": True, "collection": collection, "profile": source_kinds.profile(items)})
 

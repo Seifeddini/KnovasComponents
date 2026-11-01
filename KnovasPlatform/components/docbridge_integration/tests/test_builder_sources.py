@@ -252,6 +252,21 @@ class TestTheRoutes:
         for secret_text in ("Vollmacht", "Muster AG", "Honorar"):
             assert secret_text not in caplog.text
 
+    @pytest.mark.parametrize("failure,said", [(ImportError("No module named 'brain_runner'"), "brain-runner ist nicht installiert"),
+                                              (OSError("read-only file system"), "nicht öffnen (OSError)")])
+    def test_a_reader_that_cannot_open_is_answered_as_json(self, world, failure, said):
+        def broken(component, source, secret, workspace_id):
+            raise failure
+
+        app = make_app(StandInUser({"admin"}), world["store"], tenant=TENANT, secrets=world["secrets"], readers=broken)
+        client = app.test_client()
+        runner = _register(world, "github_runner", "GitHub-Runner").get_json()["id"]
+        _edit(world, op="source.create", kind="github", name="KB", component=runner, settings={"repository": "acme/kb"})
+        world["client"].post(f"/builder/api/w/{world['id']}/sources/kb/credential", json={"value": TOKEN})
+        for route, body in (("test", None), ("sample", {"collection": "file_glob:*.md"})):
+            answer = client.post(f"/builder/api/w/{world['id']}/sources/kb/{route}", json=body)
+            assert answer.status_code == 502 and answer.is_json and said in answer.get_json()["error"]
+
     def test_only_a_builder_role(self, world):
         world["app"].extensions["builder_gate"].user = StandInUser({"member"})
         client = world["client"]
