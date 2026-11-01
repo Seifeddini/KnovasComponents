@@ -345,3 +345,25 @@ class TestTheSecurityFixes:
         assert sync.calls == [("apply", "geprüft")]
         page = http.get(f"/builder/komponenten/{c['id']}").get_data(as_text=True)
         assert "Alle 2 freigeben" in page and "Gibt zusammen frei" in page
+
+
+def test_a_consultant_does_not_see_the_tenant_s_components(world):
+    """Only a Platform builder role sees the register and its alerts; a grant on one workspace does not."""
+    import io
+
+    from builder import package
+    from builder_harness import SAMPLE_PACKAGE
+
+    _enrol(world, name="Dateiablage Geheim")
+    http, store = world["http"], world["store"]
+    data = package.zip_files(package.files_from_directory(SAMPLE_PACKAGE))
+    http.post("/builder/api/import", data={"package": (io.BytesIO(data), "p.zip"), "name": "Beispiel AG"},
+              content_type="multipart/form-data")
+    [workspace] = store.list()
+    consultant = StandInUser(frozenset(), "Bea Berater", "bea@extern.example")
+    store.grant_access(workspace.id, user_id=consultant.id, email=consultant.email, roles=["builder_author"],
+                       ends_on=(dt.date.today() + dt.timedelta(days=7)).isoformat(), actor_id=world["admin"].id)
+    world["gate"].user = consultant
+    for url in ("/builder/arbeitsbereich", "/builder/verbinden"):
+        page = http.get(url).get_data(as_text=True)
+        assert "Dateiablage Geheim" not in page and "data-component-alerts" not in page

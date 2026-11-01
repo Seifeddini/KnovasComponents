@@ -944,8 +944,17 @@ def create_builder_blueprint(
                   "capabilities": seen.get("capabilities") or []}
         return merged, adapter.runs(), adapter.held()
 
+    def _tenant_wide() -> bool:
+        """Whether the person may see the tenant's components: a Platform builder role, not a grant on one
+        workspace only (a consultant sees their workspace, not the company's whole register)."""
+        found = g.get("builder_access")
+        return found is not None and found.via == "role"
+
     def _component_overview(store) -> dict:
         from datetime import timezone
+
+        if not _tenant_wide():
+            return {"rows": [], "alerts": [], "limits": _limits()}
 
         tenant = _platform_tenant()
         if store is None or not tenant or not hasattr(store, "component_runs"):
@@ -1685,7 +1694,7 @@ def create_builder_blueprint(
 
     def _components_context(store) -> dict:
         tenant = _platform_tenant()
-        found = store.components(tenant) if store is not None and tenant else []
+        found = store.components(tenant) if store is not None and tenant and _tenant_wide() else []
         return {"components": found, "component_kinds": source_kinds.COMPONENT_KINDS,
                 "planned_components": source_kinds.PLANNED_COMPONENTS}
 
