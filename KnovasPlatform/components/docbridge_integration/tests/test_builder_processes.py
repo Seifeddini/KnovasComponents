@@ -197,6 +197,16 @@ class TestTheEdits:
         with pytest.raises(editing.EditError):
             _apply(model, op="process.create", key=key)
 
+    @pytest.mark.parametrize("start", ["blank", "without a version"])
+    def test_a_process_file_the_builder_made_is_of_the_current_format(self, start):
+        model = package.read_package(package.blank_package("Muster")).model
+        if start == "without a version":  # as the builder wrote it before: {"processes": []}
+            model["processes"] = {"processes": []}
+        model["ontology"]["types"].append({"key": "Matter", "level": "company", "attributes": []})
+        _apply(model, op="process.create", key="PROC-neu", instance_types=["Matter"])
+        assert model["processes"]["version"] == processes.FORMAT_VERSION
+        assert not [p for p in processes.validate(model) if p["kind"] == "schema" and "version" in p["message"]]
+
     def test_without_a_processes_file_the_first_process_brings_one(self, model):
         del model["package"]["manifest"]["processes"]
         model["processes"] = None

@@ -37,6 +37,9 @@ R_RULES = tuple(f"R{n}" for n in range(9))
 CHECKS = {"fact_present": "Attribut vorhanden", "facts_present": "Attribute vorhanden",
           "date_not_past": "Datum nicht überschritten"}
 DIRECTIONS = ("out", "in")
+#: The processes file's format version (process-definition.schema.json: at least 2). A file the builder made
+#: without one is of this format: steps as definitions, transitions as pairs.
+FORMAT_VERSION = 2
 WILDCARD = "*"
 
 
@@ -138,7 +141,7 @@ def normalise(doc: Mapping[str, Any]) -> dict:
             if p.get(k):
                 proc[k] = str(p[k])
         procs.append(proc)
-    return {"version": int(doc.get("version", 1) or 1), "generated_at": "",
+    return {"version": int(doc.get("version") or FORMAT_VERSION), "generated_at": "",
             "rules": [dict(r) for r in doc.get("rules") or [] if isinstance(r, Mapping)],
             # As KnowledgeBase normalises them: who computes a report rule is filled in when the file leaves it out.
             "report_rules": [{**dict(r), "applies_to": [str(x) for x in r.get("applies_to") or []],

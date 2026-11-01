@@ -135,6 +135,8 @@ def _items(model: dict, section: str, *, create: bool = True) -> list:
             if not create:
                 return []
             doc = model["processes"] = {"processes": []}
+        if create:
+            doc.setdefault("version", 2)  # processes.FORMAT_VERSION; a file the builder made had none
         return doc.setdefault(name, []) if create else (doc.get(name) or [])
     return model.setdefault("ontology", {}).setdefault(section.split(".", 1)[1], [])
 

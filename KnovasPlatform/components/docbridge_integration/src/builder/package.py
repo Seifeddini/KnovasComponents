@@ -658,7 +658,8 @@ PART_PATHS = {"processes": "ontology/processes.yaml", "spines": "ontology/spines
               "pages": "ontology/page-definitions.yaml", "owners": "ontology/owners.yaml",
               "edit_sources": "ontology/edit-sources.yaml", "health": "health.yaml",
               "mappings": "mappings/*.yaml", "profiles": "profiles/*.yaml"}
-EMPTY_PARTS = {"processes": {"processes": []}, "spines": {"spines": []}, "pages": {"pages": []},
+#: The processes file in the current format (processes.FORMAT_VERSION).
+EMPTY_PARTS = {"processes": {"version": 2, "processes": []}, "spines": {"spines": []}, "pages": {"pages": []},
                "owners": {}, "edit_sources": {}, "health": {"types": {}}}
 
 
