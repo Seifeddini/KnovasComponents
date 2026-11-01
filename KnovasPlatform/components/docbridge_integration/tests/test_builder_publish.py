@@ -180,6 +180,31 @@ class TestPublishing:
             assert _post(s, what, content_hash="x").status_code == 403
 
 
+def test_the_plan_leaves_out_the_types_the_engine_installs(monkeypatch):
+    """A workspace started from the tenant before the import left them out holds the engine's Unclassified type;
+    the tenant has no schema for it (404), so the plan must not ask."""
+    from types import SimpleNamespace
+
+    model = package.read_package(package.blank_package("Muster")).model
+    model["ontology"]["types"] = [{"key": "Unclassified", "level": "company", "attributes": []},
+                                  {"key": "Invoice", "level": "company", "attributes": []}]
+    planned = {}
+
+    def write(self, m, root):
+        planned["types"] = [t["key"] for t in m["ontology"]["types"]]
+        return {}, root / "package.yaml"
+
+    modules = {"config": SimpleNamespace(load=lambda manifest: manifest),
+               "ontology": SimpleNamespace(plan=lambda cfg, api: {
+                   "items": [], "not_configured": [{"type": "Unclassified"}, {"type": "Old"}]})}
+    monkeypatch.setattr(publisher.BrainRunnerEngine, "_module", staticmethod(lambda name: modules[name]))
+    monkeypatch.setattr(publisher.BrainRunnerEngine, "_write", write)
+    plan = publisher.BrainRunnerEngine(lambda: None).plan(model, TENANT)
+    assert planned["types"] == ["Invoice"]
+    assert plan["not_configured"] == [{"type": "Old"}]
+    assert [t["key"] for t in model["ontology"]["types"]] == ["Unclassified", "Invoice"]  # the draft is untouched
+
+
 class TestTheBundle:
     """With a brain-runner that has the bundle and ontology modules (0.1.0 or newer)."""
 

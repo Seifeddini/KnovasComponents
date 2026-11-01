@@ -10,9 +10,9 @@ What a node type says about itself sits in its description, which the loader
 writes as ``[level=...; parent=...; iri=...] <en> / <de> — <text>``
 (KnowledgeBase NodeType.description_header and type_description). Level,
 parent, iri, the names and the text come from there; a type without that
-header is the company's own with only its name. The engine's core types are
-not listed here (they come with every tenant and the builder shows them from
-its own core catalog).
+header is the company's own with only its name. The engine's core types and
+the types it installs itself (its Unclassified type) are not read here: they
+come with every tenant and the builder shows them from its own core catalog.
 
 Relations are not read: the graph keeps relation names on edges, not domain
 and range. They are added in the builder, or come with an imported package.
@@ -23,6 +23,7 @@ import re
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from builder import ontology_view, package
+from builder import packs as shipped_packs
 
 _LEVELS = {"euo": "core", "core": "core", "pack": "pack"}
 _NAMES = re.compile(r"^(?P<en>[^/—]*?)\s*/\s*(?P<de>[^—]*?)\s*(?:—\s*(?P<text>.*))?$", re.S)
@@ -66,8 +67,10 @@ def model_from_tenant(name: str, node_types: Iterable[Mapping[str, Any]],
                       schema_of: Callable[[str], Optional[list]]) -> tuple[dict, dict]:
     """A blank workspace model for ``name`` with the tenant's node types; and counts."""
     model = package.read_package(package.blank_package(name)).model
+    engine = shipped_packs.engine_types()
     rows = [t for t in node_types if isinstance(t, Mapping) and t.get("name")
-            and str(t.get("managed_by") or "") != "bundle:core"]
+            and str(t.get("managed_by") or "") != "bundle:core"
+            and not str(t.get("id") or "").startswith(shipped_packs.ENGINE_PREFIX) and str(t["name"]) not in engine]
     names = {str(t.get("id")): str(t["name"]) for t in rows if t.get("id") is not None}
     types, attributes, unreadable = [], 0, 0
     for row in sorted(rows, key=lambda t: str(t["name"]).lower()):

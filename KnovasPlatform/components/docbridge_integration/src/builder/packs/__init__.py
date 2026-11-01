@@ -43,6 +43,19 @@ def term_pack(pack_id: str) -> Optional[dict]:
     return next((p for p in term_packs() if p["id"] == pack_id), None)
 
 
+#: The id prefix of a class the engine installs in every tenant itself (in the core catalog: its Unclassified
+#: type). The tenant lists such a type beside the company's own, but it is not one: it has no schema to read
+#: and nothing may be written to it.
+ENGINE_PREFIX = "tenant:"
+
+
+@lru_cache(maxsize=1)
+def engine_types() -> frozenset[str]:
+    """The names of the classes the engine installs in every tenant (``ENGINE_PREFIX``)."""
+    return frozenset(str(c["name"]) for p in load() for c in p.get("types") or []
+                     if str(c.get("id") or "").startswith(ENGINE_PREFIX))
+
+
 def names() -> dict[str, dict]:
     """Display names of every pack, catalog or terms, by id."""
     out = {c["pack"]: dict(c.get("name") or {}) for c in load()}

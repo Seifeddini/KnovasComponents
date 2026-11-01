@@ -11,6 +11,8 @@ NODE_TYPES = [
      "description": "[level=pack; parent=euo:Transaction; iri=-] Opportunity / Verkaufschance — A deal in the pipeline."},
     {"id": "t3", "name": "Workshop", "description": "Made by hand, no header."},
     {"id": "core1", "name": "Entity", "managed_by": "bundle:core", "description": "the core"},
+    # the engine installs it in every tenant; it has no schema route
+    {"id": "tenant:Unclassified", "name": "Unclassified", "managed_by": "tenant"},
 ]
 SCHEMAS = {
     "t1": [{"name": "legal_name", "datatype": "text", "required": True}],
@@ -22,13 +24,14 @@ SCHEMAS = {
 
 
 def _schema(type_id):
+    assert not type_id.startswith("tenant:"), "the engine's own type has no schema to read"
     return SCHEMAS.get(type_id, [])
 
 
 def test_the_tenant_types_become_the_workspace_types():
     model, counts = tenant_ontology.model_from_tenant("Knovas", NODE_TYPES, _schema)
     types = {t["key"]: t for t in model["ontology"]["types"]}
-    assert set(types) == {"Company", "Opportunity", "Workshop"}  # the engine's core is not the company's
+    assert set(types) == {"Company", "Opportunity", "Workshop"}  # the engine's core and own types are not the company's
     assert counts == {"types": 3, "attributes": 3, "unreadable": 1}
     company, opportunity, workshop = types["Company"], types["Opportunity"], types["Workshop"]
     assert company["level"] == "core" and company["iri"] == "euo:Company" and "parent" not in company

@@ -22,6 +22,7 @@ a tenant: the caller passes the one the workspace is linked to.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import tempfile
 from dataclasses import dataclass, field
@@ -29,8 +30,23 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Protocol
 
 from builder import package
+from builder import packs as shipped_packs
 
 BUNDLE_FILE = "bundle.json"
+
+
+def without_engine_types(model: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The model the tenant's ontology is planned from: without the types the engine installs in every tenant
+    itself (packs.engine_types). The tenant lists them beside the company's types, but they have no schema to
+    read (its schema route answers 404) and nothing may be written to them. A workspace started from the tenant
+    before the builder left them out holds a copy."""
+    engine = shipped_packs.engine_types()
+    types = (model.get("ontology") or {}).get("types") or []
+    if not any(t.get("key") in engine for t in types if isinstance(t, Mapping)):
+        return model
+    out = copy.deepcopy(dict(model))
+    out["ontology"]["types"] = [t for t in types if not (isinstance(t, Mapping) and t.get("key") in engine)]
+    return out
 
 
 class EngineUnavailable(RuntimeError):
@@ -146,8 +162,13 @@ class BrainRunnerEngine:
     def plan(self, model: Mapping[str, Any], tenant: str) -> dict:
         config, ontology = self._module("config"), self._module("ontology")
         with tempfile.TemporaryDirectory(prefix="builder-") as tmp:
-            _, manifest = self._write(model, Path(tmp))
-            return ontology.plan(config.load(manifest), self._api_factory())
+            _, manifest = self._write(without_engine_types(model), Path(tmp))
+            plan = ontology.plan(config.load(manifest), self._api_factory())
+        # The tenant's engine types are not the configuration's to name: not "kann das Brain nicht halten".
+        engine = shipped_packs.engine_types()
+        plan["not_configured"] = [i for i in plan.get("not_configured") or []
+                                  if not (i.get("type") in engine and not i.get("attribute"))]
+        return plan
 
     def apply(self, model: Mapping[str, Any], tenant: str, plan: dict) -> dict:
         ontology = self._module("ontology")
