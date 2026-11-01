@@ -9,9 +9,11 @@ contract as the Platform implements it, until KC-7a writes it down in full:
        The CSR is signed by the Brain for this Platform's tenant (/secured/sign_certificate);
        the control token is shown this once and kept as a hash.
 
-  Every other call: Authorization: Bearer <control token>, X-Component: <component id>,
-  and, behind a TLS terminator that checks client certificates, X-Client-Cert-Fingerprint
-  (sha256 of the certificate): it must be the one issued at enrolment.
+  Every other call: Authorization: Bearer <control token>, X-Component: <component id>, and
+  X-Client-Cert-Fingerprint (sha256 of the client certificate, hex), which the TLS terminator sets from the
+  certificate it verified -- never passing on one the client sent. It must be the one issued at enrolment;
+  without it the call is refused, unless the deployment says explicitly that no terminator checks client
+  certificates (builder.components.require_client_certificate: false).
 
   POST /api/connectors/v1/heartbeat
        {state: online|degraded, version, lag_seconds, open_errors, capabilities}
@@ -161,13 +163,16 @@ def certificate_fingerprint(pem: str) -> str:
 # ------------------------------------------------------------------ authenticated calls
 
 def authenticate(store: Any, secrets: Any, tenant: str, component_id: str, bearer: str,
-                 fingerprint: Optional[str]) -> dict:
+                 fingerprint: Optional[str], *, require_certificate: bool = True) -> dict:
     c = store.component(tenant, component_id, any_state=True) if component_id else None
     if c is None or c.get("transport") != "v1" or c.get("state") != "enrolled":
         raise ProtocolError(401, "unknown_component", "not an enrolled component")
     if not C.token_matches(bearer, secrets.get(secret_key(c["id"], "control"))):
         raise ProtocolError(401, "bad_token", "control token refused")
-    if fingerprint and c.get("certificate_fingerprint") and fingerprint.replace(":", "").lower() != c["certificate_fingerprint"]:
+    issued = c.get("certificate_fingerprint")
+    if issued and not fingerprint and require_certificate:
+        raise ProtocolError(401, "certificate_required", "the client certificate's fingerprint is missing")
+    if issued and fingerprint and fingerprint.replace(":", "").lower() != issued:
         raise ProtocolError(401, "bad_certificate", "not the certificate issued at enrolment")
     return c
 

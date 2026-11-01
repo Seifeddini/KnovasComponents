@@ -639,7 +639,7 @@ def stand_in_readers(github_root=None, connector=None, http=None):
 
 def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None,
              secrets=None, readers=None, roles=None, roles_sink=None, sync=None, directory=None,
-             component_secrets=None, adapters=None, limits=None, signer=None) -> Flask:
+             component_secrets=None, adapters=None, limits=None, signer=None, require_certificate=True) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -692,7 +692,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
 
         app.register_blueprint(create_connector_protocol_blueprint(
             store_factory=lambda: store, secrets=lambda: component_secrets, tenant_provider=lambda: tenant,
-            signer=signer or fake_signer))
+            signer=signer or fake_signer, require_client_certificate=require_certificate))
     return app
 
 
@@ -715,11 +715,17 @@ class ProtocolClient:
     def __init__(self, http, base="/api/connectors/v1"):
         self.http, self.base = http, base
         self.component = self.token = self.certificate = None
+        #: What the TLS terminator in front of the Platform adds: the verified certificate's fingerprint.
+        self.send_fingerprint = True
 
     def _send(self, method, path, body=None, auth=True):
         headers = {}
         if auth:
+            from builder.protocol import certificate_fingerprint
+
             headers = {"Authorization": f"Bearer {self.token}", "X-Component": self.component or ""}
+            if self.certificate and self.send_fingerprint:
+                headers["X-Client-Cert-Fingerprint"] = certificate_fingerprint(self.certificate)
         return self.http.open(self.base + path, method=method, json=body, headers=headers)
 
     def enrol(self, token, version="2.4.0", capabilities=("dry_run", "apply", "held_plans")):

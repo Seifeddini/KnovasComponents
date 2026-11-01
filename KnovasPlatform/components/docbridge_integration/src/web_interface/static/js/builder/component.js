@@ -61,7 +61,10 @@
     });
     on('[data-cp-approve]', function (b) {
         var reason = b.parentNode.querySelector('[data-cp-reason]').value;
-        act(root.dataset.planUrl.replace('PLAN', encodeURIComponent(b.dataset.cpApprove)), { approve: true, reason: reason });
+        // The GitHub runner releases every mapping its dry run held: the page names them, the person confirms all.
+        var together = (b.dataset.cpTogether || '').split(',').filter(Boolean);
+        act(root.dataset.planUrl.replace('PLAN', encodeURIComponent(b.dataset.cpApprove)),
+            { approve: true, reason: reason, confirm_mappings: together });
     });
     on('[data-cp-reject]', function (b) {
         var reason = b.parentNode.querySelector('[data-cp-reason]').value;

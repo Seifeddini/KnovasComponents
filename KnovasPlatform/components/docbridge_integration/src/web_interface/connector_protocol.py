@@ -28,9 +28,12 @@ MAX_BODY = 256 * 1024
 
 def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], secrets: Callable[[], Any],
                                         tenant_provider: Callable[[], Optional[str]],
-                                        signer: Optional[Callable[[str, str], Any]] = None) -> Blueprint:
+                                        signer: Optional[Callable[[str, str], Any]] = None,
+                                        require_client_certificate: bool = True) -> Blueprint:
     """``secrets()`` is the settings registry's store of the components' token hashes (sealed);
-    ``signer(csr, name)`` has the Brain sign a component's certificate for this Platform's tenant."""
+    ``signer(csr, name)`` has the Brain sign a component's certificate for this Platform's tenant.
+    ``require_client_certificate``: refuse a call without the certificate fingerprint the TLS terminator sets
+    (the default); False only for a deployment where no terminator checks client certificates."""
     bp = Blueprint("connector_protocol", __name__, url_prefix="/api/connectors/v1")
 
     def _now() -> dt.datetime:
@@ -57,7 +60,8 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
         auth = request.headers.get("Authorization", "")
         bearer = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
         return protocol.authenticate(store_factory(), secrets(), _tenant(), request.headers.get("X-Component", ""),
-                                     bearer, request.headers.get("X-Client-Cert-Fingerprint"))
+                                     bearer, request.headers.get("X-Client-Cert-Fingerprint"),
+                                     require_certificate=require_client_certificate)
 
     @bp.route("/enrol", methods=["POST"])
     def enrol():

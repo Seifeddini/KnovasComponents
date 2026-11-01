@@ -1154,6 +1154,9 @@ def create_builder_blueprint(
         reason = str(body.get("reason") or "").strip()[:500]
         if approve and not reason:
             return jsonify({"success": False, "error": "Warum dürfen diese Knoten stillgelegt werden? Ein Grund ist nötig."}), 400
+        if approve and not g.builder_access.may("publish"):
+            # The approval lets the component write -- retire nodes -- on the tenant: as an apply does.
+            return jsonify({"success": False, "error": "Freigeben darf, wer veröffentlicht."}), 403
         store = _store()
         if component.get("transport") == "v1":
             plan = next((h for h in store.held_plans(component_id) if h["id"] == plan_id and h["state"] == "held"), None)
@@ -1165,9 +1168,15 @@ def create_builder_blueprint(
                      "plan.approved" if approve else "plan.rejected")
             return jsonify({"success": True})
         adapter = _adapter(component)
-        plan = next((h for h in (adapter.held() if adapter else []) if h["id"] == plan_id), None)
+        held_now = adapter.held() if adapter else []
+        plan = next((h for h in held_now if h["id"] == plan_id), None)
         if plan is None:
             return jsonify({"success": False, "error": "Diesen zurückgehaltenen Plan gibt es nicht mehr."}), 404
+        # brain-runner releases the guard for the whole dry run: every mapping it held, not this one alone.
+        together = sorted(h["mapping"] for h in held_now if h.get("run") == plan.get("run"))
+        if approve and len(together) > 1 and sorted(str(m) for m in body.get("confirm_mappings") or []) != together:
+            return jsonify({"success": False, "error": "Die Freigabe gilt für alle in diesem Probelauf zurückgehaltenen "
+                            "Zuordnungen; bestätigen Sie alle.", "details": together}), 409
         try:
             adapter.decide(plan["mapping"], approve, reason, gate.current_user())
         except AdapterError as exc:

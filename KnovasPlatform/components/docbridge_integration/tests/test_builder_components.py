@@ -293,3 +293,55 @@ class TestAdapters:
         store.link_tenant(workspace.id, TENANT)
         store.publish(workspace.id, admin.id, store.draft(workspace.id)["content_hash"], {"sections": {}}, "h")
         assert 'data-alert="offline"' in http.get("/builder/betrieb").get_data(as_text=True)
+
+
+class TestTheSecurityFixes:
+    def test_without_the_certificate_fingerprint_a_call_is_refused(self, world):
+        made = _enrol(world)
+        component = ProtocolClient(world["http"])
+        component.enrol(made["token"])
+        component.send_fingerprint = False
+        answer = component.heartbeat()
+        assert answer.status_code == 401 and answer.get_json()["error"] == "certificate_required"
+
+    def test_a_deployment_without_a_terminator_says_so_explicitly(self):
+        admin = StandInUser({"admin"})
+        store = MemoryWorkspaceStore()
+        app = make_app(admin, store, tenant=TENANT, engine=FakeEngine(), component_secrets=MemorySecrets(),
+                       require_certificate=False)
+        http = app.test_client()
+        made = http.post("/builder/api/components/enrol", json={"kind": "github_runner", "name": "Runner"}).get_json()
+        component = ProtocolClient(http)
+        component.enrol(made["token"])
+        component.send_fingerprint = False
+        assert component.heartbeat().status_code == 200
+
+    def test_approving_a_held_plan_needs_publish(self, world):
+        made = _enrol(world)
+        component = ProtocolClient(world["http"])
+        component.enrol(made["token"])
+        component.report_run(kind="dry_run", status="held", held=[{"mapping": "akten", "retire": {"Akte": 9}}])
+        [plan] = world["store"].held_plans(made["id"])
+        world["gate"].user = StandInUser({"builder_reviewer"})
+        url = f"/builder/api/components/{made['id']}/plans/{plan['id']}"
+        assert world["http"].post(url, json={"approve": True, "reason": "ok"}).status_code == 403
+        assert world["http"].post(url, json={"approve": False, "reason": ""}).status_code == 200   # rejecting writes nothing
+
+    def test_the_github_runner_releases_its_whole_dry_run_only_when_all_are_confirmed(self):
+        sync = FakeSync([{"id": "r2", "kind": "probe", "status": "ok", "finished_at": NOW.isoformat(),
+                          "counts": {"a": {"retire": 9, "guard_tripped": True, "blocked": True},
+                                     "b": {"retire": 4, "guard_tripped": True, "blocked": True}}}])
+        admin = StandInUser({"admin"})
+        store = MemoryWorkspaceStore()
+        app = make_app(admin, store, tenant=TENANT, engine=FakeEngine(), component_secrets=MemorySecrets(),
+                       adapters=lambda c: adapters.GitHubRunnerAdapter(sync))
+        http = app.test_client()
+        http.post("/builder/api/components", json={"kind": "github_runner", "name": "Runner"})
+        [c] = store.components(TENANT)
+        url = f"/builder/api/components/{c['id']}/plans/r2:a"
+        refused = http.post(url, json={"approve": True, "reason": "geprüft"})
+        assert refused.status_code == 409 and refused.get_json()["details"] == ["a", "b"] and sync.calls == []
+        assert http.post(url, json={"approve": True, "reason": "geprüft", "confirm_mappings": ["b", "a"]}).status_code == 200
+        assert sync.calls == [("apply", "geprüft")]
+        page = http.get(f"/builder/komponenten/{c['id']}").get_data(as_text=True)
+        assert "Alle 2 freigeben" in page and "Gibt zusammen frei" in page

@@ -95,7 +95,7 @@
 
         <section class="b-op-section" aria-labelledby="b-cp-held-title">
             <h2 class="b-h2" id="b-cp-held-title">Zurückgehaltene Pläne</h2>
-            <p class="b-small b-muted">Der Löschschutz hält einen Plan an, der zu viel stilllegen würde. Freigeben braucht einen Grund; Ablehnen lässt den nächsten Lauf neu planen.</p>
+            <p class="b-small b-muted">Der Löschschutz hält einen Plan an, der zu viel stilllegen würde. Freigeben braucht einen Grund und die Rolle Veröffentlicher; Ablehnen lässt den nächsten Lauf neu planen.{% if not v1 %} Beim GitHub-Runner gibt eine Freigabe alle Zuordnungen frei, die derselbe Probelauf zurückgehalten hat.{% endif %}</p>
             {% set waiting = held | selectattr('state', 'equalto', 'held') | list %}
             {% if held %}
             <ul class="b-cp-held">
@@ -104,10 +104,15 @@
                     <div><strong class="b-mono">{{ h.mapping }}</strong> · {{ h.retire.values() | sum }} stilllegen{% if h.share %} ({{ (h.share * 100) | round | int }} %){% endif %}
                         <br><span class="b-small b-muted">seit {{ h.held_at | b_datetime }}{% if h.state != 'held' %} · {{ 'freigegeben' if h.state == 'approved' else 'abgelehnt' }} von {{ h.decided_by_name or '–' }}{% if h.reason %}: {{ h.reason }}{% endif %}{% endif %}</span></div>
                     {% if h.state == 'held' %}
+                    {% if h.run is defined and (held | selectattr('state', 'equalto', 'held') | selectattr('run', 'defined') | selectattr('run', 'equalto', h.run) | list | length) > 1 %}
+                    <p class="b-small b-cp-together">Gibt zusammen frei, was dieser Probelauf zurückgehalten hat: {{ held | selectattr('state', 'equalto', 'held') | selectattr('run', 'defined') | selectattr('run', 'equalto', h.run) | map(attribute='mapping') | join(', ') }}.</p>
+                    {% endif %}
                     <div class="b-cp-decide">
                         <label class="b-visually-hidden" for="b-cp-reason-{{ loop.index }}">Grund</label>
                         <input class="b-input" id="b-cp-reason-{{ loop.index }}" placeholder="Grund der Freigabe" data-cp-reason>
-                        <button type="button" class="b-button b-button--primary b-button--small" data-cp-approve="{{ h.id }}">Freigeben</button>
+                        {% set together = (held | selectattr('state', 'equalto', 'held') | selectattr('run', 'defined') | selectattr('run', 'equalto', h.run) | map(attribute='mapping') | list) if h.run is defined else [] %}
+                        <button type="button" class="b-button b-button--primary b-button--small" data-cp-approve="{{ h.id }}"
+                                data-cp-together="{{ together | join(',') }}">{{ 'Alle ' ~ together | length ~ ' freigeben' if together | length > 1 else 'Freigeben' }}</button>
                         <button type="button" class="b-button b-button--quiet b-button--small" data-cp-reject="{{ h.id }}">Ablehnen</button>
                     </div>
                     {% endif %}

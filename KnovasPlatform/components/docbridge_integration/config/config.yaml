@@ -390,6 +390,10 @@ builder:
   components:
     offline_after_minutes: "${BUILDER_COMPONENT_OFFLINE_MINUTES:-30}"
     lag_hours: "${BUILDER_COMPONENT_LAG_HOURS:-24}"
+    # Connector protocol v1: a component's calls carry X-Client-Cert-Fingerprint, set by the TLS terminator from
+    # the client certificate it verified (and never passed on from the client). false only where no terminator
+    # checks client certificates; the control token alone then authenticates a component.
+    require_client_certificate: "${BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT:-true}"
 
 open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"
