@@ -12,8 +12,8 @@ from collections import Counter
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Callable, Iterator, Mapping, Optional
+from pathlib import Path, PurePosixPath
+from typing import AbstractSet, Any, Callable, Iterator, Mapping, Optional
 
 import requests
 
@@ -347,6 +347,12 @@ class _WalkBudget:
     truncated: bool = False
     stopped: bool = False
     resume_stack: list[Path] = field(default_factory=list)
+    # What the walk could not read, relative to its source ("." is the source
+    # itself). Nothing is known about these paths or about anything below them.
+    unreadable: set[str] = field(default_factory=set)
+
+    def note_unreadable(self, path: Path, rel_root: Path) -> None:
+        self.unreadable.add(_relative_posix(path, rel_root) or ".")
 
     def consume_dir(self) -> bool:
         """Record one directory visit. Returns False when the budget is exhausted."""
@@ -408,6 +414,8 @@ def _walk_text_files(
             with os.scandir(current) as it:
                 entries = list(it)
         except OSError:
+            if budget is not None:
+                budget.note_unreadable(current, rel_root)
             continue
         dir_paths: list[Path] = []
         for entry in entries:
@@ -427,6 +435,8 @@ def _walk_text_files(
                 if not entry.is_file(follow_symlinks=False):
                     continue
             except OSError:
+                if budget is not None:
+                    budget.note_unreadable(Path(entry.path), rel_root)
                 continue
             path = Path(entry.path)
             if not is_syncable_extension(path.suffix):
@@ -441,6 +451,8 @@ def _walk_text_files(
             try:
                 stat = entry.stat(follow_symlinks=False)
             except OSError:
+                if budget is not None:
+                    budget.note_unreadable(path, rel_root)
                 continue
             if stat.st_size > max_bytes:
                 continue
@@ -939,6 +951,9 @@ class _ScanPlan:
     # pending and modified files (everything in full mode).
     upload_queue: list[UploadItem]
     scanned_paths: set[str] = field(default_factory=set)
+    # Paths the scan could not read (_WalkBudget.unreadable): not being in
+    # ``scanned_paths`` says nothing about them or about anything below them.
+    unreadable: set[str] = field(default_factory=set)
     scan_truncated: bool = False
     scan_stopped: bool = False
     # ``fields_changed`` re-uploads, at most RC_FIELDS_REUPLOAD_PER_CYCLE and
@@ -978,16 +993,34 @@ def _delete_on_remove_enabled(sync_body: dict[str, Any]) -> bool:
     return ingestion.get("delete_on_remove", True) is not False
 
 
+def _scan_could_not_see(relative_path: str, unreadable: AbstractSet[str]) -> bool:
+    """Whether this path, or a folder above it, could not be read this cycle.
+
+    ``parents`` ends in ".", so a source that could not be read covers every
+    path: paths are relative to their source and do not say which one they
+    came from.
+    """
+    if not unreadable:
+        return False
+    path = PurePosixPath(relative_path)
+    return relative_path in unreadable or any(str(p) in unreadable for p in path.parents)
+
+
 def _prune_removed_documents(
     sync_body: dict[str, Any],
     uploader: SemantixUploader,
     state: SyncStateStore,
     scanned_paths: set[str],
     result: SyncRunResult,
+    unreadable: AbstractSet[str] = frozenset(),
 ) -> None:
     prefix = (sync_body.get("ingestion") or {}).get("identifier_prefix", "rc-sync")
+    kept = 0
     for tracked in state.list_tracked_paths():
         if tracked in scanned_paths:
+            continue
+        if _scan_could_not_see(tracked, unreadable):
+            kept += 1
             continue
         pointer = _pointer_for_relative(prefix, tracked)
         ok, err = uploader.delete_by_pointer(pointer)
@@ -996,6 +1029,18 @@ def _prune_removed_documents(
             logger.info("Pruned removed document from Knovas: %s", pointer)
         elif err:
             result.errors.append({"path": tracked, "error": err})
+    if kept:
+        # A dropped share or a changed permission looks exactly like deleted
+        # files from here. Removing them is not undone by the folder coming back.
+        logger.warning(
+            "%d document(s) NOT removed from Knovas: a folder or file above them "
+            "could not be read. Check the document source.",
+            kept,
+        )
+        result.errors.append({
+            "path": "",
+            "error": f"{kept} document(s) kept: their folder or file could not be read",
+        })
 
 
 def _sequential_subfolders_enabled(sync_config: dict[str, Any] | None) -> bool:
@@ -1308,6 +1353,7 @@ def plan_sync_cycle(
         summary=summary,
         upload_queue=upload_queue,
         scanned_paths=scanned_paths,
+        unreadable=budget.unreadable,
         scan_truncated=scan_truncated,
         scan_stopped=scan_stopped,
         fields_queue=fields_queue,
@@ -1724,7 +1770,9 @@ def run_sync_work(
                 "error": "sources empty while documents are tracked; nothing removed",
             })
         elif can_prune:
-            _prune_removed_documents(sync_body, uploader, state, plan.scanned_paths, result)
+            _prune_removed_documents(
+                sync_body, uploader, state, plan.scanned_paths, result, plan.unreadable
+            )
 
         if (
             sequential
