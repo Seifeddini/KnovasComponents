@@ -80,6 +80,8 @@ The worker completes the **current file upload** before exiting (`pause_policy`:
 
 To prevent sync from auto-starting after a container restart, set `"enabled": false` in `knovas_connector_sync.json` or leave `RC_SYNC_AUTO_START_CONTINUOUS=false` (default).
 
+**Documents removed from the source** are removed from Knovas at the end of a complete scan (`ingestion.delete_on_remove`, on by default). A document is kept when the scan could not read it or a folder above it, because a dropped share or a changed permission looks the same as a deletion; the cycle then logs `document(s) NOT removed from Knovas` and reports the count in its errors. A folder that stays unreadable keeps its documents until it can be read again. Nothing else is held back, so a locked folder without tracked documents changes nothing.
+
 **Do not confuse** `POST /sync/stop` with `docker compose down` — the latter kills the container and may interrupt an in-flight upload. Stop the worker first, then restart or upgrade the image.
 
 ## Document fields
