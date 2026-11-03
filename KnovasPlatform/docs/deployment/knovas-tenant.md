@@ -245,6 +245,7 @@ checks client certificates must say so explicitly; the control token alone then 
 | Setting | config key | env | default |
 |---|---|---|---|
 | Require the client certificate | `builder.components.require_client_certificate` | `BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT` | `true` |
+| The Brain signs a component's own certificate at enrolment. `false`: a component uses the tenant's certificate; only to test on your own machine | `builder.components.issue_certificates` | `BUILDER_CONNECTOR_ISSUE_CERTIFICATES` | `true` |
 | A component is offline after (minutes) | `builder.components.offline_after_minutes` | `BUILDER_COMPONENT_OFFLINE_MINUTES` | `30` |
 | Warn when a component lags behind its source (hours) | `builder.components.lag_hours` | `BUILDER_COMPONENT_LAG_HOURS` | `24` |
 

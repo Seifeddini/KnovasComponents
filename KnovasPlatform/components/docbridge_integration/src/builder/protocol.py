@@ -127,8 +127,12 @@ def _secrets_usable(secrets: Any) -> None:
 
 
 def enrol(store: Any, secrets: Any, signer: Optional[Callable[[str, str], Mapping[str, Any]]], tenant: str,
-          body: Mapping[str, Any], now: dt.datetime) -> dict:
-    """A component presents its enrolment token and a CSR: it gets its certificate and a control token."""
+          body: Mapping[str, Any], now: dt.datetime, *, issue_certificate: bool = True) -> dict:
+    """A component presents its enrolment token and a CSR: it gets its certificate and a control token.
+
+    ``issue_certificate=False``: this deployment has no signing (builder.components.issue_certificates). The component
+    gets a control token only and is given the tenant's certificate by whoever installs it: for a test, not for a
+    company, because a leak then exposes the tenant and one component cannot be revoked (DEC-0040, DEC-0056)."""
     token = str(body.get("token") or "")
     csr = str(body.get("csr") or "")
     _secrets_usable(secrets)
@@ -149,20 +153,25 @@ def enrol(store: Any, secrets: Any, signer: Optional[Callable[[str, str], Mappin
     expires = C._moment(found.get("enrol_expires_at"))
     if expires is None or expires < now:
         raise ProtocolError(401, "token_expired", "the enrolment token has expired; ask for a new one")
-    if "BEGIN CERTIFICATE REQUEST" not in csr:
-        raise ProtocolError(400, "csr", "a PEM certificate signing request")
-    if signer is None:
-        raise ProtocolError(503, "no_signer", "this Platform cannot have certificates signed")
-    try:
-        signed = signer(csr, found["name"])
-    except Exception as exc:  # noqa: BLE001 - said to the component as a code; the token stays valid for another try
-        logger.warning("Connector enrolment: the Brain did not sign (%s)", type(exc).__name__)
-        raise ProtocolError(502, "not_signed", "the Brain did not sign the request") from None
-    certificate = str(signed.get("certificate") or "")
-    if "BEGIN CERTIFICATE" not in certificate:
-        raise ProtocolError(502, "not_signed", "the Brain did not sign the request")
+    certificate, chain, fingerprint = None, None, None
+    if issue_certificate:
+        if "BEGIN CERTIFICATE REQUEST" not in csr:
+            raise ProtocolError(400, "csr", "a PEM certificate signing request")
+        if signer is None:
+            raise ProtocolError(503, "no_signer", "this Platform cannot have certificates signed")
+        try:
+            signed = signer(csr, found["name"])
+        except Exception as exc:  # noqa: BLE001 - said to the component as a code; the token stays valid for another try
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            logger.warning("Connector enrolment: the Brain did not sign (%s, HTTP %s)", type(exc).__name__, status)
+            raise ProtocolError(502, "not_signed", "the Brain did not sign the request") from None
+        certificate = str(signed.get("certificate") or "")
+        if "BEGIN CERTIFICATE" not in certificate:
+            logger.warning("Connector enrolment: the Brain answered without a certificate")
+            raise ProtocolError(502, "not_signed", "the Brain did not sign the request")
+        chain = signed.get("certificate_chain")
+        fingerprint = certificate_fingerprint(certificate)
     control, digest = C.new_token("kcc")
-    fingerprint = certificate_fingerprint(certificate)
     secrets.put(secret_key(found["id"], "control"), digest, None)
     secrets.clear(secret_key(found["id"], "enrol"), None)           # one time only
     store.update_component(found["id"], state="enrolled", enrolled_at=now.isoformat(), certificate_fingerprint=fingerprint,
@@ -171,7 +180,7 @@ def enrol(store: Any, secrets: Any, signer: Optional[Callable[[str, str], Mappin
                            last_heartbeat_at=now.isoformat(), reported_state="online")
     store.add_event(found["id"], "enrolled", {})
     return {"component": found["id"], "control_token": control, "certificate": certificate,
-            "certificate_chain": signed.get("certificate_chain"), "config": config_of(store, found)}
+            "certificate_chain": chain, "config": config_of(store, found)}
 
 
 def certificate_fingerprint(pem: str) -> str:

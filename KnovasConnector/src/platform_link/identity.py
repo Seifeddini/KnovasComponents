@@ -22,8 +22,8 @@ from cryptography.x509.oid import NameOID
 class Enrolled:
     component: str
     control_token: str
-    certificate: Path
-    key: Path
+    certificate: Optional[Path]              # None: the Platform issues none; the tenant's is given at installation
+    key: Optional[Path]
     chain: Optional[Path]
     brain_url: Optional[str]
 
@@ -49,10 +49,11 @@ class Store:
 
     def load(self) -> Optional[Enrolled]:
         """What an earlier enrolment left, or None."""
-        if not (self.identity.exists() and self.key.exists() and self.certificate.exists()):
+        if not self.identity.exists():
             return None
         data = json.loads(self.identity.read_text(encoding="utf-8"))
-        return Enrolled(data["component"], data["control_token"], self.certificate, self.key,
+        own = self.certificate.exists() and self.key.exists()
+        return Enrolled(data["component"], data["control_token"], self.certificate if own else None, self.key if own else None,
                         self.chain if self.chain.exists() else None, data.get("brain_url"))
 
     def used(self, token: str) -> bool:
@@ -73,7 +74,10 @@ class Store:
 
     def save(self, answer: dict, token: str = "") -> Enrolled:
         """Keep what the Platform answered to the enrolment."""
-        _private(self.certificate, str(answer["certificate"]).encode("utf-8"))
+        if answer.get("certificate"):
+            _private(self.certificate, str(answer["certificate"]).encode("utf-8"))
+        else:
+            self.certificate.unlink(missing_ok=True)
         # What the Brain's TLS certificate is checked against: the CA the Platform checks it against, else the chain.
         chain = answer.get("brain_ca") or answer.get("certificate_chain")
         if chain:

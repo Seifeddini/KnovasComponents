@@ -28,7 +28,7 @@ class PlatformClient:
 
     def use(self, credentials: Credentials) -> None:
         self.credentials = credentials
-        self.session.cert = (str(credentials.certificate), str(credentials.key))
+        self.session.cert = (str(credentials.certificate), str(credentials.key)) if credentials.certificate else None
 
     def _call(self, method: str, path: str, body: Optional[dict] = None, *, auth: bool = True) -> dict:
         headers = {}

@@ -663,3 +663,103 @@ class TestAKeyThatDoesNotWork:
         assert "PLATFORM_SETTINGS_KEY" in (SYNC_SRC / "sync_component" / "__main__.py").read_text(encoding="utf-8")
         assert "PLATFORM_SETTINGS_KEY" in (LINK_SRC / "platform_link" / "bootstrap.py").read_text(encoding="utf-8")
 
+
+class TestWithoutSigning:
+    """BUILDER_CONNECTOR_ISSUE_CERTIFICATES=false: a test on one's own machine, with the tenant's certificate."""
+
+    @pytest.fixture
+    def world(self):
+        calls = []
+
+        def signer(csr, name):
+            calls.append(name)
+            raise AssertionError("nothing is signed")
+
+        admin = StandInUser({"admin"}, "Ada Admin")
+        store = MemoryWorkspaceStore({str(admin.id): admin.display_name})
+        app = make_app(admin, store, tenant=TENANT, engine=FakeEngine(), component_secrets=MemorySecrets(), require_certificate=True,
+                       signer=signer, brain_url="https://brain.example.test", issue_certificates=False)
+        server = make_server("127.0.0.1", 0, app, threaded=True)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        yield SimpleNamespace(http=app.test_client(), store=store, signed=calls, url=f"http://127.0.0.1:{server.server_port}/api/connectors/v1")
+        server.shutdown()
+        thread.join(5)
+
+    def test_a_component_enrols_with_a_control_token_and_nothing_is_signed(self, world, tmp_path):
+        made = _enrol(world, "github_runner")
+        client = SyncClient(world.url)
+        keys = SyncStore(tmp_path / "identity")
+        found = keys.save(client.enrol(made["token"], keys.request("x"), []), made["token"])
+        client.use(found)
+        assert world.signed == [] and found.certificate is None and client.session.cert is None
+        assert client.heartbeat(state="online", lag_seconds=None, open_errors=0, capabilities=[]) is not None
+        assert keys.load().component == made["id"], "a restart keeps it"
+
+    def test_its_page_says_it_uses_the_tenants_certificate(self, world, tmp_path):
+        made = _enrol(world, "github_runner")
+        client = SyncClient(world.url)
+        keys = SyncStore(tmp_path / "identity")
+        keys.save(client.enrol(made["token"], keys.request("x"), []), made["token"])
+        assert "Zertifikat des Mandanten" in world.http.get(f"/builder/komponenten/{made['id']}").get_data(as_text=True)
+
+    def test_the_wizard_knows(self, world):
+        page = world.http.get("/builder/verbinden").get_data(as_text=True)
+        assert 'data-issue-certificates="false"' in page
+
+    def test_the_sync_component_says_when_it_has_no_certificate_to_use(self, world, tmp_path, monkeypatch, caplog):
+        import logging
+
+        from sync_component import __main__ as start
+
+        made = _enrol(world, "github_runner")
+        for name, value in (("SYNC_PLATFORM_URL", world.url), ("SYNC_ENROL_TOKEN", made["token"]), ("SYNC_DATA_DIR", str(tmp_path))):
+            monkeypatch.setenv(name, value)
+        monkeypatch.delenv("SYNC_BRAIN_CERT", raising=False)
+        monkeypatch.delenv("SYNC_BRAIN_KEY", raising=False)
+        with caplog.at_level(logging.ERROR):
+            assert start.main(["--once"]) == 2
+        assert "SYNC_BRAIN_CERT" in caplog.text and made["token"] not in caplog.text
+
+    def test_the_sync_component_runs_on_the_tenants_files(self, world, tmp_path, monkeypatch):
+        from sync_component import __main__ as start
+
+        made = _enrol(world, "github_runner")
+        certs = tmp_path / "certs"
+        certs.mkdir()
+        (certs / "client-cert.pem").write_text("c")
+        (certs / "client-key.pem").write_text("k")
+        for name, value in (("SYNC_PLATFORM_URL", world.url), ("SYNC_ENROL_TOKEN", made["token"]), ("SYNC_DATA_DIR", str(tmp_path / "d")),
+                            ("SYNC_BRAIN_CERT", str(certs / "client-cert.pem")), ("SYNC_BRAIN_KEY", str(certs / "client-key.pem"))):
+            monkeypatch.setenv(name, value)
+        seen = {}
+        real = start.RunnerEngine
+
+        def engine(folder, env, **kw):
+            seen.update(env)
+            return real(folder, env, **kw)
+
+        monkeypatch.setattr(start, "RunnerEngine", engine)
+        assert start.main(["--once"]) == 0
+        assert seen["BRAIN_CERT"].endswith("client-cert.pem") and seen["BRAIN_KEY"].endswith("client-key.pem")
+        assert world.store.component(TENANT, made["id"])["state"] == "enrolled"
+
+    def test_the_connector_needs_the_tenants_files_and_says_so(self, world, tmp_path):
+        made = _enrol(world, "knovas_connector")
+        with pytest.raises(RuntimeError, match="SEMANTIX_CLIENT_CERT_PATH"):
+            bootstrap.prepare({"RC_PLATFORM_URL": world.url, "RC_ENROL_TOKEN": made["token"], "RC_SYNC_STATE_PATH": str(tmp_path / "a" / "s.json")})
+
+    def test_the_connector_runs_on_the_tenants_files(self, world, tmp_path):
+        made = _enrol(world, "knovas_connector")
+        environ = {"RC_PLATFORM_URL": world.url, "RC_ENROL_TOKEN": made["token"], "RC_SYNC_STATE_PATH": str(tmp_path / "s.json"),
+                   "SEMANTIX_CLIENT_CERT_PATH": "/certs/client-cert.pem", "SEMANTIX_CLIENT_KEY_PATH": "/certs/client-key.pem"}
+        client, found = bootstrap.prepare(environ)
+        assert environ["SEMANTIX_CLIENT_CERT_PATH"] == "/certs/client-cert.pem" and found.certificate is None and client.session.cert is None
+
+    def test_signing_stays_the_default(self, platform):
+        made = _enrol(platform, "github_runner")
+        body = {"token": made["token"], "csr": "-----BEGIN CERTIFICATE REQUEST-----\nQQ==\n-----END CERTIFICATE REQUEST-----\n"}
+        answer = platform.http.post("/api/connectors/v1/enrol", json=body).get_json()
+        assert "BEGIN CERTIFICATE" in answer["certificate"]
+        assert 'data-issue-certificates="true"' in platform.http.get("/builder/verbinden").get_data(as_text=True)
+

@@ -1940,6 +1940,11 @@ def create_app(config_path: Optional[str] = None):
 
             return anthropic.Anthropic(api_key=key), resolver.value('builder.assistant.model') or 'claude-opus-5-5'
 
+        _builder_issue_certificates = str(config.get('builder.components.issue_certificates', 'true')
+                                          ).strip().lower() not in ('false', '0', 'no')
+        if not _builder_issue_certificates:
+            logger.warning("Sync components enrol without a certificate of their own: they use the tenant's. Only for a test.")
+
         def _builder_component_limits():
             resolver = app.extensions['platform_settings']
             return {'offline_after_minutes': resolver.value('builder.components.offline_after_minutes'),
@@ -2015,6 +2020,7 @@ def create_app(config_path: Optional[str] = None):
             component_secrets=_builder_component_secrets,
             component_adapter=_builder_component_adapter,
             component_limits=_builder_component_limits,
+            issue_certificates=_builder_issue_certificates,
             # The access window (B14): the Brain's groups and folder rules on this Platform's certificate.
             access_backend=_builder_access_backend,
             # Views by description: Claude on the settings registry's API key (builder.assistant.*).
@@ -2049,6 +2055,7 @@ def create_app(config_path: Optional[str] = None):
                                            ).strip().lower() not in ('false', '0', 'no'),
             brain_url=lambda: api_client.base_url,
             brain_ca=_builder_brain_ca,
+            issue_certificates=_builder_issue_certificates,
         ))
         identity_gate.allow_bearer_endpoints(_PROTOCOL_ENDPOINTS)
 

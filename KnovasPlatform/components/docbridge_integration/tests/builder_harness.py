@@ -770,7 +770,8 @@ def stand_in_readers(github_root=None, connector=None, http=None):
 def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None,
              secrets=None, readers=None, roles=None, roles_sink=None, sync=None, directory=None,
              component_secrets=None, adapters=None, limits=None, signer=None, require_certificate=True,
-             access=None, assistant=None, graph=None, brain_url=None, brain_ca=None) -> Flask:
+             access=None, assistant=None, graph=None, brain_url=None, brain_ca=None,
+             issue_certificates=True) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -817,6 +818,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         component_secrets=(lambda: component_secrets) if component_secrets is not None else None,
         component_adapter=adapters,
         component_limits=(lambda: limits) if limits is not None else None,
+        issue_certificates=issue_certificates,
         access_backend=(lambda: access) if access is not None else None,
         assistant_client=(lambda: assistant) if assistant is not None else None,
         tenant_graph=(lambda: graph) if graph is not None else None,
@@ -827,7 +829,8 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         app.register_blueprint(create_connector_protocol_blueprint(
             store_factory=lambda: store, secrets=lambda: component_secrets, tenant_provider=lambda: tenant,
             signer=signer or fake_signer, require_client_certificate=require_certificate,
-            brain_url=(lambda: brain_url) if brain_url else None, brain_ca=(lambda: brain_ca) if brain_ca else None))
+            brain_url=(lambda: brain_url) if brain_url else None, brain_ca=(lambda: brain_ca) if brain_ca else None,
+            issue_certificates=issue_certificates))
     return app
 
 

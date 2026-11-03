@@ -9,6 +9,7 @@
     SYNC_BRAIN_CA         the CA of the Brain API, when the Platform's chain does not cover it
     SYNC_CREDENTIAL_<KEY> a source's credential, by its key in upper case
     SYNC_CREDENTIAL_GITHUB the credential of every GitHub source (the same for any kind, in upper case)
+    SYNC_BRAIN_CERT, SYNC_BRAIN_KEY  the tenant's certificate, where the Platform issues none (only to test)
     SYNC_FILES_ROOT       where a file share is mounted, read only (default /sources: -v <folder>:/sources:ro)
 
 ``--once`` runs one heartbeat with its commands and ends.
@@ -55,6 +56,8 @@ def main(argv: list[str] | None = None) -> int:
     except Refused as exc:
         if exc.code in ("no_secrets", "secret_unreadable"):
             logging.error("The Platform cannot read its stored tokens (%s): its PLATFORM_SETTINGS_KEY needs fixing; the token may be fine.", exc.code)
+        elif exc.code == "not_signed":
+            logging.error("The Brain did not sign this component's certificate; the Platform's log says why. The token stays valid.")
         else:
             logging.error("Enrolment refused: %s (HTTP %s). A used or expired token needs a new one from the Platform.", exc.code, exc.status)
         return 2
@@ -66,8 +69,16 @@ def main(argv: list[str] | None = None) -> int:
     if not brain_url:
         logging.error("The Platform names no Brain address.")
         return 2
+    certificate = os.environ.get("SYNC_BRAIN_CERT") or (str(credentials.certificate) if credentials.certificate else "")
+    key = os.environ.get("SYNC_BRAIN_KEY") or (str(credentials.key) if credentials.key else "")
+    if not certificate or not key:
+        logging.error("The Platform issues no certificates here: set SYNC_BRAIN_CERT and SYNC_BRAIN_KEY to the tenant's files.")
+        return 2
+    if not (os.access(certificate, os.R_OK) and os.access(key, os.R_OK)):
+        logging.error("This component (user 10001) cannot read SYNC_BRAIN_CERT or SYNC_BRAIN_KEY: check the mount and the rights.")
+        return 2
     engine = RunnerEngine(data / "sources", {
-        "BRAIN_API_URL": brain_url, "BRAIN_CERT": str(credentials.certificate), "BRAIN_KEY": str(credentials.key),
+        "BRAIN_API_URL": brain_url, "BRAIN_CERT": certificate, "BRAIN_KEY": key,
         "BRAIN_CA": os.environ.get("SYNC_BRAIN_CA") or str(credentials.chain or "")})
     agent = Agent(client, engine)
     logging.info("sync component %s running as %s", VERSION, credentials.component)

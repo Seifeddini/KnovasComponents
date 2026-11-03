@@ -96,7 +96,7 @@
                     var deploy = wizard.querySelector('[data-enrol-deploy]');
                     var box = wizard.querySelector('[data-enrol-command]');
                     var slug = form.elements.name.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'verbindung';
-                    var line = kind ? deployLine(kind.value, slug, window.location.origin + box.dataset.protocolPath, r.token) : null;
+                    var line = kind ? deployLine(kind.value, slug, window.location.origin + box.dataset.protocolPath, r.token, box.dataset.issueCertificates !== 'false') : null;
                     deploy.hidden = !line;
                     if (line) {
                         box.value = line.lines.join(' \\\n');
@@ -111,27 +111,33 @@
 
     /* One line per kind of component: the sync component reads records of any source, the KnovasConnector transfers
        a folder's documents. Each starts, enrols itself and takes its configuration from here. */
-    function deployLine(kind, slug, url, token) {
+    function deployLine(kind, slug, url, token, issued) {
+        /* Where the Brain does not sign (a test on one's own machine): the tenant's certificate files, read only. */
+        var syncCertificate = issued ? [] : ['  -v /PFAD/ZU/certs:/certs:ro', '  -e SYNC_BRAIN_CERT=/certs/client-cert.pem',
+                                             '  -e SYNC_BRAIN_KEY=/certs/client-key.pem', '  -e SYNC_BRAIN_CA=/certs/ca-root.pem'];
+        var connectorCertificate = issued ? [] : ['  -v /PFAD/ZU/certs:/certs:ro', '  -e SEMANTIX_CLIENT_CERT_PATH=/certs/client-cert.pem',
+                                                  '  -e SEMANTIX_CLIENT_KEY_PATH=/certs/client-key.pem', '  -e SEMANTIX_CA_CERT_PATH=/certs/ca-root.pem'];
+        var certificateHint = issued ? '' : ' Zum Testen: /PFAD/ZU/certs ist der Ordner mit dem Zertifikat des Mandanten. Nur auf dem eigenen Rechner: Ein Leck legt den ganzen Mandanten offen.';
         function syncLine(extra) {
             return ['docker run -d --name sync-' + slug + ' --restart unless-stopped', '  -v sync-' + slug + ':/data']
-                .concat(extra)
+                .concat(syncCertificate).concat(extra)
                 .concat(['  -e SYNC_NAME=' + slug, '  -e SYNC_PLATFORM_URL=' + url, '  -e SYNC_ENROL_TOKEN=' + token,
                          '  sync-component:0.1.0']);
         }
         if (kind === 'sync_component') {
             return { lines: syncLine([]),
-                     hint: 'Für eine Dateiablage ergänzen: -v <Ordner bei der Firma>:/sources:ro. Für einen Zugang: -e SYNC_CREDENTIAL_<SCHLÜSSEL DER QUELLE>=<Token>. Danach die Quelle hier auf dieser Komponente anlegen.' };
+                     hint: 'Für eine Dateiablage ergänzen: -v <Ordner bei der Firma>:/sources:ro. Für einen Zugang: -e SYNC_CREDENTIAL_<SCHLÜSSEL DER QUELLE>=<Token>. Danach die Quelle hier auf dieser Komponente anlegen.' + certificateHint };
         }
         if (kind === 'github_runner') {
             return { lines: syncLine(['  -e SYNC_CREDENTIAL_GITHUB=LESE_TOKEN_HIER_EINSETZEN']),
-                     hint: 'LESE_TOKEN_HIER_EINSETZEN durch ein Token mit «Contents: read» ersetzen; bei einem öffentlichen Repository die Zeile weglassen. Das Token bleibt bei der Komponente. Danach die Quelle «GitHub-Repository» hier auf dieser Komponente anlegen.' };
+                     hint: 'LESE_TOKEN_HIER_EINSETZEN durch ein Token mit «Contents: read» ersetzen; bei einem öffentlichen Repository die Zeile weglassen. Das Token bleibt bei der Komponente. Danach die Quelle «GitHub-Repository» hier auf dieser Komponente anlegen.' + certificateHint };
         }
         if (kind === 'knovas_connector') {
             return { lines: ['docker run -d --name connector-' + slug + ' --restart unless-stopped',
-                             '  -v connector-' + slug + ':/var/rc-state', '  -v /PFAD/ZUR/ABLAGE:/sources:ro',
+                             '  -v connector-' + slug + ':/var/rc-state', '  -v /PFAD/ZUR/ABLAGE:/sources:ro'].concat(connectorCertificate).concat([
                              '  -e RC_PLATFORM_URL=' + url, '  -e RC_ENROL_TOKEN=' + token, '  -e RC_ENROL_NAME=' + slug,
-                             '  knovas-connector:0.1.1'],
-                     hint: '/PFAD/ZUR/ABLAGE durch den Ordner bei der Firma ersetzen. Kein Port wird geöffnet: Der Connector ruft nur hinaus. Danach die Quelle «Dateiablage / DMS» hier auf dieser Komponente anlegen und die Zugriffsgruppen wählen.' };
+                             '  knovas-connector:0.1.1']),
+                     hint: '/PFAD/ZUR/ABLAGE durch den Ordner bei der Firma ersetzen. Kein Port wird geöffnet: Der Connector ruft nur hinaus. Danach die Quelle «Dateiablage / DMS» hier auf dieser Komponente anlegen und die Zugriffsgruppen wählen.' + certificateHint };
         }
         return null;
     }

@@ -32,13 +32,15 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
                                         signer: Optional[Callable[[str, str], Any]] = None,
                                         require_client_certificate: bool = True,
                                         brain_url: Optional[Callable[[], Optional[str]]] = None,
-                                        brain_ca: Optional[Callable[[], Optional[str]]] = None) -> Blueprint:
+                                        brain_ca: Optional[Callable[[], Optional[str]]] = None,
+                                        issue_certificates: bool = True) -> Blueprint:
     """``secrets()`` is the settings registry's store of the components' token hashes (sealed);
     ``signer(csr, name)`` has the Brain sign a component's certificate for this Platform's tenant.
     ``require_client_certificate``: refuse a call without the certificate fingerprint the TLS terminator sets
     (the default); False only for a deployment where no terminator checks client certificates.
     ``brain_url()`` is the Brain API a component writes to with its own certificate; ``brain_ca()`` the CA (PEM, public)
-    its TLS certificate is checked against, so that nobody has to copy it to the company by hand."""
+    its TLS certificate is checked against, so that nobody has to copy it to the company by hand.
+    ``issue_certificates``: False where the Brain does not sign at enrolment; see builder.protocol.enrol."""
     bp = Blueprint("connector_protocol", __name__, url_prefix="/api/connectors/v1")
 
     def _now() -> dt.datetime:
@@ -71,7 +73,8 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
     @bp.route("/enrol", methods=["POST"])
     def enrol():
         try:
-            result = protocol.enrol(store_factory(), secrets(), signer, _tenant(), _body(), _now())
+            result = protocol.enrol(store_factory(), secrets(), signer, _tenant(), _body(), _now(),
+                                    issue_certificate=issue_certificates)
         except protocol.ProtocolError as exc:
             logger.info("Connector enrolment refused: %s", exc.code)
             return _error(exc)

@@ -201,6 +201,7 @@ def create_builder_blueprint(
     component_secrets: Optional[Callable[[], Any]] = None,
     component_adapter: Optional[Callable[[Mapping[str, Any]], Any]] = None,
     component_limits: Optional[Callable[[], Mapping[str, Any]]] = None,
+    issue_certificates: bool = True,
     access_backend: Optional[Callable[[], Any]] = None,
     platform_roles: Optional[Callable[[], list]] = None,
     roles_sink: Optional[Callable[..., Any]] = None,
@@ -1097,7 +1098,7 @@ def create_builder_blueprint(
                 "registry_all": len(overview["rows"]), "component_alerts": overview["alerts"],
                 "limits": overview["limits"], "state_filter": state, "kind_filter": kind,
                 "registry_states": component_rules.STATES, "enrol_kinds": component_rules.KINDS,
-                "protocol_path": PROTOCOL_PATH}
+                "protocol_path": PROTOCOL_PATH, "issue_certificates": issue_certificates}
 
     def _component_or_404(component_id: str) -> dict:
         tenant = _platform_tenant()

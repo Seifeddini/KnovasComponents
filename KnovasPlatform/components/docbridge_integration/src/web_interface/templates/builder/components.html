@@ -150,7 +150,7 @@
                 </div>
                 <div class="b-field" data-enrol-deploy hidden>
                     <label class="b-label" for="b-en-command">Auf dem Rechner bei der Firma starten</label>
-                    <textarea class="b-input b-mono" id="b-en-command" rows="6" readonly data-enrol-command data-protocol-path="{{ protocol_path }}"></textarea>
+                    <textarea class="b-input b-mono" id="b-en-command" rows="6" readonly data-enrol-command data-protocol-path="{{ protocol_path }}" data-issue-certificates="{{ 'true' if issue_certificates else 'false' }}"></textarea>
                     <p class="b-small b-muted" data-enrol-hint></p>
                     <p class="b-small b-muted">Die Adresse ist die, unter der Sie die Plattform gerade geöffnet haben: Der Rechner bei der Firma muss sie ebenfalls erreichen. Sie meldet sich selbst an und holt ihre Konfiguration hier ab. Ins Brain schreibt sie erst nach Probelauf und Freigabe. Ob sie jede Quelle lesen kann, zeigt danach ihre Seite.</p>
                 </div>

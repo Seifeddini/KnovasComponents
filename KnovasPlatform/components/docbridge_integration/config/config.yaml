@@ -396,6 +396,10 @@ builder:
     # the client certificate it verified (and never passed on from the client). false only where no terminator
     # checks client certificates; the control token alone then authenticates a component.
     require_client_certificate: "${BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT:-true}"
+    # Whether the Brain signs a component's own certificate at enrolment. false: a component uses the tenant's
+    # certificate, given to it when it is installed. Only to test on your own machine: a leak then exposes the tenant, and
+    # one component cannot be revoked (DEC-0040, DEC-0056). Production's Secure API does not sign today.
+    issue_certificates: "${BUILDER_CONNECTOR_ISSUE_CERTIFICATES:-true}"
   # Views by description: the model the assistant uses (settings registry builder.assistant.model). Its API key is
   # a secret of the registry (ANTHROPIC_API_KEY pins it), never a value here.
   assistant:

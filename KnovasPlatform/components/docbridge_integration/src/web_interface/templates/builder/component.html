@@ -46,6 +46,9 @@
     <div class="b-callout" data-cp-result role="status" hidden></div>
 </header>
 
+{% if v1 and c.state == 'enrolled' and not c.certificate_fingerprint %}
+<div class="b-callout b-callout--warning" role="status" data-cp-shared-certificate><p class="b-callout-title">Nutzt das Zertifikat des Mandanten</p><p>Nur zum Testen. Ein Leck legt den ganzen Mandanten offen, und Widerrufen trifft jede Komponente, die es nutzt.</p></div>
+{% endif %}
 {% if row.state == 'pending' %}
 <div class="b-callout b-callout--warning" role="status">
     <p class="b-callout-title">Wartet auf die Anmeldung</p>

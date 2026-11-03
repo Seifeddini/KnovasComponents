@@ -8,6 +8,8 @@
     RC_LINK_INTERVAL_SECONDS  between heartbeats (default 30)
 
 An installation that sets its own certificate and Brain address keeps them: they are only filled in when empty.
+Where the Platform issues no certificates (builder.components.issue_certificates), SEMANTIX_CLIENT_CERT_PATH and
+SEMANTIX_CLIENT_KEY_PATH must name the tenant's files.
 """
 from __future__ import annotations
 
@@ -56,12 +58,17 @@ def prepare(environ: MutableMapping[str, str] = os.environ, *, session=None) -> 
     except Refused as exc:
         if exc.code in ("no_secrets", "secret_unreadable"):
             raise RuntimeError(f"The Platform cannot read its stored tokens ({exc.code}): its PLATFORM_SETTINGS_KEY needs fixing; the token may be fine.") from None
+        if exc.code == "not_signed":
+            raise RuntimeError("The Brain did not sign this connector's certificate; the Platform's log says why. The token stays valid.") from None
         raise RuntimeError(f"Enrolment refused ({exc.code}, HTTP {exc.status}). A used or expired token needs a new one from the Platform.") from None
     except OSError as exc:
         raise RuntimeError(f"The Platform is not reachable at RC_PLATFORM_URL ({type(exc).__name__}). Check the address and its port.") from None
     client.use(found)
-    environ.setdefault("SEMANTIX_CLIENT_CERT_PATH", str(found.certificate))
-    environ.setdefault("SEMANTIX_CLIENT_KEY_PATH", str(found.key))
+    if found.certificate:
+        environ.setdefault("SEMANTIX_CLIENT_CERT_PATH", str(found.certificate))
+        environ.setdefault("SEMANTIX_CLIENT_KEY_PATH", str(found.key))
+    elif not (environ.get("SEMANTIX_CLIENT_CERT_PATH") and environ.get("SEMANTIX_CLIENT_KEY_PATH")):
+        raise RuntimeError("The Platform issues no certificates here: set SEMANTIX_CLIENT_CERT_PATH and SEMANTIX_CLIENT_KEY_PATH to the tenant's files.")
     # Without a CA from the enrolment the Brain's certificate is taken to be a public one.
     environ.setdefault("SEMANTIX_CA_CERT_PATH", environ.get("RC_BRAIN_CA") or (str(found.chain) if found.chain else requests.certs.where()))
     if found.brain_url:
