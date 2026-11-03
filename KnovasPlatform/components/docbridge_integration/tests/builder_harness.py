@@ -324,7 +324,7 @@ class MemoryWorkspaceStore:
     _COMPONENT_DEFAULTS = {"transport": "adapter", "paused": False, "schedule": {"mode": "manual"}, "version": "",
                            "capabilities": [], "enrol_expires_at": None, "enrolled_at": None,
                            "certificate_fingerprint": None, "last_heartbeat_at": None, "reported_state": None,
-                           "lag_seconds": None, "open_errors": 0, "revoked_at": None}
+                           "lag_seconds": None, "open_errors": 0, "revoked_at": None, "source_checks": {}}
 
     def components(self, tenant, *, every=False):
         states = ("registered", "enrolled", "pending", "revoked") if every else ("registered", "enrolled")
@@ -770,7 +770,7 @@ def stand_in_readers(github_root=None, connector=None, http=None):
 def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None,
              secrets=None, readers=None, roles=None, roles_sink=None, sync=None, directory=None,
              component_secrets=None, adapters=None, limits=None, signer=None, require_certificate=True,
-             access=None, assistant=None, graph=None, brain_url=None) -> Flask:
+             access=None, assistant=None, graph=None, brain_url=None, brain_ca=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -827,7 +827,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         app.register_blueprint(create_connector_protocol_blueprint(
             store_factory=lambda: store, secrets=lambda: component_secrets, tenant_provider=lambda: tenant,
             signer=signer or fake_signer, require_client_certificate=require_certificate,
-            brain_url=(lambda: brain_url) if brain_url else None))
+            brain_url=(lambda: brain_url) if brain_url else None, brain_ca=(lambda: brain_ca) if brain_ca else None))
     return app
 
 

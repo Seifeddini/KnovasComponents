@@ -240,7 +240,7 @@ class TestTheFetcher:
         assert not (tmp_path / "response.json").exists()
 
     def test_a_credential_comes_from_the_components_environment(self):
-        assert credential_for("kunden-api", {"SYNC_CREDENTIAL_KUNDEN_API": "x"}) == "x"
+        assert credential_for("kunden-api", environ={"SYNC_CREDENTIAL_KUNDEN_API": "x"}) == "x"
         assert credential_for("kunden-api", {}) is None
 
 
@@ -271,5 +271,7 @@ def test_the_wizard_offers_the_one_line_for_a_sync_component():
     web = Path(__file__).resolve().parents[1] / "src" / "web_interface"
     script = (web / "static" / "js" / "builder" / "components.js").read_text(encoding="utf-8")
     assert "docker run -d" in script and "SYNC_ENROL_TOKEN" in script and "SYNC_PLATFORM_URL" in script
+    assert "RC_ENROL_TOKEN" in script and "RC_PLATFORM_URL" in script, "the file connector has its line"
+    assert "SYNC_CREDENTIAL_GITHUB" in script, "the GitHub line says where its token goes"
     assert "data-enrol-command" in (web / "templates" / "builder" / "components.html").read_text(encoding="utf-8")
     assert protocol.VERSION == "v1"

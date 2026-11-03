@@ -94,21 +94,46 @@
                     wizard.querySelector('[data-enrol-expires]').textContent = isNaN(expires.getTime()) ? r.expires_at
                         : expires.toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' });
                     var deploy = wizard.querySelector('[data-enrol-deploy]');
-                    deploy.hidden = !kind || kind.value !== 'sync_component';
-                    if (!deploy.hidden) {
-                        var box = wizard.querySelector('[data-enrol-command]');
-                        var slug = form.elements.name.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'verbindung';
-                        box.value = 'docker run -d --name sync-' + slug + ' --restart unless-stopped \\\n' +
-                            '  -v sync-' + slug + ':/data \\\n' +
-                            '  -e SYNC_NAME=' + slug + ' \\\n' +
-                            '  -e SYNC_PLATFORM_URL=' + box.dataset.protocolUrl + ' \\\n' +
-                            '  -e SYNC_ENROL_TOKEN=' + r.token + ' \\\n' +
-                            '  sync-component:0.1.0';
+                    var box = wizard.querySelector('[data-enrol-command]');
+                    var slug = form.elements.name.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'verbindung';
+                    var line = kind ? deployLine(kind.value, slug, box.dataset.protocolUrl, r.token) : null;
+                    deploy.hidden = !line;
+                    if (line) {
+                        box.value = line.lines.join(' \\\n');
+                        box.rows = line.lines.length + 1;
+                        wizard.querySelector('[data-enrol-hint]').textContent = line.hint;
                     }
                     show(3);
                     wizard.querySelector('[data-enrol-token]').select();
                 });
         });
+    }
+
+    /* One line per kind of component: the sync component reads records of any source, the KnovasConnector transfers
+       a folder's documents. Each starts, enrols itself and takes its configuration from here. */
+    function deployLine(kind, slug, url, token) {
+        function syncLine(extra) {
+            return ['docker run -d --name sync-' + slug + ' --restart unless-stopped', '  -v sync-' + slug + ':/data']
+                .concat(extra)
+                .concat(['  -e SYNC_NAME=' + slug, '  -e SYNC_PLATFORM_URL=' + url, '  -e SYNC_ENROL_TOKEN=' + token,
+                         '  sync-component:0.1.0']);
+        }
+        if (kind === 'sync_component') {
+            return { lines: syncLine([]),
+                     hint: 'Für eine Dateiablage ergänzen: -v <Ordner bei der Firma>:/sources:ro. Für einen Zugang: -e SYNC_CREDENTIAL_<SCHLÜSSEL DER QUELLE>=<Token>. Danach die Quelle hier auf dieser Komponente anlegen.' };
+        }
+        if (kind === 'github_runner') {
+            return { lines: syncLine(['  -e SYNC_CREDENTIAL_GITHUB=<Lese-Token, nur Contents: read>']),
+                     hint: 'Das Token bleibt bei der Komponente. Danach die Quelle «GitHub-Repository» hier auf dieser Komponente anlegen.' };
+        }
+        if (kind === 'knovas_connector') {
+            return { lines: ['docker run -d --name connector-' + slug + ' --restart unless-stopped',
+                             '  -v connector-' + slug + ':/var/rc-state', '  -v <Ordner bei der Firma>:/sources:ro',
+                             '  -e RC_PLATFORM_URL=' + url, '  -e RC_ENROL_TOKEN=' + token, '  -e RC_ENROL_NAME=' + slug,
+                             '  knovas-connector:0.1.1'],
+                     hint: 'Kein Port wird geöffnet: Der Connector ruft nur hinaus. Danach die Quelle «Dateiablage / DMS» hier auf dieser Komponente anlegen und die Zugriffsgruppen wählen.' };
+        }
+        return null;
     }
 
     /* ---- the B7 registration (adapter) ------------------------------------- */

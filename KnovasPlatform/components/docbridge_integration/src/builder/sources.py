@@ -12,8 +12,13 @@ for the tenant (builder_component; B13 adds enrolment and monitoring):
                     date, as the connector reports them today.
   http_json         reads a JSON document over HTTPS: its record lists.
 
-CRM and database connectors wait for connector protocol v1 (SS-534) and are
-shown as planned.
+Every kind can also run at the company, enrolled under connector protocol v1
+(transport ``v1``): a sync component maps records from any of them, and an
+enrolled KnovasConnector transfers a folder's documents. The Platform then
+reads nothing from a company's network (OnSiteFiles, on_site_problem); whether
+the component can read the source it reports as a code and counts.
+
+CRM and database connectors are shown as planned.
 
 A reader answers two questions: ``test`` -- reach the source and list what it
 holds as collections with counts -- and ``sample`` -- up to 50 items of one
@@ -46,7 +51,8 @@ COMPONENT_KINDS: dict[str, dict] = {
     "http_json": {"label": "HTTP/JSON-Leser", "serves": "http_json",
                   "text": "Liest JSON-Schnittstellen über HTTPS, in der Plattform."},
     "sync_component": {"label": "Sync-Komponente (vor Ort)", "serves": "http_json",
-                       "text": "Läuft bei der Firma, liest dort und schreibt nach Probelauf und Freigabe ins Brain."},
+                       "text": "Läuft bei der Firma, liest dort JSON-Schnittstellen, GitHub-Repositories und Dateiablagen "
+                               "und schreibt nach Probelauf und Freigabe ins Brain."},
 }
 PLANNED_COMPONENTS = [
     {"kind": "crm", "label": "CRM-Connector", "text": "Geplant: wartet auf das Connector-Protokoll v1 (SS-534)."},
@@ -56,9 +62,13 @@ PLANNED_COMPONENTS = [
 SOURCE_KINDS: dict[str, dict] = {
     "github": {"label": "GitHub-Repository", "component": "github_runner",
                "settings": [("repository", "Repository", "owner/name"), ("ref", "Branch oder Tag", "main")],
+               "also_on": ["sync_component"],        # on site its token stays in the component's own environment
                "credential": "Lese-Token (nur Contents: read)", "credential_required": True},
     "knovas_connector": {"label": "Dateiablage / DMS", "component": "knovas_connector",
-                         "settings": [("folder", "Ordner", "Pfad unter dem Wurzelordner des Connectors")],
+                         "settings": [("folder", "Ordner", "Pfad unter dem Wurzelordner des Connectors"),
+                                      ("access_groups", "Zugriffsgruppen",
+                                       "für Dokumente: Gruppen mit Komma, oder «alle» für den ganzen Mandanten")],
+                         "also_on": ["sync_component"],
                          "credential": None, "credential_required": False},
     "http_json": {"label": "HTTP/JSON", "component": "http_json",
                   "settings": [("url", "Adresse", "https://…")],
@@ -311,6 +321,39 @@ class KnovasConnectorReader:
                         "modified": f.get("modified_at"),
                         "folders": [x for x in posixpath.dirname(full).split("/") if x]})
         return out
+
+
+class OnSiteFiles:
+    """A file share read by a component at the company: the Platform sees no file of it. A file's fields are always
+    the same, so a mapping is designed on one made-up example; how many files there are comes from the component's
+    report. A plan against the Brain runs on the component, never on this example (builder_routes.mapping_dry_run)."""
+
+    EXAMPLE = {"path": "Beispiel/Unterordner/Dokument.pdf", "name": "Dokument.pdf", "stem": "Dokument", "suffix": ".pdf",
+               "size": 1024, "modified": "2026-01-31", "folders": ["Beispiel", "Unterordner"]}
+
+    def __init__(self, check: Optional[Mapping[str, Any]] = None):
+        self.check = check or {}
+
+    def test(self) -> dict:
+        files = (self.check.get("counts") or {}).get("files")
+        return {"collections": [{"id": "*", "label": "Alle Dateien (Beispiel: gelesen wird bei der Firma)", "kind": "Dateien",
+                                 "count": files or 0}], "more": 0,
+                "counts": [["Dateien", files]] if files is not None else [], "detail": {"on_site": True}}
+
+    def sample(self, collection: str, limit: int = SAMPLE_LIMIT) -> list[dict]:
+        return [dict(self.EXAMPLE)]
+
+    def documents(self, spec: Mapping[str, Any]) -> list[dict]:
+        return [dict(self.EXAMPLE)]
+
+
+def on_site_problem(kind: Any, secret: Optional[str]) -> Optional[str]:
+    """Why the Platform cannot read this source that a component reads at the company, or None."""
+    if kind == "github" and not secret:
+        return ("Diese Quelle liest die Komponente bei der Firma, mit ihrem eigenen Token. Um hier Felder zu sehen und die "
+                "Zuordnung zu entwerfen, hier zusätzlich ein Lese-Token setzen. Ob die Komponente die Quelle erreicht, "
+                "zeigt ihre Seite unter «Verbindung prüfen».")
+    return None
 
 
 def public_https(url: str, resolve: Optional[Callable[[str], list]] = None) -> str:

@@ -70,7 +70,8 @@ class Store:
     def save(self, answer: dict, token: str = "") -> Credentials:
         """Keep what the Platform answered to the enrolment; of the one-time token only its hash."""
         _private(self.certificate, str(answer["certificate"]).encode("utf-8"))
-        chain = answer.get("certificate_chain")
+        # What the Brain's TLS certificate is checked against: the CA the Platform checks it against, else the chain.
+        chain = answer.get("brain_ca") or answer.get("certificate_chain")
         if chain:
             _private(self.chain, ("\n".join(chain) if isinstance(chain, list) else str(chain)).encode("utf-8"))
         _private(self.identity, json.dumps({"component": answer["component"], "control_token": answer["control_token"],

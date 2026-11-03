@@ -7,16 +7,19 @@ nothing. Everything reported is codes and counts (GI-DATA-02/04).
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import time
 from typing import Any, Callable, Mapping, Optional
 
 from sync_component.client import PlatformClient, Refused
 from sync_component.engine import EngineError, Result, RunnerEngine
-from sync_component.fetchers import FETCHERS, FetchError, credential_for
+from sync_component.fetchers import CHECKS, FETCHERS, FetchError, check, credential_for
 
 log = logging.getLogger("sync_component")
-CAPABILITIES = ["dry_run", "apply", "held_plans", "package"]
+CAPABILITIES = ["dry_run", "apply", "held_plans", "package", "source_checks"]
+#: Heartbeats between looks at whether the sources changed in the Platform.
+CHECK_EVERY_TICKS = 10
 DAYS = ("mo", "di", "mi", "do", "fr", "sa", "so")
 
 
@@ -42,10 +45,15 @@ def schedule_due(schedule: Mapping[str, Any], last: Optional[dt.datetime], now: 
 
 class Agent:
     def __init__(self, client: PlatformClient, engine: RunnerEngine, *, fetchers: Optional[Mapping[str, Callable]] = None,
-                 environ: Optional[Mapping[str, str]] = None, now: Callable[[], dt.datetime] = _utc):
+                 checks: Optional[Mapping[str, Callable]] = None, environ: Optional[Mapping[str, str]] = None,
+                 now: Callable[[], dt.datetime] = _utc):
         self.client = client
         self.engine = engine
         self.fetchers = dict(FETCHERS if fetchers is None else fetchers)
+        # A stand-in fetcher is checked by fetching, unless it brings its own check.
+        self.checks = dict(checks if checks is not None else ({} if fetchers is not None else CHECKS))
+        self._checked: Optional[str] = None
+        self._ticks = 0
         self.environ = environ
         self.now = now
         self.last_run: Optional[dt.datetime] = None
@@ -73,11 +81,32 @@ class Agent:
         try:
             root = self.engine.source_root(source["workspace"], source["key"])
             self.engine.write_package(root, source["files"])
-            kwargs = {} if self.environ is None else {"environ": self.environ}
-            fetcher(source.get("settings") or {}, credential_for(source["key"], **kwargs), root)
+            reading = fetcher(source.get("settings") or {}, self._credential(source), root)
         except (FetchError, EngineError) as exc:
             return Result(status="failed", errors=1, codes=[str(exc)])
-        return self.engine.dry_run(root, source["mapping_ids"])
+        return self.engine.dry_run(root, source["mapping_ids"], reading)
+
+    def _credential(self, source: Mapping[str, Any]) -> Optional[str]:
+        kwargs = {} if self.environ is None else {"environ": self.environ}
+        return credential_for(str(source.get("key") or ""), str(source.get("kind") or ""), **kwargs)
+
+    # -------------------------------------------------------- can it read its sources?
+
+    def check_sources(self, *, force: bool = False) -> None:
+        """Tell the Platform, per source, whether this component can read it: right after it starts, when a source
+        changed in the Platform, and when a person asks. What is wrong shows on the component's page, before a run."""
+        config = self.client.config()
+        sources = config.get("sources") or []
+        seen = json.dumps([[s.get("workspace"), s.get("key"), s.get("kind"), s.get("settings")] for s in sources], sort_keys=True)
+        if seen == self._checked and not force:
+            return
+        items = []
+        for s in sources:
+            code, counts = check(str(s.get("kind")), s.get("settings") or {}, self._credential(s), fetchers=self.fetchers,
+                                 checks=self.checks)
+            items.append({"workspace": s.get("workspace"), "source": s.get("key"), "code": code, "counts": counts})
+        self.client.report_checks(items)
+        self._checked = seen
 
     def _apply(self, source: Mapping[str, Any], reason: Optional[str]) -> Result:
         try:
@@ -140,6 +169,9 @@ class Agent:
                 self.client.command_done(cid, "refused")
                 return
             self.run("apply", command=cid, mapping=str(args.get("mapping") or ""), reason=str(args.get("reason") or "approved"))
+        elif name == "check":
+            self.check_sources(force=True)
+            self.client.command_done(cid, "ok")
         elif name in ("pause", "resume", "reject_plan", "reload_config"):
             # Pausing comes with every heartbeat; a rejected plan stays unapplied; the configuration is read on every run.
             self.client.command_done(cid, "ok")
@@ -154,6 +186,9 @@ class Agent:
         self.paused = bool(answer.get("paused"))
         for command in answer.get("commands") or []:
             self.handle(command)
+        if self._ticks % CHECK_EVERY_TICKS == 0:
+            self.check_sources()
+        self._ticks += 1
         if not self.paused and schedule_due(answer.get("schedule") or {}, self.last_run, self.now()):
             self.run("dry_run")
 

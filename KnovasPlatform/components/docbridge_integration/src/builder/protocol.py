@@ -5,7 +5,7 @@ contract as the Platform implements it, until KC-7a writes it down in full:
 
   POST /api/connectors/v1/enrol
        {token, csr, version, capabilities}            the one-time enrolment token (24 h)
-    -> {component, control_token, certificate, certificate_chain, config}
+    -> {component, control_token, certificate, certificate_chain, config, brain_url, brain_ca}
        The CSR is signed by the Brain for this Platform's tenant (/secured/sign_certificate);
        the control token is shown this once and kept as a hash.
 
@@ -29,9 +29,10 @@ contract as the Platform implements it, until KC-7a writes it down in full:
     -> {id}
   POST /api/connectors/v1/commands/<id>/done   {result: ok|failed|refused}
   POST /api/connectors/v1/events               {events: [{code, counts}]}
+  POST /api/connectors/v1/checks               {checks: [{workspace, source, code, counts}]}    can it read each source?
 
 Commands: run {kind}, pause, resume, approve_plan {plan, mapping, reason}, reject_plan {plan, mapping},
-reload_config. Reports carry codes and counts, never document names or content (GI-DATA-02/04): what does
+reload_config, check. Reports carry codes and counts, never document names or content (GI-DATA-02/04): what does
 not fit that shape is refused, not stored.
 """
 from __future__ import annotations
@@ -43,7 +44,7 @@ from typing import Any, Callable, Mapping, Optional
 from builder import components as C
 
 VERSION = "v1"
-COMMANDS = ("run", "pause", "resume", "approve_plan", "reject_plan", "reload_config")
+COMMANDS = ("run", "pause", "resume", "approve_plan", "reject_plan", "reload_config", "check")
 
 
 class ProtocolError(Exception):
@@ -81,7 +82,7 @@ def issue_enrolment(store: Any, secrets: Any, tenant: str, *, kind: str, name: s
                     actor: Any, now: dt.datetime) -> tuple[str, str]:
     """A pending v1 component and its one-time enrolment token (shown once); (component id, token)."""
     if kind not in C.KINDS or C.KINDS[kind].get("planned") or C.KINDS[kind].get("adapter_only"):
-        raise ProtocolError(400, "kind", "Art: Sync-Komponente, Dateiablage/DMS oder GitHub-Runner; die Datenbank ist geplant.")
+        raise ProtocolError(400, "kind", "Art: Sync-Komponente, Dateiablage/DMS oder GitHub; die Datenbank ist geplant.")
     token, digest = C.new_token("kce")
     component_id = store.create_component(tenant, kind=kind, name=name, site=site, owner=owner, actor_id=actor.id,
                                           enrol_expires_at=(now + dt.timedelta(hours=C.ENROL_HOURS)).isoformat())
@@ -263,6 +264,26 @@ def command_done(store: Any, c: Mapping[str, Any], command_id: str, body: Mappin
     if not store.finish_command(c["id"], command_id, result, now.isoformat()):
         raise ProtocolError(404, "unknown_command", "no such open command")
     store.add_event(c["id"], "command.done", {})
+
+
+def report_checks(store: Any, c: Mapping[str, Any], body: Mapping[str, Any], now: dt.datetime) -> int:
+    """Whether the component can read each source it serves, the latest only. A source it does not serve is dropped;
+    what does not fit a code and counts is refused (GI-DATA-02/04)."""
+    items = body.get("checks")
+    if not isinstance(items, list) or len(items) > 200:
+        raise ProtocolError(400, "bad_field", "checks: a list of up to 200")
+    served = store.served_by(c["id"]) if hasattr(store, "served_by") else {"sources": []}
+    mine = {(s["workspace"], s["key"]) for s in served["sources"]}
+    kept = {}
+    for item in items:
+        code = str((item or {}).get("code") or "")
+        if not C.EVENT_CODE.match(code):
+            raise ProtocolError(400, "bad_field", "code: lower case letters, digits, dots and underscores")
+        workspace, source = str(item.get("workspace") or ""), str(item.get("source") or "")
+        if (workspace, source) in mine:
+            kept[f"{workspace}/{source}"] = {"code": code, "counts": C.clean_counts(item.get("counts")), "at": now.isoformat()}
+    store.update_component(c["id"], source_checks=kept)
+    return len(kept)
 
 
 def events(store: Any, c: Mapping[str, Any], body: Mapping[str, Any]) -> int:

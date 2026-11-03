@@ -126,7 +126,7 @@
                     <label class="b-card b-enrol-kind {{ 'is-planned' if k.planned else '' }}">
                         <input type="radio" name="kind" value="{{ key }}" {% if loop.first %}checked{% endif %} {% if k.planned %}disabled{% endif %}>
                         <strong>{{ k.label }}</strong>
-                        <span class="b-small b-muted">{% if key == 'sync_component' %}Eine neue Verbindung: läuft bei der Firma, ein Befehl genügt.{% elif key == 'knovas_connector' %}Liest die Dateiablage oder das DMS vor Ort.{% elif key == 'github_runner' %}Liest GitHub-Repositories mit brain-runner.{% else %}Geplant: wartet auf das Connector-Protokoll v1.{% endif %}</span>
+                        <span class="b-small b-muted">{% if key == 'sync_component' %}Daten aus JSON-Schnittstellen, GitHub und Dateilisten auf Typen und Beziehungen abbilden. Läuft bei der Firma, ein Befehl genügt.{% elif key == 'knovas_connector' %}Die Dokumente eines Ordners ins Brain übertragen, für die Suche. Läuft bei der Firma, ein Befehl genügt.{% elif key == 'github_runner' %}Ein GitHub-Repository auf Typen und Beziehungen abbilden. Läuft, wo Sie wollen, ein Befehl genügt.{% else %}Geplant: wartet auf das Connector-Protokoll v1.{% endif %}</span>
                         {% if k.planned %}<span class="b-tag">Geplant</span>{% endif %}
                     </label>
                     {% endfor %}
@@ -151,9 +151,9 @@
                 <div class="b-field" data-enrol-deploy hidden>
                     <label class="b-label" for="b-en-command">Auf dem Rechner bei der Firma starten</label>
                     <textarea class="b-input b-mono" id="b-en-command" rows="6" readonly data-enrol-command data-protocol-url="{{ protocol_url }}"></textarea>
-                    <p class="b-small b-muted">Sie meldet sich selbst an und holt ihre Konfiguration hier ab. Ins Brain schreibt sie erst nach Probelauf und Freigabe. Das Token einer Quelle setzt ihr dort mit <code class="b-mono">-e SYNC_CREDENTIAL_&lt;SCHLÜSSEL&gt;=…</code>.</p>
+                    <p class="b-small b-muted" data-enrol-hint></p>
+                    <p class="b-small b-muted">Sie meldet sich selbst an und holt ihre Konfiguration hier ab. Was in spitzen Klammern steht, zuerst ersetzen. Ins Brain schreibt sie erst nach Probelauf und Freigabe. Ob sie jede Quelle lesen kann, zeigt danach ihre Seite.</p>
                 </div>
-                <p class="b-small">In der Komponente eintragen, zusammen mit der Adresse der Plattform: <code class="b-mono">{{ protocol_url }}</code>. Sie meldet sich an und erscheint hier online.</p>
             </div>
             <div class="b-callout b-callout--critical" data-enrol-error role="alert" hidden></div>
         </div>

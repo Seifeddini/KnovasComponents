@@ -1485,6 +1485,7 @@ def run_sync_work(
     sync_config: dict[str, Any] | None = None,
     now: datetime | None = None,
     max_transmissions_in_response: int = 100,
+    only_paths: frozenset[str] | None = None,
 ) -> SyncRunResult:
     result = SyncRunResult()
     state = SyncStateStore()
@@ -1548,6 +1549,9 @@ def run_sync_work(
         # Last, in their own order (partial, .pdf, .docx, mail, the rest):
         # the re-extractions an administrator asked for (spec L6).
         work += [(item, "reextract") for item in plan.reextract_queue]
+        if only_paths is not None:
+            # An apply under the Platform's protocol sends what its dry run listed, nothing that appeared since.
+            work = [entry for entry in work if entry[0][1] in only_paths]
         # Spec F5: after the scan, before the first upload. When the probe
         # requeued this cycle's not_accepted rows, the echo check below is done.
         requeue_checked = stats is not None and _probe_doc_fields(uploader, state, plan, stats)

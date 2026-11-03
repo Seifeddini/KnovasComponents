@@ -1669,12 +1669,12 @@ def test_components_enrol_run_and_alert(browser, components_server, shots):
 
     # The wizard: a file-share connector, its one-time token shown once; it enrols and appears online.
     page.goto(f"{base}/builder/verbinden")
-    token = _enrol_through_the_wizard(page, "Dateiablage / DMS (KnovasConnector)", "Dateiablage Zürich", "Büro Zürich",
+    token = _enrol_through_the_wizard(page, "Dokumente aus Dateiablage / DMS (KnovasConnector)", "Dateiablage Zürich", "Büro Zürich",
                                       "IT Kanzlei", shots, "b13-01-wizard")
     share = ProtocolClient(http)
     assert share.enrol(token, version="2.4.0").status_code == 201
     assert share.heartbeat(lag_seconds=420).status_code == 200
-    token = _enrol_through_the_wizard(page, "GitHub-Runner", "GitHub-Runner", "Plattform", "Engineering")
+    token = _enrol_through_the_wizard(page, "GitHub-Repository", "GitHub-Runner", "Plattform", "Engineering")
     runner = ProtocolClient(http)
     assert runner.enrol(token, version="brain-runner 0.1.1").status_code == 201
     runner.heartbeat(lag_seconds=3600, version="brain-runner 0.1.1")

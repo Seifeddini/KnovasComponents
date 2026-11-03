@@ -3,7 +3,7 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify
 
-from config import get_config
+from config import get_config, platform_link_enabled
 from m365.source import M365Error, active_m365_source, m365_configured
 from sync.sync_scheduler import get_scheduler_status
 
@@ -46,6 +46,7 @@ def health():
 
     config_ok = bool(cfg.semantix_secure_base_url) and (
         cfg.rc_internal_local_bypass
+        or platform_link_enabled()
         or (cfg.knovas_internal_api_url and cfg.rc_instance_token)
     )
 

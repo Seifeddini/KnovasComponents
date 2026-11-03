@@ -62,7 +62,7 @@ ENDPOINT_PERMISSIONS = {
     "publish": "publish", "link_tenant": "publish",
     "register_component": "manage", "team": "manage", "delete_workspace": "manage", "grant_access": "manage", "revoke_access": "manage",
     "component_page": "view", "enrol_component": "manage", "rotate_component": "manage", "revoke_component": "manage",
-    "component_schedule": "manage", "component_settings": "manage", "component_run": "edit",
+    "component_schedule": "manage", "component_settings": "manage", "component_run": "edit", "component_check": "edit",
     "component_pause": "publish", "component_resume": "publish", "component_plan": "review",
     "access_page": "edit", "access_preview": "edit", "access_apply": "edit", "access_rules_add": "edit",
     "access_rule_remove": "edit", "access_members": "manage", "access_explain": "manage", "access_posture": "manage",
@@ -1122,6 +1122,7 @@ def create_builder_blueprint(
         stage = STAGES_BY_SLUG["verbinden"]
         return _render("builder/component.html", stage=stage, stage_number=STAGES.index(stage) + 1,
                        component=observed, row=row, runs=runs[:30], held=held, served=store.served_by(component_id),
+                       checks=component_rules.check_rows(observed, store.served_by(component_id)["sources"]),
                        events=store.events(component_id, 50) if component.get("transport") == "v1" else [],
                        commands=store.commands(component_id) if component.get("transport") == "v1" else [],
                        alerts=component_rules.alerts([observed], {component_id: runs}, {component_id: held}, now, limits),
@@ -1230,6 +1231,15 @@ def create_builder_blueprint(
         except Exception as exc:  # noqa: BLE001 - the sync's own refusal
             return jsonify({"success": False, "error": str(exc)[:300] or type(exc).__name__}), 409
         return jsonify({"success": True, "queued": False})
+
+    @bp.route("/api/components/<component_id>/check", methods=["POST"])
+    def component_check(component_id: str):
+        """Ask a component to report whether it can read its sources: reads nothing into the Platform, writes nothing."""
+        component = _component_or_404(component_id)
+        if component.get("transport") != "v1" or component.get("state") != "enrolled":
+            return jsonify({"success": False, "error": "Das geht bei einer angemeldeten Komponente."}), 409
+        _command(component, "check", {}, "check.requested")
+        return jsonify({"success": True, "queued": True})
 
     def _pause(component_id: str, paused: bool):
         component = _component_or_404(component_id)
@@ -1961,6 +1971,15 @@ def create_builder_blueprint(
         return _render("builder/mapping.html", stage=stage, stage_number=STAGES.index(stage) + 1,
                        current_workspace=workspace, history=_history_counts(workspace.id), mapping=view)
 
+    def _served_on_site(store, model, mapping_id: str) -> Optional[dict]:
+        """The enrolled component that reads this mapping's source, if one does."""
+        entry = _mapping_entry(model, mapping_id)
+        source = next((s for s in model.get("sources") or []
+                       if entry and s.get("key") == (entry.get("builder") or {}).get("source")), None)
+        tenant = _platform_tenant()
+        component = store.component(tenant, source.get("component")) if source and tenant else None
+        return component if component and component.get("transport") == "v1" else None
+
     def _mapping_run(store, current, model, mapping_id: str):
         entry = _mapping_entry(model, mapping_id)
         if entry is None:
@@ -2002,6 +2021,10 @@ def create_builder_blueprint(
             return refusal
         current, draft, tenant, engine = ready
         model = store.model(current.id)
+        served = _served_on_site(store, model, mapping_id)
+        if served is not None:
+            return jsonify({"success": False, "error": "Diese Quelle liest eine Komponente bei der Firma; der Probelauf läuft dort.",
+                            "url": url_for("builder.component_page", component_id=served["id"])}), 409
         try:
             entry, reader = _mapping_run(store, current, model, mapping_id)
             if [p for p in mapping_rules.problems(model, entry) if p["severity"] == "critical"]:
@@ -2092,11 +2115,19 @@ def create_builder_blueprint(
         component = store.component(tenant, source.get("component")) if tenant else None
         if component is None:
             raise source_kinds.ReaderError("Die Komponente dieser Quelle ist nicht registriert.")
-        if reader_factory is None:
-            raise source_kinds.ReaderError("Diese Plattform liest keine Quellen.")
         secrets = _secrets()
         secret = secrets.get(source_secret_key(current.id, source["key"])) if secrets and source.get("credential_set") else None
         kind = source_kinds.SOURCE_KINDS.get(source.get("kind"), {})
+        if component.get("transport") == "v1":
+            # Read at the company. The Platform reads nothing from a company's network; what it can design from is the
+            # shape of a file, or a public source with a credential of its own.
+            if source.get("kind") == "knovas_connector":
+                return source_kinds.OnSiteFiles((component.get("source_checks") or {}).get(f"{current.id}/{source['key']}"))
+            problem = source_kinds.on_site_problem(source.get("kind"), secret)
+            if problem:
+                raise source_kinds.ReaderError(problem)
+        if reader_factory is None:
+            raise source_kinds.ReaderError("Diese Plattform liest keine Quellen.")
         if kind.get("credential_required") and not secret:
             raise source_kinds.ReaderError("Für diese Quelle ist noch kein Zugang gesetzt.")
         try:

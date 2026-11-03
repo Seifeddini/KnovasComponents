@@ -351,7 +351,7 @@ class WorkspaceStore:
     _COMPONENT = """SELECT c.id, c.kind, c.name, c.site, c.owner, c.settings, c.state, c.registered_at, u.display_name,
                            c.transport, c.paused, c.schedule, c.version, c.capabilities, c.enrol_expires_at,
                            c.enrolled_at, c.certificate_fingerprint, c.last_heartbeat_at, c.reported_state,
-                           c.lag_seconds, c.open_errors, c.revoked_at
+                           c.lag_seconds, c.open_errors, c.revoked_at, c.source_checks
                       FROM builder_component c LEFT JOIN users u ON u.id = c.registered_by"""
     #: The states a source may be read through (B7) or a component may run in.
     _USABLE = "('registered', 'enrolled')"
@@ -364,7 +364,7 @@ class WorkspaceStore:
                 "version": row[12] or "", "capabilities": list(row[13] or []), "enrol_expires_at": _iso(row[14]),
                 "enrolled_at": _iso(row[15]), "certificate_fingerprint": row[16], "last_heartbeat_at": _iso(row[17]),
                 "reported_state": row[18], "lag_seconds": row[19], "open_errors": row[20] or 0,
-                "revoked_at": _iso(row[21])}
+                "revoked_at": _iso(row[21]), "source_checks": row[22] or {}}
 
     def components(self, tenant: str, *, every: bool = False) -> list[dict]:
         """The tenant's sync components a source can use, by name; ``every``: pending and revoked ones too."""
@@ -398,7 +398,7 @@ class WorkspaceStore:
 
     _UPDATABLE = {"state", "paused", "schedule", "version", "capabilities", "enrol_expires_at", "enrolled_at",
                   "certificate_fingerprint", "last_heartbeat_at", "reported_state", "lag_seconds", "open_errors",
-                  "revoked_at", "name", "site", "owner", "settings"}
+                  "revoked_at", "name", "site", "owner", "settings", "source_checks"}
 
     def update_component(self, component_id: str, **fields) -> None:
         unknown = set(fields) - self._UPDATABLE
@@ -407,8 +407,9 @@ class WorkspaceStore:
         if not fields:
             return
         names = sorted(fields)
-        values = [json.dumps(fields[n]) if n in ("schedule", "capabilities", "settings") else fields[n] for n in names]
-        sets = ", ".join(f"{n} = %s::jsonb" if n in ("schedule", "capabilities", "settings") else f"{n} = %s" for n in names)
+        documents = ("schedule", "capabilities", "settings", "source_checks")
+        values = [json.dumps(fields[n]) if n in documents else fields[n] for n in names]
+        sets = ", ".join(f"{n} = %s::jsonb" if n in documents else f"{n} = %s" for n in names)
         self.conn.execute(f"UPDATE builder_component SET {sets} WHERE id = %s", (*values, component_id))
 
     def pending_components(self, tenant: str) -> list[dict]:

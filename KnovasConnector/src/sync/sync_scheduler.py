@@ -85,6 +85,8 @@ _control_lock = threading.Lock()
 class SyncRunContext:
     sync_body: dict[str, Any]
     sync_config: dict[str, Any]
+    # When set, only these documents are sent: what a dry run listed (platform_link.operations).
+    only_paths: Optional[frozenset[str]] = None
 
 
 def _timezone() -> ZoneInfo:
@@ -388,12 +390,14 @@ def _run_once(ctx: SyncRunContext) -> SyncRunResult:
         max_duration,
     )
     try:
+        extra = {} if ctx.only_paths is None else {"only_paths": ctx.only_paths}
         result = run_sync_work(
             ctx.sync_body,
             uploader,
             should_stop=should_stop,
             is_in_sync_window=in_window,
             sync_config=ctx.sync_config,
+            **extra,
         )
     except Exception as exc:
         _last_worker_error = str(exc)

@@ -29,8 +29,8 @@ from typing import Any, Iterable, Mapping, Optional
 
 #: The kinds a component can be enrolled as; the database connector waits for protocol v1.
 KINDS = {
-    "knovas_connector": {"label": "Dateiablage / DMS (KnovasConnector)", "short": "Dateiablage / DMS"},
-    "github_runner": {"label": "GitHub-Runner", "short": "GitHub-Runner"},
+    "knovas_connector": {"label": "Dokumente aus Dateiablage / DMS (KnovasConnector)", "short": "Dateiablage / DMS"},
+    "github_runner": {"label": "GitHub-Repository", "short": "GitHub"},
     "sync_component": {"label": "Sync-Komponente (vor Ort)", "short": "Sync-Komponente"},
     "database_connector": {"label": "Datenbank-Connector", "short": "Datenbank", "planned": True},
     "http_json": {"label": "HTTP/JSON-Leser", "short": "HTTP/JSON", "adapter_only": True},
@@ -50,7 +50,7 @@ COUNT_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,60}$")
 EVENTS = ("enrol.token_issued", "enrolled", "token.rotated", "revoked", "state.online", "state.offline",
           "state.degraded", "run.requested", "run.started", "run.finished", "run.failed", "plan.held",
           "plan.approved", "plan.rejected", "paused", "resumed", "schedule.changed", "config.changed",
-          "command.delivered", "command.done")
+          "command.delivered", "command.done", "check.requested")
 
 
 # ------------------------------------------------------------------ tokens
@@ -194,6 +194,45 @@ def alerts(components: Iterable[Mapping[str, Any]], runs: Mapping[str, list], he
                                     f"{_duration(int((now - at).total_seconds() // 60))} auf Freigabe."})
     order = {"critical": 0, "warning": 1}
     return sorted(out, key=lambda a: (order[a["severity"]], str(a["name"])))
+
+
+#: What a component's report about a source means, for the person who has to fix it. Codes, because the component
+#: reports no address and no name; the sentence names only what to do.
+CHECK_TEXTS = {
+    "source.ok": "Liest die Quelle.",
+    "source.kind_unknown": "Diese Version der Komponente kennt diese Art von Quelle nicht: das Abbild aktualisieren.",
+    "source.bad_key": "Der Schlüssel der Quelle ist nicht gültig.",
+    "fetch.not_https": "Die Adresse muss mit https:// beginnen.",
+    "fetch.bad_repository": "Repository oder Branch ist nicht gültig.",
+    "fetch.bad_folder": "Der Ordner darf kein «..» enthalten.",
+    "fetch.folder_missing": "Den Ordner gibt es nicht: die Ablage beim Start einhängen (-v <Ordner>:/sources:ro) und den Ordner der Quelle prüfen.",
+    "fetch.folder_unreadable": "Die Komponente darf den Ordner nicht lesen: die Rechte für Benutzer 10001 prüfen.",
+    "fetch.folder_empty": "Der Ordner ist leer. Ist die Ablage eingehängt? Eine leere Ablage wird nicht gelesen, damit nichts stillgelegt wird.",
+    "fetch.http_401": "Der Zugang wurde abgewiesen: das Token prüfen (-e SYNC_CREDENTIAL_…).",
+    "fetch.http_403": "Der Zugang reicht nicht: dem Token Leserechte geben.",
+    "fetch.http_404": "Nicht gefunden, oder der Zugang fehlt: Adresse oder Repository und Branch prüfen, das Token setzen (-e SYNC_CREDENTIAL_…).",
+    "fetch.connectionerror": "Keine Verbindung zur Quelle: Netzwerk oder Firewall der Firma prüfen.",
+    "fetch.timeout": "Die Quelle antwortet nicht rechtzeitig.",
+    "fetch.sslerror": "Das TLS-Zertifikat der Quelle wird nicht anerkannt.",
+    "fetch.too_large": "Die Antwort der Quelle ist zu gross (SYNC_FETCH_MAX_BYTES).",
+    "fetch.not_json": "Die Antwort der Quelle ist kein JSON.",
+    "documents.no_access_choice": "Bei der Quelle fehlen die Zugriffsgruppen: Gruppen eintragen, oder «alle» für den ganzen Mandanten.",
+    "documents.bad_config": "Die Einstellungen der Quelle ergeben keinen gültigen Lauf: Ordner und Zugriffsgruppen prüfen.",
+    "documents.mappings_not_run": "Zuordnungen führt diese Komponente nicht aus; sie überträgt Dokumente. Für Zuordnungen die Quelle auf eine Sync-Komponente legen.",
+}
+
+
+def check_rows(component: Mapping[str, Any], sources: Iterable[Mapping[str, Any]]) -> list[dict]:
+    """The component's sources with its latest report on each, for its page."""
+    found = component.get("source_checks") or {}
+    rows = []
+    for s in sources:
+        item = found.get(f"{s.get('workspace')}/{s.get('key')}") or {}
+        code = item.get("code")
+        rows.append({"name": s.get("name"), "workspace_name": s.get("workspace_name"), "code": code, "ok": code == "source.ok",
+                     "counts": item.get("counts") or {}, "at": item.get("at"),
+                     "text": CHECK_TEXTS.get(str(code), f"Nicht lesbar ({code}).") if code else "Noch nicht geprüft."})
+    return rows
 
 
 def _duration(minutes: Optional[int]) -> str:

@@ -68,3 +68,6 @@ class PlatformClient:
 
     def events(self, events: list[dict]) -> None:
         self._call("POST", "/events", {"events": events})
+
+    def report_checks(self, checks: list[dict]) -> None:
+        self._call("POST", "/checks", {"checks": checks})

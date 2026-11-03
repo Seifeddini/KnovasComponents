@@ -35,6 +35,9 @@
     }
 
     var confirmBox = document.getElementById('b-cp-confirm');
+    on('[data-cp-check]', function () {
+        act(root.dataset.checkUrl, {});
+    });
     on('[data-cp-run]', function (b) {
         if (b.dataset.cpRun === 'apply') { confirmBox.showModal(); return; }
         act(root.dataset.runUrl, { kind: 'dry_run' }, function (r) {

@@ -8,6 +8,8 @@
     SYNC_CA_FILE          the CA of the Platform's TLS certificate, when it is not a public one
     SYNC_BRAIN_CA         the CA of the Brain API, when the Platform's chain does not cover it
     SYNC_CREDENTIAL_<KEY> a source's credential, by its key in upper case
+    SYNC_CREDENTIAL_GITHUB the credential of every GitHub source (the same for any kind, in upper case)
+    SYNC_FILES_ROOT       where a file share is mounted, read only (default /sources: -v <folder>:/sources:ro)
 
 ``--once`` runs one heartbeat with its commands and ends.
 """
@@ -27,13 +29,14 @@ from sync_component.engine import RunnerEngine
 
 
 def enrolled(client: PlatformClient, store: Store, token: str, name: str) -> Credentials:
-    """The credentials of an earlier start, or a new enrolment with the one-time token."""
+    """The credentials of an earlier start, or a new enrolment with the one-time token; a token these credentials did
+    not come from (the Platform's «Token erneuern») enrols again."""
     found = store.load()
-    if found is not None:
+    if found is not None and (not token or store.used(token)):
         return found
     if not token:
         raise SystemExit("Not enrolled yet: set SYNC_ENROL_TOKEN to the one-time token from the Platform.")
-    return store.save(client.enrol(token, store.request(name), CAPABILITIES))
+    return store.save(client.enrol(token, store.request(name), CAPABILITIES), token)
 
 
 def main(argv: list[str] | None = None) -> int:

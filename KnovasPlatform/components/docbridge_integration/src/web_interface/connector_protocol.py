@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 #: The endpoint names the identity gate lets through without a session (each checks its own credential).
 ENDPOINTS = ("connector_protocol.enrol", "connector_protocol.heartbeat", "connector_protocol.config", "connector_protocol.package",
-             "connector_protocol.runs", "connector_protocol.command_done", "connector_protocol.events")
+             "connector_protocol.runs", "connector_protocol.command_done", "connector_protocol.events",
+             "connector_protocol.checks")
 MAX_BODY = 256 * 1024
 
 
@@ -30,12 +31,14 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
                                         tenant_provider: Callable[[], Optional[str]],
                                         signer: Optional[Callable[[str, str], Any]] = None,
                                         require_client_certificate: bool = True,
-                                        brain_url: Optional[Callable[[], Optional[str]]] = None) -> Blueprint:
+                                        brain_url: Optional[Callable[[], Optional[str]]] = None,
+                                        brain_ca: Optional[Callable[[], Optional[str]]] = None) -> Blueprint:
     """``secrets()`` is the settings registry's store of the components' token hashes (sealed);
     ``signer(csr, name)`` has the Brain sign a component's certificate for this Platform's tenant.
     ``require_client_certificate``: refuse a call without the certificate fingerprint the TLS terminator sets
     (the default); False only for a deployment where no terminator checks client certificates.
-    ``brain_url()`` is the Brain API a component writes to with its own certificate."""
+    ``brain_url()`` is the Brain API a component writes to with its own certificate; ``brain_ca()`` the CA (PEM, public)
+    its TLS certificate is checked against, so that nobody has to copy it to the company by hand."""
     bp = Blueprint("connector_protocol", __name__, url_prefix="/api/connectors/v1")
 
     def _now() -> dt.datetime:
@@ -73,7 +76,7 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
             logger.info("Connector enrolment refused: %s", exc.code)
             return _error(exc)
         logger.info("Connector enrolled: component %s", result["component"])
-        return jsonify(result), 201
+        return jsonify({**result, "brain_url": brain_url() if brain_url else None, "brain_ca": brain_ca() if brain_ca else None}), 201
 
     @bp.route("/heartbeat", methods=["POST"])
     def heartbeat():
@@ -119,6 +122,14 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
     def events():
         try:
             n = protocol.events(store_factory(), _component(), _body())
+        except protocol.ProtocolError as exc:
+            return _error(exc)
+        return jsonify({"stored": n}), 201
+
+    @bp.route("/checks", methods=["POST"])
+    def checks():
+        try:
+            n = protocol.report_checks(store_factory(), _component(), _body(), _now())
         except protocol.ProtocolError as exc:
             return _error(exc)
         return jsonify({"stored": n}), 201

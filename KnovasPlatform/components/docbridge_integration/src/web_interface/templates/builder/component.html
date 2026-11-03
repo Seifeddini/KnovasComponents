@@ -13,6 +13,7 @@
 {% block main %}
 <header class="b-page-head" data-cp
         data-run-url="{{ url_for('builder.component_run', component_id=c.id) }}"
+        data-check-url="{{ url_for('builder.component_check', component_id=c.id) }}"
         data-pause-url="{{ url_for('builder.component_pause', component_id=c.id) }}"
         data-resume-url="{{ url_for('builder.component_resume', component_id=c.id) }}"
         data-rotate-url="{{ url_for('builder.rotate_component', component_id=c.id) }}"
@@ -33,6 +34,7 @@
     </div>
     {% if row.state not in ('revoked', 'pending') %}
     <div class="b-button-row b-cp-actions">
+        {% if v1 %}<button type="button" class="b-button b-button--secondary" data-cp-check>Verbindung prüfen</button>{% endif %}
         <button type="button" class="b-button b-button--secondary" data-cp-run="dry_run" {% if row.state == 'paused' %}disabled{% endif %}>Probelauf jetzt</button>
         <button type="button" class="b-button b-button--secondary" data-cp-run="apply" {% if row.state == 'paused' %}disabled{% endif %}>Jetzt anwenden</button>
         {% if row.state == 'paused' %}<button type="button" class="b-button b-button--primary" data-cp-resume>Fortsetzen</button>
@@ -142,7 +144,8 @@
         <section class="b-op-section" aria-labelledby="b-cp-serves-title">
             <h2 class="b-h3" id="b-cp-serves-title">Liest</h2>
             {% if served.sources %}
-            <ul class="b-cp-list">{% for s in served.sources %}<li><strong>{{ s.name }}</strong> <span class="b-small b-muted">{{ s.workspace_name }}</span></li>{% endfor %}</ul>
+            <ul class="b-cp-list" data-cp-checks>{% for s in checks %}<li><strong>{{ s.name }}</strong> <span class="b-small b-muted">{{ s.workspace_name }}</span>
+                {% if v1 %}<br><span class="b-reg-run is-{{ 'ok' if s.ok else ('failed' if s.code else 'running') }}">{{ s.text }}</span>{% if s.counts.files %} <span class="b-small b-muted">{{ '%s' | format(s.counts.files) }}{{ '+' if s.counts.capped }} Dateien</span>{% endif %}{% endif %}</li>{% endfor %}</ul>
             {% else %}<p class="b-muted b-small">Noch keine Quelle.</p>{% endif %}
             <h3 class="b-h3">Führt aus</h3>
             {% if served.mappings %}

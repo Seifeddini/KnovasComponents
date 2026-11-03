@@ -62,18 +62,22 @@ class RunnerEngine:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(base64.b64decode(encoded))
 
-    def _cli(self, *args: str) -> Any:
-        return self._run([sys.executable, "-m", "brain_runner", *args], capture_output=True, text=True, timeout=3600,
-                         env={**os.environ, "PYTHONIOENCODING": "utf-8", **self.env})
+    def _cli(self, *args: str, module: tuple[str, ...] = ("brain_runner",), env: Optional[Mapping[str, str]] = None) -> Any:
+        return self._run([sys.executable, "-m", *module, *args], capture_output=True, text=True, timeout=3600,
+                         env={**os.environ, "PYTHONIOENCODING": "utf-8", **self.env, **(env or {})})
 
-    def dry_run(self, root: Path, mappings: list[str]) -> Result:
-        """A plan of the mappings over the fetched data, kept for the apply. Writes nothing to the Brain."""
+    def dry_run(self, root: Path, mappings: list[str], reading: Any = None) -> Result:
+        """A plan of the mappings over the source, kept for the apply. Writes nothing to the Brain. ``reading`` says
+        where the runner reads (fetchers.Reading): by default the fetched data beside the configuration."""
         plan, state = root / "plan.json", root / "state.json"
         plan.unlink(missing_ok=True)
         args = ["plan", "--config", str(root / PACKAGE_FILE), "--out", str(plan), "--state", str(state)]
         for m in mappings:
             args += ["--mapping", m]
-        done = self._cli(*args)
+        args += list(getattr(reading, "args", None) or [])
+        share = getattr(reading, "share_root", None)
+        module = ("sync_component.share", "--root", str(share)) if share else ("brain_runner",)
+        done = self._cli(*args, module=module, env=getattr(reading, "env", None))
         if done.returncode != 0 or not plan.exists():
             return Result(status="failed", errors=1, codes=[f"runner.plan_exit_{done.returncode}"])
         return self.counts(json.loads(plan.read_text(encoding="utf-8")))

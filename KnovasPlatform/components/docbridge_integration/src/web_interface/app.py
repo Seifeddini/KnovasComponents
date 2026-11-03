@@ -2028,6 +2028,15 @@ def create_app(config_path: Optional[str] = None):
         from web_interface.connector_protocol import ENDPOINTS as _PROTOCOL_ENDPOINTS
         from web_interface.connector_protocol import create_connector_protocol_blueprint
 
+        def _builder_brain_ca():
+            """The CA this Platform checks the Brain's TLS certificate against: public, for an enrolling component."""
+            path = getattr(api_client, 'ca_cert_path', '') or ''
+            try:
+                text = open(path, encoding='utf-8').read() if path else ''
+            except OSError:
+                return None
+            return text if 'BEGIN CERTIFICATE' in text else None
+
         app.register_blueprint(create_connector_protocol_blueprint(
             store_factory=lambda: WorkspaceStore(identity_gate.connection()),
             secrets=_builder_component_secrets,
@@ -2039,6 +2048,7 @@ def create_app(config_path: Optional[str] = None):
             require_client_certificate=str(config.get('builder.components.require_client_certificate', 'true')
                                            ).strip().lower() not in ('false', '0', 'no'),
             brain_url=lambda: api_client.base_url,
+            brain_ca=_builder_brain_ca,
         ))
         identity_gate.allow_bearer_endpoints(_PROTOCOL_ENDPOINTS)
 

@@ -262,6 +262,34 @@ def test_components_enrol_run_hold_and_take_commands(store, consultant):
     assert store.component(tenant, cid) is None and store.component(tenant, cid, any_state=True)["state"] == "revoked"
 
 
+def test_a_components_report_on_its_sources_is_kept(store, consultant):
+    """Migration 0021: the latest code and counts per source."""
+    tenant = "tenant-checks"
+    cid = store.create_component(tenant, kind="sync_component", name="Daten", site="", owner="", actor_id=consultant.id,
+                                 enrol_expires_at="2030-01-01T00:00:00+00:00")
+    assert store.component(tenant, cid, any_state=True)["source_checks"] == {}
+    report = {"w/ablage": {"code": "fetch.folder_missing", "counts": {}, "at": "2030-01-01T00:00:00+00:00"}}
+    store.update_component(cid, source_checks=report)
+    assert store.component(tenant, cid, any_state=True)["source_checks"] == report
+
+
+def test_the_database_takes_every_kind_and_command_the_code_offers(store, consultant):
+    """Its checks and the code's lists are written twice; a memory store knows neither (migration 0021 fixed both once)."""
+    from builder import components, protocol
+
+    tenant = "tenant-kinds"
+    last = None
+    for kind, info in components.KINDS.items():
+        if not info.get("planned"):
+            last = store.create_component(tenant, kind=kind, name=kind, site="", owner="", actor_id=consultant.id,
+                                          enrol_expires_at="2030-01-01T00:00:00+00:00")
+            assert last, kind
+    for command in protocol.COMMANDS:
+        assert store.add_command(last, command, {}, consultant.id), command
+    for event in components.EVENTS:
+        store.add_event(last, event, {})
+
+
 def test_group_grants_end_on_their_day(identity_repo, consultant):
     """Step B14 (migration 0018): a group grant with an end date stops counting after it, by itself."""
     import datetime as _dt

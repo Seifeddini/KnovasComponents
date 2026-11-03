@@ -27,6 +27,7 @@ curl -sS http://127.0.0.1:5001/health
 
 | Doc | Use |
 |-----|-----|
+| [docs/platform-link.md](docs/platform-link.md) | **One line:** enrolled and run from the Platform, outbound only |
 | [docs/local-setup.md](docs/local-setup.md) | **Start here** — local-only setup and operation |
 | [docs/SETUP.md](docs/SETUP.md) | Production: HTTPS edge, employee JWT, go-live |
 | [docs/local-commands.md](docs/local-commands.md) | API cheat sheet and pytest |
