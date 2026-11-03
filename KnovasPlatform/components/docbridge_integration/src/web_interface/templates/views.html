@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/views.css') }}?v={{ asset_version }}">
 </head>
-<body class="views-page" data-admin="{{ 'true' if is_admin else 'false' }}" data-doc-key="{{ doc_key or '' }}">
+<body class="views-page" data-admin="{{ 'true' if is_admin else 'false' }}" data-doc-key="{{ doc_key or '' }}" data-flow-view="{{ flow_view or '' }}">
     <header class="views-header">
         <a class="views-brand" href="{{ url_for('ontology_page') }}" aria-label="Zurück zum Cortex">
             <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}" alt="Knovas" width="96" height="13">

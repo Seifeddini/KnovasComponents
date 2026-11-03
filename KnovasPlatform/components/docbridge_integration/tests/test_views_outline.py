@@ -36,8 +36,13 @@ VIEW = {
              "where": {"fact": "status", "equals": "open"}, "order_by": {"fact": "rank"},
              "columns": ["state", "waits_for"]},
         ],
+        "title_fact": "short_name", "lead": "summary", "sub": ["next_up"], "collapsed": True,
         "also": [{"label": "Eingang", "type": "WorkItem", "where": {"fact": "status", "equals": "new"},
-                  "order_by": {"fact": "added_on"}, "columns": ["why"]}],
+                  "order_by": {"fact": "added_on"}, "columns": ["why"], "collapsed": True},
+                 {"label": "Das braucht dich", "type": ["WorkItem", "Bet"], "position": "top", "title_fact": "attention",
+                  "where": {"fact": "attention", "not_in": [""]}, "order_by": {"fact": "attention_rank"}, "columns": ["project"]}],
+        "notes": [{"type": "WorkItem", "where": {"fact": "state", "equals": "waiting"}, "text": "{count} warten."},
+                  {"type": "WorkItem", "where": {"fact": "state", "equals": "nothing"}, "text": "Nie gezeigt."}],
     },
 }
 
@@ -66,9 +71,10 @@ def _source(tmp_path: Path, view: dict = VIEW) -> str:
 
 def _graph():
     g = client_zero_graph()
-    second = g.node("Bet", "Second bet", key="BET-second", status="approved", priority="next", priority_rank="02")
+    second = g.node("Bet", "Second bet", key="BET-second", status="proposed", priority="next", priority_rank="02",
+                    attention="approve", attention_rank="02-00", project="Zwei")
     first = g.node("Bet", "First bet", key="BET-first", status="approved", priority="now", priority_rank="01",
-                   next_up="W-02 the next thing")
+                   next_up="W-02 the next thing", short_name="Eins", summary="Was das ist.")
     g.node("Bet", "Closed bet", key="BET-closed", status="closed")
     plan = g.node("FeaturePlan", "A brief", key="FEAT-a", status="draft", current_step=("brief", "2026-10-20"))
     g.edge(plan, "instance_of", g.by_key[PROC])
@@ -77,7 +83,7 @@ def _graph():
     for key, rank, status, state, waits in (("W-03", "03", "open", "open", None), ("W-01", "01", "open", "waiting", "an answer"),
                                             ("W-02", "02", "open", "next-up", None), ("W-00", "00", "done", "done", None)):
         item = g.node("WorkItem", f"{key}: work", key=key, status=status, state=state, rank=rank,
-                      **({"waits_for": waits} if waits else {}))
+                      **({"waits_for": waits, "attention": waits, "attention_rank": f"01-{rank}", "project": "Eins"} if waits else {}))
         g.edge(item, "part_of", first)
     g.node("WorkItem", "IN-1: new work", key="IN-1", status="new", state="new", added_on="2026-11-02", why="it matters")
     g.node("WorkItem", "IN-0: placed work", key="IN-0", status="placed", state="placed", added_on="2026-11-01")
@@ -106,6 +112,9 @@ def test_a_list_view_with_the_layout_opens_as_an_outline_and_another_stays_a_lis
 def test_the_roots_follow_their_order_under_their_section_without_what_where_excludes(tmp_path):
     body, _ = _draw(tmp_path)
     assert [r["name"] for r in body["rows"]] == ["First bet", "Second bet"]
+    assert [r["title"] for r in body["rows"]] == ["Eins", "Second bet"]               # the fact, else the name
+    assert body["rows"][0]["lead"] == "Was das ist." and body["collapsed"] is True
+    assert body["rows"][0]["sub"] == [{"label": "next_up", "value": "W-02 the next thing"}]
     assert [r["section"] for r in body["rows"]] == ["Jetzt", "Danach"]                # the view's labels
     assert body["rows"][0]["cells"] == {"status": "approved", "next_up": "W-02 the next thing"}
     assert body["rows"][0]["key"] == "BET-first" and body["unread"] == 0
@@ -145,8 +154,30 @@ def test_a_plan_stays_placed_when_the_scale_guard_walks_per_node(tmp_path):
 
 def test_the_also_part_lists_nodes_tied_to_no_root(tmp_path):
     body, _ = _draw(tmp_path)
-    assert [(a["label"], [r["key"] for r in a["rows"]]) for a in body["also"]] == [("Eingang", ["IN-1"])]
-    assert body["also"][0]["rows"][0]["cells"] == {"why": "it matters"}
+    assert [(a["label"], [r["key"] for r in a["rows"]]) for a in body["also"]] == [
+        ("Eingang", ["IN-1"]), ("Das braucht dich", ["W-01", "BET-second"])]
+    assert body["also"][0]["rows"][0]["cells"] == {"why": "it matters"} and body["also"][0]["collapsed"] is True
+    top = body["also"][1]
+    assert top["position"] == "top" and [r["title"] for r in top["rows"]] == ["an answer", "approve"]
+    assert not any(r["emphasis"] for a in body["also"] for r in a["rows"])
+    assert [r["cells"]["project"] for r in top["rows"]] == ["Eins", "Zwei"]
+
+
+def test_a_note_shows_with_its_count_while_some_node_matches(tmp_path):
+    body, _ = _draw(tmp_path)
+    assert body["notes"] == ["1 warten."]
+
+
+def test_a_column_empty_in_every_row_is_left_out(tmp_path):
+    body, _ = _draw(tmp_path)
+    assert [c["id"] for c in body["rows"][0]["sections"][1]["columns"]] == ["state", "waits_for"]
+    view = {**VIEW, "definition": {**VIEW["definition"], "paths": [
+        {**VIEW["definition"]["paths"][1], "columns": ["state", "nothing_here"]}]}}
+    g, _ = _graph()
+    svc = _svc(g, _source(tmp_path, view))
+    ctx = svc.context()
+    got = outline.draw(ctx, svc.definitions(ctx), KEY)
+    assert [c["id"] for c in got["rows"][0]["sections"][0]["columns"]] == ["state"]
 
 
 def test_the_fact_budget_is_counted_on_the_page(tmp_path):
@@ -177,6 +208,7 @@ def test_a_view_that_is_no_outline_is_not_drawn(tmp_path):
 
 def _app(svc, gate=None):
     app = Flask(__name__, template_folder=str(TEMPLATES))
+    app.add_url_rule("/ontology", "ontology_page", lambda: "")
     app.register_blueprint(create_views_blueprint(gate, svc, graph_mode=lambda: True))
     return app.test_client()
 
@@ -201,3 +233,20 @@ def test_the_route_answers_another_profiles_user_like_a_missing_view(tmp_path):
     assert r.status_code == 404 and r.get_json()["error"] == "Ansicht nicht gefunden."
     gate.user = type("U", (), {"id": uuid.uuid4(), "roles": frozenset({"admin"})})()
     assert c.get(f"/api/views/outline?view={KEY}").get_json()["success"]
+
+
+def test_the_page_says_which_overview_the_flow_tab_opens_for_this_user(tmp_path):
+    g, _ = _graph()
+    svc = _svc(g, _source(tmp_path), profile_roles="admin=CTO; member=Engineer")
+    gate = type("G", (), {"user": None, "current_user": lambda self: self.user})()
+    c = _app(svc, gate)
+    gate.user = type("U", (), {"id": uuid.uuid4(), "roles": frozenset({"admin"})})()
+    assert f'data-flow-view="{KEY}"' in c.get("/views").get_data(as_text=True)
+    gate.user = type("U", (), {"id": uuid.uuid4(), "roles": frozenset({"member"})})()
+    assert 'data-flow-view=""' in c.get("/views").get_data(as_text=True)              # the engineer has no overview
+
+
+def test_first_outline_looks_only_in_the_users_profiles(tmp_path):
+    b = bundle.read(_source(tmp_path))
+    assert profiles.first_outline(None, b) == KEY and profiles.first_outline({"cto"}, b) == KEY
+    assert profiles.first_outline({"engineer"}, b) is None and profiles.first_outline(set(), b) is None

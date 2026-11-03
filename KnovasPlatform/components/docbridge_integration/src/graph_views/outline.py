@@ -1,10 +1,12 @@
 """OUTLINE: one page with everything a profile's ``list`` view names (``layout: outline``).
 
 The definition (KnowledgeBase, profile schema) gives the root types, ``where`` and ``order_by`` on their facts,
-``section_by`` (a fact whose value heads the rows that share it), ``columns``, and ``paths``: labelled relation paths
-from each root, each with its own ``where``, ``order_by`` and ``columns``. A path with ``process`` also draws each
-item's steps of that process and what it misses at its step. ``also`` lists the nodes of a type below the roots, tied
-to none of them. ``labels`` gives display texts per fact value, ``emphasis`` marks the rows whose fact matches.
+``section_by`` (a fact whose value heads the rows that share it), and for each row what it shows: ``title_fact`` (else
+the node's name), ``lead`` (one sentence), ``columns`` and ``sub`` (labelled lines). ``collapsed`` folds what is below a
+root row. ``paths`` are labelled relation paths from each root, each with its own ``where``, ``order_by``, ``columns``
+and ``sub``. A path with ``process`` also draws each item's steps of that process and what it misses at its step.
+``also`` lists nodes of one or more types above or below the roots, tied to none of them; ``notes`` are sentences shown
+while some node matches. ``labels`` gives display texts per fact value, ``emphasis`` marks the rows whose fact matches.
 
 Nothing here names a type, a fact or a process: everything comes from the definition. ``outline_fact_budget`` bounds
 the reads; what it does not cover is counted on the page, never dropped silently.
@@ -30,8 +32,19 @@ def _ordered(ids: List[str], values: Dict[str, Dict[str, Any]], order_by: Option
     return have + [n for n in ids if n not in set(have)]
 
 
-def _columns(type_name: str, names: List[str]) -> List[Dict[str, str]]:
-    return [{"id": c, "label": descriptions.attribute_label(type_name, c)} for c in names]
+def _filled(value: Any) -> bool:
+    return value not in (None, "")
+
+
+def _columns(type_name: str, names: List[str], rows: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """The columns some row has a value in: a column that is empty everywhere says nothing."""
+    return [{"id": c, "label": descriptions.attribute_label(type_name, c)} for c in names
+            if any(_filled(r["cells"].get(c)) for r in rows)]
+
+
+def _types(spec: Dict[str, Any]) -> List[str]:
+    found = spec["type"]
+    return list(found) if isinstance(found, list) else [found]
 
 
 def _steps(ctx: Any, defs: Any, proc_key: str, node_id: str) -> Optional[Dict[str, Any]]:
@@ -70,9 +83,10 @@ def draw(ctx: Any, defs: Any, key: str) -> Dict[str, Any]:
     walks: Dict[str, List[List[str]]] = {
         r: [follow(index, [r], p["path"], max_hops=settings.max_hops, max_nodes_per_hop=settings.max_nodes_per_hop).nodes
             for p in d.get("paths") or []] for r in roots}
-    also = [list(index.by_type.get(a["type"], [])) for a in d.get("also") or []]
+    also = [[n for t in _types(a) for n in index.by_type.get(t, [])] for a in d.get("also") or []]
+    noted = [list(index.by_type.get(n["type"], [])) for n in d.get("notes") or []]
     wanted = list(dict.fromkeys(roots + [m for lists in walks.values() for ms in lists for m in ms]
-                                + [m for ms in also for m in ms]))
+                                + [m for ms in also + noted for m in ms]))
     read = wanted[:settings.outline_fact_budget]
     facts = read_facts(ctx.state, ctx.reader, read)
     values = {n: fact_values(facts.get(n)) for n in read}
@@ -82,8 +96,14 @@ def draw(ctx: Any, defs: Any, key: str) -> Dict[str, Any]:
 
     def row(node: str, spec: Dict[str, Any]) -> Dict[str, Any]:
         v = values.get(node, {})
-        out = {"id": node, "name": (index.nodes.get(node) or {}).get("name") or node, "key": v.get("key"),
+        name = (index.nodes.get(node) or {}).get("name") or node
+        title = spec.get("title_fact")
+        out = {"id": node, "name": name, "key": v.get("key"),
+               "title": text(title, v[title]) if title and _filled(v.get(title)) else name,
+               "lead": v.get(spec["lead"]) if spec.get("lead") else None,
                "cells": {c: text(c, v.get(c)) for c in spec.get("columns") or []},
+               "sub": [{"label": descriptions.attribute_label(index.type_of(node), c), "value": text(c, v[c])}
+                       for c in spec.get("sub") or [] if _filled(v.get(c))],
                "emphasis": bool(d.get("emphasis")) and where_ok(d["emphasis"], v)}
         if spec.get("process"):
             out["lifecycle"] = _steps(ctx, defs, spec["process"], node)
@@ -99,14 +119,22 @@ def draw(ctx: Any, defs: Any, key: str) -> Dict[str, Any]:
         for p, members in zip(d.get("paths") or [], walks[r["id"]]):
             found = rows(members, p)
             sections.append({"label": p.get("label") or "", "rows": found,
-                             "columns": _columns(p["path"][-1]["to_type"], p.get("columns") or [])})
+                             "columns": _columns(p["path"][-1]["to_type"], p.get("columns") or [], found)})
         by = d.get("section_by")
         drawn.append({**r, "sections": sections,
                       "section": text(by, values[r["id"]].get(by)) if by else None})
-    extra = [{"label": a.get("label") or "", "rows": rows(ms, a), "columns": _columns(a["type"], a.get("columns") or [])}
-             for a, ms in zip(d.get("also") or [], also)]
+    extra = []
+    for a, members in zip(d.get("also") or [], also):
+        found = [{**r, "emphasis": False} for r in rows(members, a)]    # the mark means "next" among a root's rows
+        extra.append({"label": a.get("label") or "", "rows": found, "position": a.get("position") or "bottom",
+                      "collapsed": bool(a.get("collapsed")), "columns": _columns(_types(a)[0], a.get("columns") or [], found)})
+    notes = []
+    for n, members in zip(d.get("notes") or [], noted):
+        count = sum(1 for m in members if m in values and where_ok(n.get("where"), values[m]))
+        if count:
+            notes.append(str(n.get("text") or "").replace("{count}", str(count)))
     return ctx.envelope(profile_view=key, profile={"id": profile["id"], "audience": profile.get("audience")},
                         name=str(view.get("label") or view["id"]), description=str(d.get("description") or ""),
-                        columns=_columns((d.get("root_types") or [""])[0], d.get("columns") or []),
-                        rows=drawn, also=extra,
+                        columns=_columns((d.get("root_types") or [""])[0], d.get("columns") or [], drawn),
+                        collapsed=bool(d.get("collapsed")), rows=drawn, also=extra, notes=notes,
                         unread=len(wanted) - len(read) + sum(1 for n in read if facts.get(n) is None))

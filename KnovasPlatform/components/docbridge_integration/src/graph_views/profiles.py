@@ -66,6 +66,16 @@ def saved_view(profile: Dict[str, Any], view: Dict[str, Any]) -> Dict[str, Any]:
             "render_kind": view["render"], "settings": {}}
 
 
+def first_outline(mine: Optional[Set[str]], b: Optional[bundle.Bundle] = None) -> Optional[str]:
+    """The key of the first outline in the profiles a user sees (``mine``; None: all), or None."""
+    for pid, profile in platform_profiles(b).items():
+        if mine is None or pid in mine:
+            for view in profile.get("views") or []:
+                if isinstance(view, dict) and is_outline(view):
+                    return source_key(pid, view["id"])
+    return None
+
+
 def seed(store: Any, admin: Any, b: Optional[bundle.Bundle] = None) -> Dict[str, List[str]]:
     """Create the missing profile views, bring changed ones up to date. Returns source keys."""
     existing = store.profile_views()

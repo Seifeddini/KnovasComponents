@@ -65,7 +65,7 @@
             this.bindProcessControls();
             this.bindSpineControls();
             document.querySelectorAll('#viewsKinds button[data-kind]').forEach((b) => {
-                b.addEventListener('click', () => this.setKind(b.dataset.kind));
+                b.addEventListener('click', () => this.openKind(b.dataset.kind));
             });
             if (root.ViewsChange) {
                 this.changes = new root.ViewsChange.ChangeSet(this);
@@ -130,11 +130,21 @@
             };
         }
 
+        /** A tab was clicked. "Ablauf" opens the overview of the user's profile when there is one; a plan links on to its own flow. */
+        openKind(kind) {
+            const overview = document.body.dataset.flowView;
+            if (kind === 'trace' && overview) {
+                this.state.profileView = overview;
+                return this.setKind('outline');
+            }
+            return this.setKind(kind);
+        }
+
         setKind(kind, initial) {
             const known = kind === 'graph' || ViewsPage.DOM_KINDS[kind];
             this.state.kind = known ? kind : 'graph';
             document.querySelectorAll('#viewsKinds button[data-kind]').forEach((b) => {
-                b.setAttribute('aria-pressed', String(b.dataset.kind === this.state.kind));
+                b.setAttribute('aria-pressed', String(b.dataset.kind === (this.state.kind === 'outline' ? 'trace' : this.state.kind)));
             });
             document.querySelectorAll('[data-kinds]').forEach((n) => {
                 n.hidden = !n.dataset.kinds.split(' ').includes(this.state.kind);

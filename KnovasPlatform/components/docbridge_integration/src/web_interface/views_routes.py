@@ -97,17 +97,31 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             return None
         return None
 
+    def flow_view() -> Optional[str]:
+        """The overview "Ablauf" opens for this user: the first outline of their profiles; None: the page's start."""
+        from graph_views import profiles
+
+        if not graph_mode() or (gate is not None and gate.current_user() is None):
+            return None
+        try:
+            found = service.bundle()
+            user = gate.current_user() if gate is not None else None
+            return profiles.first_outline(None if (user is None or is_admin()) else user_profiles(user), found)
+        except Exception:  # noqa: BLE001 - the page still loads; the JSON routes say what failed
+            return None
+
     @bp.route("/views")
     def views_page():
         extra = page_context() if page_context else {}
-        return render_template("views.html", graph_mode=graph_mode(), bundle_error=bundle_error(), **extra)
+        return render_template("views.html", graph_mode=graph_mode(), bundle_error=bundle_error(),
+                               flow_view=flow_view(), **extra)
 
     @bp.route("/views/doc/<path:key>")
     def views_doc_page(key: str):
         """A documentation page's stable address (Step 8): /views/doc/L2-KNOWLEDGE-GRAPH."""
         extra = page_context() if page_context else {}
         return render_template("views.html", graph_mode=graph_mode(), bundle_error=bundle_error(),
-                               doc_key=key[:200], **extra)
+                               flow_view=flow_view(), doc_key=key[:200], **extra)
 
     @bp.route("/api/views/graph")
     @guarded
