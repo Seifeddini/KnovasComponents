@@ -96,6 +96,11 @@
                     path: (s) => ['/api/views/tree', s.profileView ? { view: s.profileView } : { spine: s.spine, branch: s.branch }],
                     render: (box, body, page) => root.ViewsSpine.renderTree(box, body, page),
                 },
+                outline: {
+                    path: (s) => (s.profileView ? ['/api/views/outline', { view: s.profileView }] : null),
+                    empty: 'Diese Übersicht öffnet sich aus den gespeicherten Ansichten.',
+                    render: (box, body, page) => root.ViewsOutline.render(box, body, page),
+                },
                 matrix: {
                     path: (s) => ['/api/views/matrix', { spine: s.spine, branch: s.branch, rows: s.rows, cols: s.cols }],
                     render: (box, body, page) => root.ViewsSpine.renderMatrix(box, body, page),
@@ -150,7 +155,7 @@
             params.set('kind', this.state.kind);
             if (this.state.view) params.set('view', this.state.view); else params.delete('view');
             const own = { sections: ['trace'], process: ['trace', 'board'], gapProcess: ['gaps'], listType: ['list'], owner: ['board'], capability: ['board'], status: ['board'],
-                spine: ['tree', 'matrix'], branch: ['tree', 'matrix'], rows: ['matrix'], cols: ['matrix'], expand: ['tree'], profileView: ['tree'] };
+                spine: ['tree', 'matrix'], branch: ['tree', 'matrix'], rows: ['matrix'], cols: ['matrix'], expand: ['tree'], profileView: ['tree', 'outline'] };
             Object.entries(own).forEach(([k, kinds]) => {
                 const v = Array.isArray(this.state[k]) ? this.state[k].join(',') : this.state[k];
                 if (v && kinds.includes(this.state.kind)) params.set({ listType: 'type', gapProcess: 'gaps', profileView: 'pview' }[k] || k, v);

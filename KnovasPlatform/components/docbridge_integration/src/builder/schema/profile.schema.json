@@ -60,7 +60,28 @@
           },
           "additionalProperties": false,
           "description": "Keeps only the items at the end of the path whose fact matches (as in page definitions)."
-        }
+        },
+        "columns": {"type": "array", "items": {"type": "string"}, "description": "An outline: the facts of the items at the end of the path."},
+        "order_by": {"$ref": "#/$defs/order_by"},
+        "process": {"type": "string", "pattern": "^PROC-[a-z0-9-]+$", "description": "An outline: each item also shows its steps of this process and what it misses to leave its step."}
+      },
+      "additionalProperties": false
+    },
+    "order_by": {
+      "type": "object",
+      "required": ["fact"],
+      "properties": {"fact": {"type": "string"}, "direction": {"enum": ["asc", "desc"]}},
+      "additionalProperties": false,
+      "description": "The fact the rows are sorted by, as text; rows without it come last."
+    },
+    "fact_test": {
+      "type": "object",
+      "required": ["fact"],
+      "properties": {
+        "fact": {"type": "string"},
+        "equals": {"type": "string"},
+        "in": {"type": "array", "items": {"type": "string"}},
+        "not_in": {"type": "array", "items": {"type": "string"}}
       },
       "additionalProperties": false
     },
@@ -82,7 +103,29 @@
             "group_by": {"type": "string", "description": "A type the rows are grouped under (e.g. Component)."},
             "color_by": {"type": "array", "items": {"type": "string"}, "description": "What colours the items: a fact, docs_completeness, check_status, rule results."},
             "columns": {"type": "array", "items": {"type": "string"}},
-            "rules": {"type": "array", "items": {"type": "string"}, "description": "Rule ids the view shows results of."}
+            "rules": {"type": "array", "items": {"type": "string"}, "description": "Rule ids the view shows results of."},
+            "layout": {"enum": ["outline"], "description": "A list view that draws everything below on one page: the root rows with their columns, and under each row its paths as tables."},
+            "where": {"$ref": "#/$defs/fact_test", "description": "An outline: keeps only the root rows whose fact matches."},
+            "order_by": {"$ref": "#/$defs/order_by"},
+            "section_by": {"type": "string", "description": "An outline: a fact of the roots; its value heads the rows that share it, in their order."},
+            "emphasis": {"$ref": "#/$defs/fact_test", "description": "An outline: marks the rows whose fact matches."},
+            "labels": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": {"type": "string"}}, "description": "An outline: display texts per fact and value."},
+            "also": {
+              "type": "array",
+              "description": "An outline: nodes of a type below the root rows, tied to none of them.",
+              "items": {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                  "label": {"type": "string"},
+                  "type": {"type": "string"},
+                  "where": {"$ref": "#/$defs/fact_test"},
+                  "order_by": {"$ref": "#/$defs/order_by"},
+                  "columns": {"type": "array", "items": {"type": "string"}}
+                },
+                "additionalProperties": false
+              }
+            }
           },
           "additionalProperties": false
         }

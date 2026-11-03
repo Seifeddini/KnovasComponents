@@ -261,6 +261,25 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
         return _drawable(lambda: jsonify(spine_views.tree(
             context, d, _arg("spine"), parent=_arg("parent"), level=_arg("level"), branch=_arg("branch"))))
 
+    @bp.route("/api/views/outline")
+    @guarded
+    def profile_outline():
+        from graph_views import outline, profiles
+
+        key = _arg("view")
+        if not key:
+            return jsonify({"success": False, "error": "Ansicht angeben."}), 400
+        context, d = _process_context()
+        # Another profile's view answers like a missing one, as in the map.
+        user = gate.current_user() if gate is not None else None
+        mine = None if (user is None or is_admin()) else user_profiles(user)
+        if mine is not None and key.split("/", 1)[0] not in mine:
+            return jsonify({"success": False, "error": "Ansicht nicht gefunden."}), 404
+        try:
+            return _drawable(lambda: jsonify(outline.draw(context, d, key)))
+        except profiles.NotAProfileView as exc:
+            return jsonify({"success": False, "error": str(exc)}), 404
+
     @bp.route("/api/views/matrix")
     @guarded
     def spine_matrix():

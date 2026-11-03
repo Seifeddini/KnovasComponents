@@ -228,6 +228,15 @@ def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Li
         proc["final"] = [s["id"] for s in steps if s["resting"]]
         processes.append(proc)
 
+    # Walking per node (the scale guard), the index has no has_step edges yet, and the views then use the bundle's
+    # steps: a step node's key still says which step it is, so instances stay placed.
+    for sid in step_ids:
+        skey = (values.get(sid) or {}).get("key", "")
+        for key in nodes["process"].values():
+            prefix = f"STEP-{key[len('PROC-'):] if key.startswith('PROC-') else key}-"
+            if sid not in nodes["step"] and skey.startswith(prefix):
+                nodes["step"][sid] = (key, skey[len(prefix):])
+
     # Each Process node carries the P-rules its steps use (fact `rules`, Phase P8).
     rules_by_id: Dict[str, Dict[str, Any]] = {}
     for pid in nodes["process"]:

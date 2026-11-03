@@ -202,3 +202,10 @@ Each node carries the view's colour signals (`src/graph_views/signals.py`):
 most `views.map_fact_budget` (120) facts not yet cached; checks beyond that are `unread`. Nothing in the
 Platform names the map's relations, types or facts; the profile, the page definitions and the report
 do.
+
+A profile's `list` view with `layout: outline` opens as one page (`graph_views/outline.py`,
+`/api/views/outline?view=<profile>/<view>`, `/views?kind=outline&pview=<profile>/<view>`): its root rows in
+their order under the heading of `section_by`, under each row its `paths` as tables, an item with a
+`process` with its steps and what it misses, and `also`, the nodes tied to no root. It only reads, at most
+`views.outline_fact_budget` (300) nodes; what it could not read is counted on the page. Its server route
+answers another profile's user like a missing view, as the map does.

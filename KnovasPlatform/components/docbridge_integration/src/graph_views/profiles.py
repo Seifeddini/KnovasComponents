@@ -42,6 +42,11 @@ def source_key(profile_id: str, view_id: str) -> str:
     return f"{profile_id}/{view_id}"
 
 
+def is_outline(view: Dict[str, Any]) -> bool:
+    """A list view that draws everything it names on one page (``outline.py``)."""
+    return view.get("render") == "list" and (view.get("definition") or {}).get("layout") == "outline"
+
+
 def find(key: str, b: Optional[bundle.Bundle] = None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """(profile, view) for ``<profile id>/<view id>``; NotAProfileView when the bundle has neither."""
     pid, _, vid = str(key or "").partition("/")
@@ -143,6 +148,8 @@ def open_spec(profile: Dict[str, Any], view: Dict[str, Any], b: Optional[bundle.
             out["note"] = (f"Der Ablauf zeigt die Schritte von {process}; die {len(d['paths'])} Pfade der "
                            "Profilansicht zeichnet er noch nicht.")
         return out
+    if is_outline(view) and roots:
+        return {"kind": "outline", "profile_view": key}
     if render == "list" and roots:
         out = {"kind": "list", "type": roots[0]}
         if d.get("paths") or d.get("group_by"):

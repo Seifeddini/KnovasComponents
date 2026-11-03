@@ -335,6 +335,8 @@ views:
   profile_roles: "${VIEWS_PROFILE_ROLES:-}"
   # Check facts one level of a profile map reads for its check-status colour (paced like all reads).
   map_fact_budget: "${VIEWS_MAP_FACT_BUDGET:-120}"
+  # Nodes one outline (a profile's list view with layout: outline) reads the facts of (paced like all reads).
+  outline_fact_budget: "${VIEWS_OUTLINE_FACT_BUDGET:-300}"
   # Per-subject topology index (D1): lifetime, and the scale guard above which a
   # request walks per node instead of reading the edge list.
   ttl_seconds: "${VIEWS_TTL_SECONDS:-60}"
