@@ -16,7 +16,7 @@ A source's credential stays at the company: add `-e SYNC_CREDENTIAL_<KEY>=…` (
 There is no image registry yet. Build it once, then copy it:
 
 ```bash
-KB_READ_TOKEN=… docker compose --profile sync-component build sync-component
+docker compose --env-file knovas.env --profile sync-component build sync-component   # KB_READ_TOKEN from knovas.env
 docker save sync-component:0.1.0 | gzip > sync-component.tar.gz   # on the company's machine: docker load < sync-component.tar.gz
 ```
 

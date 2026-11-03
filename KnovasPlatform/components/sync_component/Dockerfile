@@ -1,7 +1,7 @@
 # A sync component: one deployable connection between a company's source and its Brain (connector protocol v1).
 # Build (the mapping runner comes from the private knowledge base, read with a build secret that stays in no layer):
 #   docker build --secret id=kb_read_token,env=KB_READ_TOKEN -t sync-component:0.1.0 KnovasPlatform/components/sync_component
-# or with the repository's compose file: docker compose --profile sync-component build sync-component
+# or with the repository's compose file: docker compose --env-file knovas.env --profile sync-component build sync-component
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
