@@ -63,7 +63,7 @@ ENDPOINT_PERMISSIONS = {
     "approve": "review", "record_review": "review",
     "publish": "publish", "link_tenant": "publish",
     "register_component": "manage", "team": "manage", "delete_workspace": "manage", "grant_access": "manage", "revoke_access": "manage",
-    "component_page": "view", "enrol_component": "manage", "rotate_component": "manage", "revoke_component": "manage",
+    "component_page": "view", "enrol_component": "manage", "rotate_component": "manage", "revoke_component": "manage", "delete_component": "manage",
     "component_schedule": "manage", "component_settings": "manage", "component_run": "edit", "component_check": "edit",
     "component_pause": "publish", "component_resume": "publish", "component_plan": "review",
     "access_page": "edit", "access_preview": "edit", "access_apply": "edit", "access_rules_add": "edit",
@@ -1202,6 +1202,27 @@ def create_builder_blueprint(
         logger.info("Builder: component %s revoked", component_id)
         return jsonify({"success": True})
 
+    @bp.route("/api/components/<component_id>/delete", methods=["POST"])
+    def delete_component(component_id: str):
+        """Remove a component nobody runs: one that never enrolled, or one already revoked. Its name is free again. One
+        still running must be revoked first, so that deleting it cannot leave it working unseen; a source that still
+        reads through it must go first, so that no source points at nothing."""
+        component = _component_or_404(component_id)
+        if component.get("state") not in ("pending", "revoked"):
+            return jsonify({"success": False, "error": "Diese Komponente läuft noch: zuerst widerrufen, dann löschen."}), 409
+        store = _store()
+        sources = store.served_by(component_id)["sources"]
+        if sources:
+            names = ", ".join(sorted({str(s.get("name")) for s in sources}))
+            return jsonify({"success": False, "error": f"Diese Quellen lesen noch über sie; zuerst entfernen: {names}."}), 409
+        if component_secrets is not None:
+            secrets = component_secrets()
+            for which in ("enrol", "control"):
+                secrets.clear(connector_protocol.secret_key(component_id, which), gate.current_user())
+        store.delete_component(_platform_tenant(), component_id)
+        logger.info("Builder: component %s deleted", component_id)
+        return jsonify({"success": True, "url": url_for("builder.stage", slug="verbinden")})
+
     def _command(component: Mapping[str, Any], command: str, args: dict, event: str) -> None:
         store = _store()
         store.add_command(component["id"], command, args, gate.current_user().id)
@@ -1842,6 +1863,8 @@ def create_builder_blueprint(
             c = components.get(s.get("component"))
             kind = source_kinds.SOURCE_KINDS.get(s.get("kind"), {})
             found.append({**s, "kind_label": kind.get("label", s.get("kind")),
+                          "access": source_kinds.access_of(s),
+                          "access_label": source_kinds.ACCESS.get(source_kinds.access_of(s), source_kinds.access_of(s)),
                           "component_name": c["name"] if c else None,
                           "component_kind": c["kind"] if c else None,
                           "credential_label": kind.get("credential"),
@@ -1849,6 +1872,7 @@ def create_builder_blueprint(
         kinds = {k: {"label": v["label"], "component": v["component"], "components": [v["component"], *v.get("also_on", ())],
                      "credential": v["credential"],
                      "credential_required": v["credential_required"],
+                     "access": [{"value": m, "label": source_kinds.ACCESS[m]} for m in source_kinds.access_modes(k)],
                      "settings": [{"name": n, "label": l, "hint": h} for n, l, h in v["settings"]]}
                  for k, v in source_kinds.SOURCE_KINDS.items()}
         mapping_list = []

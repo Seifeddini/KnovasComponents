@@ -26,7 +26,7 @@ A connector is a separately deployed sync component, registered for one company 
 | Call | Body | Answer |
 |---|---|---|
 | `POST /heartbeat` | `{state: online\|degraded, version, lag_seconds, open_errors, capabilities}` | `{paused, schedule, commands: [{id, command, args}]}`; a command is delivered once |
-| `GET /config` | | `{component, paused, schedule, brain_url, sources: [{workspace, key, kind, settings}], mappings: [{workspace, id, source}]}` |
+| `GET /config` | | `{component, paused, schedule, brain_url, sources: [{workspace, key, kind, access, settings}], mappings: [{workspace, id, source}]}` |
 | `GET /package` | | `{workspaces: [{workspace, files: {path: base64}}]}`: the compiled configuration of the workspaces it serves; definitions and source settings, no credential and no data |
 | `POST /runs` | `{kind: dry_run\|apply, status: ok\|held\|failed, started_at, finished_at, duration_ms, added, changed, retired, errors, held: [{mapping, retire: {type: n}, share}], command}` | `{id}` |
 | `POST /commands/<id>/done` | `{result: ok\|failed\|refused}` | |
@@ -70,6 +70,12 @@ Until then, designing a mapping for a source read at the company works like this
 ### Outbound: not built
 
 *Proposed, for Jira (FEAT-2026-11-03-jira-sync).* A component with `capabilities: ["outbound"]` fetches the desired state from the Platform and writes it to another system, reporting per-item results and drift as counts.
+
+## Read only, or read and write
+
+Each source has an `access`: `read`, or `read_write`. A kind of integration declares which it allows (`builder/sources.py`), and a person chooses only where there is a choice. A source without the field reads. A component that cannot write to a source reports `source.write_unsupported` and does not run it, rather than quietly reading.
+
+**Today every kind reads:** no component can write to a source, so `read_write` is offered nowhere. A share is also mounted read only, and a GitHub token needs only `Contents: read`. The first integration to write back is meant to be Jira (FEAT-2026-11-03-jira-sync). A write to a source falls under the same rule as one to the Brain: a dry run shown, and a person's approval.
 
 ## Which component reads what
 

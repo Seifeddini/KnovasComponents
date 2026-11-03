@@ -118,7 +118,7 @@ class Agent:
         changed in the Platform, and when a person asks."""
         config = self.client.config()
         sources = config.get("sources") or []
-        seen = json.dumps([[s.get("workspace"), s.get("key"), s.get("settings")] for s in sources], sort_keys=True)
+        seen = json.dumps([[s.get("workspace"), s.get("key"), s.get("access"), s.get("settings")] for s in sources], sort_keys=True)
         if seen == self._checked and not force:
             return
         items = []

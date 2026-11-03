@@ -18,6 +18,7 @@
         data-resume-url="{{ url_for('builder.component_resume', component_id=c.id) }}"
         data-rotate-url="{{ url_for('builder.rotate_component', component_id=c.id) }}"
         data-revoke-url="{{ url_for('builder.revoke_component', component_id=c.id) }}"
+        data-delete-url="{{ url_for('builder.delete_component', component_id=c.id) }}"
         data-schedule-url="{{ url_for('builder.component_schedule', component_id=c.id) }}"
         data-settings-url="{{ url_for('builder.component_settings', component_id=c.id) }}"
         data-plan-url="{{ url_for('builder.component_plan', component_id=c.id, plan_id='PLAN') }}">
@@ -53,10 +54,13 @@
 <div class="b-callout b-callout--warning" role="status">
     <p class="b-callout-title">Wartet auf die Anmeldung</p>
     <p>Das Einmal-Token gilt bis {{ c.enrol_expires_at | b_datetime }}. Die Komponente meldet sich bei <code class="b-mono" data-protocol-address data-protocol-path="{{ protocol_path }}/enrol">{{ protocol_path }}/enrol</code> an. Ist das Token verloren oder abgelaufen: ein neues erzeugen.</p>
-    <button type="button" class="b-button b-button--secondary" data-cp-rotate>Neues Einmal-Token</button>
+    <div class="b-button-row">
+        <button type="button" class="b-button b-button--secondary" data-cp-rotate>Neues Einmal-Token</button>
+        <button type="button" class="b-button b-button--quiet b-cp-danger" data-cp-delete>Löschen</button>
+    </div>
 </div>
 {% elif row.state == 'revoked' %}
-<div class="b-callout b-callout--critical" role="status"><p class="b-callout-title">Widerrufen</p><p>Zertifikat und Steuer-Token gelten nicht mehr. Die Komponente kann sich nicht mehr melden.</p></div>
+<div class="b-callout b-callout--critical" role="status"><p class="b-callout-title">Widerrufen</p><p>Zertifikat und Steuer-Token gelten nicht mehr. Die Komponente kann sich nicht mehr melden.</p><button type="button" class="b-button b-button--quiet b-cp-danger" data-cp-delete>Löschen</button></div>
 {% endif %}
 <div class="b-callout b-callout--good" data-cp-token-box role="status" hidden>
     <p class="b-callout-title">Neues Einmal-Token</p>

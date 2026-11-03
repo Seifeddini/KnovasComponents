@@ -273,6 +273,19 @@ def test_a_components_report_on_its_sources_is_kept(store, consultant):
     assert store.component(tenant, cid, any_state=True)["source_checks"] == report
 
 
+def test_deleting_a_component_takes_its_runs_events_and_commands_and_frees_its_name(store, consultant):
+    tenant = "tenant-delete"
+    cid = store.create_component(tenant, kind="github_runner", name="Weg", site="", owner="", actor_id=consultant.id,
+                                 enrol_expires_at="2030-01-01T00:00:00+00:00")
+    store.add_event(cid, "enrolled", {})
+    store.add_command(cid, "check", {}, consultant.id)
+    assert store.delete_component("another-tenant", cid) is False, "only in its own tenant"
+    assert store.delete_component(tenant, cid) is True
+    assert store.component(tenant, cid, any_state=True) is None and store.events(cid) == []
+    assert store.create_component(tenant, kind="github_runner", name="Weg", site="", owner="", actor_id=consultant.id,
+                                  enrol_expires_at="2030-01-01T00:00:00+00:00")
+
+
 def test_the_database_takes_every_kind_and_command_the_code_offers(store, consultant):
     """Its checks and the code's lists are written twice; a memory store knows neither (migration 0021 fixed both once)."""
     from builder import components, protocol

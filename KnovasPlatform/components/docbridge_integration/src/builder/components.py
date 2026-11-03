@@ -202,6 +202,7 @@ CHECK_TEXTS = {
     "source.ok": "Liest die Quelle.",
     "source.kind_unknown": "Diese Version der Komponente kennt diese Art von Quelle nicht: das Abbild aktualisieren.",
     "source.bad_key": "Der Schlüssel der Quelle ist nicht gültig.",
+    "source.write_unsupported": "Diese Komponente kann in diese Quelle nicht schreiben: die Quelle auf «Nur lesen» stellen, oder das Abbild aktualisieren.",
     "fetch.not_https": "Die Adresse muss mit https:// beginnen.",
     "fetch.bad_repository": "Repository oder Branch ist nicht gültig.",
     "fetch.bad_folder": "Der Ordner darf kein «..» enthalten.",

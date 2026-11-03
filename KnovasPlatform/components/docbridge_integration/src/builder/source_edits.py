@@ -2,8 +2,8 @@
 
 A source is an element of the model's ``sources``: key, name, kind, the
 component that serves it (its id in the tenant's register), owner, sync mode
-(manual until B13 schedules runs), the kind's settings and whether a
-credential is set. The credential itself lives in the settings registry
+(manual until B13 schedules runs), its access (read, or read and write, as the kind
+allows), the kind's settings and whether a credential is set. The credential itself lives in the settings registry
 (platform_settings.SourceSecrets); the model only records that it was set, so
 the change shows in the review without the secret.
 
@@ -53,6 +53,15 @@ def _source(edit: _Edit, key: Any) -> tuple[dict, dict]:
     return old, copy.deepcopy(old)
 
 
+def _access(kind: str, raw: Any) -> str:
+    modes = S.access_modes(kind)
+    if raw in (None, ""):
+        return modes[0]
+    if raw not in modes:
+        raise EditError(f"Zugriff: Diese Art von Quelle erlaubt nur {', '.join(S.ACCESS[m] for m in modes)}.")
+    return str(raw)
+
+
 def _source_create(edit: _Edit, op: Mapping[str, Any]) -> None:
     kind = op.get("kind")
     if kind not in S.SOURCE_KINDS:
@@ -70,6 +79,7 @@ def _source_create(edit: _Edit, op: Mapping[str, Any]) -> None:
     while edit.find(SOURCES, key) is not None:
         key, n = f"{base}-{n}", n + 1
     source = {"key": key, "name": name, "kind": kind, "component": component, "sync_mode": "manual",
+              "access": _access(kind, op.get("access")),
               "settings": _settings(kind, op.get("settings")), "credential_set": False}
     _set_text(source, "owner", _text(op.get("owner"), "Verantwortlich", limit=120))
     edit.write(SOURCES, None, source)
@@ -86,6 +96,8 @@ def _source_update(edit: _Edit, op: Mapping[str, Any]) -> None:
         _set_text(new, "owner", _text(fields["owner"], "Verantwortlich", limit=120))
     if "component" in fields:
         new["component"] = _text(fields["component"], "Komponente", limit=60) or new["component"]
+    if "access" in fields:
+        new["access"] = _access(new["kind"], fields["access"])
     if "settings" in fields:
         new["settings"] = _settings(new["kind"], fields["settings"])
         # A credential belongs to where it was set for: a new address or repository drops it
@@ -103,7 +115,12 @@ def _source_credential(edit: _Edit, op: Mapping[str, Any]) -> None:
 
 
 def _source_remove(edit: _Edit, op: Mapping[str, Any]) -> None:
+    """A source no mapping reads. Its credential goes with it (builder_routes._forget_moved_credentials)."""
     old, _ = _source(edit, op.get("key"))
+    used = [str((m.get("definition") or {}).get("id")) for m in edit.model.get("mappings") or []
+            if (m.get("builder") or {}).get("source") == old.get("key")]
+    if used:
+        raise EditError("Diese Zuordnungen lesen noch aus der Quelle; zuerst entfernen: " + ", ".join(sorted(used)) + ".")
     edit.write(SOURCES, old, None)
 
 

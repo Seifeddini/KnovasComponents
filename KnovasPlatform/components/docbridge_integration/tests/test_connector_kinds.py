@@ -763,3 +763,122 @@ class TestWithoutSigning:
         assert "BEGIN CERTIFICATE" in answer["certificate"]
         assert 'data-issue-certificates="true"' in platform.http.get("/builder/verbinden").get_data(as_text=True)
 
+
+class TestDeletingAComponent:
+    def delete(self, world, cid):
+        return world.http.post(f"/builder/api/components/{cid}/delete", json={})
+
+    def test_one_that_never_enrolled_goes_its_token_dies_and_its_name_is_free(self, platform):
+        made = _enrol(platform, "github_runner", "Versuch")
+        answer = self.delete(platform, made["id"])
+        assert answer.status_code == 200 and answer.get_json()["url"].endswith("verbinden")
+        assert platform.store.component(TENANT, made["id"], any_state=True) is None
+        refused = platform.http.post("/api/connectors/v1/enrol", json={"token": made["token"], "csr": "x"})
+        assert refused.status_code == 401
+        _enrol(platform, "github_runner", "Versuch")
+
+    def test_one_that_runs_must_be_revoked_first(self, platform, tmp_path):
+        made = _enrol(platform, "github_runner")
+        _sync(platform, made, tmp_path)
+        answer = self.delete(platform, made["id"])
+        assert answer.status_code == 409 and "widerrufen" in answer.get_json()["error"]
+        assert platform.http.post(f"/builder/api/components/{made['id']}/revoke", json={}).status_code == 200
+        assert self.delete(platform, made["id"]).status_code == 200
+
+    def test_a_source_that_reads_through_it_must_go_first(self, platform, tmp_path):
+        made = _enrol(platform, "github_runner")
+        client_agent, _ = _sync(platform, made, tmp_path)
+        workspace = _workspace(platform, {"op": "source.create", "kind": "github", "name": "Daten", "component": made["id"],
+                                          "settings": {"repository": "a/b"}})
+        assert client_agent
+        platform.http.post(f"/builder/api/components/{made['id']}/revoke", json={})
+        answer = self.delete(platform, made["id"])
+        assert answer.status_code == 409 and "Daten" in answer.get_json()["error"]
+        removed = platform.http.post(f"/builder/api/w/{workspace}/ontology", json={"op": "source.remove", "key": "daten"})
+        assert removed.status_code == 200, removed.get_json()
+        assert self.delete(platform, made["id"]).status_code == 200
+
+    def test_only_who_manages_may(self):
+        from web_interface.builder_routes import ENDPOINT_PERMISSIONS
+
+        assert ENDPOINT_PERMISSIONS["delete_component"] == "manage"
+
+    def test_the_pages_offer_it(self, platform):
+        made = _enrol(platform, "github_runner")
+        page = platform.http.get(f"/builder/komponenten/{made['id']}").get_data(as_text=True)
+        assert "data-cp-delete" in page and "data-delete-url" in page
+
+
+class TestRemovingASource:
+    def test_a_source_a_mapping_reads_stays_until_the_mapping_is_gone(self, platform, tmp_path):
+        made = _enrol(platform, "sync_component")
+        _sync(platform, made, tmp_path)
+        workspace = _workspace(platform, {"op": "source.create", "kind": "http_json", "name": "Kunden", "component": made["id"],
+                                          "settings": {"url": "https://x.example.test/"}},
+                               {"op": "mapping.create", "id": "kunden-mandate", "source": "kunden", "collection": "$", "type": "Mandate"})
+        answer = platform.http.post(f"/builder/api/w/{workspace}/ontology", json={"op": "source.remove", "key": "kunden"})
+        assert answer.status_code != 200 and "kunden-mandate" in answer.get_json()["error"]
+
+    def test_the_mapping_can_be_removed_and_then_the_source(self, platform, tmp_path):
+        made = _enrol(platform, "sync_component")
+        _sync(platform, made, tmp_path)
+        workspace = _workspace(platform, {"op": "source.create", "kind": "http_json", "name": "Kunden", "component": made["id"],
+                                          "settings": {"url": "https://x.example.test/"}},
+                               {"op": "mapping.create", "id": "kunden-mandate", "source": "kunden", "collection": "$", "type": "Mandate"})
+        edit = f"/builder/api/w/{workspace}/ontology"
+        assert platform.http.post(edit, json={"op": "mapping.remove", "id": "kunden-mandate"}).status_code == 200
+        assert platform.http.post(edit, json={"op": "source.remove", "key": "kunden"}).status_code == 200
+        assert platform.store.served_by(made["id"])["sources"] == []
+
+    def test_the_pages_offer_both(self):
+        web = Path(__file__).resolve().parents[1] / "src" / "web_interface"
+        script = (web / "static/js/builder/sources.js").read_text(encoding="utf-8")
+        assert "'source.remove'" in script and "'mapping.remove'" in script
+        assert "data-map-remove" in (web / "templates/builder/sources.html").read_text(encoding="utf-8")
+
+
+class TestAccess:
+    def enrolled(self, world, tmp_path, **kw):
+        made = _enrol(world, "sync_component")
+        return made, _sync(world, made, tmp_path, **kw)
+
+    def op(self, world, workspace, **op):
+        return world.http.post(f"/builder/api/w/{workspace}/ontology", json=op)
+
+    @pytest.mark.parametrize("kind,settings", [("github", {"repository": "a/b"}), ("knovas_connector", {"folder": "x"}),
+                                               ("http_json", {"url": "https://x.example.test/"})])
+    def test_every_kind_today_reads_and_cannot_be_asked_to_write(self, platform, tmp_path, kind, settings):
+        made, _ = self.enrolled(platform, tmp_path)
+        workspace = _workspace(platform)
+        assert S.access_modes(kind) == ["read"]
+        refused = self.op(platform, workspace, op="source.create", kind=kind, name="Q", component=made["id"], settings=settings, access="read_write")
+        assert refused.status_code != 200 and "Nur lesen" in refused.get_json()["error"]
+        made_ok = self.op(platform, workspace, op="source.create", kind=kind, name="Q", component=made["id"], settings=settings)
+        assert made_ok.status_code == 200
+        assert platform.store.served_by(made["id"])["sources"][0]["access"] == "read"
+
+    def test_a_kind_that_allows_writing_lets_a_person_choose_and_defaults_to_reading(self, platform, tmp_path, monkeypatch):
+        monkeypatch.setitem(S.SOURCE_KINDS["http_json"], "access", ["read", "read_write"])
+        made, _ = self.enrolled(platform, tmp_path)
+        workspace = _workspace(platform)
+        common = dict(op="source.create", kind="http_json", component=made["id"], settings={"url": "https://x.example.test/"})
+        assert self.op(platform, workspace, name="Lesen", **common).status_code == 200
+        assert self.op(platform, workspace, name="Beides", access="read_write", **common).status_code == 200
+        found = {s["key"]: s["access"] for s in platform.store.served_by(made["id"])["sources"]}
+        assert found == {"lesen": "read", "beides": "read_write"}
+
+    def test_a_source_from_before_this_field_reads(self):
+        assert S.access_of({"key": "alt"}) == "read"
+
+    def test_a_component_that_only_reads_refuses_a_source_that_asks_for_more(self, platform, tmp_path, monkeypatch):
+        monkeypatch.setitem(S.SOURCE_KINDS["http_json"], "access", ["read", "read_write"])
+        fetched = []
+        made, (agent, runner) = self.enrolled(platform, tmp_path, fetchers={"http_json": lambda *a: fetched.append(1)})
+        _workspace(platform, {"op": "source.create", "kind": "http_json", "name": "Beides", "component": made["id"], "access": "read_write",
+                              "settings": {"url": "https://x.example.test/"}},
+                   {"op": "mapping.create", "id": "beides-mandate", "source": "beides", "collection": "$", "type": "Mandate"})
+        agent.check_sources()
+        assert [v["code"] for v in platform.store.component(TENANT, made["id"])["source_checks"].values()] == ["source.write_unsupported"]
+        assert agent.run("dry_run").codes == ["source.write_unsupported"]
+        assert fetched == [] and runner.calls == []
+

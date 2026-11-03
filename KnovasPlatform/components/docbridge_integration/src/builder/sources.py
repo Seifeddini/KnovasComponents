@@ -78,6 +78,20 @@ SOURCE_KINDS: dict[str, dict] = {
 PLANNED_SOURCES = [{"kind": "crm", "label": "CRM (Salesforce, HubSpot, …)",
                     "text": "Geplant: wartet auf das Connector-Protokoll v1 (SS-534)."}]
 
+#: What a source allows, per kind of integration. The first is the default. A kind offers ``read_write`` only once a
+#: component can really write to it: today none can, so every kind reads. A source is never written unless it says so.
+ACCESS = {"read": "Nur lesen", "read_write": "Lesen und schreiben"}
+
+
+def access_modes(kind: Any) -> list[str]:
+    return list(SOURCE_KINDS.get(kind, {}).get("access") or ["read"])
+
+
+def access_of(source: Mapping[str, Any]) -> str:
+    """A source's access; one from before this field reads."""
+    return str(source.get("access") or "read")
+
+
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _REF = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
 

@@ -107,6 +107,8 @@ class ConnectorOperations:
 
         if source.get("kind") != SOURCE_KIND:
             return "source.kind_unknown", {}
+        if source.get("access", "read") != "read":
+            return "source.write_unsupported", {}
         if _groups(source) is None:
             return "documents.no_access_choice", {}
         if not m365_configured():

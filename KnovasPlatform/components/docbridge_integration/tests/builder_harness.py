@@ -355,6 +355,15 @@ class MemoryWorkspaceStore:
     def _row(self, component_id):
         return next(c for c in self.component_rows if c["id"] == component_id)
 
+    def delete_component(self, tenant, component_id):
+        before = len(self.component_rows)
+        self.component_rows = [c for c in self.component_rows if not (c["tenant"] == tenant and c["id"] == component_id)]
+        if len(self.component_rows) == before:
+            return False
+        for bag in self.__dict__.get("_component_bags", {}).values():      # as the foreign keys cascade
+            bag[:] = [row for row in bag if row.get("component") != component_id]
+        return True
+
     def update_component(self, component_id, **fields):
         row = self._row(component_id)
         unknown = set(fields) - set(self._COMPONENT_DEFAULTS) - {"state", "name", "site", "owner", "settings"}
@@ -458,7 +467,7 @@ class MemoryWorkspaceStore:
             mine = [s for s in model.get("sources") or [] if s.get("component") == component_id]
             keys = {s.get("key") for s in mine}
             sources += [{"workspace": w.id, "workspace_name": w.name, "key": s.get("key"), "name": s.get("name"),
-                         "kind": s.get("kind"), "settings": s.get("settings") or {}} for s in mine]
+                         "kind": s.get("kind"), "access": s.get("access") or "read", "settings": s.get("settings") or {}} for s in mine]
             mappings += [{"workspace": w.id, "id": (m.get("definition") or {}).get("id"),
                           "source": (m.get("builder") or {}).get("source")}
                          for m in model.get("mappings") or [] if (m.get("builder") or {}).get("source") in keys]

@@ -58,6 +58,10 @@
     on('[data-cp-pause]', function () { act(root.dataset.pauseUrl); });
     on('[data-cp-resume]', function () { act(root.dataset.resumeUrl); });
     on('[data-cp-revoke]', function () { act(root.dataset.revokeUrl); });
+    on('[data-cp-delete]', function () {
+        if (!window.confirm('Diese Komponente und ihre Läufe löschen? Das lässt sich nicht rückgängig machen.')) return;
+        act(root.dataset.deleteUrl, {}, function (r) { window.location.href = r.url; });
+    });
     on('[data-cp-rotate]', function () {
         act(root.dataset.rotateUrl, {}, function (r) {
             var box = document.querySelector('[data-cp-token-box]');

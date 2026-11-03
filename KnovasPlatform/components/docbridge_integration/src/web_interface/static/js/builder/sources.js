@@ -122,11 +122,19 @@
         head.appendChild(title);
         var tools = el('div', 'b-button-row');
         tools.appendChild(button('Testen', 'b-button--primary', function () { test(s); }));
+        tools.appendChild(button('Quelle entfernen', 'b-button--quiet', function () {
+            if (!window.confirm('Die Quelle «' + s.name + '» aus diesem Arbeitsbereich entfernen?')) return;
+            post(root.dataset.editUrl, { op: 'source.remove', key: s.key }).then(function (payload) {
+                if (!payload.success) { toast(payload.error, null, 'critical'); return; }
+                toast('Quelle entfernt');
+                load(payload.sources, null);
+            });
+        }));
         head.appendChild(tools);
         box.appendChild(head);
 
         var kind = data.kinds[s.kind] || { settings: [] };
-        var rows = [['Art', s.kind_label], ['Komponente', s.component_name || 'nicht registriert'],
+        var rows = [['Art', s.kind_label], ['Zugriff', s.access_label], ['Komponente', s.component_name || 'nicht registriert'],
                     ['Verantwortlich', s.owner], ['Synchronisation', 'manuell']];
         kind.settings.forEach(function (f) { rows.push([f.label, (s.settings || {})[f.name]]); });
         box.appendChild(dl(rows));
@@ -406,6 +414,22 @@
             field.appendChild(input);
             box.appendChild(field);
         });
+        /* What this kind of integration allows: a choice only where there is one. */
+        var modes = kind ? kind.access : [];
+        if (modes.length > 1) {
+            var accessField = el('div', 'b-field');
+            var select = el('select', 'b-select');
+            select.name = 'access';
+            select.id = 'b-sn-access';
+            modes.forEach(function (m) { var o = el('option', null, m.label); o.value = m.value; select.appendChild(o); });
+            var accessLabel = el('label', 'b-label', 'Zugriff');
+            accessLabel.htmlFor = select.id;
+            accessField.appendChild(accessLabel);
+            accessField.appendChild(select);
+            box.appendChild(accessField);
+        } else if (modes.length === 1) {
+            box.appendChild(el('p', 'b-small b-muted', 'Zugriff: ' + modes[0].label + '. Diese Art von Quelle wird nie beschrieben.'));
+        }
     }
 
     document.querySelector('[data-src-new]').addEventListener('click', function () {
@@ -428,6 +452,7 @@
         });
         post(root.dataset.editUrl, { op: 'source.create', kind: kind, name: form.elements.name.value,
                                      owner: form.elements.owner.value, component: form.elements.component.value,
+                                     access: form.elements.access ? form.elements.access.value : undefined,
                                      settings: settings })
             .then(function (payload) {
                 if (!payload.success) { error.textContent = payload.error; error.hidden = false; return; }
@@ -435,6 +460,17 @@
                 var made = payload.sources.sources[payload.sources.sources.length - 1];
                 load(payload.sources, made ? made.key : null);
             });
+    });
+
+    /* The table of mappings comes from the server, so the page reloads after a removal. */
+    Array.prototype.forEach.call(document.querySelectorAll('[data-map-remove]'), function (b) {
+        b.addEventListener('click', function () {
+            if (!window.confirm('Die Zuordnung «' + b.dataset.mapRemove + '» entfernen?')) return;
+            post(root.dataset.editUrl, { op: 'mapping.remove', id: b.dataset.mapRemove }).then(function (payload) {
+                if (!payload.success) { toast(payload.error, null, 'critical'); return; }
+                window.location.reload();
+            });
+        });
     });
 
     load(data);

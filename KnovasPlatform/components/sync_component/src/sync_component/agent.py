@@ -75,6 +75,8 @@ class Agent:
         return out
 
     def _dry_run(self, source: Mapping[str, Any]) -> Result:
+        if source.get("access", "read") != "read":
+            return Result(status="failed", errors=1, codes=["source.write_unsupported"])
         fetcher = self.fetchers.get(source.get("kind"))
         if fetcher is None:
             return Result(status="failed", errors=1, codes=["source.kind_unknown"])
@@ -97,13 +99,13 @@ class Agent:
         changed in the Platform, and when a person asks. What is wrong shows on the component's page, before a run."""
         config = self.client.config()
         sources = config.get("sources") or []
-        seen = json.dumps([[s.get("workspace"), s.get("key"), s.get("kind"), s.get("settings")] for s in sources], sort_keys=True)
+        seen = json.dumps([[s.get("workspace"), s.get("key"), s.get("kind"), s.get("access"), s.get("settings")] for s in sources], sort_keys=True)
         if seen == self._checked and not force:
             return
         items = []
         for s in sources:
-            code, counts = check(str(s.get("kind")), s.get("settings") or {}, self._credential(s), fetchers=self.fetchers,
-                                 checks=self.checks)
+            code, counts = ("source.write_unsupported", {}) if s.get("access", "read") != "read" else check(
+                str(s.get("kind")), s.get("settings") or {}, self._credential(s), fetchers=self.fetchers, checks=self.checks)
             items.append({"workspace": s.get("workspace"), "source": s.get("key"), "code": code, "counts": counts})
         self.client.report_checks(items)
         self._checked = seen

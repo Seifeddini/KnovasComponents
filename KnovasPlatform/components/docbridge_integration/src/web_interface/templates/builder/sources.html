@@ -48,7 +48,7 @@
     {% if sources.mappings %}
     <div class="b-table-wrap">
         <table class="b-table" data-src-mappings>
-            <thead><tr><th scope="col">Zuordnung</th><th scope="col">Zieltypen</th><th scope="col">Liest</th><th scope="col">Prüfung</th></tr></thead>
+            <thead><tr><th scope="col">Zuordnung</th><th scope="col">Zieltypen</th><th scope="col">Liest</th><th scope="col">Prüfung</th><th scope="col"><span class="b-visually-hidden">Aktionen</span></th></tr></thead>
             <tbody>
             {% for m in sources.mappings %}
                 <tr>
@@ -56,6 +56,7 @@
                     <td>{{ m.types | join(', ') }}</td>
                     <td class="b-small">{% if m.source %}Quelle <span class="b-mono">{{ m.source }}</span>{% else %}<span class="b-muted">noch keine Quelle gewählt</span>{% endif %}<br><span class="b-mono b-muted">{{ m.extractor }}</span></td>
                     <td>{% if m.problems %}<span class="b-tag b-tag--critical">{{ m.problems }} {{ 'Problem' if m.problems == 1 else 'Probleme' }}</span>{% else %}<span class="b-tag b-tag--good">In Ordnung</span>{% endif %}</td>
+                    <td><button type="button" class="b-button b-button--quiet b-button--small" data-map-remove="{{ m.id }}">Entfernen</button></td>
                 </tr>
             {% endfor %}
             </tbody>

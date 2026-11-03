@@ -134,7 +134,7 @@ class TestTheEdits:
                                         "component": "c1", "settings": {"repository": "acme/kb", "ref": "main"}})
         assert changes[0]["path"] == "sources/wissensbasis"
         assert model["sources"] == [{"key": "wissensbasis", "name": "Wissensbasis", "kind": "github", "component": "c1",
-                                     "sync_mode": "manual", "settings": {"repository": "acme/kb", "ref": "main"},
+                                     "sync_mode": "manual", "access": "read", "settings": {"repository": "acme/kb", "ref": "main"},
                                      "credential_set": False}]
         editing.apply(model, {"op": "source.create", "kind": "github", "name": "Wissensbasis", "component": "c1",
                               "settings": {"repository": "acme/kb2"}})

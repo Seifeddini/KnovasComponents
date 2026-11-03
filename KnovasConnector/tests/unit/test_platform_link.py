@@ -176,6 +176,10 @@ class TestCheck:
         (share / "Leer").mkdir()
         assert ops.check(self._source(folder="Leer", access_groups="alle"), {})[0] == "fetch.folder_empty"
 
+    def test_a_source_that_asks_to_be_written_is_refused(self, share, ops):
+        source = {**self._source(folder="Akten", access_groups="alle"), "access": "read_write"}
+        assert ops.check(source, {})[0] == "source.write_unsupported"
+
     def test_a_mapping_on_it_is_said_not_silently_dropped(self, share, ops):
         config = {"mappings": [{"workspace": "w", "source": "ablage", "id": "m"}]}
         assert ops.check(self._source(folder="Akten", access_groups="alle"), config)[0] == "documents.mappings_not_run"

@@ -412,6 +412,11 @@ class WorkspaceStore:
         sets = ", ".join(f"{n} = %s::jsonb" if n in documents else f"{n} = %s" for n in names)
         self.conn.execute(f"UPDATE builder_component SET {sets} WHERE id = %s", (*values, component_id))
 
+    def delete_component(self, tenant: str, component_id: str) -> bool:
+        """The component, with its runs, events, held plans and commands (their foreign keys cascade)."""
+        done = self.conn.execute("DELETE FROM builder_component WHERE tenant = %s AND id = %s", (tenant, component_id))
+        return done.rowcount > 0
+
     def pending_components(self, tenant: str) -> list[dict]:
         rows = self.conn.execute(self._COMPONENT + " WHERE c.tenant = %s AND c.state = 'pending'", (tenant,)).fetchall()
         return [self._component(r) for r in rows]
@@ -543,7 +548,8 @@ class WorkspaceStore:
             mine = [s for s in model.get("sources") or [] if s.get("component") == component_id]
             keys = {s.get("key") for s in mine}
             sources += [{"workspace": w.id, "workspace_name": w.name, "key": s.get("key"), "name": s.get("name"),
-                         "kind": s.get("kind"), "settings": s.get("settings") or {}} for s in mine]
+                         "kind": s.get("kind"), "access": s.get("access") or "read",
+                         "settings": s.get("settings") or {}} for s in mine]
             mappings += [{"workspace": w.id, "id": (m.get("definition") or {}).get("id"),
                           "source": (m.get("builder") or {}).get("source")}
                          for m in model.get("mappings") or [] if (m.get("builder") or {}).get("source") in keys]

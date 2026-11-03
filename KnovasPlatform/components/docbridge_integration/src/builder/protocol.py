@@ -19,7 +19,7 @@ contract as the Platform implements it, until KC-7a writes it down in full:
        {state: online|degraded, version, lag_seconds, open_errors, capabilities}
     -> {paused, schedule, commands: [{id, command, args}]}   commands are delivered once
   GET  /api/connectors/v1/config
-    -> {component, paused, schedule, brain_url, sources: [{workspace, key, kind, settings}],
+    -> {component, paused, schedule, brain_url, sources: [{workspace, key, kind, access, settings}],
         mappings: [{workspace, id, source}]}
   GET  /api/connectors/v1/package
     -> {workspaces: [{workspace, files: {path: base64}}]}    the configuration of the workspaces it serves, compiled
