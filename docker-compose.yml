@@ -323,7 +323,6 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-networks:
   # The image of a sync component (connector protocol v1). It runs at a company, started with the line the Platform's
   # wizard shows; here only to build it: docker compose --profile sync-component build sync-component
   sync-component:
@@ -334,6 +333,7 @@ networks:
       secrets:
         - kb_read_token
 
+networks:
   knovas-internal:
     driver: bridge
 

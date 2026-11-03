@@ -22,7 +22,7 @@ from pathlib import Path
 from sync_component import VERSION
 from sync_component.agent import CAPABILITIES, Agent
 from sync_component.client import PlatformClient, Refused
-from sync_component.credentials import Credentials, Store
+from sync_component.identity import Credentials, Store
 from sync_component.engine import RunnerEngine
 
 

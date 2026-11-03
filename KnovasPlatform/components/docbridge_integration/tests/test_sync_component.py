@@ -21,7 +21,7 @@ sys.path.insert(0, str(SYNC_SRC))
 
 from sync_component.agent import Agent, schedule_due  # noqa: E402
 from sync_component.client import PlatformClient, Refused  # noqa: E402
-from sync_component.credentials import Store  # noqa: E402
+from sync_component.identity import Store  # noqa: E402
 from sync_component.engine import RunnerEngine, _safe_path, EngineError  # noqa: E402
 from sync_component.fetchers import FetchError, credential_for, fetch_http_json  # noqa: E402
 

@@ -6,7 +6,7 @@ from typing import Any, Optional
 import requests
 
 from sync_component import VERSION
-from sync_component.credentials import Credentials
+from sync_component.identity import Credentials
 
 
 class Refused(RuntimeError):
