@@ -50,17 +50,10 @@
         "label": {"type": "string"},
         "path": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/hop"}},
         "where": {
-          "type": "object",
-          "required": ["fact"],
-          "properties": {
-            "fact": {"type": "string"},
-            "equals": {"type": "string"},
-            "in": {"type": "array", "items": {"type": "string"}},
-            "not_in": {"type": "array", "items": {"type": "string"}}
-          },
-          "additionalProperties": false,
-          "description": "Keeps only the items at the end of the path whose fact matches (as in page definitions)."
+          "oneOf": [{"$ref": "#/$defs/fact_test"}, {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fact_test"}}],
+          "description": "Keeps only the items at the end of the path whose fact matches (as in page definitions); a list: every test must hold."
         },
+        "paths": {"type": "array", "items": {"$ref": "#/$defs/labelled_path"}, "description": "An outline: paths from each item at the end of this path, drawn under it."},
         "columns": {"type": "array", "items": {"type": "string"}, "description": "An outline: the facts of the items at the end of the path; a column empty in every row is left out."},
         "sub": {"type": "array", "items": {"type": "string"}, "description": "An outline: facts shown as labelled lines under an item's name."},
         "order_by": {"$ref": "#/$defs/order_by"},
@@ -114,6 +107,7 @@
             "lead": {"type": "string", "description": "An outline: the fact that says in one sentence what a root row is."},
             "sub": {"type": "array", "items": {"type": "string"}, "description": "An outline: facts shown as labelled lines under a root row's title."},
             "collapsed": {"type": "boolean", "description": "An outline: what is below a root row is folded until it is opened."},
+            "details": {"type": "array", "items": {"type": "string"}, "description": "An outline: facts shown as labelled lines below a root row, with its paths."},
             "notes": {
               "type": "array",
               "description": "An outline: sentences shown on top while some node of the type matches; {count} is how many do.",

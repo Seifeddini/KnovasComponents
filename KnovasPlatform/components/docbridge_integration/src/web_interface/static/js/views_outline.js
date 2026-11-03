@@ -17,8 +17,12 @@
         return el('button', { type: 'button', className: 'views-link', onclick: () => page.openDossier(r.id) }, [el('span', { text: r.title })]);
     }
 
-    function subLines(r) {
-        return (r.sub || []).map((s) => el('p', { className: 'views-outline-sub' }, [el('span', { className: 'views-muted', text: `${s.label}: ` }), String(s.value)]));
+    function typeTag(r) {
+        return el('span', { className: 'views-outline-type', text: r.type });
+    }
+
+    function subLines(r, field) {
+        return (r[field || 'sub'] || []).map((s) => el('p', { className: 'views-outline-sub' }, [el('span', { className: 'views-muted', text: `${s.label}: ` }), String(s.value)]));
     }
 
     function lifecycle(page, r) {
@@ -36,17 +40,19 @@
     }
 
     /** The rows of a path or of an "also" part: the title, what is below it, and the columns with a value. */
-    function table(page, part) {
+    function table(page, group) {
         const body = el('tbody');
-        part.rows.forEach((r) => {
+        group.rows.forEach((r) => {
             body.appendChild(el('tr', { className: r.emphasis ? 'is-emphasis' : '' }, [
                 el('td', {}, [
+                    r.lifecycle || (r.sections || []).length ? typeTag(r) : null,
                     nameButton(page, r),
                     r.title !== r.name ? el('p', { className: 'views-outline-sub views-muted', text: r.name }) : null,
                     ...subLines(r),
                     r.lifecycle ? lifecycle(page, r) : null,
+                    ...(r.sections || []).map((s) => part(page, s)),
                 ]),
-                ...part.columns.map((c) => el('td', { className: 'views-outline-cell', text: filled(r.cells[c.id]) ? String(r.cells[c.id]) : '' })),
+                ...group.columns.map((c) => el('td', { className: 'views-outline-cell', text: filled(r.cells[c.id]) ? String(r.cells[c.id]) : '' })),
             ]));
         });
         return el('table', { className: 'views-outline-table' }, [body]);
@@ -54,17 +60,17 @@
 
     function part(page, p) {
         if (!p.rows.length) return null;
-        return el('section', { className: 'views-outline-part' }, [el('h4', { text: p.label }), table(page, p)]);
+        return el('section', { className: 'views-outline-part' }, [el('h4', { text: `${p.label} (${p.rows.length})` }), table(page, p)]);
     }
 
     function rootRow(page, r, d) {
         const meta = d.columns.filter((c) => filled(r.cells[c.id])).map((c, i) => el('span', { text: i ? `${c.label}: ${r.cells[c.id]}` : String(r.cells[c.id]) }));
         const head = [
-            el('div', { className: 'views-outline-head' }, [el('strong', { text: r.title }), el('span', { className: 'views-outline-meta' }, meta)]),
+            el('div', { className: 'views-outline-head' }, [el('span', {}, [typeTag(r), el('strong', { text: r.title })]), el('span', { className: 'views-outline-meta' }, meta)]),
             r.lead ? el('p', { className: 'views-outline-lead', text: r.lead }) : null,
             ...subLines(r),
         ];
-        const below = [...r.sections.map((s) => part(page, s)),
+        const below = [...subLines(r, 'details'), ...r.sections.map((s) => part(page, s)),
             el('button', { type: 'button', className: 'views-link views-outline-all', onclick: () => page.openDossier(r.id) }, [el('span', { text: 'Alle Angaben' })])];
         if (!d.collapsed) return el('article', { className: 'views-outline-root' }, [...head, ...below]);
         return el('details', { className: 'views-outline-root' }, [el('summary', {}, head), el('div', { className: 'views-outline-below' }, below)]);

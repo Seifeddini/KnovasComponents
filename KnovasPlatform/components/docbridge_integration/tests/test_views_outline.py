@@ -31,12 +31,14 @@ VIEW = {
         "labels": {"priority": {"now": "Jetzt", "next": "Danach"}, "state": {"next-up": "Als Nächstes"}},
         "paths": [
             {"label": "Pläne", "path": [{"relation": "part_of", "direction": "in", "to_type": "FeaturePlan"}],
-             "process": PROC, "columns": ["status"]},
+             "process": PROC, "columns": ["status"],
+             "paths": [{"label": "Aufgaben des Plans", "path": [{"relation": "part_of", "direction": "in", "to_type": "WorkItem"}],
+                        "order_by": {"fact": "rank"}, "columns": ["state"]}]},
             {"label": "Offen", "path": [{"relation": "part_of", "direction": "in", "to_type": "WorkItem"}],
              "where": {"fact": "status", "equals": "open"}, "order_by": {"fact": "rank"},
              "columns": ["state", "waits_for"]},
         ],
-        "title_fact": "short_name", "lead": "summary", "sub": ["next_up"], "collapsed": True,
+        "title_fact": "short_name", "lead": "summary", "sub": ["next_up"], "collapsed": True, "details": ["key", "summary"],
         "also": [{"label": "Eingang", "type": "WorkItem", "where": {"fact": "status", "equals": "new"},
                   "order_by": {"fact": "added_on"}, "columns": ["why"], "collapsed": True},
                  {"label": "Das braucht dich", "type": ["WorkItem", "Bet"], "position": "top", "title_fact": "attention",
@@ -85,6 +87,8 @@ def _graph():
         item = g.node("WorkItem", f"{key}: work", key=key, status=status, state=state, rank=rank,
                       **({"waits_for": waits, "attention": waits, "attention_rank": f"01-{rank}", "project": "Eins"} if waits else {}))
         g.edge(item, "part_of", first)
+        if key == "W-02":
+            g.edge(item, "part_of", plan)
     g.node("WorkItem", "IN-1: new work", key="IN-1", status="new", state="new", added_on="2026-11-02", why="it matters")
     g.node("WorkItem", "IN-0: placed work", key="IN-0", status="placed", state="placed", added_on="2026-11-01")
     return g, {"first": first, "second": second, "plan": plan}
@@ -115,6 +119,8 @@ def test_the_roots_follow_their_order_under_their_section_without_what_where_exc
     assert [r["title"] for r in body["rows"]] == ["Eins", "Second bet"]               # the fact, else the name
     assert body["rows"][0]["lead"] == "Was das ist." and body["collapsed"] is True
     assert body["rows"][0]["sub"] == [{"label": "next_up", "value": "W-02 the next thing"}]
+    assert [d["value"] for d in body["rows"][0]["details"]] == ["BET-first", "Was das ist."]
+    assert [d["value"] for d in body["rows"][1]["details"]] == ["BET-second"]         # a fact it lacks is left out
     assert [r["section"] for r in body["rows"]] == ["Jetzt", "Danach"]                # the view's labels
     assert body["rows"][0]["cells"] == {"status": "approved", "next_up": "W-02 the next thing"}
     assert body["rows"][0]["key"] == "BET-first" and body["unread"] == 0
@@ -140,6 +146,29 @@ def test_a_plan_shows_its_place_in_the_process_and_what_it_misses(tmp_path):
     assert states["approved"] == "todo" and states["released"] == "todo"
     assert "killed" not in states                                                     # shown only for a plan that ended there
     assert life["missing"]                                                            # a brief with nothing behind it
+
+
+def test_a_plan_shows_its_own_tasks_under_it_and_every_row_knows_its_type(tmp_path):
+    body, _ = _draw(tmp_path)
+    bet = body["rows"][0]
+    plan = bet["sections"][0]["rows"][0]
+    assert plan["sections"][0]["label"] == "Aufgaben des Plans"
+    assert [r["key"] for r in plan["sections"][0]["rows"]] == ["W-02"]
+    assert plan["sections"][0]["rows"][0]["cells"]["state"] == "Als Nächstes"
+    assert plan["sections"][0]["rows"][0]["sections"] == []
+    assert (bet["type"], plan["type"]) == ("Bet", "Feature-Plan")
+
+
+def test_a_where_list_needs_every_test_to_hold(tmp_path):
+    path = {"label": "Offen ohne Plan", "path": [{"relation": "part_of", "direction": "in", "to_type": "WorkItem"}],
+            "where": [{"fact": "plan", "in": [""]}, {"fact": "state", "in": ["waiting", "open"]}], "order_by": {"fact": "rank"}}
+    view = {**VIEW, "definition": {**VIEW["definition"], "paths": [path]}}
+    g, _ = _graph()
+    g.add_fact(g.by_key["W-03"], "plan", "FEAT-a")
+    svc = _svc(g, _source(tmp_path, view))
+    ctx = svc.context()
+    body = outline.draw(ctx, svc.definitions(ctx), KEY)
+    assert [r["key"] for r in body["rows"][0]["sections"][0]["rows"]] == ["W-01"]     # W-03 has a plan, W-02 is next-up, W-00 done
 
 
 def test_a_plan_stays_placed_when_the_scale_guard_walks_per_node(tmp_path):

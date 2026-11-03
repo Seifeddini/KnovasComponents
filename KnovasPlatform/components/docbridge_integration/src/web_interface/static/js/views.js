@@ -238,6 +238,12 @@
                 kind.render(box, body, this);
             } catch (err) {
                 clear(box);
+                // The selection (remembered from another tab) has no flow, e.g. a product: "Ablauf" then shows the overview.
+                const overview = document.body.dataset.flowView;
+                if (this.state.kind === 'trace' && err.status === 404 && overview) {
+                    this.state.profileView = overview;
+                    return this.setKind('outline');
+                }
                 box.appendChild(el('p', { className: 'views-error', text: err.message }));
             }
         }

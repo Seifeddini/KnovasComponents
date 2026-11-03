@@ -3,8 +3,8 @@
 The definition (KnowledgeBase, profile schema) gives the root types, ``where`` and ``order_by`` on their facts,
 ``section_by`` (a fact whose value heads the rows that share it), and for each row what it shows: ``title_fact`` (else
 the node's name), ``lead`` (one sentence), ``columns`` and ``sub`` (labelled lines). ``collapsed`` folds what is below a
-root row. ``paths`` are labelled relation paths from each root, each with its own ``where``, ``order_by``, ``columns``
-and ``sub``. A path with ``process`` also draws each item's steps of that process and what it misses at its step.
+root row, ``details`` are labelled lines shown only there. ``paths`` are labelled relation paths from each root, each with its own ``where``, ``order_by``, ``columns``
+and ``sub``, and its own ``paths`` from each of its items. A ``where`` may be a list: every test must hold. A path with ``process`` also draws each item's steps of that process and what it misses at its step.
 ``also`` lists nodes of one or more types above or below the roots, tied to none of them; ``notes`` are sentences shown
 while some node matches. ``labels`` gives display texts per fact value, ``emphasis`` marks the rows whose fact matches.
 
@@ -40,6 +40,10 @@ def _columns(type_name: str, names: List[str], rows: List[Dict[str, Any]]) -> Li
     """The columns some row has a value in: a column that is empty everywhere says nothing."""
     return [{"id": c, "label": descriptions.attribute_label(type_name, c)} for c in names
             if any(_filled(r["cells"].get(c)) for r in rows)]
+
+
+def _holds(where: Any, values: Dict[str, Any]) -> bool:
+    return all(where_ok(w, values) for w in where) if isinstance(where, list) else where_ok(where, values)
 
 
 def _types(spec: Dict[str, Any]) -> List[str]:
@@ -80,12 +84,20 @@ def draw(ctx: Any, defs: Any, key: str) -> Dict[str, Any]:
     settings = ctx.settings
 
     roots = [n for t in d.get("root_types") or [] for n in index.by_type.get(t, [])]
-    walks: Dict[str, List[List[str]]] = {
-        r: [follow(index, [r], p["path"], max_hops=settings.max_hops, max_nodes_per_hop=settings.max_nodes_per_hop).nodes
-            for p in d.get("paths") or []] for r in roots}
+
+    def walk(node: str, paths: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Per path, what it reaches from ``node``, each with what that item's own paths reach."""
+        return [{m: walk(m, p.get("paths") or []) for m in follow(
+            index, [node], p["path"], max_hops=settings.max_hops, max_nodes_per_hop=settings.max_nodes_per_hop).nodes}
+            for p in paths]
+
+    def reached(found: List[Dict[str, Any]]) -> List[str]:
+        return [n for members in found for m, below in members.items() for n in [m] + reached(below)]
+
+    walks = {r: walk(r, d.get("paths") or []) for r in roots}
     also = [[n for t in _types(a) for n in index.by_type.get(t, [])] for a in d.get("also") or []]
     noted = [list(index.by_type.get(n["type"], [])) for n in d.get("notes") or []]
-    wanted = list(dict.fromkeys(roots + [m for lists in walks.values() for ms in lists for m in ms]
+    wanted = list(dict.fromkeys(roots + [m for found in walks.values() for m in reached(found)]
                                 + [m for ms in also + noted for m in ms]))
     read = wanted[:settings.outline_fact_budget]
     facts = read_facts(ctx.state, ctx.reader, read)
@@ -98,31 +110,35 @@ def draw(ctx: Any, defs: Any, key: str) -> Dict[str, Any]:
         v = values.get(node, {})
         name = (index.nodes.get(node) or {}).get("name") or node
         title = spec.get("title_fact")
-        out = {"id": node, "name": name, "key": v.get("key"),
+        def lines(names: List[str]) -> List[Dict[str, Any]]:
+            return [{"label": descriptions.attribute_label(index.type_of(node), c), "value": text(c, v[c])}
+                    for c in names if _filled(v.get(c))]
+
+        out = {"id": node, "name": name, "key": v.get("key"), "type": descriptions.type_entry(index.type_of(node))["label"],
                "title": text(title, v[title]) if title and _filled(v.get(title)) else name,
                "lead": v.get(spec["lead"]) if spec.get("lead") else None,
                "cells": {c: text(c, v.get(c)) for c in spec.get("columns") or []},
-               "sub": [{"label": descriptions.attribute_label(index.type_of(node), c), "value": text(c, v[c])}
-                       for c in spec.get("sub") or [] if _filled(v.get(c))],
+               "sub": lines(spec.get("sub") or []), "details": lines(spec.get("details") or []),
                "emphasis": bool(d.get("emphasis")) and where_ok(d["emphasis"], v)}
         if spec.get("process"):
             out["lifecycle"] = _steps(ctx, defs, spec["process"], node)
         return out
 
-    def rows(ids: List[str], spec: Dict[str, Any]) -> List[Dict[str, Any]]:
-        kept = [n for n in ids if n in values and where_ok(spec.get("where"), values[n])]
-        return [row(n, spec) for n in _ordered(kept, values, spec.get("order_by"))]
+    def rows(ids: List[str], spec: Dict[str, Any], below: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        kept = [n for n in ids if n in values and _holds(spec.get("where"), values[n])]
+        return [{**row(n, spec), "sections": sections(spec, (below or {}).get(n) or [])}
+                for n in _ordered(kept, values, spec.get("order_by"))]
 
-    drawn = []
-    for r in rows(roots, d):
-        sections = []
-        for p, members in zip(d.get("paths") or [], walks[r["id"]]):
-            found = rows(members, p)
-            sections.append({"label": p.get("label") or "", "rows": found,
-                             "columns": _columns(p["path"][-1]["to_type"], p.get("columns") or [], found)})
-        by = d.get("section_by")
-        drawn.append({**r, "sections": sections,
-                      "section": text(by, values[r["id"]].get(by)) if by else None})
+    def sections(spec: Dict[str, Any], found: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out = []
+        for p, members in zip(spec.get("paths") or [], found):
+            shown = rows(list(members), p, members)
+            out.append({"label": p.get("label") or "", "rows": shown,
+                        "columns": _columns(p["path"][-1]["to_type"], p.get("columns") or [], shown)})
+        return out
+
+    by = d.get("section_by")
+    drawn = [{**r, "section": text(by, values[r["id"]].get(by)) if by else None} for r in rows(roots, d, walks)]
     extra = []
     for a, members in zip(d.get("also") or [], also):
         found = [{**r, "emphasis": False} for r in rows(members, a)]    # the mark means "next" among a root's rows
@@ -130,7 +146,7 @@ def draw(ctx: Any, defs: Any, key: str) -> Dict[str, Any]:
                       "collapsed": bool(a.get("collapsed")), "columns": _columns(_types(a)[0], a.get("columns") or [], found)})
     notes = []
     for n, members in zip(d.get("notes") or [], noted):
-        count = sum(1 for m in members if m in values and where_ok(n.get("where"), values[m]))
+        count = sum(1 for m in members if m in values and _holds(n.get("where"), values[m]))
         if count:
             notes.append(str(n.get("text") or "").replace("{count}", str(count)))
     return ctx.envelope(profile_view=key, profile={"id": profile["id"], "audience": profile.get("audience")},

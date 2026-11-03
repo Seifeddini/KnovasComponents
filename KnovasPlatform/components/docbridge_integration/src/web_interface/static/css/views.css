@@ -471,6 +471,8 @@
 .views-outline-table tr.is-emphasis > td { background: var(--highlight); }
 .views-outline .views-link, .views-outline .views-link span { display: inline; white-space: normal; overflow: visible; text-overflow: clip; text-align: left; }
 .views-outline-life { margin-top: 4px; }
+.views-outline-type { display: inline-block; margin-right: 6px; padding: 0 5px; border: 1px solid var(--border-color); border-radius: var(--radius); font-size: 11px; font-weight: 400; color: var(--text-secondary); vertical-align: 1px; }
+.views-outline-table .views-outline-part { margin: 8px 0 4px 12px; padding-left: 10px; border-left: 2px solid var(--border-color); }
 .views-outline-steps { display: flex; flex-wrap: wrap; gap: 2px; list-style: none; margin: 0; padding: 0; font-size: 12px; }
 .views-outline-step { padding: 1px 6px; border: 1px solid var(--border-color); border-radius: var(--radius); color: var(--text-secondary); }
 .views-outline-step.is-done { background: var(--surface-sunken); }
