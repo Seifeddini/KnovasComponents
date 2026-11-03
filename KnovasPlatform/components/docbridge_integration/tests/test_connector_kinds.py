@@ -566,3 +566,13 @@ def test_no_module_of_a_component_is_ignored_by_git():
     files = [str(p.relative_to(root)) for base in (SYNC_SRC, LINK_SRC / "platform_link") for p in base.rglob("*.py")]
     ignored = subprocess.run(["git", "check-ignore", *files], cwd=root, capture_output=True, text=True)
     assert ignored.stdout.strip() == "", ignored.stdout
+
+
+def test_a_line_the_wizard_shows_cannot_break_the_shell():
+    """A placeholder in angle brackets is a redirect to bash: it stopped a real setup with «No such file or directory»."""
+    import re
+
+    web = Path(__file__).resolve().parents[1] / "src" / "web_interface"
+    script = (web / "static" / "js" / "builder" / "components.js").read_text(encoding="utf-8")
+    lines = re.findall(r"'(  -[ev] [^']*)'", script)
+    assert lines and not [line for line in lines if re.search(r"[<>]", line)], lines

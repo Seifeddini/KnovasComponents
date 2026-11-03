@@ -5,7 +5,7 @@ Under [connector protocol v1](../../KnovasPlatform/docs/connector-protocol-v1.md
 ## A new connector
 
 1. **In the Platform:** Builder → *Verbinden* → *Komponente anmelden* → *Dokumente aus Dateiablage / DMS*. The last step shows the line, with a one-time token (24 hours).
-2. **At the company:** replace `<Ordner bei der Firma>` and run it. It makes its own key and enrols; its certificate and the Brain's address come from the enrolment.
+2. **At the company:** replace `/PFAD/ZUR/ABLAGE` and run it. It makes its own key and enrols; its certificate and the Brain's address come from the enrolment.
 3. **In the Platform:** create a source *Dateiablage / DMS* on it: the folder under `/sources`, and its access groups, or `alle` for the whole tenant. A folder without that choice is refused. Its page says whether it can read each source.
 4. **Probelauf, then Jetzt anwenden.** A dry run counts what it would send; an apply sends exactly that list, once.
 

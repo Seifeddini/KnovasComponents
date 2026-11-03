@@ -123,15 +123,15 @@
                      hint: 'Für eine Dateiablage ergänzen: -v <Ordner bei der Firma>:/sources:ro. Für einen Zugang: -e SYNC_CREDENTIAL_<SCHLÜSSEL DER QUELLE>=<Token>. Danach die Quelle hier auf dieser Komponente anlegen.' };
         }
         if (kind === 'github_runner') {
-            return { lines: syncLine(['  -e SYNC_CREDENTIAL_GITHUB=<Lese-Token, nur Contents: read>']),
-                     hint: 'Das Token bleibt bei der Komponente. Danach die Quelle «GitHub-Repository» hier auf dieser Komponente anlegen.' };
+            return { lines: syncLine(['  -e SYNC_CREDENTIAL_GITHUB=LESE_TOKEN_HIER_EINSETZEN']),
+                     hint: 'LESE_TOKEN_HIER_EINSETZEN durch ein Token mit «Contents: read» ersetzen; bei einem öffentlichen Repository die Zeile weglassen. Das Token bleibt bei der Komponente. Danach die Quelle «GitHub-Repository» hier auf dieser Komponente anlegen.' };
         }
         if (kind === 'knovas_connector') {
             return { lines: ['docker run -d --name connector-' + slug + ' --restart unless-stopped',
-                             '  -v connector-' + slug + ':/var/rc-state', '  -v <Ordner bei der Firma>:/sources:ro',
+                             '  -v connector-' + slug + ':/var/rc-state', '  -v /PFAD/ZUR/ABLAGE:/sources:ro',
                              '  -e RC_PLATFORM_URL=' + url, '  -e RC_ENROL_TOKEN=' + token, '  -e RC_ENROL_NAME=' + slug,
                              '  knovas-connector:0.1.1'],
-                     hint: 'Kein Port wird geöffnet: Der Connector ruft nur hinaus. Danach die Quelle «Dateiablage / DMS» hier auf dieser Komponente anlegen und die Zugriffsgruppen wählen.' };
+                     hint: '/PFAD/ZUR/ABLAGE durch den Ordner bei der Firma ersetzen. Kein Port wird geöffnet: Der Connector ruft nur hinaus. Danach die Quelle «Dateiablage / DMS» hier auf dieser Komponente anlegen und die Zugriffsgruppen wählen.' };
         }
         return null;
     }
