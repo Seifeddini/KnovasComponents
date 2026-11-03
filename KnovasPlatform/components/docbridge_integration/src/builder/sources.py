@@ -202,6 +202,16 @@ def profile(items: Iterable[Any]) -> dict:
 
 # ------------------------------------------------------------------ readers
 
+def github_selection(collection: Any) -> tuple[str, str]:
+    """(reader, file pattern) of a selection in a repository, from the list of a test or typed by a person: a path
+    copied from Windows counts, a pattern that leaves the repository does not."""
+    extractor, _, pattern = str(collection).strip().partition(":")
+    pattern = pattern.strip().replace("\\", "/")
+    if extractor not in FILE_EXTRACTORS or not pattern or pattern.startswith("/") or ".." in pattern.split("/"):
+        raise ReaderError("Diese Auswahl liest der GitHub-Runner nicht.")
+    return extractor, pattern
+
+
 #: What GitHub's answers mean to the person at the page. A wrong branch is a 422, not a 404: GitHub's commits call says so.
 _GITHUB_ANSWERS = {
     401: "GitHub weist das Token ab (401): es fehlt, ist falsch oder abgelaufen. Das Token neu setzen.",
@@ -270,9 +280,7 @@ class GitHubReader:
                 "detail": detail}
 
     def sample(self, collection: str, limit: int = SAMPLE_LIMIT) -> list[dict]:
-        extractor, _, pattern = str(collection).partition(":")
-        if extractor not in FILE_EXTRACTORS or not pattern or pattern.startswith("/") or ".." in pattern.split("/"):
-            raise ReaderError("Diese Auswahl liest der GitHub-Runner nicht.")
+        extractor, pattern = github_selection(collection)
         from brain_runner.extractors import extract
 
         out = []

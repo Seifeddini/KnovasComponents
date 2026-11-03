@@ -143,9 +143,12 @@ def source_spec(source: Mapping[str, Any], collection: str) -> dict:
     """The mapping's ``source`` for a workspace source (B7) and one of its collections."""
     kind, settings = source.get("kind"), source.get("settings") or {}
     if kind == "github":
-        extractor, _, pattern = str(collection).partition(":")
-        if not extractor or not pattern:
-            raise MappingError("Sammlung: eine Auswahl aus dem Test der Quelle.")
+        from builder.sources import ReaderError, github_selection
+
+        try:
+            extractor, pattern = github_selection(collection)
+        except ReaderError:
+            raise MappingError("Sammlung: eine Auswahl aus dem Test der Quelle, oder ein Dateimuster im Repository.") from None
         return {"extractor": extractor, "glob": pattern, "select": "@", "as": VAR}
     if kind == "knovas_connector":
         folder = str(settings.get("folder") or "").strip("/")

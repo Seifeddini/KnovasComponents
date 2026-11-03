@@ -932,6 +932,50 @@ def _add_source(page, kind, name, owner, settings, component):
     return dialog
 
 
+def test_a_folder_the_list_does_not_show_is_typed_and_mapped(browser, sources_server, import_zip):
+    base = sources_server["base"]
+    page = _page(browser, "1440", "light")
+    _import_through_the_dialog(page, base, import_zip)
+    _register_component(page, base, "github_runner", "GitHub-Runner", "Plattform", "Engine-Owner")
+    page.goto(f"{base}/builder/quellen")
+    page.wait_for_selector("html[data-src-ready='true']")
+    dialog = _add_source(page, "github", "Archiv", "Engine-Owner", {"repository": "acme/archiv", "ref": "main"},
+                         "GitHub-Runner (Plattform)")
+    dialog.get_by_role("button", name="Quelle anlegen").click()
+    page.wait_for_selector(".b-src-head >> text=Archiv")
+    page.get_by_label("Neuer Zugang für Archiv").fill("ghp_read_only_for_the_acceptance")
+    page.locator(".b-src-credential").get_by_role("button", name="Speichern").click()
+    page.wait_for_selector(".b-src-credential >> text=Gesetzt")
+    page.locator(".b-toast-close").first.click()
+    page.get_by_role("button", name="Testen").click()
+    page.wait_for_selector(".b-src-ok")
+
+    own = page.locator("details", has_text="Eigene Auswahl")
+    own.locator("summary").click()
+    pattern = own.get_by_label("Dateimuster")
+
+    # A pattern no file matches says so, and opens no mapping with nothing to assign.
+    pattern.fill("gibt\\es\\nicht\\*.md")
+    assert own.get_by_label("Leser").input_value() == "markdown_front_matter"
+    own.get_by_role("button", name="Zuordnen").click()
+    page.wait_for_selector("[data-src-sample] >> text=Keine Datei passt")
+    assert not page.locator("#b-map-new").is_visible()
+
+    # A path copied from Windows: the reader follows the file type, and the mapping opens on the file's fields.
+    pattern.fill("ontology\\*.yaml")
+    assert own.get_by_label("Leser").input_value() == "yaml_file"
+    own.get_by_role("button", name="Zuordnen").click()
+    new = page.locator("#b-map-new")
+    new.wait_for(state="visible")
+    assert "ontology/*.yaml" in new.inner_text()
+    page.fill("#b-mn-id", "archiv-ontologie")
+    new.locator("button[type='submit']").click()
+    page.wait_for_url("**/zuordnung/archiv-ontologie**")
+    page.wait_for_selector("[data-map-fields] .b-map-field")
+    assert "data." in page.inner_text("[data-map-fields]")
+    assert "ontology/*.yaml" in page.inner_text("[data-map-spec]")
+
+
 def test_sources_of_client_zero(browser, sources_server, shots, import_zip):
     s = sources_server
     base = s["base"]

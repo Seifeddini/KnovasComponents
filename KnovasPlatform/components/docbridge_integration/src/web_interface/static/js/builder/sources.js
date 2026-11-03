@@ -250,30 +250,59 @@
         wrap.appendChild(table);
         result.appendChild(el('h3', 'b-h3', 'Was die Quelle hält'));
         result.appendChild(wrap);
-        if (r.more) result.appendChild(el('p', 'b-small b-muted', r.more + ' weitere kleinere Sammlungen.'));
-        if (s.kind === 'github') result.appendChild(ownSelection(s));
+        if (r.more) {
+            result.appendChild(el('p', 'b-small b-muted', r.more + ' weitere kleinere Sammlungen.' +
+                (s.kind === 'github' ? ' Einen Ordner, der hier fehlt, unter «Eigene Auswahl» eingeben.' : '')));
+        }
+        if (s.kind === 'github') result.appendChild(ownSelection(s, Boolean(r.more)));
         var browser = el('section', 'b-src-sample');
         browser.setAttribute('data-src-sample', '');
         result.appendChild(browser);
     }
 
-    function ownSelection(s) {
+    /* The list shows the first two levels of folders and the largest groups; any other folder is typed here. */
+    var READER_OF = { md: 'markdown_front_matter', yaml: 'yaml_file', yml: 'yaml_file', json: 'json_file' };
+
+    function ownSelection(s, open) {
         var box = el('details', 'b-proc-new-criterion');
-        box.appendChild(el('summary', null, 'Eigene Auswahl (Muster und Leser)'));
+        box.open = open;
+        box.appendChild(el('summary', null, 'Eigene Auswahl (Ordner und Dateiart)'));
         var row = el('div', 'b-proc-inline');
         var pattern = el('input', 'b-input b-mono');
-        pattern.placeholder = 'z. B. docs/**/*.yaml';
+        pattern.placeholder = 'z. B. docs/entscheide/*.md';
         pattern.setAttribute('aria-label', 'Dateimuster');
         var reader = el('select', 'b-select');
         reader.setAttribute('aria-label', 'Leser');
         Object.keys(data.extractors).forEach(function (k) { var o = el('option', null, data.extractors[k]); o.value = k; reader.appendChild(o); });
+        function typed() { return pattern.value.trim().replace(/\\/g, '/'); }
+        pattern.addEventListener('input', function () {
+            var end = /\.([A-Za-z0-9]+)$/.exec(typed());
+            reader.value = (end && READER_OF[end[1].toLowerCase()]) || 'file_glob';
+        });
         row.appendChild(pattern);
         row.appendChild(reader);
         row.appendChild(button('Stichprobe', 'b-button--secondary', function () {
-            if (pattern.value.trim()) sample(s, reader.value + ':' + pattern.value.trim(), pattern.value.trim());
+            if (typed()) sample(s, reader.value + ':' + typed(), typed());
+        }));
+        row.appendChild(button('Zuordnen', 'b-button--secondary', function () {
+            if (typed()) mapOwn(s, reader.value + ':' + typed(), typed());
         }));
         box.appendChild(row);
         return box;
+    }
+
+    /* Read first: a mapping over a pattern no file matches would open with no fields to assign. */
+    function mapOwn(s, collection, label) {
+        post(url(s.key, 'sample'), { collection: collection }).then(function (payload) {
+            if (payload.success && payload.profile.count) { newMapping(s, { id: collection, label: label }); return; }
+            var box = document.querySelector('[data-src-sample]');
+            box.textContent = '';
+            var err = el('div', 'b-callout b-callout--critical');
+            err.appendChild(el('p', null, payload.success
+                ? 'Keine Datei passt zu diesem Muster. Es braucht die Dateiart (Ordner/*.md), und Gross- und Kleinschreibung zählt.'
+                : payload.error));
+            box.appendChild(err);
+        });
     }
 
     /* ---- sample browser ------------------------------------------------- */

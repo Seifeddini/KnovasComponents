@@ -129,6 +129,18 @@ class TestTheEdits:
             with pytest.raises(editing.EditError):
                 editing.apply(model, {"op": "mapping.settings", "id": "ablage-mandate", "fields": bad})
 
+    def test_a_typed_folder_of_a_repository(self, model):
+        editing.apply(model, {"op": "source.create", "kind": "github", "name": "Repo", "component": "c1",
+                              "settings": {"repository": "acme/kb", "ref": "main"}})
+        editing.apply(model, {"op": "mapping.create", "id": "repo-entscheide", "source": "repo", "type": "Mandate",
+                              "collection": "markdown_front_matter:a\\b\\c\\d\\*.md"})
+        source = _entry(model, "repo-entscheide")["definition"]["source"]
+        assert (source["extractor"], source["glob"]) == ("markdown_front_matter", "a/b/c/d/*.md")
+        for bad in ("markdown_front_matter:../aussen/*.md", "markdown_front_matter:/etc/*.md", "python_ast:**/*.py", "docs/*.md"):
+            with pytest.raises(editing.EditError):
+                editing.apply(model, {"op": "mapping.create", "id": "repo-falsch", "source": "repo", "type": "Mandate",
+                                      "collection": bad})
+
     def test_a_second_type_and_the_identify_rule(self, model):
         editing.apply(model, {"op": "mapping.emit.add", "id": "ablage-mandate", "type": "Deadline"})
         editing.apply(model, {"op": "mapping.identify", "id": "ablage-mandate", "emit": 1, "attributes": ["key", "due_on"]})

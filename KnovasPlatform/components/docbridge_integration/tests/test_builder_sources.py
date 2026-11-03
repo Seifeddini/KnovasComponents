@@ -77,6 +77,16 @@ class TestTheReaders:
         with pytest.raises(sources.ReaderError):
             reader.sample("yaml_file:../secrets/*.yaml")
 
+    def test_a_folder_the_list_does_not_show_can_be_typed(self, repo):
+        pytest.importorskip("brain_runner.extractors")
+        from brain_runner.sources.local import LocalSource
+
+        reader = sources.GitHubReader(LocalSource(repo))
+        assert len(reader.sample("yaml_file:docs/specs/*.yaml")) == 2
+        assert len(reader.sample("yaml_file:docs\\specs\\*.yaml")) == 2, "a path copied from Windows"
+        with pytest.raises(sources.ReaderError):
+            reader.sample("yaml_file:docs\\..\\..\\secrets\\*.yaml")
+
     def test_a_folder_through_the_connector(self, share):
         reader = sources.KnovasConnectorReader(FakeConnector(share), "Mandate")
         result = reader.test()
