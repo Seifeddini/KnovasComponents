@@ -1,0 +1,8 @@
+# The component itself
+requests>=2.32.0,<3
+cryptography>=46,<50
+# brain-runner's own dependencies (the package is installed --no-deps in the Dockerfile, pinned as the Platform pins them)
+PyYAML==6.0.2
+jsonschema==4.26.0
+jmespath==1.1.0
+defusedxml==0.7.1

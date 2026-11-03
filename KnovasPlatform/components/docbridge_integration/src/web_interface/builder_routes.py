@@ -1833,7 +1833,8 @@ def create_builder_blueprint(
                           "component_kind": c["kind"] if c else None,
                           "credential_label": kind.get("credential"),
                           "credential_required": bool(kind.get("credential_required"))})
-        kinds = {k: {"label": v["label"], "component": v["component"], "credential": v["credential"],
+        kinds = {k: {"label": v["label"], "component": v["component"], "components": [v["component"], *v.get("also_on", ())],
+                     "credential": v["credential"],
                      "credential_required": v["credential_required"],
                      "settings": [{"name": n, "label": l, "hint": h} for n, l, h in v["settings"]]}
                  for k, v in source_kinds.SOURCE_KINDS.items()}
@@ -1867,8 +1868,9 @@ def create_builder_blueprint(
         if component is None:
             raise editing.EditError("Diese Komponente ist für den Mandanten nicht registriert.", 404)
         if op["op"] == "source.create":
-            wanted = source_kinds.SOURCE_KINDS.get(op.get("kind"), {}).get("component")
-            if wanted and wanted != component["kind"]:
+            kind = source_kinds.SOURCE_KINDS.get(op.get("kind"), {})
+            wanted = kind.get("component")
+            if wanted and component["kind"] not in (wanted, *kind.get("also_on", ())):
                 raise editing.EditError(f"Eine Quelle dieser Art liest nur ein {source_kinds.COMPONENT_KINDS[wanted]['label']}.")
 
     def _forget_moved_credentials(workspace_id: str, changes) -> None:

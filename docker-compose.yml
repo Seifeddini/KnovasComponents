@@ -324,6 +324,16 @@ services:
     restart: unless-stopped
 
 networks:
+  # The image of a sync component (connector protocol v1). It runs at a company, started with the line the Platform's
+  # wizard shows; here only to build it: docker compose --profile sync-component build sync-component
+  sync-component:
+    profiles: ["sync-component"]
+    image: sync-component:0.1.0
+    build:
+      context: ./KnovasPlatform/components/sync_component
+      secrets:
+        - kb_read_token
+
   knovas-internal:
     driver: bridge
 

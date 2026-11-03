@@ -93,6 +93,18 @@
                     var expires = new Date(r.expires_at);
                     wizard.querySelector('[data-enrol-expires]').textContent = isNaN(expires.getTime()) ? r.expires_at
                         : expires.toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' });
+                    var deploy = wizard.querySelector('[data-enrol-deploy]');
+                    deploy.hidden = !kind || kind.value !== 'sync_component';
+                    if (!deploy.hidden) {
+                        var box = wizard.querySelector('[data-enrol-command]');
+                        var slug = form.elements.name.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'verbindung';
+                        box.value = 'docker run -d --name sync-' + slug + ' --restart unless-stopped \\\n' +
+                            '  -v sync-' + slug + ':/data \\\n' +
+                            '  -e SYNC_NAME=' + slug + ' \\\n' +
+                            '  -e SYNC_PLATFORM_URL=' + box.dataset.protocolUrl + ' \\\n' +
+                            '  -e SYNC_ENROL_TOKEN=' + r.token + ' \\\n' +
+                            '  sync-component:0.1.0';
+                    }
                     show(3);
                     wizard.querySelector('[data-enrol-token]').select();
                 });

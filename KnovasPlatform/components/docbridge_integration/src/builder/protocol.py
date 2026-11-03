@@ -19,7 +19,10 @@ contract as the Platform implements it, until KC-7a writes it down in full:
        {state: online|degraded, version, lag_seconds, open_errors, capabilities}
     -> {paused, schedule, commands: [{id, command, args}]}   commands are delivered once
   GET  /api/connectors/v1/config
-    -> {component, paused, schedule, sources: [{key, kind, settings}], mappings: [ids]}
+    -> {component, paused, schedule, brain_url, sources: [{workspace, key, kind, settings}],
+        mappings: [{workspace, id, source}]}
+  GET  /api/connectors/v1/package
+    -> {workspaces: [{workspace, files: {path: base64}}]}    the configuration of the workspaces it serves, compiled
   POST /api/connectors/v1/runs
        {kind: dry_run|apply, status: ok|held|failed, started_at, finished_at, duration_ms,
         added, changed, retired, errors, held: [{mapping, retire: {type: n}, share}], command}
@@ -78,7 +81,7 @@ def issue_enrolment(store: Any, secrets: Any, tenant: str, *, kind: str, name: s
                     actor: Any, now: dt.datetime) -> tuple[str, str]:
     """A pending v1 component and its one-time enrolment token (shown once); (component id, token)."""
     if kind not in C.KINDS or C.KINDS[kind].get("planned") or C.KINDS[kind].get("adapter_only"):
-        raise ProtocolError(400, "kind", "Art: Dateiablage/DMS oder GitHub-Runner; die Datenbank ist geplant.")
+        raise ProtocolError(400, "kind", "Art: Sync-Komponente, Dateiablage/DMS oder GitHub-Runner; die Datenbank ist geplant.")
     token, digest = C.new_token("kce")
     component_id = store.create_component(tenant, kind=kind, name=name, site=site, owner=owner, actor_id=actor.id,
                                           enrol_expires_at=(now + dt.timedelta(hours=C.ENROL_HOURS)).isoformat())
@@ -201,6 +204,29 @@ def config_of(store: Any, c: Mapping[str, Any]) -> dict:
     served = store.served_by(c["id"]) if hasattr(store, "served_by") else {"sources": [], "mappings": []}
     return {"component": c["id"], "paused": bool(c.get("paused")), "schedule": c.get("schedule") or {"mode": "manual"},
             "sources": served["sources"], "mappings": served["mappings"]}
+
+
+def package_of(store: Any, c: Mapping[str, Any], write: Optional[Callable[[Mapping[str, Any]], Mapping[str, bytes]]] = None) -> dict:
+    """The configuration package of each workspace this component serves: the workspace model stays the only record,
+    so a component is never configured by hand. It holds definitions and source settings, no credential and no data."""
+    import base64
+
+    if write is None:
+        from builder import package, publisher
+
+        write = lambda model: package.write_package(publisher.for_engine(model))  # noqa: E731
+    out = []
+    served = store.served_by(c["id"]) if hasattr(store, "served_by") else {"sources": []}
+    for workspace in dict.fromkeys(s["workspace"] for s in served["sources"]):
+        model = store.model(workspace)
+        if model is None:
+            continue
+        try:
+            files = write(model)
+        except ValueError:
+            raise ProtocolError(409, "package_invalid", "the workspace does not compile into a package") from None
+        out.append({"workspace": workspace, "files": {path: base64.b64encode(data).decode("ascii") for path, data in files.items()}})
+    return {"workspaces": out}
 
 
 def report_run(store: Any, c: Mapping[str, Any], body: Mapping[str, Any], now: dt.datetime) -> str:

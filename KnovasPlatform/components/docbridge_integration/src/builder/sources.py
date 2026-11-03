@@ -45,6 +45,8 @@ COMPONENT_KINDS: dict[str, dict] = {
                          "settings": [("base_url", "Adresse", "leer: der Connector dieser Plattform")]},
     "http_json": {"label": "HTTP/JSON-Leser", "serves": "http_json",
                   "text": "Liest JSON-Schnittstellen über HTTPS, in der Plattform."},
+    "sync_component": {"label": "Sync-Komponente (vor Ort)", "serves": "http_json",
+                       "text": "Läuft bei der Firma, liest dort und schreibt nach Probelauf und Freigabe ins Brain."},
 }
 PLANNED_COMPONENTS = [
     {"kind": "crm", "label": "CRM-Connector", "text": "Geplant: wartet auf das Connector-Protokoll v1 (SS-534)."},
@@ -60,6 +62,7 @@ SOURCE_KINDS: dict[str, dict] = {
                          "credential": None, "credential_required": False},
     "http_json": {"label": "HTTP/JSON", "component": "http_json",
                   "settings": [("url", "Adresse", "https://…")],
+                  "also_on": ["sync_component"],     # on site its token stays in the component's own environment
                   "credential": "Token (Bearer), falls nötig", "credential_required": False},
 }
 PLANNED_SOURCES = [{"kind": "crm", "label": "CRM (Salesforce, HubSpot, …)",

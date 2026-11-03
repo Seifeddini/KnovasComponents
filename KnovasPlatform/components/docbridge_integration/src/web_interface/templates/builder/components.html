@@ -126,7 +126,7 @@
                     <label class="b-card b-enrol-kind {{ 'is-planned' if k.planned else '' }}">
                         <input type="radio" name="kind" value="{{ key }}" {% if loop.first %}checked{% endif %} {% if k.planned %}disabled{% endif %}>
                         <strong>{{ k.label }}</strong>
-                        <span class="b-small b-muted">{% if key == 'knovas_connector' %}Liest die Dateiablage oder das DMS vor Ort.{% elif key == 'github_runner' %}Liest GitHub-Repositories mit brain-runner.{% else %}Geplant: wartet auf das Connector-Protokoll v1.{% endif %}</span>
+                        <span class="b-small b-muted">{% if key == 'sync_component' %}Eine neue Verbindung: läuft bei der Firma, ein Befehl genügt.{% elif key == 'knovas_connector' %}Liest die Dateiablage oder das DMS vor Ort.{% elif key == 'github_runner' %}Liest GitHub-Repositories mit brain-runner.{% else %}Geplant: wartet auf das Connector-Protokoll v1.{% endif %}</span>
                         {% if k.planned %}<span class="b-tag">Geplant</span>{% endif %}
                     </label>
                     {% endfor %}
@@ -147,6 +147,11 @@
                 <div class="b-field">
                     <label class="b-label" for="b-en-token">Einmal-Token</label>
                     <input class="b-input b-mono" id="b-en-token" readonly data-enrol-token>
+                </div>
+                <div class="b-field" data-enrol-deploy hidden>
+                    <label class="b-label" for="b-en-command">Auf dem Rechner bei der Firma starten</label>
+                    <textarea class="b-input b-mono" id="b-en-command" rows="6" readonly data-enrol-command data-protocol-url="{{ protocol_url }}"></textarea>
+                    <p class="b-small b-muted">Sie meldet sich selbst an und holt ihre Konfiguration hier ab. Ins Brain schreibt sie erst nach Probelauf und Freigabe. Das Token einer Quelle setzt ihr dort mit <code class="b-mono">-e SYNC_CREDENTIAL_&lt;SCHLÜSSEL&gt;=…</code>.</p>
                 </div>
                 <p class="b-small">In der Komponente eintragen, zusammen mit der Adresse der Plattform: <code class="b-mono">{{ protocol_url }}</code>. Sie meldet sich an und erscheint hier online.</p>
             </div>

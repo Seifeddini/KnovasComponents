@@ -21,7 +21,7 @@ from builder import protocol
 logger = logging.getLogger(__name__)
 
 #: The endpoint names the identity gate lets through without a session (each checks its own credential).
-ENDPOINTS = ("connector_protocol.enrol", "connector_protocol.heartbeat", "connector_protocol.config",
+ENDPOINTS = ("connector_protocol.enrol", "connector_protocol.heartbeat", "connector_protocol.config", "connector_protocol.package",
              "connector_protocol.runs", "connector_protocol.command_done", "connector_protocol.events")
 MAX_BODY = 256 * 1024
 
@@ -29,11 +29,13 @@ MAX_BODY = 256 * 1024
 def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], secrets: Callable[[], Any],
                                         tenant_provider: Callable[[], Optional[str]],
                                         signer: Optional[Callable[[str, str], Any]] = None,
-                                        require_client_certificate: bool = True) -> Blueprint:
+                                        require_client_certificate: bool = True,
+                                        brain_url: Optional[Callable[[], Optional[str]]] = None) -> Blueprint:
     """``secrets()`` is the settings registry's store of the components' token hashes (sealed);
     ``signer(csr, name)`` has the Brain sign a component's certificate for this Platform's tenant.
     ``require_client_certificate``: refuse a call without the certificate fingerprint the TLS terminator sets
-    (the default); False only for a deployment where no terminator checks client certificates."""
+    (the default); False only for a deployment where no terminator checks client certificates.
+    ``brain_url()`` is the Brain API a component writes to with its own certificate."""
     bp = Blueprint("connector_protocol", __name__, url_prefix="/api/connectors/v1")
 
     def _now() -> dt.datetime:
@@ -84,7 +86,14 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
     @bp.route("/config")
     def config():
         try:
-            return jsonify(protocol.config_of(store_factory(), _component()))
+            return jsonify({**protocol.config_of(store_factory(), _component()), "brain_url": brain_url() if brain_url else None})
+        except protocol.ProtocolError as exc:
+            return _error(exc)
+
+    @bp.route("/package")
+    def package():
+        try:
+            return jsonify(protocol.package_of(store_factory(), _component()))
         except protocol.ProtocolError as exc:
             return _error(exc)
 

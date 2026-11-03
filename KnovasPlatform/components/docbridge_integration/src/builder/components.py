@@ -31,6 +31,7 @@ from typing import Any, Iterable, Mapping, Optional
 KINDS = {
     "knovas_connector": {"label": "Dateiablage / DMS (KnovasConnector)", "short": "Dateiablage / DMS"},
     "github_runner": {"label": "GitHub-Runner", "short": "GitHub-Runner"},
+    "sync_component": {"label": "Sync-Komponente (vor Ort)", "short": "Sync-Komponente"},
     "database_connector": {"label": "Datenbank-Connector", "short": "Datenbank", "planned": True},
     "http_json": {"label": "HTTP/JSON-Leser", "short": "HTTP/JSON", "adapter_only": True},
 }

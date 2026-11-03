@@ -386,7 +386,7 @@
         var kind = data.kinds[chosenKind()];
         var select = form.elements.component;
         select.textContent = '';
-        var fitting = data.components.filter(function (c) { return kind && c.kind === kind.component; });
+        var fitting = data.components.filter(function (c) { return kind && (kind.components || [kind.component]).indexOf(c.kind) !== -1; });
         fitting.forEach(function (c) { var o = el('option', null, c.name + (c.site ? ' (' + c.site + ')' : '')); o.value = c.id; select.appendChild(o); });
         dialog.querySelector('[data-sn-component-hint]').textContent = fitting.length ? ''
             : 'Für diese Art ist keine Komponente registriert (Stufe Verbinden).';

@@ -2038,6 +2038,7 @@ def create_app(config_path: Optional[str] = None):
             # without one says so explicitly (BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT=false).
             require_client_certificate=str(config.get('builder.components.require_client_certificate', 'true')
                                            ).strip().lower() not in ('false', '0', 'no'),
+            brain_url=lambda: api_client.base_url,
         ))
         identity_gate.allow_bearer_endpoints(_PROTOCOL_ENDPOINTS)
 

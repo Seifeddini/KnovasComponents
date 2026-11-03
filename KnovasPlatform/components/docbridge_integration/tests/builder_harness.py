@@ -770,7 +770,7 @@ def stand_in_readers(github_root=None, connector=None, http=None):
 def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None, publish_sink=None,
              secrets=None, readers=None, roles=None, roles_sink=None, sync=None, directory=None,
              component_secrets=None, adapters=None, limits=None, signer=None, require_certificate=True,
-             access=None, assistant=None, graph=None) -> Flask:
+             access=None, assistant=None, graph=None, brain_url=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -826,7 +826,8 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
 
         app.register_blueprint(create_connector_protocol_blueprint(
             store_factory=lambda: store, secrets=lambda: component_secrets, tenant_provider=lambda: tenant,
-            signer=signer or fake_signer, require_client_certificate=require_certificate))
+            signer=signer or fake_signer, require_client_certificate=require_certificate,
+            brain_url=(lambda: brain_url) if brain_url else None))
     return app
 
 
