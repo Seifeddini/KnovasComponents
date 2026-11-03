@@ -120,16 +120,30 @@ def revoke(store: Any, secrets: Any, tenant: str, component_id: str, actor: Any,
     store.add_event(component_id, "revoked", {})
 
 
+def _secrets_usable(secrets: Any) -> None:
+    """Without a usable key no token can be checked; saying «bad token» would send a person after the wrong thing."""
+    if not getattr(secrets, "available", True):
+        raise ProtocolError(503, "no_secrets", "this Platform's PLATFORM_SETTINGS_KEY is missing or not valid")
+
+
 def enrol(store: Any, secrets: Any, signer: Optional[Callable[[str, str], Mapping[str, Any]]], tenant: str,
           body: Mapping[str, Any], now: dt.datetime) -> dict:
     """A component presents its enrolment token and a CSR: it gets its certificate and a control token."""
     token = str(body.get("token") or "")
     csr = str(body.get("csr") or "")
+    _secrets_usable(secrets)
     found = None
+    unreadable = False
     for c in store.pending_components(tenant):
-        if C.token_matches(token, secrets.get(secret_key(c["id"], "enrol"))):
+        kept = secrets.get(secret_key(c["id"], "enrol"))
+        unreadable = unreadable or kept is None
+        if C.token_matches(token, kept):
             found = c
             break
+    if found is None and unreadable:
+        # Not the token's fault: a stored hash does not open with this key, so the token cannot be told from a wrong one.
+        raise ProtocolError(503, "secret_unreadable", "a stored enrolment token does not open with this Platform's "
+                                                      "PLATFORM_SETTINGS_KEY: restore the key, or ask for a new token")
     if found is None:
         raise ProtocolError(401, "bad_token", "unknown or used enrolment token")
     expires = C._moment(found.get("enrol_expires_at"))
@@ -174,6 +188,7 @@ def certificate_fingerprint(pem: str) -> str:
 
 def authenticate(store: Any, secrets: Any, tenant: str, component_id: str, bearer: str,
                  fingerprint: Optional[str], *, require_certificate: bool = True) -> dict:
+    _secrets_usable(secrets)
     c = store.component(tenant, component_id, any_state=True) if component_id else None
     if c is None or c.get("transport") != "v1" or c.get("state") != "enrolled":
         raise ProtocolError(401, "unknown_component", "not an enrolled component")

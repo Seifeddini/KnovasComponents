@@ -624,3 +624,42 @@ class TestRealEnrolment:
             with pytest.raises(Exception) as refused:
                 client.enrol("t", "c", [])
             assert refused.value.status == 301
+
+
+class TestAKeyThatDoesNotWork:
+    """Found on a real server: a settings key that went bad answered «bad_token», about a token that was fine."""
+
+    class Secrets(MemorySecrets):
+        available = True
+
+    def world(self):
+        admin = StandInUser({"admin"}, "Ada Admin")
+        store = MemoryWorkspaceStore({str(admin.id): admin.display_name})
+        secrets = self.Secrets()
+        app = make_app(admin, store, tenant=TENANT, engine=FakeEngine(), component_secrets=secrets, require_certificate=False)
+        http = app.test_client()
+        made = http.post("/builder/api/components/enrol", json={"kind": "github_runner", "name": "G"}).get_json()
+        body = {"token": made["token"], "csr": "-----BEGIN CERTIFICATE REQUEST-----\nQQ==\n-----END CERTIFICATE REQUEST-----\n"}
+        return http, secrets, body
+
+    def test_no_usable_key_is_said_as_that(self):
+        http, secrets, body = self.world()
+        secrets.available = False
+        answer = http.post("/api/connectors/v1/enrol", json=body)
+        assert answer.status_code == 503 and answer.get_json()["error"] == "no_secrets"
+
+    def test_a_stored_token_that_does_not_open_is_said_as_that(self, monkeypatch):
+        http, secrets, body = self.world()
+        monkeypatch.setattr(self.Secrets, "get", lambda self, key: None)
+        answer = http.post("/api/connectors/v1/enrol", json=body)
+        assert answer.status_code == 503 and answer.get_json()["error"] == "secret_unreadable"
+
+    def test_a_wrong_token_with_a_working_key_is_still_a_bad_token(self):
+        http, _, body = self.world()
+        answer = http.post("/api/connectors/v1/enrol", json={**body, "token": "kce_wrong"})
+        assert answer.status_code == 401 and answer.get_json()["error"] == "bad_token"
+
+    def test_the_component_says_what_to_fix(self):
+        assert "PLATFORM_SETTINGS_KEY" in (SYNC_SRC / "sync_component" / "__main__.py").read_text(encoding="utf-8")
+        assert "PLATFORM_SETTINGS_KEY" in (LINK_SRC / "platform_link" / "bootstrap.py").read_text(encoding="utf-8")
+

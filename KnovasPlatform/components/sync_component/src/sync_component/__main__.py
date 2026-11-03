@@ -53,7 +53,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         credentials = enrolled(client, store, os.environ.get("SYNC_ENROL_TOKEN", ""), os.environ.get("SYNC_NAME") or "sync-component")
     except Refused as exc:
-        logging.error("Enrolment refused: %s (HTTP %s). A used or expired token needs a new one from the Platform.", exc.code, exc.status)
+        if exc.code in ("no_secrets", "secret_unreadable"):
+            logging.error("The Platform cannot read its stored tokens (%s): its PLATFORM_SETTINGS_KEY needs fixing; the token may be fine.", exc.code)
+        else:
+            logging.error("Enrolment refused: %s (HTTP %s). A used or expired token needs a new one from the Platform.", exc.code, exc.status)
         return 2
     except OSError as exc:
         logging.error("The Platform is not reachable at SYNC_PLATFORM_URL (%s). Check the address and its port.", type(exc).__name__)

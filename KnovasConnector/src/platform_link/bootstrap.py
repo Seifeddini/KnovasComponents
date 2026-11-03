@@ -54,6 +54,8 @@ def prepare(environ: MutableMapping[str, str] = os.environ, *, session=None) -> 
         found = enrolled(client, store, (environ.get("RC_ENROL_TOKEN") or "").strip(),
                          environ.get("RC_ENROL_NAME") or "knovas-connector")
     except Refused as exc:
+        if exc.code in ("no_secrets", "secret_unreadable"):
+            raise RuntimeError(f"The Platform cannot read its stored tokens ({exc.code}): its PLATFORM_SETTINGS_KEY needs fixing; the token may be fine.") from None
         raise RuntimeError(f"Enrolment refused ({exc.code}, HTTP {exc.status}). A used or expired token needs a new one from the Platform.") from None
     except OSError as exc:
         raise RuntimeError(f"The Platform is not reachable at RC_PLATFORM_URL ({type(exc).__name__}). Check the address and its port.") from None
