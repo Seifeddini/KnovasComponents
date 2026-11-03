@@ -138,7 +138,7 @@ class TestGitHub:
         assert TOKEN not in " ".join(reading.args), "a command line is visible to every process on the machine"
         assert reading.env == {"BRAIN_GITHUB_TOKEN": TOKEN}
 
-    @pytest.mark.parametrize("status", [401, 403, 404])
+    @pytest.mark.parametrize("status", [401, 403, 404, 422])
     def test_a_refusal_is_a_code_with_a_sentence_for_the_person(self, status):
         with pytest.raises(FetchError, match=f"fetch.http_{status}"):
             check_github({"repository": "firma/daten"}, TOKEN, get=lambda url, **kw: Answer(status))

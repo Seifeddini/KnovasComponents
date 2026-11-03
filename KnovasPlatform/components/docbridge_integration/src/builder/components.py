@@ -212,6 +212,7 @@ CHECK_TEXTS = {
     "fetch.http_401": "Der Zugang wurde abgewiesen: das Token prüfen (-e SYNC_CREDENTIAL_…).",
     "fetch.http_403": "Der Zugang reicht nicht: dem Token Leserechte geben.",
     "fetch.http_404": "Nicht gefunden, oder der Zugang fehlt: Adresse oder Repository und Branch prüfen, das Token setzen (-e SYNC_CREDENTIAL_…).",
+    "fetch.http_422": "Diesen Branch oder Tag gibt es im Repository nicht: den Namen prüfen, oft «main» oder «master». Ein Ordner gehört nicht hierher; er wird beim Zuordnen gewählt.",
     "fetch.connectionerror": "Keine Verbindung zur Quelle: Netzwerk oder Firewall der Firma prüfen.",
     "fetch.timeout": "Die Quelle antwortet nicht rechtzeitig.",
     "fetch.sslerror": "Das TLS-Zertifikat der Quelle wird nicht anerkannt.",

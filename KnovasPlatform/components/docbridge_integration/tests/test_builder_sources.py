@@ -275,3 +275,54 @@ class TestTheRoutes:
         assert client.post("/builder/api/components", json={"kind": "http_json", "name": "X"}).status_code == 403
         for action in ("test", "sample", "credential"):
             assert client.post(f"/builder/api/w/{world['id']}/sources/kb/{action}", json={}).status_code == 403
+
+
+class _Answer:
+    def __init__(self, status):
+        self.status_code, self.headers, self.text = status, {}, ""
+
+
+class _GitHub:
+    """GitHub as the real source meets it, without a network: one answer, or a broken connection."""
+
+    def __init__(self, status=None):
+        self.status = status
+
+    def get(self, url, **kwargs):
+        if self.status is None:
+            raise ConnectionError("no route")
+        return _Answer(self.status)
+
+
+def _reader_over(github):
+    pytest.importorskip("brain_runner.extractors")
+    from brain_runner.sources.github import GitHubApi, GitHubSource
+
+    api = GitHubApi("acme/kb", token=TOKEN, session=github, sleep=lambda _: None)
+    return sources.GitHubReader(GitHubSource("acme/kb", "main", api=api))
+
+
+class TestWhyARepositoryIsNotRead:
+    """The page says what to fix, not the name of an exception. The real source's own messages are what is read here."""
+
+    @pytest.mark.parametrize("status, says", [(401, "Token"), (403, "Contents"), (404, "owner/name"), (422, "Branch"),
+                                              (500, "GitHub antwortet")])
+    def test_an_answer_of_github(self, status, says):
+        with pytest.raises(sources.ReaderError) as refused:
+            _reader_over(_GitHub(status)).test()
+        assert says in str(refused.value) and str(status) in str(refused.value)
+        assert "SourceError" not in str(refused.value)
+
+    def test_no_connection(self):
+        with pytest.raises(sources.ReaderError, match="erreicht GitHub nicht"):
+            _reader_over(_GitHub()).test()
+
+    def test_the_token_is_never_shown(self):
+        for github in (_GitHub(401), _GitHub()):
+            with pytest.raises(sources.ReaderError) as refused:
+                _reader_over(github).test()
+            assert TOKEN not in str(refused.value)
+
+    def test_a_sample_says_the_same(self):
+        with pytest.raises(sources.ReaderError, match="Branch"):
+            _reader_over(_GitHub(422)).sample("yaml_file:docs/*.yaml")

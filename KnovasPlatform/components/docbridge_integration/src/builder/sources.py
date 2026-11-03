@@ -202,6 +202,35 @@ def profile(items: Iterable[Any]) -> dict:
 
 # ------------------------------------------------------------------ readers
 
+#: What GitHub's answers mean to the person at the page. A wrong branch is a 422, not a 404: GitHub's commits call says so.
+_GITHUB_ANSWERS = {
+    401: "GitHub weist das Token ab (401): es fehlt, ist falsch oder abgelaufen. Das Token neu setzen.",
+    403: "GitHub verweigert den Zugriff (403): dem Token das Recht «Contents: read» für dieses Repository geben. "
+         "Eine Organisation muss das Token unter Umständen zuerst freigeben.",
+    404: "GitHub findet das Repository nicht (404): die Schreibweise owner/name prüfen. Ein privates Repository sieht "
+         "GitHub auch dann nicht, wenn das Token es nicht lesen darf.",
+    422: "Diesen Branch oder Tag gibt es im Repository nicht (422): den Namen prüfen, oft «main» oder «master». "
+         "Ein Ordner gehört nicht hierher; er wird beim Zuordnen gewählt.",
+}
+
+
+def _github_failure(exc: Exception) -> Optional[str]:
+    """What to fix, from brain-runner's SourceError, which carries its cause only as text. None when it says nothing
+    known. The sentences are fixed: nothing of the error's text reaches the page."""
+    text = str(exc)
+    answered = re.search(r"answered (\d{3})", text)
+    if answered:
+        status = int(answered.group(1))
+        return _GITHUB_ANSWERS.get(status, f"GitHub antwortet mit einem Fehler ({status}): später noch einmal versuchen.")
+    if "rate limit" in text:
+        return "GitHub begrenzt die Anfragen gerade: später noch einmal versuchen."
+    if "did not resolve the ref" in text:
+        return _GITHUB_ANSWERS[422]
+    if re.search(r"failed: \w+", text) or "no answer after" in text:
+        return "Die Plattform erreicht GitHub nicht: Netzwerk oder Firewall des Servers prüfen."
+    return None
+
+
 class GitHubReader:
     """A repository through brain-runner's source (GitHubSource; a LocalSource reads a checkout the same way)."""
 
@@ -212,7 +241,7 @@ class GitHubReader:
         try:
             return self.src.glob("**/*")
         except Exception as exc:  # noqa: BLE001 - brain-runner's SourceError and transport errors alike
-            raise ReaderError(f"Das Repository ist nicht lesbar ({type(exc).__name__}).") from None
+            raise ReaderError(_github_failure(exc) or f"Das Repository ist nicht lesbar ({type(exc).__name__}).") from None
 
     def test(self) -> dict:
         files = self._files()
@@ -255,7 +284,7 @@ class GitHubReader:
                 if len(out) >= limit:
                     break
         except Exception as exc:  # noqa: BLE001
-            raise ReaderError(f"Die Auswahl ist nicht lesbar ({type(exc).__name__}).") from None
+            raise ReaderError(_github_failure(exc) or f"Die Auswahl ist nicht lesbar ({type(exc).__name__}).") from None
         return out
 
 
