@@ -42,7 +42,7 @@ class PlatformClient:
             data = answer.json()
         except ValueError:
             data = {}
-        if answer.status_code >= 400 or not isinstance(data, dict):
+        if answer.status_code >= 300 or not isinstance(data, dict):      # a redirect is not the Platform answering
             raise Refused(answer.status_code, str(data.get("error") or "no_answer") if isinstance(data, dict) else "no_answer")
         return data
 

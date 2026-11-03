@@ -96,7 +96,7 @@
                     var deploy = wizard.querySelector('[data-enrol-deploy]');
                     var box = wizard.querySelector('[data-enrol-command]');
                     var slug = form.elements.name.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'verbindung';
-                    var line = kind ? deployLine(kind.value, slug, box.dataset.protocolUrl, r.token) : null;
+                    var line = kind ? deployLine(kind.value, slug, window.location.origin + box.dataset.protocolPath, r.token) : null;
                     deploy.hidden = !line;
                     if (line) {
                         box.value = line.lines.join(' \\\n');

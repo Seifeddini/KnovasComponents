@@ -53,7 +53,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         credentials = enrolled(client, store, os.environ.get("SYNC_ENROL_TOKEN", ""), os.environ.get("SYNC_NAME") or "sync-component")
     except Refused as exc:
-        logging.error("Enrolment refused: %s. Ask the Platform for a new one-time token.", exc.code)
+        logging.error("Enrolment refused: %s (HTTP %s). A used or expired token needs a new one from the Platform.", exc.code, exc.status)
+        return 2
+    except OSError as exc:
+        logging.error("The Platform is not reachable at SYNC_PLATFORM_URL (%s). Check the address and its port.", type(exc).__name__)
         return 2
     client.use(credentials)
     brain_url = str(client.config().get("brain_url") or "")

@@ -2,7 +2,7 @@
    schedule, its runs as a chart, the plans its deletion guard holds, its
    last events (codes and counts only) and the commands sent to it. Expects
    component, row (builder.components.row), runs, held, served, events,
-   commands, alerts, chart, kinds, limits, protocol_url, days.
+   commands, alerts, chart, kinds, limits, protocol_path, days.
    static/js/builder/component.js sends the actions. #}
 {% extends 'builder/_base.html' %}
 {% from 'builder/_icons.html' import icon %}
@@ -49,7 +49,7 @@
 {% if row.state == 'pending' %}
 <div class="b-callout b-callout--warning" role="status">
     <p class="b-callout-title">Wartet auf die Anmeldung</p>
-    <p>Das Einmal-Token gilt bis {{ c.enrol_expires_at | b_datetime }}. Die Komponente meldet sich bei <code class="b-mono">{{ protocol_url }}/enrol</code> an. Ist das Token verloren oder abgelaufen: ein neues erzeugen.</p>
+    <p>Das Einmal-Token gilt bis {{ c.enrol_expires_at | b_datetime }}. Die Komponente meldet sich bei <code class="b-mono" data-protocol-address data-protocol-path="{{ protocol_path }}/enrol">{{ protocol_path }}/enrol</code> an. Ist das Token verloren oder abgelaufen: ein neues erzeugen.</p>
     <button type="button" class="b-button b-button--secondary" data-cp-rotate>Neues Einmal-Token</button>
 </div>
 {% elif row.state == 'revoked' %}

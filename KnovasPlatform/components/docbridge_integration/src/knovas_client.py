@@ -1736,16 +1736,20 @@ class KnovasAPIClient:
         data: Optional[Dict] = None,
         params: Optional[Dict] = None,
         timeout: Optional[float] = None,
+        as_person: bool = True,
     ) -> requests.Response:
         """
         Single HTTP request without tenacity retries (used for analytics feedback;
         avoids duplicate submissions on transient failures). ``timeout``
-        replaces ``http_read_timeout`` for this one request.
+        replaces ``http_read_timeout`` for this one request. ``as_person=False``
+        sends no assertion: only for a call that reads nothing a person's access
+        could narrow.
         """
         self._rate_limit()
         self._ensure_certificate_freshness()
         url = f"{self.base_url}{endpoint}"
-        data = self._with_principal(data)
+        if as_person:
+            data = self._with_principal(data)
         response = self._session.request(
             method=method,
             url=url,
@@ -1933,8 +1937,13 @@ class KnovasAPIClient:
         csr_pem: str,
         validity_days: Optional[int] = None,
         organisation: Optional[str] = None,
+        as_person: bool = True,
     ) -> Dict[str, Any]:
-        """POST /secured/sign_certificate — sign a tenant CSR (recommended renewal path)."""
+        """POST /secured/sign_certificate — sign a tenant CSR (recommended renewal path).
+
+        ``as_person=False``: a sync component enrolling has no signed-in person; its one-time token authorised this
+        (builder.protocol.enrol). The route reads nothing, so the assertion's fail-closed rule has nothing to protect.
+        """
         csr = str(csr_pem or '').strip()
         if not csr or 'BEGIN CERTIFICATE REQUEST' not in csr:
             raise ValueError('csr must be a PEM certificate signing request')
@@ -1949,7 +1958,7 @@ class KnovasAPIClient:
             if org:
                 body['organisation'] = org
         endpoint = self.endpoints.get('sign_certificate', '/secured/sign_certificate')
-        response = self._request_no_retry('POST', endpoint, data=body)
+        response = self._request_no_retry('POST', endpoint, data=body, as_person=as_person)
         return response.json() if response.content else {}
     
     def sync_document_batch(

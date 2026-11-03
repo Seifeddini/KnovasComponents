@@ -30,6 +30,10 @@
             return r;
         });
     }
+    /* The address as the browser reached it, port included: behind nginx the server does not know its port. */
+    Array.prototype.forEach.call(document.querySelectorAll('[data-protocol-address]'), function (el) {
+        el.textContent = window.location.origin + el.dataset.protocolPath;
+    });
     function on(selector, fn) {
         Array.prototype.forEach.call(document.querySelectorAll(selector), function (el) { el.addEventListener('click', function () { fn(el); }); });
     }

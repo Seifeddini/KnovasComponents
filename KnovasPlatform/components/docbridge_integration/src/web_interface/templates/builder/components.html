@@ -2,7 +2,7 @@
    source is read through one of them. Expects components, component_kinds,
    planned_components, platform_tenant (builder_routes._components_context)
    and registry, registry_all, component_alerts, limits, state_filter,
-   kind_filter, registry_states, enrol_kinds, protocol_url
+   kind_filter, registry_states, enrol_kinds, protocol_path
    (builder_routes._registry_context). The enrolment wizard and the adapter
    registration are static/js/builder/components.js. #}
 {% extends 'builder/_base.html' %}
@@ -150,9 +150,9 @@
                 </div>
                 <div class="b-field" data-enrol-deploy hidden>
                     <label class="b-label" for="b-en-command">Auf dem Rechner bei der Firma starten</label>
-                    <textarea class="b-input b-mono" id="b-en-command" rows="6" readonly data-enrol-command data-protocol-url="{{ protocol_url }}"></textarea>
+                    <textarea class="b-input b-mono" id="b-en-command" rows="6" readonly data-enrol-command data-protocol-path="{{ protocol_path }}"></textarea>
                     <p class="b-small b-muted" data-enrol-hint></p>
-                    <p class="b-small b-muted">Sie meldet sich selbst an und holt ihre Konfiguration hier ab. Ins Brain schreibt sie erst nach Probelauf und Freigabe. Ob sie jede Quelle lesen kann, zeigt danach ihre Seite.</p>
+                    <p class="b-small b-muted">Die Adresse ist die, unter der Sie die Plattform gerade geöffnet haben: Der Rechner bei der Firma muss sie ebenfalls erreichen. Sie meldet sich selbst an und holt ihre Konfiguration hier ab. Ins Brain schreibt sie erst nach Probelauf und Freigabe. Ob sie jede Quelle lesen kann, zeigt danach ihre Seite.</p>
                 </div>
             </div>
             <div class="b-callout b-callout--critical" data-enrol-error role="alert" hidden></div>

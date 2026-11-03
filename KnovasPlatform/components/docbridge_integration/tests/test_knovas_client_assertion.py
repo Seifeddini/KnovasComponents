@@ -95,6 +95,29 @@ def client():
     }))
 
 
+class TestSigningAComponentsCertificate:
+    """A component enrolling has no signed-in person; its one-time token authorised the signing."""
+
+    CSR = "-----BEGIN CERTIFICATE REQUEST-----\nQQ==\n-----END CERTIFICATE REQUEST-----"
+
+    def test_it_goes_out_without_an_assertion_when_it_says_so(self, client, signer, monkeypatch):
+        client.attach_principal_broker(_StubBroker(signer, user=None))
+        sent = {}
+
+        def fake(method, url, json=None, **kw):
+            sent.update(json)
+            return type("R", (), {"content": b"{}", "json": lambda self: {}, "raise_for_status": lambda self: None})()
+
+        monkeypatch.setattr(client._session, "request", fake)
+        client.sign_certificate(self.CSR, validity_days=365, organisation="x", as_person=False)
+        assert sent["csr"] == self.CSR and ASSERTION_FIELD not in sent
+
+    def test_everything_else_still_fails_closed(self, client, signer):
+        client.attach_principal_broker(_StubBroker(signer, user=None))
+        with pytest.raises(PermissionError):
+            client.sign_certificate(self.CSR)
+
+
 class TestWithPrincipal:
     def test_no_broker_means_the_body_goes_out_unchanged(self, client):
         assert client._with_principal({"query": "x"}) == {"query": "x"}

@@ -39,10 +39,12 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import logging
 from typing import Any, Callable, Mapping, Optional
 
 from builder import components as C
 
+logger = logging.getLogger(__name__)
 VERSION = "v1"
 COMMANDS = ("run", "pause", "resume", "approve_plan", "reject_plan", "reload_config", "check")
 
@@ -137,7 +139,11 @@ def enrol(store: Any, secrets: Any, signer: Optional[Callable[[str, str], Mappin
         raise ProtocolError(400, "csr", "a PEM certificate signing request")
     if signer is None:
         raise ProtocolError(503, "no_signer", "this Platform cannot have certificates signed")
-    signed = signer(csr, found["name"])
+    try:
+        signed = signer(csr, found["name"])
+    except Exception as exc:  # noqa: BLE001 - said to the component as a code; the token stays valid for another try
+        logger.warning("Connector enrolment: the Brain did not sign (%s)", type(exc).__name__)
+        raise ProtocolError(502, "not_signed", "the Brain did not sign the request") from None
     certificate = str(signed.get("certificate") or "")
     if "BEGIN CERTIFICATE" not in certificate:
         raise ProtocolError(502, "not_signed", "the Brain did not sign the request")

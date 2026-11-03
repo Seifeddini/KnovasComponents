@@ -1651,6 +1651,8 @@ def _enrol_through_the_wizard(page, kind_label, name, site, owner, shots=None, p
     if shots:
         page.screenshot(path=shots / f"{prefix}-2-token.png")
     value = token.input_value()
+    # The line names the address this browser reached, port included: behind nginx the server does not know its port.
+    assert page.evaluate("window.location.origin") + "/api/connectors/v1" in wizard.locator("[data-enrol-command]").input_value()
     wizard.get_by_role("button", name="Abbrechen").click()
     page.wait_for_load_state("load")
     return value

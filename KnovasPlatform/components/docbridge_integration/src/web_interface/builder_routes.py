@@ -50,6 +50,8 @@ logger = logging.getLogger(__name__)
 #: Roles that open the builder for every workspace (step B11: admin and the four builder roles).
 BUILDER_ROLES = team.BUILDER_ROLES
 #: The permission each endpoint needs (builder.team). Not listed: ``manage``.
+#: Where components call. The page adds the address its browser reached: behind nginx the server's Host has no port.
+PROTOCOL_PATH = "/api/connectors/v1"
 ENDPOINT_PERMISSIONS = {
     "home": "view", "stage": "view", "workspace": "view", "pack_update": "view", "export": "view",
     "mapping_page": "view", "published_bundle": "view", "styleguide": "view", "views_preview": "view",
@@ -1095,7 +1097,7 @@ def create_builder_blueprint(
                 "registry_all": len(overview["rows"]), "component_alerts": overview["alerts"],
                 "limits": overview["limits"], "state_filter": state, "kind_filter": kind,
                 "registry_states": component_rules.STATES, "enrol_kinds": component_rules.KINDS,
-                "protocol_url": request.host_url.rstrip("/") + "/api/connectors/v1"}
+                "protocol_path": PROTOCOL_PATH}
 
     def _component_or_404(component_id: str) -> dict:
         tenant = _platform_tenant()
@@ -1127,7 +1129,7 @@ def create_builder_blueprint(
                        commands=store.commands(component_id) if component.get("transport") == "v1" else [],
                        alerts=component_rules.alerts([observed], {component_id: runs}, {component_id: held}, now, limits),
                        chart=_run_chart(runs[:30]), kinds=component_rules.KINDS, limits=limits,
-                       protocol_url=request.host_url.rstrip("/") + "/api/connectors/v1",
+                       protocol_path=PROTOCOL_PATH,
                        days=component_rules.DAYS)
 
     def _run_chart(runs: list) -> dict:

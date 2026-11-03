@@ -576,3 +576,51 @@ def test_a_line_the_wizard_shows_cannot_break_the_shell():
     script = (web / "static" / "js" / "builder" / "components.js").read_text(encoding="utf-8")
     lines = re.findall(r"'(  -[ev] [^']*)'", script)
     assert lines and not [line for line in lines if re.search(r"[<>]", line)], lines
+
+
+class TestRealEnrolment:
+    """What the first real enrolment found: the address without its port, and signing that demanded a signed-in person."""
+
+    def test_the_wizard_uses_the_address_the_browser_reached_with_its_port(self):
+        web = Path(__file__).resolve().parents[1] / "src" / "web_interface"
+        assert "window.location.origin + box.dataset.protocolPath" in (web / "static/js/builder/components.js").read_text(encoding="utf-8")
+        assert "window.location.origin + el.dataset.protocolPath" in (web / "static/js/builder/component.js").read_text(encoding="utf-8")
+        routes = (web / "builder_routes.py").read_text(encoding="utf-8")
+        assert "request.host_url" not in routes, "behind nginx the Host header has no port"
+
+    def test_the_pending_page_names_the_path_and_no_guessed_host(self, platform):
+        made = _enrol(platform, "github_runner")
+        page = platform.http.get(f"/builder/komponenten/{made['id']}").get_data(as_text=True)
+        assert 'data-protocol-path="/api/connectors/v1/enrol"' in page and "localhost" not in page.split("data-protocol-address")[1][:80]
+
+    def test_a_brain_that_will_not_sign_is_an_answer_and_the_token_still_works(self, tmp_path):
+        calls = []
+
+        def signer(csr, name):
+            calls.append(name)
+            if len(calls) == 1:
+                raise PermissionError("No authenticated user for this request")
+            return {"certificate": "-----BEGIN CERTIFICATE-----\nQQ==\n-----END CERTIFICATE-----\n", "certificate_chain": None}
+
+        admin = StandInUser({"admin"}, "Ada Admin")
+        store = MemoryWorkspaceStore({str(admin.id): admin.display_name})
+        app = make_app(admin, store, tenant=TENANT, engine=FakeEngine(), component_secrets=MemorySecrets(), require_certificate=False,
+                       signer=signer)
+        http = app.test_client()
+        made = http.post("/builder/api/components/enrol", json={"kind": "github_runner", "name": "G"}).get_json()
+        body = {"token": made["token"], "csr": "-----BEGIN CERTIFICATE REQUEST-----\nQQ==\n-----END CERTIFICATE REQUEST-----\n"}
+        refused = http.post("/api/connectors/v1/enrol", json=body)
+        assert refused.status_code == 502 and refused.get_json()["error"] == "not_signed"
+        assert http.post("/api/connectors/v1/enrol", json=body).status_code == 201
+
+    def test_a_redirect_is_not_taken_for_an_answer(self, tmp_path):
+        class Session:
+            verify = cert = None
+
+            def request(self, *a, **kw):
+                return SimpleNamespace(status_code=301, json=lambda: {})
+
+        for client in (SyncClient("http://x", session=Session()), LinkClient("http://x", session=Session())):
+            with pytest.raises(Exception) as refused:
+                client.enrol("t", "c", [])
+            assert refused.value.status == 301

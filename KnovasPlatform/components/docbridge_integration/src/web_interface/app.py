@@ -2042,7 +2042,7 @@ def create_app(config_path: Optional[str] = None):
             secrets=_builder_component_secrets,
             tenant_provider=lambda: api_client.customer_id,
             # The Brain signs a component's certificate for this Platform's tenant.
-            signer=lambda csr, name: api_client.sign_certificate(csr, validity_days=365, organisation=name),
+            signer=lambda csr, name: api_client.sign_certificate(csr, validity_days=365, organisation=name, as_person=False),
             # The TLS terminator sets X-Client-Cert-Fingerprint from the certificate it verified; only a deployment
             # without one says so explicitly (BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT=false).
             require_client_certificate=str(config.get('builder.components.require_client_certificate', 'true')
