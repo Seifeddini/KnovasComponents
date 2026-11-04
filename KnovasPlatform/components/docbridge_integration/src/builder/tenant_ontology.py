@@ -14,15 +14,18 @@ header is the company's own with only its name. The engine's core types and
 the types it installs itself (its Unclassified type) are not read here: they
 come with every tenant and the builder shows them from its own core catalog.
 
-Relations are not read: the graph keeps relation names on edges, not domain
-and range. They are added in the builder, or come with an imported package.
+Relations, processes, spines, pages and profiles are not in the graph: it
+keeps relation names on edges, not domain and range, and no definitions. They
+come from the definitions bundle the tenant's views read, when the Platform
+has one (builder.tenant_definitions); otherwise they are added in the builder
+or come with an imported package.
 """
 from __future__ import annotations
 
 import re
 from typing import Any, Callable, Iterable, Mapping, Optional
 
-from builder import ontology_view, package
+from builder import ontology_view, package, tenant_definitions
 from builder import packs as shipped_packs
 
 _LEVELS = {"euo": "core", "core": "core", "pack": "pack"}
@@ -64,13 +67,26 @@ def _attribute(raw: Mapping[str, Any], level: str, names: Mapping[str, str]) -> 
 
 
 def model_from_tenant(name: str, node_types: Iterable[Mapping[str, Any]],
-                      schema_of: Callable[[str], Optional[list]]) -> tuple[dict, dict]:
-    """A blank workspace model for ``name`` with the tenant's node types; and counts."""
-    model = package.read_package(package.blank_package(name)).model
+                      schema_of: Callable[[str], Optional[list]], bundle: Any = None) -> tuple[dict, dict]:
+    """A workspace model for ``name`` with the tenant's node types; and counts.
+
+    With ``bundle`` (graph_views.bundle.Bundle: the definitions the tenant's
+    views read) the model starts as that configuration -- its types,
+    relations, processes, spines, pages and profiles -- and the tenant's node
+    types the bundle does not define, the ones made by hand, join its types;
+    a type the bundle defines keeps the bundle's definition. Without one the
+    model is blank but for the tenant's types.
+    """
+    if bundle is not None:
+        model = tenant_definitions.model_from_bundle(name, bundle).model
+    else:
+        model = package.read_package(package.blank_package(name)).model
     engine = shipped_packs.engine_types()
+    defined = {str(t.get("key")) for t in model["ontology"]["types"]}
     rows = [t for t in node_types if isinstance(t, Mapping) and t.get("name")
             and str(t.get("managed_by") or "") != "bundle:core"
-            and not str(t.get("id") or "").startswith(shipped_packs.ENGINE_PREFIX) and str(t["name"]) not in engine]
+            and not str(t.get("id") or "").startswith(shipped_packs.ENGINE_PREFIX)
+            and str(t["name"]) not in engine and str(t["name"]) not in defined]
     names = {str(t.get("id")): str(t["name"]) for t in rows if t.get("id") is not None}
     types, attributes, unreadable = [], 0, 0
     for row in sorted(rows, key=lambda t: str(t["name"]).lower()):
@@ -96,5 +112,11 @@ def model_from_tenant(name: str, node_types: Iterable[Mapping[str, Any]],
                 item["attributes"].append(attr)
                 attributes += 1
         types.append(item)
-    model["ontology"]["types"] = types
-    return model, {"types": len(types), "attributes": attributes, "unreadable": unreadable}
+    model["ontology"]["types"] = model["ontology"]["types"] + types
+    counts: dict[str, Any] = {"types": len(model["ontology"]["types"]), "attributes": attributes, "unreadable": unreadable}
+    if bundle is not None:
+        summary = package.summarise(model)
+        counts["own"] = len(types)
+        counts["definitions"] = {"bundle": bundle.label, **{k: summary[k] for k in
+                                 ("relations", "processes", "spines", "pages", "profiles")}}
+    return model, counts

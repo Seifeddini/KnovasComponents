@@ -127,6 +127,38 @@ def normalise_pages(doc: Mapping[str, Any]) -> dict:
             "pages": copy.deepcopy(list(doc.get("pages") or []))}
 
 
+
+def _unverified(levels: Iterable[Any]) -> list:
+    """Levels as the package writes them: ``verified`` only where it is false."""
+    out = []
+    for lv in levels:
+        if isinstance(lv, Mapping):
+            lv = copy.deepcopy(dict(lv))
+            if bool(lv.get("verified", True)):
+                lv.pop("verified", None)
+        out.append(lv)
+    return out
+
+
+def spines_from_generated(doc: Mapping[str, Any]) -> dict:
+    """The spines document as the package writes it, from the generated form: the inverse of
+    ``normalise_spines`` (builder.tenant_definitions)."""
+    spines = []
+    for s in doc.get("spines") or []:
+        if isinstance(s, Mapping):
+            s = copy.deepcopy(dict(s))
+            s["levels"] = _unverified(s.get("levels") or [])
+            if "branches" in s:
+                s["branches"] = [{**b, "levels": _unverified(b.get("levels") or [])} if isinstance(b, Mapping) else b
+                                 for b in s.get("branches") or []]
+        spines.append(s)
+    return {"version": int(doc.get("version", 1) or 1), "spines": spines}
+
+
+def pages_from_generated(doc: Mapping[str, Any]) -> dict:
+    """The pages document as the package writes it, from the generated form: the pages as written."""
+    return {"version": int(doc.get("version", 1) or 1), "pages": copy.deepcopy(list(doc.get("pages") or []))}
+
 @lru_cache(maxsize=4)
 def _validator(name: str):
     from jsonschema import Draft202012Validator

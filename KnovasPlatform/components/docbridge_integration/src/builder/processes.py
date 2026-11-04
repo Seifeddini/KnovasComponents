@@ -22,6 +22,7 @@ processes map for the same type and fact.
 """
 from __future__ import annotations
 
+import copy
 import json
 from collections import defaultdict
 from functools import lru_cache
@@ -97,6 +98,89 @@ def _artefact(a: Mapping[str, Any]) -> dict:
     for key in ("note", "label"):
         if a.get(key):
             out[key] = str(a[key])
+    return out
+
+
+def _artefact_out(a: Mapping[str, Any]) -> dict:
+    """An artefact as the package writes it: the generated form without its defaults."""
+    out: dict[str, Any] = {"type": str(a.get("type")), "path": _hops(a.get("path"))}
+    if a.get("required"):
+        out["required"] = True
+    if int(a.get("min_count", 1) or 1) != 1:
+        out["min_count"] = int(a["min_count"])
+    if not bool(a.get("verified", True)):
+        out["verified"] = False
+    alt = a.get("alternative")
+    if isinstance(alt, Mapping):
+        out["alternative"] = {"type": str(alt.get("type")), "path": _hops(alt.get("path"))}
+    where = a.get("where")
+    if isinstance(where, Mapping):
+        out["where"] = {"fact": str(where.get("fact")), "equals": str(where.get("equals"))}
+    for key in ("note", "label"):
+        if a.get(key):
+            out[key] = str(a[key])
+    return out
+
+
+def from_generated(doc: Mapping[str, Any]) -> dict:
+    """The processes document as the package writes it, from the generated form: the inverse of
+    ``normalise``, for a configuration the Platform holds only as the views' bundle
+    (builder.tenant_definitions). ``normalise(from_generated(g))`` gives ``g`` back."""
+    out: dict[str, Any] = {"version": int(doc.get("version") or FORMAT_VERSION)}
+    rules = [dict(r) for r in doc.get("rules") or [] if isinstance(r, Mapping)]
+    if rules:
+        out["rules"] = rules
+    report = [dict(r) for r in doc.get("report_rules") or [] if isinstance(r, Mapping)]
+    if report:
+        out["report_rules"] = report
+    procs = []
+    for g in doc.get("processes") or []:
+        if not isinstance(g, Mapping):
+            continue
+        p: dict[str, Any] = {"key": g.get("key"), "name": g.get("name")}
+        for key in ("pack", "description", "instance_types", "governing_fact", "status_map", "owner_role",
+                    "exists_today", "value_stream"):
+            value = g.get(key)
+            if value not in (None, "", [], {}):
+                p[key] = copy.deepcopy(value)
+        context = [_artefact_out(a) for a in g.get("context") or [] if isinstance(a, Mapping)]
+        if context:
+            p["context"] = context
+        steps, final = [], [str(x) for x in g.get("final") or []]
+        for raw in g.get("steps") or []:
+            st = step_of(raw)
+            sid = str(st.get("id"))
+            step: dict[str, Any] = {"id": sid}
+            if st.get("name") and str(st["name"]) != sid.replace("-", " "):
+                step["name"] = str(st["name"])
+            for key in ("owner_role", "description"):
+                if st.get(key):
+                    step[key] = str(st[key])
+            for key in ("requires", "produces"):
+                items = [_artefact_out(a) for a in st.get(key) or [] if isinstance(a, Mapping)]
+                if items:
+                    step[key] = items
+            if st.get("exit_criteria"):
+                step["exit_criteria"] = [str(x) for x in st["exit_criteria"]]
+            if st.get("resting") and sid not in final:
+                final.append(sid)
+            steps.append(step)
+        p["steps"] = steps
+        p["transitions"] = [transition_entry(a, b, r) for a, b, r in transitions_of(g)]
+        if final:
+            p["final"] = final
+        cc = g.get("change_classes") if isinstance(g.get("change_classes"), Mapping) else {}
+        classes: dict[str, Any] = {}
+        for key in ("minor", "substantive"):
+            if cc.get(key):
+                classes[key] = [str(x) for x in cc[key]]
+        trigger = cc.get("on_substantive")
+        if isinstance(trigger, Mapping):
+            classes["on_substantive"] = {"from": str(trigger.get("from")), "to": str(trigger.get("to"))}
+        if classes:
+            p["change_classes"] = classes
+        procs.append(p)
+    out["processes"] = procs
     return out
 
 

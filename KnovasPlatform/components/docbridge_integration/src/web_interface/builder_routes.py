@@ -21,6 +21,7 @@ so it can be exercised against a minimal Flask app, as the console is.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import logging
 import re
@@ -32,7 +33,8 @@ from flask import (Blueprint, Response, abort, g, jsonify, redirect, render_temp
                    session, url_for)
 from markupsafe import Markup
 
-from builder import editing, ontology_view, package, processes, publisher, review, tenant_ontology as tenant_reader
+from builder import editing, ontology_view, package, processes, publisher, review, tenant_definitions
+from builder import tenant_ontology as tenant_reader
 from builder import mappings as mapping_rules
 from builder import views as brain_views
 from builder import operate
@@ -56,7 +58,7 @@ ENDPOINT_PERMISSIONS = {
     "home": "view", "stage": "view", "workspace": "view", "pack_update": "view", "export": "view",
     "mapping_page": "view", "published_bundle": "view", "styleguide": "view", "views_preview": "view",
     "comments": "view", "activity": "view",
-    "import_preview": "edit", "import_package": "edit", "create_workspace": "edit", "edit_ontology": "edit",
+    "import_preview": "edit", "import_package": "edit", "create_workspace": "edit", "edit_ontology": "edit", "definitions_adopt": "edit", "adopt_definitions": "edit",
     "undo": "edit", "redo": "edit", "views_assistant": "edit", "brain_shape": "edit", "source_credential": "edit", "source_test": "edit", "source_sample": "edit",
     "mapping_preview": "edit", "mapping_dry_run": "edit", "dry_run": "edit",
     "add_comment": "comment", "resolve_comment": "resolve",
@@ -194,6 +196,7 @@ def create_builder_blueprint(
     tenant_provider: Optional[Callable[[], Optional[str]]] = None,
     engine_factory: Optional[Callable[[], Any]] = None,
     tenant_ontology: Optional[Callable[[], tuple]] = None,
+    tenant_bundle: Optional[Callable[[], Any]] = None,
     publish_sink: Optional[Callable[..., Any]] = None,
     views_source: Optional[Callable[[], Any]] = None,
     source_secrets: Optional[Callable[[], Any]] = None,
@@ -228,6 +231,10 @@ def create_builder_blueprint(
     ``tenant_ontology`` returns the tenant's node types and a function that
     reads one type's schema (the Platform's own client, on its certificate):
     a new workspace can start from what the tenant already has.
+    ``tenant_bundle`` returns the definitions bundle the tenant's views read
+    (graph_views.service.ViewService.bundle): such a workspace takes the
+    tenant's processes, spines, pages and profiles from it. It may raise;
+    then the workspace starts with the types alone and says so.
 
     ``publish_sink(bundle_text, source=, content_hash=)`` hands a published
     bundle to the views: the sync's source (brain_sync.SyncService.adopt), so
@@ -361,7 +368,8 @@ def create_builder_blueprint(
     def _change_label(path):
         section, _, key = str(path).partition("/")
         element = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paket",
-                   "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle", "mappings": "Zuordnung",
+                   "processes": "Prozess", "processes.rules": "Prozessregel", "processes.report_rules": "Berichtsregel",
+                   "sources": "Quelle", "mappings": "Zuordnung",
                    "spines": "Hierarchie", "pages": "Seite", "profiles": "Profil", "profile_roles": "Rolle",
                    "access.groups": "Zugriffsgruppe", "access.rules": "Ordnerregel"}.get(section)
         return f"{element} {key}" if element and key else CHANGE_LABELS.get(path, path)
@@ -411,6 +419,7 @@ def create_builder_blueprint(
             term_packs=[_pack_card(p) for p in shipped_packs.term_packs()],
             platform_tenant=_platform_tenant(),
             tenant_start=tenant_ontology is not None and _platform_tenant() is not None,
+            tenant_definitions=tenant_bundle is not None,
             **values,
         )
 
@@ -548,6 +557,75 @@ def create_builder_blueprint(
             done_url=url_for("builder.stage", slug="ontologie"),
         )
 
+    def _tenant_package(current) -> dict:
+        """The package the tenant's definitions bundle makes (builder.tenant_definitions), for this workspace.
+
+        The bundle is this Platform's tenant's, so a workspace linked to another tenant is refused.
+        """
+        if tenant_bundle is None or _platform_tenant() is None:
+            raise editing.EditError("Diese Plattform liest kein Definitionsbündel.", 409)
+        if current.tenant and current.tenant != _platform_tenant():
+            raise editing.EditError("Der Arbeitsbereich gehört zu einem anderen Mandanten.", 409)
+        try:
+            bundle = tenant_bundle()
+        except Exception as exc:  # noqa: BLE001 - no source set, unreachable or refused: say so
+            logger.warning("Builder: the tenant's definitions bundle could not be read: %s", type(exc).__name__)
+            raise editing.EditError("Das Definitionsbündel des Mandanten ließ sich nicht lesen.", 502,
+                                    [type(exc).__name__])
+        try:
+            return tenant_definitions.model_from_bundle(current.name, bundle).model
+        except package.PackageError as exc:
+            raise editing.EditError(exc.message, 422, exc.details)
+
+    def _adoption_counts(changes) -> dict:
+        """What an adoption adds or completes, per kind: {"7 Prozesse": ..} as the review page lists them."""
+        added: dict[str, int] = {}
+        completed: dict[str, int] = {}
+        for c in changes:
+            section = c["path"].split("/", 1)[0]
+            label = review.SECTIONS.get(section, section)
+            if c["before"] is None:
+                added[label] = added.get(label, 0) + 1
+            else:
+                completed[label] = completed.get(label, 0) + 1
+        return {**added, **{f"{label} ergänzt": n for label, n in completed.items()}}
+
+    @bp.route("/w/<workspace_id>/definitionen")
+    def definitions_adopt(workspace_id: str):
+        """What adopting the tenant's definitions would add to the draft, for review before it is applied (BB-12)."""
+        store, current = _editable_workspace(workspace_id)
+        model = store.model(current.id) or {}
+        try:
+            source = _tenant_package(current)
+            changes = editing.apply(copy.deepcopy(model), {"op": "definitions.adopt", "package": source})
+            refusal = None
+        except editing.EditError as exc:
+            changes, refusal = [], exc
+        session[SESSION_WORKSPACE] = current.id
+        return _render(
+            "builder/definitions_adopt.html", stage=STAGES[0], stage_number=1, current_workspace=current,
+            diff=review.diff(changes), counts=_adoption_counts(changes), refusal=refusal,
+            adopt_url=url_for("builder.adopt_definitions", workspace_id=current.id),
+            done_url=url_for("builder.stage", slug="prozesse"),
+        )
+
+    @bp.route("/api/w/<workspace_id>/definitions/adopt", methods=["POST"])
+    def adopt_definitions(workspace_id: str):
+        """Adopt the tenant's definitions into the draft: one edit, logged and undoable, read from the bundle here."""
+        store, current = _editable_workspace(workspace_id)
+        try:
+            source = _tenant_package(current)
+            model, changes, batch = store.edit(current.id, gate.current_user().id,
+                                               lambda m: editing.apply(m, {"op": "definitions.adopt", "package": source}))
+        except editing.EditError as exc:
+            return _refused(exc)
+        if batch:
+            history = _history(current.id)
+            history["undo"].append(batch)
+            history["redo"] = []
+            _save_history(current.id, history)
+        return _edited(store, current.id, model, changes, "definitions.adopt")
+
     @bp.route("/w/<workspace_id>/export")
     def export(workspace_id: str):
         store = _store()
@@ -621,14 +699,23 @@ def create_builder_blueprint(
         if start == "tenant":
             if tenant_ontology is None or _platform_tenant() is None:
                 return jsonify({"success": False, "error": "Diese Plattform kennt ihren Mandanten nicht."}), 409
+            bundle, bundle_error = None, None
+            if tenant_bundle is not None:
+                try:
+                    bundle = tenant_bundle()
+                except Exception as exc:  # noqa: BLE001 - no source set, unreachable or refused: the types still come
+                    bundle_error = type(exc).__name__
+                    logger.warning("Builder: the tenant's definitions bundle could not be read: %s", bundle_error)
             try:
                 node_types, schema_of = tenant_ontology()
-                model, counts = tenant_reader.model_from_tenant(name, node_types or [], schema_of)
+                model, counts = tenant_reader.model_from_tenant(name, node_types or [], schema_of, bundle=bundle)
             except Exception as exc:  # noqa: BLE001 - the tenant could not be read; say so
                 logger.warning("Builder: the tenant's ontology could not be read: %s", type(exc).__name__)
                 return jsonify({"success": False, "error": "Die Ontologie des Mandanten ließ sich nicht lesen.",
                                 "details": [type(exc).__name__]}), 502
             source = {"kind": "tenant", **counts}
+            if bundle_error:
+                source["definitions_error"] = bundle_error
         else:
             model = package.read_package(package.blank_package(name)).model
         chosen = [str(p) for p in request.form.getlist("packs") if str(p).strip()]

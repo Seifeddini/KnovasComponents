@@ -32,6 +32,7 @@
     <a class="b-button b-button--quiet" href="{{ url_for('builder.activity', workspace_id=ws.id) }}">Aktivität</a>
     {% if builder_access and builder_access.may('manage') %}<a class="b-button b-button--quiet" href="{{ url_for('builder.team', workspace_id=ws.id) }}">Team</a>{% endif %}
     <a class="b-button b-button--secondary" href="{{ url_for('builder.export', workspace_id=ws.id) }}" download>Paket exportieren</a>
+    {% if tenant_definitions and builder_access and builder_access.may('edit') %}<a class="b-button b-button--secondary" href="{{ url_for('builder.definitions_adopt', workspace_id=ws.id) }}">Definitionen des Mandanten übernehmen …</a>{% endif %}
     {% if builder_access and builder_access.may('manage') %}<button type="button" class="b-button b-button--danger" data-ws-delete-open>Löschen …</button>{% endif %}
     </div>
 </div>
@@ -83,7 +84,7 @@
             <tbody>
                 {% for c in changes %}
                 <tr>
-                    <td>{{ c.path | b_change_label }}{% if c.path == 'import' and c.after %}<br><span class="b-small b-muted">{{ c.after.types }} Typen, {{ c.after.relations }} Beziehungen</span>{% endif %}</td>
+                    <td>{{ c.path | b_change_label }}{% if c.path == 'import' and c.after %}<br><span class="b-small b-muted">{{ c.after.types }} Typen, {{ c.after.relations }} Beziehungen</span>{% elif c.path == 'create' and c.after and c.after.kind == 'tenant' %}<br><span class="b-small b-muted">{{ c.after.types }} Typen aus dem Mandanten{% if c.after.definitions %}; {{ c.after.definitions.processes }} Prozesse, {{ c.after.definitions.spines }} Hierarchien, {{ c.after.definitions.pages }} Seiten, {{ c.after.definitions.profiles }} Profile aus dem Definitionsbündel «{{ c.after.definitions.bundle }}»{% else %}; ohne Definitionen{% if c.after.definitions_error %} (Bündel nicht lesbar: {{ c.after.definitions_error }}){% endif %}{% endif %}</span>{% endif %}</td>
                     <td>{{ c.actor_name or '–' }}</td>
                     <td>{{ c.at | b_datetime }}</td>
                 </tr>

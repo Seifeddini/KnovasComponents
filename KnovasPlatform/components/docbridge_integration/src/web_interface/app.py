@@ -2004,6 +2004,9 @@ def create_app(config_path: Optional[str] = None):
             # The tenant's own node types and their schemas, for a workspace
             # that starts from what the tenant has.
             tenant_ontology=lambda: (api_client.graph_node_types(), api_client.graph_schema),
+            # The definitions the tenant's views read (its bundle, views.config_source): such a workspace
+            # takes the tenant's processes, spines, pages and profiles from it.
+            tenant_bundle=lambda: app.extensions['views'].bundle(),
             # The views read the sync's bundle: a published version becomes it.
             publish_sink=lambda text, **info: app.extensions['brain_sync'].adopt(text, **info),
             views_source=lambda: app.extensions['platform_settings'].value('views.config_source'),

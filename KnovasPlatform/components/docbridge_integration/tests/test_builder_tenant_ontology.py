@@ -1,8 +1,13 @@
 """A workspace from the ontology a tenant already has (the tenant's node types and schemas)."""
+from pathlib import Path
+
 import pytest
 
 from builder import ontology_view, package, tenant_ontology
+from graph_views import bundle as bundles
 from builder_harness import MemoryWorkspaceStore, StandInUser, make_app
+
+BUNDLE = Path(__file__).resolve().parent / "fixtures" / "knovas-bundle" / "bundle.json"
 
 NODE_TYPES = [
     {"id": "t1", "name": "Company", "managed_by": "bundle:tenant",
@@ -55,10 +60,11 @@ def test_it_is_a_model_the_builder_reads_and_exports():
 
 
 class TestTheWizard:
-    def _client(self, tenant="af000000", listing=(NODE_TYPES, _schema)):
+    def _client(self, tenant="af000000", listing=(NODE_TYPES, _schema), bundle=None):
         user = StandInUser({"admin"})
         store = MemoryWorkspaceStore({str(user.id): user.display_name})
-        return make_app(user, store, tenant=tenant, tenant_types=listing).test_client(), store
+        app = make_app(user, store, tenant=tenant, tenant_types=listing, tenant_bundle=bundle)
+        return app.test_client(), store
 
     def test_the_wizard_offers_the_tenant_ontology(self):
         client, _ = self._client()
@@ -85,6 +91,41 @@ class TestTheWizard:
         client, store = self._client(listing=(NODE_TYPES, unreachable))
         response = client.post("/builder/api/workspaces", data={"name": "Knovas", "start": "tenant"})
         assert response.status_code == 502 and store.list() == []
+
+    def test_the_tenant_definitions_come_along(self):
+        knovas = bundles.load_file(BUNDLE)
+        client, store = self._client(bundle=lambda: knovas)
+        page = client.get("/builder/arbeitsbereich").get_data(as_text=True)
+        assert "Prozesse, Hierarchien, Seiten und Profile" in page
+        response = client.post("/builder/api/workspaces", data={"name": "Knovas GmbH", "start": "tenant"})
+        assert response.status_code == 201, response.get_json()
+        [workspace] = store.list()
+        assert workspace.tenant == "af000000"
+        assert (workspace.summary["processes"], workspace.summary["spines"], workspace.summary["profiles"]) == (7, 4, 4)
+        assert workspace.summary["types"] == 62 + 1  # the bundle's types and the hand-made Workshop
+        first = store.changes(workspace.id)[0]["after"]
+        assert first["kind"] == "tenant" and first["definitions"]["processes"] == 7 and first["own"] == 1
+        body = client.get(f"/builder/w/{workspace.id}").get_data(as_text=True)
+        assert "7 Prozesse" in body and "4 Hierarchien" in body
+
+    def test_a_bundle_that_cannot_be_read_still_gives_the_types(self):
+        def refused():
+            raise bundles.BundleError("views.config_source is not set")
+
+        client, store = self._client(bundle=refused)
+        response = client.post("/builder/api/workspaces", data={"name": "Knovas", "start": "tenant"})
+        assert response.status_code == 201, response.get_json()
+        [workspace] = store.list()
+        assert workspace.summary["types"] == 3 and workspace.summary["processes"] == 0
+        first = store.changes(workspace.id)[0]["after"]
+        assert first["definitions_error"] == "BundleError" and "definitions" not in first
+        body = client.get(f"/builder/w/{workspace.id}").get_data(as_text=True)
+        assert "ohne Definitionen" in body
+
+    def test_without_a_bundle_source_the_wizard_says_types_only(self):
+        client, _ = self._client()
+        page = client.get("/builder/arbeitsbereich").get_data(as_text=True)
+        assert "wie sie heute sind</label>" in page and "Prozesse, Hierarchien, Seiten und Profile" not in page
 
     def test_a_pack_takes_over_the_tenant_types_of_its_names(self):
         from builder import packs

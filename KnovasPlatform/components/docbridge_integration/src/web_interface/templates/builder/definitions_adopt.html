@@ -1,0 +1,52 @@
+{# Adopting the tenant's definitions into this workspace, for review (BB-12):
+   what the package the tenant's definitions bundle makes would add to the
+   draft, as diff lines, and the button that adopts it. Expects
+   current_workspace, counts ({label: n} of what is added or completed),
+   diff (groups of lines), refusal, adopt_url and done_url. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% set ws = current_workspace %}
+{% block title %}Definitionen des Mandanten · {{ ws.name }}{% endblock %}
+{% block main %}
+<header class="b-page-head">
+    <p class="b-step-count b-small"><a href="{{ url_for('builder.workspace', workspace_id=ws.id) }}">{{ ws.name }}</a></p>
+    <h1 class="b-h1">Definitionen des Mandanten übernehmen</h1>
+    <p class="b-muted">Was aus dem Definitionsbündel, das die Ansichten lesen, in diesen Arbeitsbereich käme: Typen, Beziehungen, Prozesse, Hierarchien, Seiten und Profile, die er noch nicht hat. Was er hat, bleibt, wie es ist; ein Typ oder eine Beziehung erhält nur, wozu er noch keinen Wert hat. Übernehmen lässt sich in einem Schritt rückgängig machen.</p>
+</header>
+
+{% if refusal %}
+<div class="b-callout b-callout--critical" role="alert">
+    <p class="b-callout-title">{{ refusal.message }}</p>
+    {% if refusal.details %}<ul>{% for d in refusal.details %}<li class="b-mono">{{ d }}</li>{% endfor %}</ul>{% endif %}
+</div>
+{% elif not diff %}
+<div class="b-callout b-callout--good"><p class="b-callout-title">Nichts zu übernehmen: der Arbeitsbereich hat diese Definitionen schon.</p></div>
+{% else %}
+<div class="b-tag-row b-pack-counts">
+    {% for label, n in counts.items() %}<span class="b-tag b-tag--good">{{ n }} {{ label }}</span>{% endfor %}
+</div>
+<div class="b-pack-diff">
+    {% for group in diff %}
+    <section class="b-pack-diff-group" aria-label="{{ group.kind }} {{ group.key }}">
+        <h2 class="b-h3"><span class="b-muted">{{ group.kind }}</span> <span class="b-mono">{{ group.key }}</span></h2>
+        <div class="b-diff">
+            {% for line in group.lines %}
+            <div class="b-diff-line b-diff-line--{{ line.sign }}">
+                <span class="b-diff-sign" aria-hidden="true">{{ {'added': '+', 'removed': '−', 'changed': '~'}[line.sign] }}</span>
+                <span class="b-diff-body"><span class="b-visually-hidden">{{ {'added': 'Neu: ', 'removed': 'Entfällt: ', 'changed': 'Geändert: '}[line.sign] }}</span>{{ line.text }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+</div>
+<div class="b-page-actions b-pack-apply" data-definitions-adopt data-adopt-url="{{ adopt_url }}" data-done-url="{{ done_url }}">
+    <a class="b-button b-button--quiet" href="{{ url_for('builder.workspace', workspace_id=ws.id) }}">Abbrechen</a>
+    <button type="button" class="b-button b-button--primary" data-definitions-adopt-button>Definitionen übernehmen</button>
+</div>
+<div class="b-callout b-callout--critical" data-definitions-error role="alert" hidden></div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/definitions-adopt.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

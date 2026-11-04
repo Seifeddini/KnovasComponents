@@ -19,11 +19,13 @@ from typing import Any, Iterable, Mapping, Optional
 from builder import processes
 
 SECTIONS = {"ontology.types": "Typen", "ontology.relations": "Beziehungen", "packs": "Pakete",
-            "processes": "Prozesse", "processes.rules": "Prozessregeln", "sources": "Quellen", "mappings": "Zuordnungen",
+            "processes": "Prozesse", "processes.rules": "Prozessregeln", "processes.report_rules": "Berichtsregeln",
+            "sources": "Quellen", "mappings": "Zuordnungen",
             "spines": "Hierarchien", "pages": "Seiten", "profiles": "Profile", "profile_roles": "Rollen und Profile",
             "access.groups": "Zugriffsgruppen", "access.rules": "Ordnerregeln"}
 KINDS = {"ontology.types": "Typ", "ontology.relations": "Beziehung", "packs": "Paketstand",
-         "processes": "Prozess", "processes.rules": "Prozessregel", "sources": "Quelle", "mappings": "Zuordnung",
+         "processes": "Prozess", "processes.rules": "Prozessregel", "processes.report_rules": "Berichtsregel",
+         "sources": "Quelle", "mappings": "Zuordnung",
          "spines": "Hierarchie", "pages": "Seite", "profiles": "Profil", "profile_roles": "Rolle",
          "access.groups": "Zugriffsgruppe", "access.rules": "Ordnerregel"}
 #: Change rows that are not about one element: where the draft came from.

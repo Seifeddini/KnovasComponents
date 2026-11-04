@@ -102,7 +102,7 @@
                 <legend>Womit beginnt der Arbeitsbereich?</legend>
                 <label class="b-radio"><input type="radio" name="start" value="blank" {% if not tenant_start %}checked{% endif %}>Mit dem Kern (Enterprise Upper Ontology), ohne eigene Typen</label>
                 {% if tenant_start %}
-                <label class="b-radio"><input type="radio" name="start" value="tenant" checked>Mit der Ontologie des Mandanten <span class="b-mono">{{ platform_tenant }}</span>: seine Typen und Attribute, wie sie heute sind</label>
+                <label class="b-radio"><input type="radio" name="start" value="tenant" checked>Mit der Ontologie des Mandanten <span class="b-mono">{{ platform_tenant }}</span>: seine Typen und Attribute, wie sie heute sind{% if tenant_definitions %}, dazu seine Prozesse, Hierarchien, Seiten und Profile aus dem Definitionsbündel der Ansichten{% endif %}</label>
                 {% endif %}
                 <p class="b-label b-pack-legend">Dazu Branchenpakete</p>
                 <div class="b-pack-cards">

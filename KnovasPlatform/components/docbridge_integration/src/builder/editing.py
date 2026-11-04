@@ -40,6 +40,7 @@ RELATIONS = "ontology.relations"
 PACKS = "packs"
 PROCESSES = "processes"
 PROCESS_RULES = "processes.rules"
+PROCESS_REPORT_RULES = "processes.report_rules"
 SOURCES = "sources"
 MAPPINGS = "mappings"
 SPINES = "spines"
@@ -48,12 +49,12 @@ PROFILES = "profiles"
 PROFILE_ROLES = "profile_roles"
 ACCESS_GROUPS = "access.groups"
 ACCESS_RULES = "access.rules"
-SECTIONS = (TYPES, RELATIONS, PACKS, PROCESSES, PROCESS_RULES, SOURCES, MAPPINGS, SPINES, PAGES, PROFILES, PROFILE_ROLES,
-            ACCESS_GROUPS, ACCESS_RULES)
+SECTIONS = (TYPES, RELATIONS, PACKS, PROCESSES, PROCESS_RULES, PROCESS_REPORT_RULES, SOURCES, MAPPINGS, SPINES, PAGES,
+            PROFILES, PROFILE_ROLES, ACCESS_GROUPS, ACCESS_RULES)
 #: The definition documents (step B9) and the file the package keeps each in.
 DOCUMENT_SECTIONS = {SPINES: "spines", PAGES: "pages"}
 #: The field that names an element of a section; "key" where not listed.
-KEY_FIELDS = {PROCESS_RULES: "id"}
+KEY_FIELDS = {PROCESS_RULES: "id", PROCESS_REPORT_RULES: "id"}
 
 #: The datatypes an attribute can be given in the builder.
 DATATYPES = ("text", "date", "money", "enum", "entity_ref")
@@ -128,8 +129,8 @@ def _items(model: dict, section: str, *, create: bool = True) -> list:
             ensure_part(model, section)
             doc = model[section] = {"version": 1, section: []}
         return doc.setdefault(section, []) if create else (doc.get(section) or [])
-    if section in (PROCESSES, PROCESS_RULES):
-        name = "processes" if section == PROCESSES else "rules"
+    if section in (PROCESSES, PROCESS_RULES, PROCESS_REPORT_RULES):
+        name = {PROCESSES: "processes", PROCESS_RULES: "rules", PROCESS_REPORT_RULES: "report_rules"}[section]
         doc = model.get("processes")
         if not isinstance(doc, dict):
             if not create:
@@ -156,8 +157,9 @@ def put(model: dict, change: Mapping[str, Any], *, reverse: bool = False) -> Non
         raise EditError(f"«{key_of(section, before)}» wurde inzwischen geändert.", 409)
     if after is None:
         del items[index]
-        if section == PROCESS_RULES and not items:
-            model["processes"].pop("rules", None)  # a rules list the edit made is gone again with its last rule
+        if section in (PROCESS_RULES, PROCESS_REPORT_RULES) and not items:
+            # a rules list the edit made is gone again with its last rule
+            model["processes"].pop("rules" if section == PROCESS_RULES else "report_rules", None)
         if section == PROFILE_ROLES and not items:
             model.pop(PROFILE_ROLES, None)  # so is a role mapping
         if section in (ACCESS_GROUPS, ACCESS_RULES) and not items:
@@ -748,6 +750,7 @@ from builder import source_edits  # noqa: E402,F401  - the source operations (st
 from builder import mapping_edits  # noqa: E402,F401  - the mapping operations (step B8)
 from builder import view_edits  # noqa: E402,F401  - spines, pages, profiles and roles (step B9)
 from builder import access_edits  # noqa: E402,F401  - the access design of a draft (step B14)
+from builder import definition_edits  # noqa: E402,F401  - a tenant's definitions into a workspace (BB-12)
 
 
 def apply(model: dict, op: Any) -> list[dict]:

@@ -90,6 +90,17 @@ The bundle is read again after `views.definitions_ttl_seconds` (default 600 s) a
 The refresh button reads it at once. A bundle with an unknown `format_version`, or whose `content_hash`
 does not match its sections, is refused, and every view shows why.
 
+The Brain Builder reads the same bundle. A workspace started with "Mit der Ontologie des Mandanten" takes the
+tenant's node types from the graph and its relations, processes, hierarchies (spines), pages and profiles from
+the bundle, because the graph holds no definitions; a type the bundle defines keeps the bundle's definition, the
+tenant's hand-made types join it. Mappings, edit sources and node descriptions are not in a bundle and stay
+empty. Without a readable bundle (no source set, unreachable, refused) the workspace starts with the types alone,
+and its change log says so ("ohne Definitionen").
+A workspace that exists takes them later: "Definitionen des Mandanten übernehmen …" on its page shows what the
+bundle would add (types, relations, processes with their rules, hierarchies, pages, profiles the workspace lacks;
+a type or relation it has gets only the fields it has no value for) and adopts it as one edit, which "Rückgängig"
+takes back as a whole. Nothing the workspace has is replaced or removed.
+
 Compose mounts no token file. Put the token into a file outside the checkout and mount it with a local
 `docker-compose.override.yml`, never in `knovas.env`. `setup.sh` copies `knovas.env` into the
 world-readable `.env.generated`:
