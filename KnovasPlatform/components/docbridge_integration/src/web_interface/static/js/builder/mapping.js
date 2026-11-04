@@ -494,6 +494,11 @@
                 var err = el('div', 'b-callout b-callout--critical');
                 err.appendChild(el('p', null, payload.error));
                 (payload.details || []).forEach(function (d) { err.appendChild(el('p', 'b-small b-mono', d)); });
+                if (payload.url) {
+                    var there = el('a', 'b-button b-button--secondary', 'Zur Komponente');
+                    there.href = payload.url;
+                    err.appendChild(there);
+                }
                 body.appendChild(err);
                 return;
             }

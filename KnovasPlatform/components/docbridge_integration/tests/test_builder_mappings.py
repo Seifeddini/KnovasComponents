@@ -278,6 +278,33 @@ class TestTheRoutes:
         # A mapping's dry run is not the draft's: the review still asks for its own.
         assert "Probelauf starten" in world["client"].get("/builder/pruefen").get_data(as_text=True)
 
+    def _publish(self, w):
+        draft = w["store"].draft(w["id"])
+        assert w["store"].publish(w["id"], w["app"].extensions["builder_gate"].user.id, draft["content_hash"], {}, "h")
+        assert w["store"].draft(w["id"]) is None
+
+    def test_the_dry_run_of_a_published_mapping_needs_no_draft(self, world):
+        world["store"].link_tenant(world["id"], TENANT)
+        self._bind(world, "key", "f.path")
+        self._bind(world, "name", "f.name")
+        self._publish(world)
+        answer = world["client"].post(f"/builder/api/w/{world['id']}/mappings/ablage-mandate/dry-run")
+        assert answer.status_code == 200, answer.get_json()
+        assert answer.get_json()["summary"]["added"] == 3
+        assert world["store"].runs(world["id"])[0]["content_hash"], "a run names the state it was computed on"
+
+    def test_a_source_read_by_a_component_points_to_it_with_or_without_a_draft(self, world):
+        url = f"/builder/api/w/{world['id']}/mappings/ablage-mandate/dry-run"
+        component = world["store"].model(world["id"])["sources"][0]["component"]
+        world["store"]._row(component)["transport"] = "v1"
+        for step in ("draft", "published"):
+            answer = world["client"].post(url)
+            assert answer.status_code == 409, step
+            assert "läuft dort" in answer.get_json()["error"], step
+            assert answer.get_json()["url"].endswith(f"/komponenten/{component}"), step
+            if step == "draft":
+                self._publish(world)
+
     def test_the_sources_page_lists_the_mappings(self, world):
         page = world["client"].get("/builder/quellen").get_data(as_text=True)
         assert "ablage-mandate" in page and "/builder/zuordnung/ablage-mandate" in page

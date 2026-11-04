@@ -2045,15 +2045,17 @@ def create_builder_blueprint(
     def mapping_dry_run(workspace_id: str, mapping_id: str):
         """brain-runner's plan of the mapping against the tenant: added, modified, retired, drift, the deletion guard."""
         store = _store()
-        ready, refusal = _publishable(store, workspace_id)
-        if refusal:
-            return refusal
-        current, draft, tenant, engine = ready
+        current = _workspace_or_404(store, workspace_id)
         model = store.model(current.id)
         served = _served_on_site(store, model, mapping_id)
         if served is not None:
             return jsonify({"success": False, "error": "Diese Quelle liest eine Komponente bei der Firma; der Probelauf läuft dort.",
                             "url": url_for("builder.component_page", component_id=served["id"])}), 409
+        # Nothing is published here: it plans the current state, so a mapping already published can be run again.
+        ready, refusal = _connected(current)
+        if refusal:
+            return refusal
+        tenant, engine = ready
         try:
             entry, reader = _mapping_run(store, current, model, mapping_id)
             if [p for p in mapping_rules.problems(model, entry) if p["severity"] == "critical"]:
@@ -2067,8 +2069,10 @@ def create_builder_blueprint(
             return jsonify({"success": False, "error": "Der Probelauf ist fehlgeschlagen.", "details": [str(exc)[:300]]}), 502
         summary = mapping_rules.plan_summary(plan, mapping_id)
         status = "refused" if summary["guard"]["tripped"] else "ok"
+        draft = store.draft(current.id)
         store.record_run(current.id, kind="dry_run", actor_id=gate.current_user().id, tenant=tenant,
-                         content_hash=draft["content_hash"], bundle_hash=None, status=status,
+                         content_hash=draft["content_hash"] if draft else package.content_hash(model),
+                         bundle_hash=None, status=status,
                          summary={"mapping": mapping_id, **{k: summary[k] for k in
                                                             ("added", "modified", "retired", "unchanged", "drift")},
                                   "guard_tripped": summary["guard"]["tripped"]})
@@ -2254,6 +2258,13 @@ def create_builder_blueprint(
         draft = store.draft(current.id)
         if draft is None:
             return None, (jsonify({"success": False, "error": "Es gibt keinen Entwurf zu veröffentlichen."}), 409)
+        ready, refusal = _connected(current)
+        if refusal:
+            return None, refusal
+        return (current, draft, *ready), None
+
+    def _connected(current):
+        """(tenant, engine) of a workspace linked to this Platform's tenant -- or a refusal."""
         tenant = _platform_tenant()
         if not current.tenant:
             return None, (jsonify({"success": False, "error": "Der Arbeitsbereich ist mit keinem Mandanten verbunden."}), 409)
@@ -2265,7 +2276,7 @@ def create_builder_blueprint(
         missing = engine.missing() if engine is not None else "Keine Veröffentlichung in dieser Umgebung."
         if missing:
             return None, (jsonify({"success": False, "error": missing}), 503)
-        return (current, draft, tenant, engine), None
+        return (tenant, engine), None
 
     def _hash_of(body) -> str:
         return str((body or {}).get("content_hash") or "")
