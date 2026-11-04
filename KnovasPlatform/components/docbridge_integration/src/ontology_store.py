@@ -138,8 +138,22 @@ class OntologyStore:
                   "type": type_id, "doc_count": 0}
         self._entities.append(entity)
         self._entity_by_id[entity["id"]] = entity
-        self._persist(lambda raw: raw.setdefault("entities", []).append(dict(entity)))
+
+        def write(raw):
+            raw.setdefault("entities", []).append(dict(entity))
+            self._count_entity(raw, type_id, 1)
+
+        self._count_entity({"types": self._types}, type_id, 1)
+        self._persist(write)
         return dict(entity)
+
+    @staticmethod
+    def _count_entity(data: Dict[str, Any], type_id: str, by: int) -> None:
+        """A type's count moves with its entities: the star view draws a type by it. It is a stated number (a fixture
+        may hold only a sample of its entries), so it moves rather than being recounted."""
+        for entry in data.get("types") or []:
+            if entry.get("id") == type_id:
+                entry["count"] = max(0, _as_int(entry.get("count")) + by)
 
     def create_relation(self, src: str, predicate: str,
                         dst: str) -> Optional[Dict[str, Any]]:
@@ -213,6 +227,7 @@ class OntologyStore:
         entity_id = str(entity_id or "").strip()
         if entity_id not in self._entity_by_id:
             return False
+        type_id = self._entity_by_id[entity_id]["type"]
         self._entities[:] = [e for e in self._entities if e["id"] != entity_id]
         del self._entity_by_id[entity_id]
         self._entity_relations[:] = [
@@ -220,7 +235,13 @@ class OntologyStore:
             if r["src"] != entity_id and r["dst"] != entity_id]
         self._evidence[:] = [ev for ev in self._evidence
                              if ev["entity_id"] != entity_id]
-        self._persist(lambda raw: self._prune(raw, {entity_id}))
+
+        def write(raw):
+            self._prune(raw, {entity_id})
+            self._count_entity(raw, type_id, -1)
+
+        self._count_entity({"types": self._types}, type_id, -1)
+        self._persist(write)
         return True
 
     def delete_type(self, type_id: str) -> bool:

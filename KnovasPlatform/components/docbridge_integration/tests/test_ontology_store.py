@@ -132,6 +132,18 @@ def test_optional_icon_name_passes_through_sanitized(tmp_path):
     assert "icon" not in types[data["types"][1]["id"]]
 
 
+def test_the_count_of_a_type_follows_its_entities(tmp_path):
+    path = _fixture(tmp_path, {"types": [{"id": "dienst", "label": "Dienst"}], "relations": [], "entities": []})
+    store = load_ontology(path)
+    entity = store.create_entity("Neuer Dienst", "dienst")
+    assert store.summary()["types"][0]["count"] == 1
+    assert load_ontology(path).summary()["types"][0]["count"] == 1, "written to the file too"
+    store.create_entity("neuer dienst", "dienst")
+    assert store.summary()["types"][0]["count"] == 1, "the same entity again is no new one"
+    assert store.delete_entity(entity["id"])
+    assert load_ontology(path).summary()["types"][0]["count"] == 0
+
+
 def test_create_entity_and_relation_persist_to_fixture(tmp_path):
     """Der Graph ist kuratiert: Anlegen muss die Fixture fortschreiben."""
     path = _fixture(tmp_path, VALID)

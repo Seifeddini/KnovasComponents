@@ -2813,7 +2813,7 @@
         const select = document.createElement('select');
         select.className = 'galaxy-type-select';
         select.setAttribute('aria-label', 'Typ des neuen Knotens');
-        systems
+        (liveTypes.length ? liveTypes : systems)
             .filter((system) => system.id && system.label)
             .slice()
             .sort((a, b) => a.label.localeCompare(b.label, 'de'))
@@ -2840,14 +2840,13 @@
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
             error.hidden = true;
-            const host = systems.find((system) => system.id === select.value);
-            if (!host) {
+            if (!select.value) {
                 error.textContent = 'Wählen Sie einen Typ.';
                 error.hidden = false;
                 return;
             }
             try {
-                await createEntity(host, input.value);
+                await createEntity(select.value, input.value);
             } catch (err) {
                 error.textContent = err.message || 'Das hat nicht geklappt.';
                 error.hidden = false;
@@ -2935,16 +2934,32 @@
         showEntityDetails(system, entity);
     }
 
-    async function createEntity(system, label) {
+    async function createEntity(typeId, label) {
         const name = String(label || '').trim();
         if (!name) throw new Error('Name fehlt.');
-        if (!system.id) throw new Error('Dieser Typ kann hier nicht ergänzt werden.');
         const data = await galaxyWrite('/api/ontology/entities', 'POST', {
-            type: system.id,
+            type: typeId,
             label: name,
         });
         const created = data && data.entity;
         if (!created) return;
+        const live = liveTypes.find((type) => type.id === typeId);
+        if (live) {
+            live.count += 1;
+            live.entities = [{ id: created.id, label: created.label || name }, ...live.entities];
+        }
+        const bar = document.getElementById('galaxyLayers');
+        if (bar) bar.dataset.open = 'false';
+        let system = systems.find((candidate) => candidate.id === typeId);
+        if (!system) {
+            // Its type is not on screen: it joins the front layer, or the new node could not be seen.
+            galaxyTopIds.add(typeId);
+            saveGalaxyTop();
+            applyLiveLayers();
+            system = systems.find((candidate) => candidate.id === typeId);
+            if (system) openSystem(system.label);
+            return;
+        }
         system.entityNodes = system.entityNodes || [];
         system.entityNodes.unshift({
             id: created.id,
@@ -2953,7 +2968,9 @@
         });
         system.count = (Number(system.count) || 0) + 1;
         system.siblingPoints = null;
-        showTypeDetails(system);
+        if (liveTypes.length) renderGalaxyLayers();
+        if (focusedSystem === system) showTypeDetails(system);
+        else openSystem(system.label);
     }
 
     async function removeEntity(system, entity) {
@@ -3379,16 +3396,27 @@
 
     const galaxyTopKey = 'cortex-galaxy-top';
     let galaxyTopIds = new Set();
-    let galaxyTopSaved = false;
     try {
         const savedTop = JSON.parse(localStorage.getItem(galaxyTopKey) || 'null');
-        if (Array.isArray(savedTop)) {
-            galaxyTopIds = new Set(savedTop.map(String));
-            galaxyTopSaved = true;
-        }
+        if (Array.isArray(savedTop)) galaxyTopIds = new Set(savedTop.map(String));
     } catch (err) { /* no saved front layer */ }
     let liveTypes = [];
     let liveRelations = [];
+
+    function saveGalaxyTop() {
+        try {
+            localStorage.setItem(galaxyTopKey, JSON.stringify([...galaxyTopIds]));
+        } catch (err) { /* this browser keeps no front layer */ }
+    }
+
+    /* Nothing usable chosen in this browser: the type called Client, else the largest. A tenant with nodes never opens
+       on an empty sky, also when its types have other names or the saved choice was made for another tenant. */
+    function chooseGalaxyTop() {
+        if (liveTypes.some((type) => type.count > 0 && galaxyTopIds.has(type.id))) return;
+        const first = liveTypes.find((type) => type.label === 'Client' && type.count > 0)
+            || liveTypes.find((type) => type.count > 0);
+        if (first) galaxyTopIds.add(first.id);
+    }
 
     function renderGalaxyLayers() {
         let bar = document.getElementById('galaxyLayers');
@@ -3398,13 +3426,16 @@
             bar.className = 'galaxy-layers';
             canvas.parentElement.appendChild(bar);
         }
-        const pickerOpen = bar.dataset.open === 'true';
+        // An empty sky opens on the way to fill it.
+        const open = bar.dataset.open || (systems.length ? 'false' : 'add');
+        const pickerOpen = open === 'true';
+        const addOpen = open === 'add';
         bar.replaceChildren();
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.className = 'galaxy-layer';
         toggle.setAttribute('aria-expanded', pickerOpen ? 'true' : 'false');
-        const chosen = liveTypes.filter((type) => galaxyTopIds.has(type.id) && type.count > 0);
+        const chosen = liveTypes.filter((type) => galaxyTopIds.has(type.id));
         toggle.textContent = chosen.length
             ? `Vordergrund · ${chosen.length}`
             : 'Vordergrund wählen';
@@ -3413,6 +3444,23 @@
             renderGalaxyLayers();
         });
         bar.appendChild(toggle);
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'galaxy-layer';
+        add.setAttribute('aria-expanded', addOpen ? 'true' : 'false');
+        add.textContent = 'Knoten anlegen';
+        add.addEventListener('click', () => {
+            bar.dataset.open = addOpen ? 'false' : 'add';
+            renderGalaxyLayers();
+        });
+        bar.appendChild(add);
+        if (addOpen) {
+            const addPanel = document.createElement('div');
+            addPanel.className = 'galaxy-top-panel';
+            addPanel.appendChild(nodeCreateForm(focusedSystem ? focusedSystem.id : ''));
+            bar.appendChild(addPanel);
+            return;
+        }
         if (!pickerOpen) return;
         const panel = document.createElement('div');
         panel.className = 'galaxy-top-panel';
@@ -3421,11 +3469,10 @@
         const note = document.createElement('p');
         note.textContent = 'Die nächste Schicht sind die verbundenen Typen.';
         panel.appendChild(note);
-        const populated = liveTypes
-            .filter((type) => type.count > 0)
+        const named = liveTypes
             .slice()
             .sort((a, b) => a.label.localeCompare(b.label, 'de'));
-        populated.forEach((type) => {
+        named.forEach((type) => {
             const label = document.createElement('label');
             const box = document.createElement('input');
             box.type = 'checkbox';
@@ -3433,11 +3480,11 @@
             box.addEventListener('change', () => {
                 if (box.checked) galaxyTopIds.add(type.id);
                 else galaxyTopIds.delete(type.id);
-                localStorage.setItem(galaxyTopKey, JSON.stringify([...galaxyTopIds]));
+                saveGalaxyTop();
                 applyLiveLayers();
             });
             const name = document.createElement('span');
-            name.textContent = type.label;
+            name.textContent = type.count ? type.label : `${type.label} (leer)`;
             label.append(box, name);
             panel.appendChild(label);
         });
@@ -3453,7 +3500,7 @@
         targetEntityMix = 0;
         hideEntityPanel();
         const byId = new Map(liveTypes.map((type) => [type.id, type]));
-        const tops = liveTypes.filter((type) => galaxyTopIds.has(type.id) && type.count > 0);
+        const tops = liveTypes.filter((type) => galaxyTopIds.has(type.id));
         const neighborIds = new Map();
         liveRelations.forEach((relation) => {
             const srcTop = galaxyTopIds.has(relation.src);
@@ -3545,10 +3592,11 @@
             const data = await response.json();
             const types = Array.isArray(data.types) ? data.types : [];
             liveRelations = Array.isArray(data.relations) ? data.relations : [];
-            const populated = types
-                .filter((type) => type && type.count > 0 && type.label)
-                .sort((a, b) => b.count - a.count || String(a.label).localeCompare(b.label, 'de'));
-            const samples = await Promise.all(populated.map(async (type) => {
+            const named = types
+                .filter((type) => type && type.id && type.label)
+                .sort((a, b) => (b.count || 0) - (a.count || 0) || String(a.label).localeCompare(b.label, 'de'));
+            const samples = await Promise.all(named.map(async (type) => {
+                if (!type.count) return [];
                 const limit = Math.min(type.count, 48);
                 try {
                     const ents = await fetch(`/api/ontology/entities?type=${encodeURIComponent(type.id)}`);
@@ -3561,20 +3609,16 @@
                     return [];
                 }
             }));
-            liveTypes = populated.map((type, index) => ({
+            if (!named.length) throw new Error('empty');
+            liveTypes = named.map((type, index) => ({
                 id: type.id,
                 label: type.label,
-                count: type.count,
+                count: Number(type.count) || 0,
                 entities: samples[index],
             }));
-            if (!populated.length) throw new Error('empty');
-            // Ohne gespeicherte Wahl steht der Demo-Mandant vorn. Die
-            // verbundenen Typen liegen dann auf dem naechsten Ring. Gespeichert
+            // Die verbundenen Typen liegen auf dem naechsten Ring. Gespeichert
             // wird die Wahl erst, wenn sie jemand aendert.
-            if (!galaxyTopSaved) {
-                const client = liveTypes.find((type) => type.label === 'Client' && type.count > 0);
-                if (client) galaxyTopIds.add(client.id);
-            }
+            chooseGalaxyTop();
             applyLiveLayers();
         } catch (err) {
             mountSystems(systemDefinitions);

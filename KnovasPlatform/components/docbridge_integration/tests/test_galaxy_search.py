@@ -65,6 +65,7 @@ class El {
   appendChild(child) { this.children.push(child); child.parentElement = this; return child; }
   append(...children) { children.forEach((c) => this.appendChild(typeof c === 'string' ? new El('#text') : c)); }
   replaceChildren(...children) { this.children = []; this.append(...children); }
+  remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter((c) => c !== this); }
   setAttribute(k, v) { this.attributes[k] = String(v); }
   getAttribute(k) { return k in this.attributes ? this.attributes[k] : null; }
   removeAttribute(k) { delete this.attributes[k]; }
