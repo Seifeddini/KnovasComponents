@@ -107,6 +107,28 @@ def _resolver(config, store=None, environ=None, box=None, **kw):
 # -- the registry ---------------------------------------------------------------------------------------
 
 
+class TestWhatTheViewsRead:
+    """The publish page says whether the views read a published version: only when the setting is the sync's."""
+
+    GITHUB = "github:acme/kb@main:generated/bundle.json"
+
+    def test_nothing_configured_is_the_sync(self, config):
+        r, _ = _resolver(config, defaults={"views.config_source": lambda: "sync"})
+        assert r.value("views.config_source") == "sync"
+
+    def test_the_environment_wins_and_cannot_be_changed_on_the_page(self, config):
+        r, _ = _resolver(config, environ={"VIEWS_CONFIG_SOURCE": self.GITHUB},
+                         defaults={"views.config_source": lambda: "sync"})
+        assert r.value("views.config_source") == self.GITHUB
+        with pytest.raises(ps.Pinned, match="VIEWS_CONFIG_SOURCE"):
+            r.save(object(), {"views.config_source": None}, roles=[])
+
+    def test_a_token_in_the_environment_cannot_be_changed_on_the_page(self, config):
+        r, _ = _resolver(config, environ={"KB_GITHUB_TOKEN": "x"})
+        with pytest.raises(ps.Pinned, match="KB_GITHUB_TOKEN"):
+            r.save(object(), {"views.change_requests.github_token": "y"}, roles=[])
+
+
 class TestRegistry:
     def test_the_views_settings_and_the_token_are_registered(self):
         assert set(ps.REGISTRY) >= {

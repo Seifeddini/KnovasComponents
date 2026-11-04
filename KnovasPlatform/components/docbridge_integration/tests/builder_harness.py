@@ -780,7 +780,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
              secrets=None, readers=None, roles=None, roles_sink=None, sync=None, directory=None,
              component_secrets=None, adapters=None, limits=None, signer=None, require_certificate=True,
              access=None, assistant=None, graph=None, brain_url=None, brain_ca=None,
-             issue_certificates=True) -> Flask:
+             issue_certificates=True, views_source=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -818,6 +818,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         tenant_ontology=(lambda: (tenant_types[0], tenant_types[1])) if tenant_types is not None else None,
         engine_factory=(lambda: engine) if engine is not None else None,
         publish_sink=publish_sink,
+        views_source=views_source,
         source_secrets=(lambda: secrets) if secrets is not None else None,
         reader_factory=readers,
         platform_roles=(lambda: roles) if roles is not None else None,

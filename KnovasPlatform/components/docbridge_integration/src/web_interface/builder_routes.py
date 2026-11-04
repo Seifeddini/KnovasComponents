@@ -195,6 +195,7 @@ def create_builder_blueprint(
     engine_factory: Optional[Callable[[], Any]] = None,
     tenant_ontology: Optional[Callable[[], tuple]] = None,
     publish_sink: Optional[Callable[..., Any]] = None,
+    views_source: Optional[Callable[[], Any]] = None,
     source_secrets: Optional[Callable[[], Any]] = None,
     reader_factory: Optional[Callable[..., Any]] = None,
     user_directory: Optional[Callable[[], Any]] = None,
@@ -230,7 +231,8 @@ def create_builder_blueprint(
 
     ``publish_sink(bundle_text, source=, content_hash=)`` hands a published
     bundle to the views: the sync's source (brain_sync.SyncService.adopt), so
-    the views read what was published.
+    the views read what was published. ``views_source`` returns the source the
+    views read now: a configured one wins over the sync's, and the publish says so.
 
     ``source_secrets`` returns the write-only store of the sources'
     credentials (``platform_settings.SourceSecrets`` for the Platform's
@@ -2419,6 +2421,9 @@ def create_builder_blueprint(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Builder: the views did not take the bundle: %s", type(exc).__name__)
             return {"adopted": False, "why": type(exc).__name__}
+        # A source configured in the settings wins over the sync's, so this version is kept but not what they read.
+        if views_source is not None and str(views_source() or "").strip() not in ("sync", "sync:"):
+            return {"adopted": False, "elsewhere": True}
         return {"adopted": True}
 
     @bp.route("/api/w/<workspace_id>/bundle")

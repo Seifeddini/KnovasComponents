@@ -2006,6 +2006,7 @@ def create_app(config_path: Optional[str] = None):
             tenant_ontology=lambda: (api_client.graph_node_types(), api_client.graph_schema),
             # The views read the sync's bundle: a published version becomes it.
             publish_sink=lambda text, **info: app.extensions['brain_sync'].adopt(text, **info),
+            views_source=lambda: app.extensions['platform_settings'].value('views.config_source'),
             # Sources (B7): credentials only through the settings registry, reads only through a component.
             source_secrets=_builder_source_secrets,
             reader_factory=_builder_reader,

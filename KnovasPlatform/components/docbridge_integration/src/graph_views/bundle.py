@@ -112,7 +112,9 @@ def _read_text(source: Source, path: str, github: Optional[Callable[[str], Any]]
     try:
         return repo.get_raw(path, source.ref)
     except GitHubError as exc:
-        hint = " Token gesetzt (KB_GITHUB_TOKEN / views.change_requests.github_token_file)?" if exc.status in (401, 403) else ""
+        hint = (" Gelesen wird mit dem Token für die Wissensbasis in den Einstellungen (KB_GITHUB_TOKEN / "
+                "views.change_requests.github_token_file), nicht der Zugang einer Quelle im Brain Builder."
+                if exc.status in (401, 403) else "")
         raise BundleError(f"{source.repo}@{source.ref}:{path} nicht lesbar: {exc}.{hint}") from None
 
 

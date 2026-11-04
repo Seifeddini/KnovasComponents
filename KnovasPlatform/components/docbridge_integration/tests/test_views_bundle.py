@@ -250,6 +250,16 @@ class TestGitHubSource:
             bundle.read(f"github:Seifeddini/KnowledgeBase@master:{KB_PATH}", lambda repo: Denied())
         assert "HTTP 401" in str(exc.value) and "KB_GITHUB_TOKEN" in str(exc.value)
 
+    def test_a_github_failure_says_a_source_s_token_is_not_this_one(self):
+        from graph_views.github_repo import GitHubError
+
+        class Refusing:
+            def get_raw(self, path, ref):
+                raise GitHubError("read file", 401)
+
+        with pytest.raises(bundle.BundleError, match="nicht der Zugang einer Quelle"):
+            bundle.read("github:o/r@main:bundle.json", lambda repo: Refusing())
+
     def test_get_raw_asks_for_the_raw_media_type_and_sends_no_empty_token(self):
         from graph_views.github_repo import GitHubRepo
 

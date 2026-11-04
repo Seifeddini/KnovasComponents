@@ -301,6 +301,25 @@ class TestAfterThePublish:
         [(text, info)] = handed
         assert info["source"] == "builder-v1" and '"brain-definitions-bundle"' in text
 
+    def test_a_configured_source_keeps_the_views_and_the_publish_says_so(self, setup):
+        s = setup
+        handed = []
+        from builder_harness import make_app
+
+        app = make_app(s["author"], s["store"], tenant=TENANT, engine=s["engine"],
+                       publish_sink=lambda text, **info: handed.append(info),
+                       views_source=lambda: "github:acme/kb@main:generated/bundle.json")
+        client = app.test_client()
+        gate = app.extensions["builder_gate"]
+        client.post(f"/builder/api/w/{s['id']}/ontology", json={"op": "type.create", "key": "Invoice"})
+        client.post(f"/builder/api/w/{s['id']}/dry-run")
+        gate.user = s["reviewer"]
+        client.post(f"/builder/api/w/{s['id']}/approve", json={"content_hash": _hash(s)})
+        gate.user = s["author"]
+        result = client.post(f"/builder/api/w/{s['id']}/publish", json={"content_hash": _hash(s)}).get_json()["result"]
+        assert result["views"] == {"adopted": False, "elsewhere": True}, "the page must not say the views read this version"
+        assert handed, "kept, so that emptying the setting is enough"
+
     def test_without_the_sync_the_views_keep_their_source(self, setup):
         s = setup
         s["client"].post(f"/builder/api/w/{s['id']}/ontology", json={"op": "type.create", "key": "Invoice"})

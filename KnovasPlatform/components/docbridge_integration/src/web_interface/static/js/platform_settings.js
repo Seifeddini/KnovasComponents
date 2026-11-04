@@ -37,7 +37,7 @@
     }
 
     function origin(s) {
-        if (s.source === 'deployment') return `Installation: ${s.reason}`;
+        if (s.source === 'deployment') return `Installation: ${s.reason}. Hier nicht änderbar: dort ändern oder entfernen, dann neu starten.`;
         if (s.source === 'page') return `Seite${s.updated_by ? `, geändert von ${s.updated_by}` : ''}${s.updated_at ? ` am ${String(s.updated_at).slice(0, 16).replace('T', ' ')}` : ''}`;
         return 'Standard (config.yaml)';
     }
