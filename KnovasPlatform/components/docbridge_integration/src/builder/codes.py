@@ -190,6 +190,23 @@ CODES: Mapping[str, Mapping[str, str]] = {
         "explanation": "Die Quelle liest einen Tag oder eine Version, keinen Branch; ein Pull Request braucht einen Branch.",
         "fix": "An der Quelle einen Branch (etwa main) eintragen, wenn zurückgeschrieben werden soll.",
     },
+    "runner.bad_change": {
+        "title": "Änderung passt nicht zum Auftrag",
+        "explanation": "Die übersetzte Änderung nennt eine andere Datei oder Version als der Auftrag, oder sie enthält "
+                       "keinen Wert; es wurde nichts geschrieben.",
+        "fix": "Den Vorschlag ablehnen und neu stellen; bleibt es so, Knovas melden.",
+    },
+    "bad_field": {
+        "title": "Auftrag nicht annehmbar",
+        "explanation": "Ein Feld des Auftrags liegt ausserhalb dessen, was die Komponente annimmt (etwa die Grösse "
+                       "eines Abrufs).",
+        "fix": "Knovas melden; der Auftrag kommt so nicht vom Brain.",
+    },
+    "internal": {
+        "title": "Fehler in der Komponente",
+        "explanation": "Die Komponente ist bei diesem Auftrag gescheitert; ihr Protokoll nennt die Fehlerart.",
+        "fix": "Das Protokoll der Komponente am Standort prüfen und den Auftrag erneut versuchen; bleibt es so, Knovas melden.",
+    },
     # Knovas Link (MVP-15, MVP-17)
     "waiting_for_certificate": {
         "title": "Wartet auf das Zertifikat",

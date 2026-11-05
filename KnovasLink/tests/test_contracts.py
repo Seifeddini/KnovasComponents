@@ -39,7 +39,8 @@ CODES = ["unsupported_type", "unsupported", "unreachable", "lease_lost", "source
          "write_disabled", "not_writable", "computed_attribute", "value_not_allowed", "not_invertible", "unknown_mapping",
          "previously_rejected", "waiting_for_certificate", "not_relayed", "invalid_job", "part_not_accepted",
          "too_large", "version_mismatch", "edit_unsupported", "front_matter_missing", "no_change", "github.rate_limited",
-         "github.branch_left"]
+         "github.branch_left", "github.branch_exists", "github.unreachable", "github.bad_repository", "github.bad_answer",
+         "github.base_not_a_branch", "runner.bad_change", "bad_field", "internal"]
 
 # Required fields per schema and discriminator: (schema, "type=…" / "kind=…" / "", path).
 REQUIRED = {

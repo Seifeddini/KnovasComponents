@@ -29,6 +29,14 @@
     {"code": "front_matter_missing", "meaning": "The file has no front matter block to write the value into."},
     {"code": "no_change", "meaning": "The edits leave the file exactly as it is; nothing was staged."},
     {"code": "github.rate_limited", "meaning": "GitHub refused the call because the credential's rate limit is used up."},
-    {"code": "github.branch_left", "meaning": "A write's branch was left in the repository without a pull request; remove it or open the pull request by hand."}
+    {"code": "github.branch_left", "meaning": "A write's branch was left in the repository without a pull request; remove it or open the pull request by hand."},
+    {"code": "github.branch_exists", "meaning": "A write's branch name is taken by another change; it is never overwritten or deleted."},
+    {"code": "github.unreachable", "meaning": "The component did not reach GitHub."},
+    {"code": "github.bad_repository", "meaning": "The source's repository or branch is not valid, or not visible to the credential."},
+    {"code": "github.bad_answer", "meaning": "GitHub answered in a shape the component does not expect."},
+    {"code": "github.base_not_a_branch", "meaning": "A write into a source that reads a tag or a commit; a pull request needs a branch."},
+    {"code": "runner.bad_change", "meaning": "The compiled change does not name the job's item and version, or holds no edit."},
+    {"code": "bad_field", "meaning": "A job field is outside what the component accepts, for example a fetch's max_bytes."},
+    {"code": "internal", "meaning": "The component failed on a job for a reason of its own; its log has the error type."}
   ]
 }

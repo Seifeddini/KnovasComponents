@@ -181,7 +181,9 @@ Which status and code a component answers with:
 | refused | `no_change` | a write: the edits leave the file as it is |
 | conflict | `conflict` | the item's version is not `expected_version`; `version` is the one found; nothing written |
 | failed | `version_mismatch` | a fetch: the bytes' git blob hash is not the requested version; nothing sent |
-| failed | `github.rate_limited`, `github.branch_left`, `github.http_<status>` | GitHub did not do what was asked (see "Code families") |
+| failed | `github.rate_limited`, `github.branch_left`, `github.branch_exists`, `github.unreachable`, `github.bad_repository`, `github.bad_answer`, `github.base_not_a_branch`, `github.http_<status>` | GitHub did not do what was asked (see "Code families") |
+| failed | `runner.bad_change` | a write: the runner's compiled change does not match the job |
+| failed | `bad_field`, `internal` | a job field the component does not accept; the component's own failure |
 | failed | any code, or none | anything else |
 
 A component may answer its own codes of the same shape (`^[a-z][a-z0-9_.]{1,60}$`), never text or a name. A code
@@ -249,6 +251,14 @@ anything else with 400 `bad_field`. 503 `unreachable`: the Platform did not answ
 | `no_change` | component | job result `refused`: the edits leave the file unchanged |
 | `github.rate_limited` | component | job result `failed`: GitHub's rate limit for the credential is used up |
 | `github.branch_left` | component | job result `failed`: a write's branch was left without a pull request |
+| `github.branch_exists` | component | job result `failed`: a write's branch name is taken by another change; it is never overwritten or deleted |
+| `github.unreachable` | component | job result `failed`: the component did not reach GitHub |
+| `github.bad_repository` | component | job result `failed`: the source's repository or branch is not valid, or not visible to the credential |
+| `github.bad_answer` | component | job result `failed`: gitHub answered in a shape the component does not expect |
+| `github.base_not_a_branch` | component | job result `failed`: a write into a source that reads a tag or a commit; a pull request needs a branch |
+| `runner.bad_change` | component | job result `failed`: the compiled change does not name the job's item and version, or holds no edit |
+| `bad_field` | component | job result `failed`: a job field is outside what the component accepts, for example a fetch's max_bytes |
+| `internal` | component | job result `failed`: the component failed on a job for a reason of its own; its log has the error type |
 | `github.http_<status>` | component | job result `failed`: the family above, one code per HTTP status |
 
 ## Open and closed objects

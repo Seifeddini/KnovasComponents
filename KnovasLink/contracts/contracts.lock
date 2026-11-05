@@ -1,10 +1,10 @@
 {
   "version": "1.1.0",
   "files": {
-    "codes.json": "3c04964ffd95bb0bd54786b17d26cf926291c516f0c20b2273f874f9ff26f1fe",
+    "codes.json": "a92a7bb1ed45ea9d25963738f2971c57f8831f7b196c74af208fa364adf086e8",
     "job-result.schema.json": "1824be17c609a6fee5c57962bac3bac52c0b5b452ab912dbe7e945011f95274c",
     "job.schema.json": "b0b53daac40ad7b5e13a176a530e8aea8a74f070dc6c1599abcfe3ef1b20fb4b",
-    "local-api.md": "1caa49ca359398bc484473d80e9c6d937179faed9950e61df50fe35ba912411d",
+    "local-api.md": "47ab058c40ca07623ed070f9d0dbd79fe6f20a23b245990a04e60c3534dfb4d9",
     "stream-message.schema.json": "94c02690dd4a649b83c54bb0c5deb31241481c8f350485800946c02fca1fa35c"
   }
 }
