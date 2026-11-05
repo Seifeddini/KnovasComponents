@@ -101,7 +101,10 @@ class TestTheRules:
         link_mounts = services["knovas-link"]["volumes"]
         assert {"type": "volume", "source": "link-tokens", "target": "/link"} in link_mounts
         [token] = [v for v in services["sync-component"]["volumes"] if isinstance(v, dict) and v["source"] == "link-tokens"]
-        assert token["volume"] == {"subpath": "sync-component"} and token["read_only"] is True
+        assert token["volume"] == {"subpath": "sync-component"} and token["read_only"] is True and token["target"] == "/link"
+        # Link's local API: service knovas-link, port 8460, on the internal network; Link's data at /data.
+        assert services["sync-component"]["environment"]["SYNC_LINK_URL"] == "http://knovas-link:8460"
+        assert "link-data:/data" in link_mounts and services["knovas-link"]["env_file"] == ["knovas-site.env"]
         # No share is mounted unless Dateiablage is ticked.
         assert not any(isinstance(v, dict) and v.get("target") == "/sources" for v in services["sync-component"]["volumes"])
 

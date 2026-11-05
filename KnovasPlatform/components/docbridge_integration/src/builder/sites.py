@@ -22,7 +22,8 @@ What is not decided here and is marked so:
   company (``docker save`` / ``docker load``), and a copied image has no digest a compose file could name. The
   digests are therefore variables (``KNOVAS_LINK_DIGEST``, ``SYNC_COMPONENT_DIGEST``) that the page calls
   placeholders until Knovas publishes images with digests.
-- **Link's local address** (``LINK_LOCAL_URL``) and the components' settings in link mode follow MVP-16 and MVP-20;
+- **Link's local address** (``LINK_LOCAL_URL``: service ``knovas-link``, port 8460) and the token files
+  (``/link/<component>/token``, each component mounting ``/link/<component>`` at ``/link``) are Knovas Link's (MVP-16);
   they are constants here so that both sides change in one place.
 - **Egress of the source components.** Only Link is on the outbound network, as the plan decides; a component that
   reads a source outside the machine (GitHub) then reaches it only once that is decided (see the report of MVP-23).
@@ -58,8 +59,9 @@ TOKEN_VOLUME = "link-tokens"
 ENV_FILE = "knovas-site.env"
 COMPOSE_FILE = "docker-compose.yml"
 COMMAND = f"docker compose --env-file {ENV_FILE} up -d"
-#: Where the components reach Link's local API (MVP-16): on the internal network only, no published port.
-LINK_LOCAL_URL = "http://knovas-link:8480"
+#: Where the components reach Link's local API (MVP-16): service knovas-link, port 8460, on the internal network
+#: only, no published port. The sync component reads it from SYNC_LINK_URL (the Knovas Connector later from RC_LINK_URL).
+LINK_LOCAL_URL = "http://knovas-link:8460"
 #: The certificate step, as long as DEC-0056 is open.
 CERTIFICATE_STEP = "wie in DEC-0056 entschieden; bis dahin wartet Knovas Link (waiting_for_certificate)"
 #: Where a ticked share is mounted in the component, read only; the person names the folder on the machine.
@@ -125,8 +127,9 @@ def compose_file(site: Mapping[str, Any], options: Iterable[str]) -> str:
         "knovas-link": {
             "image": _image("knovas-link"),
             "restart": "unless-stopped",
+            # LINK_PLATFORM_URL and LINK_ENROL_TOKEN; its key and certificate stay in its data volume.
             "env_file": [ENV_FILE],
-            "environment": {"LINK_DATA_DIR": "/data", "LINK_TOKENS_DIR": "/link"},
+            # Link writes /link/<component>/token for every component it serves.
             "volumes": ["link-data:/data", {"type": "volume", "source": TOKEN_VOLUME, "target": "/link"}],
             "networks": [INTERNAL_NETWORK, OUTBOUND_NETWORK],
         },
@@ -136,7 +139,8 @@ def compose_file(site: Mapping[str, Any], options: Iterable[str]) -> str:
         mounts: list = [f"{container}-data:/data",
                         {"type": "volume", "source": TOKEN_VOLUME, "target": "/link", "read_only": True,
                          "volume": {"subpath": container}}]
-        environment = {"SYNC_LINK_URL": LINK_LOCAL_URL, "SYNC_LINK_TOKEN_FILE": "/link/token", "SYNC_DATA_DIR": "/data"}
+        # Its own folder of the token volume at /link: it reads /link/token and sees no other component's.
+        environment = {"SYNC_LINK_URL": LINK_LOCAL_URL, "SYNC_DATA_DIR": "/data"}
         if any(OPTIONS[o].get("share") and OPTIONS[o]["component"] == container for o in options):
             mounts.append({"type": "bind", "source": SHARE_PLACEHOLDER, "target": SHARE_TARGET, "read_only": True})
             environment["SYNC_FILES_ROOT"] = SHARE_TARGET
