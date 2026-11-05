@@ -168,6 +168,19 @@ def test_job_kinds_actor_kinds_and_write_mode():
     assert branches == set(JOB_KINDS), "every job kind has its args"
 
 
+def test_lease_is_optional_opaque_and_documented():
+    s = _schemas()["job.schema.json"]
+    lease = s["properties"]["lease"]
+    assert "lease" not in s["required"]
+    assert (lease["type"], lease["minLength"], lease["maxLength"]) == ("string", 16, 128)
+    names = {p.name for p in _vectors("valid")} | {p.name for p in _vectors("invalid")}
+    assert {"job.fetch-with-lease.json", "job.lease-too-short.json"} <= names
+    local = LOCAL_API.read_text(encoding="utf-8")
+    assert "X-Knovas-Lease" in local and "never sees it" in local
+    jobs = _section(PROTOCOL_DOC.read_text(encoding="utf-8"), "Jobs and the work channel")
+    assert "X-Knovas-Lease" in jobs and "Components never see the lease" in jobs
+
+
 def test_result_statuses_and_fields():
     s = _schemas()["job-result.schema.json"]
     assert s["properties"]["status"]["enum"] == RESULT_STATUSES
