@@ -20,6 +20,8 @@
     {"code": "unknown_mapping", "meaning": "The write names a mapping that the component's package does not hold."},
     {"code": "previously_rejected", "meaning": "The same change to this node was rejected before; a rejection is a tombstone."},
     {"code": "waiting_for_certificate", "meaning": "Knovas Link has no certificate yet: it runs its control plane but claims no job and writes nothing to the tenant."},
-    {"code": "not_relayed", "meaning": "The Brain route is not on Knovas Link's relay allow-list."}
+    {"code": "not_relayed", "meaning": "The Brain route is not on Knovas Link's relay allow-list."},
+    {"code": "invalid_job", "meaning": "Knovas Link received a job that does not validate against the contract; it is never handed to a component."},
+    {"code": "part_not_accepted", "meaning": "Knovas did not take a part of a fetch; the relay of that job ends."}
   ]
 }

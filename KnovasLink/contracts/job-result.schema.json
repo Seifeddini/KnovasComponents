@@ -32,7 +32,7 @@
     "source_ref": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "Where the source staged a write, for GitHub the pull request's URL."
+      "description": "A string: the address where the source staged an applied write; for GitHub the pull request's URL. Null or absent for every other result."
     },
     "duration_ms": {"type": "integer", "minimum": 0}
   }
