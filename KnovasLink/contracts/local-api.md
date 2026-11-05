@@ -113,6 +113,8 @@ A long-poll. `wait` is whole seconds from 0 to 25; a larger number counts as 25,
 The answer is 200 `{"job": <job>}` (`job.schema.json`) or, when nothing came within `wait`, 204.
 
 - A component gets only jobs of a kind it named in `job_kinds`, for a source assigned to its name.
+- **Components never see a lease.** secure-api sets an opaque `lease` on every job it hands Link. Link keeps it and
+  removes it before it hands the job out; Link's own local jobs carry none.
 - A job is handed out once. Link answers for the component if it stays silent: past the job's `deadline` Link reports
   `unreachable` to Knovas, and the component's late part or result gets 409 `lease_lost`.
 - While Link waits for its certificate it claims no job, so this answers 204; ping says why.
@@ -133,14 +135,22 @@ Only for a `fetch` job the caller holds. The body is raw bytes of the original, 
   that is not a fetch is 400 `bad_field`.
 - A refused part ends the fetch: Link answers the job `failed` to Knovas, and every later part or result for it is
   409 `lease_lost`. A fetch is never reported complete with a part missing.
-- Link passes each accepted part on unchanged and in order. 503 `unreachable`: Knovas did not take the part; the fetch
-  has failed.
+- Link passes each accepted part on unchanged and in order, with the job's lease as the header `X-Knovas-Lease`.
+  503 `unreachable`: Knovas did not take the part; the fetch has failed.
 
 ### `POST /local/v1/jobs/<id>/result`
 
 The body is one job result (`job-result.schema.json`); one that does not validate is 400 `bad_field`. Link passes it on
-unchanged. The answer is secure-api's: 200 `{"accepted": true}`, or 409 `lease_lost` when the job's lease ended or it has
-an outcome already. 503 `unreachable`: secure-api did not answer.
+unchanged, with the job's lease as the header `X-Knovas-Lease`. The answer is secure-api's: 200 `{"accepted": true}`, or
+409 `lease_lost` when the job's lease ended, the job has an outcome already, or the lease sent is missing, stale or
+another claim's. 503 `unreachable`: secure-api did not answer.
+
+### The lease towards secure-api
+
+Every job secure-api hands out carries `lease`, an opaque string of 16 to 128 visible ASCII characters. Link sends it
+back as the header `X-Knovas-Lease` on every `POST /secured/connector/jobs/<id>/part` and
+`POST /secured/connector/jobs/<id>/result` of that job. A missing lease, a stale one, or one of another claim of the
+same job is 409 `lease_lost`. The lease stays inside Link: a component never sees it and never sends it.
 
 A fetch's result is posted after its parts:
 
@@ -195,7 +205,7 @@ anything else with 400 `bad_field`. 503 `unreachable`: the Platform did not answ
 | `unsupported_type` | every stream receiver of 1.1 | a `record`, `principal`, `group`, `membership` or `permission` message |
 | `unsupported` | Link | job result `unsupported`: no component named the job's kind for its source |
 | `unreachable` | Link | job result `unreachable` past the deadline; 503 on the local API when Knovas or the Platform did not answer |
-| `lease_lost` | secure-api, Link | 409 on a part or result after the lease ended or the job had an outcome |
+| `lease_lost` | secure-api, Link | 409 on a part or result after the lease ended or the job had an outcome, or with a missing, stale or other claim's `X-Knovas-Lease` |
 | `source_unreachable` | secure-api | 503 on `GET /secured/documents/original`: no answer before the deadline |
 | `source_refused` | secure-api | 403 on `GET /secured/documents/original`: the job was refused; the component's code is given |
 | `no_source_ref` | secure-api | 409 on `GET /secured/documents/original`: the document has no source reference |
@@ -223,7 +233,7 @@ close an object where an unknown field must not be ignored or must not ride alon
 |---|---|---|
 | stream message | open | new fields and types come with later steps; a receiver ignores what it does not know |
 | its `payload` and `state` | open | the item's own content and the source's own position |
-| job | open | Knovas may add a field; a component ignores it |
+| job | open | Knovas may add a field; a component ignores it. Its `lease` never reaches a component |
 | job `actor` and its `on_behalf_of` | closed | recorded as declared in audit rows; nothing else rides along |
 | job `args` (fetch, write, probe) | closed | instructions: one a component does not know is never ignored |
 | job result | closed | stored as the job's outcome and counted: codes, counts, versions, hashes and one reference, never text |

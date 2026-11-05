@@ -29,7 +29,14 @@
       "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]{1,9})?(Z|\\+00:00)$"
     },
     "actor": {"$ref": "#/$defs/actor"},
-    "args": {"type": "object"}
+    "args": {"type": "object"},
+    "lease": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128,
+      "pattern": "^[!-~]+$",
+      "description": "Opaque. secure-api sets it on every job it hands out; Knovas Link sends it back as the header X-Knovas-Lease on every part and result of that job, and removes it before it hands the job to a component. Local jobs from Link to a component have none. Visible ASCII only, because it travels as a header."
+    }
   },
   "allOf": [
     {
