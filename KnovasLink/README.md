@@ -106,7 +106,9 @@ heartbeat. A leak exposes the whole tenant, and the site cannot be revoked on it
   whole; results are checked against the schema and passed on unchanged. The claim's `lease` stays with Link and goes
   back as `X-Knovas-Lease` on every part and result; after 409 `lease_lost` nothing more of that claim is relayed.
   Link answers itself: `unsupported` (no component for the kind), `unreachable` (silent past the deadline),
-  `refused` `fetch_disabled` / `write_disabled` (the source's switch is off). Reconnects with backoff; a 429 waits out
+  `refused` `fetch_disabled` / `write_disabled` (the source's switch is off), `failed` `invalid_job` (a job that does
+  not validate, never handed out) and `failed` `part_not_accepted` (a part refused by Link or not taken by Knovas
+  ends the fetch; nothing more of it is relayed). Reconnects with backoff; a 429 waits out
   `Retry-After`.
 - **Probes** (MVP-18): every 5 minutes and on the Platform's `check` command: `POST /secured/connector/probe`, answered
   when it comes round, and a local probe job to each component that named `probe` (its `local_ping_ms`).
