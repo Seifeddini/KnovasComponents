@@ -3,6 +3,7 @@ reports to the Platform as a sub-component, checked first that they hold only co
 from __future__ import annotations
 
 import json
+import logging
 import sys
 
 import pytest
@@ -63,6 +64,17 @@ def test_secure_apis_error_comes_back_unchanged(world):
     with world.running(loops=()) as (client, _):
         answer = client.get("/local/v1/brain/secured/graph/missing", headers=world.headers())
     assert answer.status_code == 404 and answer.json()["error_code"] == "not_found"
+
+
+def test_a_relayed_path_or_query_never_reaches_a_log_line(world, caplog):
+    caplog.set_level(logging.DEBUG)
+    with world.running(loops=()) as (client, _):
+        client.get("/local/v1/brain/secured/documents?pointer=Vertr%C3%A4ge%2FMuster%20Treuhand%20AG.pdf",
+                   headers=world.headers())
+        client.delete("/local/v1/brain/secured/graph/nodes/Muster-Treuhand", headers=world.headers())
+    assert len(world.secure.relayed) == 2
+    for name in ("Muster", "Vertr", "pointer", "secured/documents", "secured/graph"):
+        assert name not in caplog.text, name
 
 
 def test_a_relayed_call_is_never_retried(world):

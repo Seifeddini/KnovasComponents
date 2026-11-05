@@ -5,8 +5,14 @@ site's key and certificate, runs the control plane with the Platform, relays the
 carries the work channel's jobs between secure-api and the components.
 """
 
+import logging
+
 VERSION = "1.1.0"
 #: The kind Link enrols as with the Platform.
 KIND = "knovas_link"
 #: What Link declares in its enrolment and heartbeat.
 CAPABILITIES = ["site", "work_channel", "brain_relay", "probes"]
+
+# httpx logs every request's whole URL at INFO; a relayed path or query may name a document (GI-DATA-02).
+for _logger in ("httpx", "httpx2", "httpcore"):
+    logging.getLogger(_logger).setLevel(logging.WARNING)
