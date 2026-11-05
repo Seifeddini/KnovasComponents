@@ -176,10 +176,20 @@ Which status and code a component answers with:
 | refused | `mode_unsupported` | a write whose `mode` is not `proposal`, received without Link; through Link such a job ends as `invalid_job` |
 | refused | `token_cannot_write` | the credential cannot write (GitHub: needs contents and pull requests write) |
 | refused | `not_writable`, `computed_attribute`, `value_not_allowed`, `not_invertible`, `unknown_mapping` | the inverse mapping refused the write |
+| refused | `too_large` | a fetch: the original is larger than `max_bytes`; nothing sent |
+| refused | `edit_unsupported`, `front_matter_missing` | a write: the component cannot edit that file or key |
+| refused | `no_change` | a write: the edits leave the file as it is |
 | conflict | `conflict` | the item's version is not `expected_version`; `version` is the one found; nothing written |
+| failed | `version_mismatch` | a fetch: the bytes' git blob hash is not the requested version; nothing sent |
+| failed | `github.rate_limited`, `github.branch_left`, `github.http_<status>` | GitHub did not do what was asked (see "Code families") |
 | failed | any code, or none | anything else |
 
-A component may answer its own codes of the same shape (`^[a-z][a-z0-9_.]{1,60}$`), never text or a name. Link answers
+A component may answer its own codes of the same shape (`^[a-z][a-z0-9_.]{1,60}$`), never text or a name. A code
+that belongs to one kind of source starts with the kind and a dot, as `github.` does.
+
+**Code families.** `github.http_<status>` is one code per HTTP status GitHub answered that the component does not
+handle otherwise, for example `github.http_404` or `github.http_502`; the pattern is `^github\.http_[1-5][0-9]{2}$`.
+The family is not listed in `codes.json`; the status is the only detail it carries, and the result is `failed`. Link answers
 these outcomes itself, without a component: status `unsupported` with code `unsupported`; `unreachable` with
 `unreachable`; `refused` with `fetch_disabled` or `write_disabled`; `failed` with `invalid_job` (the job does not
 validate) or `part_not_accepted` (Knovas did not take a part).
@@ -232,6 +242,14 @@ anything else with 400 `bad_field`. 503 `unreachable`: the Platform did not answ
 | `not_relayed` | Link | 403 on `/local/v1/brain/…` for a route outside the allow-list |
 | `invalid_job` | Link | job result `failed`: the job does not validate against `job.schema.json` and is never handed out |
 | `part_not_accepted` | Link | job result `failed`: Knovas did not take a part of the fetch; the relay of that job ends |
+| `too_large` | component | job result `refused`: the original is larger than the fetch's `max_bytes` |
+| `version_mismatch` | component | job result `failed`: the fetched bytes' git blob hash is not the requested version |
+| `edit_unsupported` | component | job result `refused`: a write into a file kind or key the component cannot edit |
+| `front_matter_missing` | component | job result `refused`: a write into a file without a front matter block |
+| `no_change` | component | job result `refused`: the edits leave the file unchanged |
+| `github.rate_limited` | component | job result `failed`: GitHub's rate limit for the credential is used up |
+| `github.branch_left` | component | job result `failed`: a write's branch was left without a pull request |
+| `github.http_<status>` | component | job result `failed`: the family above, one code per HTTP status |
 
 ## Open and closed objects
 

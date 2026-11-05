@@ -37,7 +37,9 @@ MAX_PART_BYTES = 4194304            # 4 MiB
 CODES = ["unsupported_type", "unsupported", "unreachable", "lease_lost", "source_unreachable", "source_refused",
          "no_source_ref", "not_found", "conflict", "mode_unsupported", "token_cannot_write", "fetch_disabled",
          "write_disabled", "not_writable", "computed_attribute", "value_not_allowed", "not_invertible", "unknown_mapping",
-         "previously_rejected", "waiting_for_certificate", "not_relayed", "invalid_job", "part_not_accepted"]
+         "previously_rejected", "waiting_for_certificate", "not_relayed", "invalid_job", "part_not_accepted",
+         "too_large", "version_mismatch", "edit_unsupported", "front_matter_missing", "no_change", "github.rate_limited",
+         "github.branch_left"]
 
 # Required fields per schema and discriminator: (schema, "type=…" / "kind=…" / "", path).
 REQUIRED = {
@@ -317,6 +319,19 @@ def test_codes_are_the_shared_list_each_with_one_line():
         assert set(c) == {"code", "meaning"}
         assert pattern.fullmatch(c["code"]), c["code"]
         assert c["meaning"].strip() and "\n" not in c["meaning"], c["code"]
+
+
+def test_github_http_family_is_a_documented_pattern_not_a_list():
+    text = LOCAL_API.read_text(encoding="utf-8")
+    m = re.search(r"the pattern is `(\^github\\\.http_[^`]+)`", text)
+    assert m, "local-api.md states the github.http_<status> pattern"
+    family = re.compile(m.group(1))
+    result_code = re.compile(_schemas()["job-result.schema.json"]["properties"]["code"]["pattern"])
+    for example in ("github.http_404", "github.http_502"):
+        assert family.fullmatch(example) and result_code.fullmatch(example)
+    assert not family.fullmatch("github.http_42") and not family.fullmatch("github.rate_limited")
+    listed = [c["code"] for c in _load(CONTRACTS / "codes.json")["codes"]]
+    assert not [c for c in listed if family.fullmatch(c)], "the family is a pattern, not entries in codes.json"
 
 
 def test_contracts_lock_matches_the_files():
