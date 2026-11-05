@@ -210,6 +210,22 @@ class TestASite:
         assert world["http"].post(f"/builder/api/sites/{made['id']}/probe").status_code == 403
         assert world["http"].get(made["url"]).status_code == 403
 
+    def test_link_is_not_deleted_while_a_source_reads_through_its_component(self, world):
+        from builder import editing, package
+        from builder_harness import SAMPLE_PACKAGE
+
+        made, link = _online_link(world)
+        link.heartbeat(site=_telemetry())
+        [child] = world["store"].children(link.component)
+        model = package.read_package(package.files_from_directory(SAMPLE_PACKAGE)).model
+        editing.apply(model, {"op": "source.create", "kind": "github", "name": "Akten", "component": child["id"],
+                              "settings": {"repository": "muster-partner/akten"}})
+        world["store"].create(name="Muster & Partner", model=model, actor_id=world["admin"].id, source={"kind": "blank"},
+                              tenant=TENANT)
+        assert world["http"].post(f"/builder/api/components/{link.component}/revoke").status_code == 200
+        refused = world["http"].post(f"/builder/api/components/{link.component}/delete")
+        assert refused.status_code == 409 and "Akten" in refused.get_json()["error"]
+
     def test_a_probe_on_request_goes_to_link(self, world):
         made, link = _online_link(world)
         assert world["http"].post(f"/builder/api/sites/{made['id']}/probe").status_code == 200

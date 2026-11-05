@@ -1317,7 +1317,11 @@ def create_builder_blueprint(
         if component.get("state") not in ("pending", "revoked"):
             return jsonify({"success": False, "error": "Diese Komponente läuft noch: zuerst widerrufen, dann löschen."}), 409
         store = _store()
-        sources = store.served_by(component_id)["sources"]
+        sources = list(store.served_by(component_id)["sources"])
+        if component_rules.is_link(component) and hasattr(store, "children"):
+            # Knovas Link's components go with it (their rows cascade): a source read through one of them must go first.
+            for child in store.children(component_id):
+                sources += store.served_by(child["id"])["sources"]
         if sources:
             names = ", ".join(sorted({str(s.get("name")) for s in sources}))
             return jsonify({"success": False, "error": f"Diese Quellen lesen noch über sie; zuerst entfernen: {names}."}), 409
