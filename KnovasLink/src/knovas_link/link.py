@@ -426,14 +426,24 @@ class Link:
     async def _control_loop(self) -> None:
         beats = 0
         while True:
-            if beats and beats % CONFIG_EVERY_BEATS == 0:
-                await self.refresh_config()
-            await self.beat()
+            try:
+                if beats and beats % CONFIG_EVERY_BEATS == 0:
+                    await self.refresh_config()
+                await self.beat()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:                          # noqa: BLE001 - the loop goes on; the type is logged
+                log.error("heartbeat.failed (%s)", type(exc).__name__)
             beats += 1
             await asyncio.sleep(self.settings.heartbeat_seconds)
 
     async def _probe_loop(self) -> None:
         await asyncio.sleep(FIRST_PROBE_SECONDS)
         while True:
-            await self.channel.probe_now()
+            try:
+                await self.channel.probe_now()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:                          # noqa: BLE001
+                log.error("probe.failed (%s)", type(exc).__name__)
             await asyncio.sleep(self.settings.probe_seconds)

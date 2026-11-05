@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
 
 from knovas_link import contracts
-from knovas_link.brain_client import LEASE, BrainBusy, BrainRefused, BrainUnreachable
+from knovas_link.brain_client import LEASE, BrainBusy, BrainUnreachable
 from knovas_link.errors import LocalError
 
 if TYPE_CHECKING:                                     # pragma: no cover
@@ -141,7 +141,7 @@ class WorkChannel:
     # ------------------------------------------------------------------ the long-poll against secure-api
 
     async def run(self) -> None:
-        """Claim jobs as long as Link runs; reconnect with backoff."""
+        """Take jobs from secure-api as long as Link runs; reconnect with backoff."""
         backoff = self.backoff_base
         while True:
             brain = self.link.brain
@@ -150,14 +150,18 @@ class WorkChannel:
                 await self.link.wait_for_brain(5.0)
                 continue
             try:
-                job = await brain.claim(self.link.channel_sources(), WAIT_SECONDS)
+                # Until the channel is known to work, ask without waiting: "connected" then means secure-api
+                # answered, not only that a long-poll is out.
+                job = await brain.claim(self.link.channel_sources(), WAIT_SECONDS if self.state == "connected" else 0)
             except BrainBusy as exc:
                 self.state = "down"
                 log.warning("channel.busy, retry after %ds", exc.retry_after)
                 await asyncio.sleep(max(float(exc.retry_after), backoff))
                 backoff = min(backoff * 2, BACKOFF_MAX_SECONDS)
                 continue
-            except (BrainUnreachable, BrainRefused) as exc:
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:                          # noqa: BLE001 - unreachable, refused, or a client closed
                 self.state = "down"
                 code = getattr(exc, "status", None) or type(exc).__name__
                 log.warning("channel.down (%s), retry in %.1fs", code, backoff)
@@ -242,8 +246,8 @@ class WorkChannel:
             return False
         try:
             status, code = await brain.post_result(jid, raw, lease)
-        except BrainUnreachable as exc:
-            log.warning("job.answer_not_taken %s (%s)", kind, exc)
+        except Exception as exc:                              # noqa: BLE001 - secure-api did not take it
+            log.warning("job.answer_not_taken %s (%s)", kind, type(exc).__name__)
             return False
         if status >= 300:
             log.warning("job.answer_refused %s %d %s", kind, status, code or "-")
@@ -485,7 +489,7 @@ class WorkChannel:
         self.local_probes()
         try:
             jid = await brain.probe()
-        except (BrainUnreachable, BrainRefused, BrainBusy) as exc:
+        except Exception as exc:                              # noqa: BLE001 - unreachable, refused, busy
             log.warning("probe.not_sent (%s)", getattr(exc, "status", None) or type(exc).__name__)
             self._record_probe(False, None)
             return False

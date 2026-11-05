@@ -13,7 +13,7 @@ import contextlib
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Any
 
 from starlette.applications import Starlette
 from starlette.background import BackgroundTask
@@ -26,7 +26,6 @@ from knovas_link import VERSION, relay
 from knovas_link.brain_client import BrainUnreachable
 from knovas_link.errors import LocalError
 from knovas_link.link import Link
-from knovas_link.registry import NAME
 
 log = logging.getLogger("knovas_link.local_api")
 
@@ -186,7 +185,7 @@ def create_app(link: Link) -> Any:
         who(request)
         raw_path = request.scope.get("raw_path") or request.url.path.encode("latin-1")
         raw_path = raw_path.split(b"?", 1)[0].decode("latin-1")
-        rest = raw_path[len(PREFIX + "/brain"):].lstrip("/") if raw_path.startswith(PREFIX + "/brain/") else ""
+        rest = raw_path[len(PREFIX + "/brain/"):] if raw_path.startswith(PREFIX + "/brain/") else ""
         path = relay.relayed_path(rest)
         if path is None:
             log.info("relay.not_relayed")

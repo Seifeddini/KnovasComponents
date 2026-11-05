@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 
 import pytest
 
-from conftest import LINK_ROOT, eventually, register
+from conftest import LINK_ROOT
 from knovas_link import relay
 
 PLATFORM_SRC = LINK_ROOT.parent / "KnovasPlatform" / "components" / "docbridge_integration" / "src"
@@ -86,6 +85,13 @@ def test_an_encoded_path_reaches_secure_api_as_it_was_sent(world):
 def test_a_route_off_the_list_is_403_and_never_reaches_secure_api(world, path):
     with world.running(loops=()) as (client, _):
         answer = client.post("/local/v1/brain/" + path, headers=world.headers(), json={})
+    assert answer.status_code == 403 and answer.json()["error"] == "not_relayed"
+    assert world.secure.relayed == []
+
+
+def test_a_doubled_slash_after_the_prefix_is_not_relayed(world):
+    with world.running(loops=()) as (client, _):
+        answer = client.get("/local/v1/brain//secured/graph/nodes", headers=world.headers())
     assert answer.status_code == 403 and answer.json()["error"] == "not_relayed"
     assert world.secure.relayed == []
 
