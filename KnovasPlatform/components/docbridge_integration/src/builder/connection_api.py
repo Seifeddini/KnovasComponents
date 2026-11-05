@@ -41,7 +41,8 @@ class BrainConnection:
         if answer.status_code >= 400:
             code = ""
             if isinstance(body, Mapping):
-                code = str(body.get("code") or body.get("error") or body.get("error_code") or "")
+                # secure-api names the code in error_code; error may be a sentence, so it comes last.
+                code = str(body.get("error_code") or body.get("code") or body.get("error") or "")
             raise ConnectionApiError(answer.status_code, code)
         return body
 

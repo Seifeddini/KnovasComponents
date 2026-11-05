@@ -163,7 +163,8 @@ def test_the_brain_connection_calls_the_routes():
         def _request_quiet(self, method, endpoint, data=None, timeout=None):
             self.calls.append((method, endpoint, data))
             if endpoint.endswith("/reject"):
-                return Answer(409, {"error": "previously_rejected"})
+                # secure-api's shape: the code in error_code, a sentence in error.
+                return Answer(409, {"error": "Diese Änderung wurde schon abgelehnt.", "error_code": "previously_rejected"})
             return Answer(200, {"proposals": [{"id": "p1"}]} if method == "GET" else {"status": "queued"})
 
     client = Client()

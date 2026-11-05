@@ -132,6 +132,18 @@ CODES: Mapping[str, Mapping[str, str]] = {
         "fix": "Den Zertifikatsschritt ausführen, wie in DEC-0056 entschieden; bis dahin wartet Knovas Link "
                "(waiting_for_certificate).",
     },
+    "invalid_job": {
+        "title": "Auftrag ungültig",
+        "explanation": "Knovas Link hat einen Auftrag erhalten, der nicht dem Vertrag entspricht (fehlende oder unbekannte "
+                       "Angaben), und ihn nicht an eine Komponente gegeben.",
+        "fix": "Knovas Link und das Brain auf zueinander passende Versionen bringen; häuft es sich, Knovas melden.",
+    },
+    "part_not_accepted": {
+        "title": "Teil nicht angenommen",
+        "explanation": "Knovas Link konnte einen Teil eines abgerufenen Originals nicht an das Brain übergeben; der Abruf "
+                       "ist gescheitert, ein unvollständiges Original wird nie geliefert.",
+        "fix": "Erneut abrufen. Bleibt es so: die ausgehende Verbindung des Standorts und die Grösse der Datei prüfen.",
+    },
     "not_relayed": {
         "title": "Nicht weitergeleitet",
         "explanation": "Eine Komponente hat über Knovas Link eine Adresse des Brains verlangt, die Link nicht "

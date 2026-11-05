@@ -69,7 +69,7 @@ def stat_counts(stats: Optional[Mapping[str, Any]]) -> Optional[dict]:
 
     The route answers ``{since, truncated, counts: [{source, kind, outcome, count}], duration_ms: {<kind>: {count,
     median, p95}}, queue: {depth, in_flight, oldest_queued_age_s}, probe: {count, last_round_trip_ms, last_at,
-    median_round_trip_ms}, stale_found?}``; ``stale_found`` is one number for the tenant and may be absent."""
+    median_round_trip_ms}, stale_found?}``; ``stale_found`` is ``{<source key>: n}`` and may be absent."""
     if not isinstance(stats, Mapping) or not isinstance(stats.get("counts"), list):
         return None
     out: dict = {}
@@ -93,9 +93,10 @@ def last_day(stats: Optional[Mapping[str, Any]], keys: set, proposals: Optional[
         out["unreachable"] = total("fetch", ("unreachable", "failed", "refused"))
         out["pull_requests"] = total("write", ("ok",))
         out["truncated"] = bool((stats or {}).get("truncated"))
-    # Stale documents found by fetches: one number for the whole tenant, not per site; absent means unknown.
+    # Stale documents found by fetches, per source: the site's sources summed; absent means unknown.
     stale = (stats or {}).get("stale_found") if isinstance(stats, Mapping) else None
-    out["stale"] = stale if isinstance(stale, int) and not isinstance(stale, bool) else None
+    out["stale"] = sum(n for s, n in stale.items() if s in keys and isinstance(n, int) and not isinstance(n, bool)) \
+        if isinstance(stale, Mapping) else None
     if proposals is not None:
         since = now - dt.timedelta(hours=WINDOW_HOURS)
         mine = [p for p in proposals if str(p.get("source")) in keys]
