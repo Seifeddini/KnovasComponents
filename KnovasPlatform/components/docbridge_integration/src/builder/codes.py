@@ -8,6 +8,7 @@ emits that has none.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping
 
 #: code -> title, explanation, fix. The codes are the contracts' (MVP-1, MVP-5, MVP-7, MVP-8, MVP-13, MVP-17, MVP-22)
@@ -123,6 +124,71 @@ CODES: Mapping[str, Mapping[str, str]] = {
         "title": "Schon abgelehnt",
         "explanation": "Genau diese Änderung wurde für diesen Knoten schon einmal abgelehnt; sie wird nicht erneut gestellt.",
         "fix": "Nichts zu tun. Soll sie doch gelten, die Änderung in der Quelle selbst machen.",
+    },
+    # Fetching and writing at the component (MVP-21, MVP-22)
+    "too_large": {
+        "title": "Zu gross",
+        "explanation": "Das Original ist grösser, als ein Abruf übertragen darf (höchstens 25 MiB); es wurde nicht geliefert.",
+        "fix": "Nichts zu tun: so grosse Dateien werden nicht abgerufen. Den Inhalt im Brain über die Suche lesen.",
+    },
+    "version_mismatch": {
+        "title": "Version passt nicht",
+        "explanation": "Die gelesenen Bytes ergeben nicht die Version, die verlangt war; geliefert wurde nichts, denn ein "
+                       "Original in einer anderen Fassung wird nie als das verlangte ausgegeben.",
+        "fix": "Neu synchronisieren und erneut abrufen; bleibt es so, Knovas melden.",
+    },
+    "edit_unsupported": {
+        "title": "Änderung nicht sicher möglich",
+        "explanation": "Die Datei lässt sich an dieser Stelle nicht sicher ändern: sie ist nicht UTF-8, der Wert ist keine "
+                       "einzelne Angabe (eine Liste, eine Zuordnung, ein Verweis), der Schlüssel steht zweimal, oder keine "
+                       "Schreibweise liest sich als der neue Wert zurück. Geschrieben wurde nichts.",
+        "fix": "Die Änderung in der Quelle von Hand machen, oder das Feld in der Datei als einfache Angabe schreiben.",
+    },
+    "front_matter_missing": {
+        "title": "Front Matter fehlt",
+        "explanation": "Die Datei hat keinen Front-Matter-Block, wie die Zuordnung ihn liest; geschrieben wurde nichts.",
+        "fix": "Prüfen, ob die Datei noch die ist, die die Zuordnung liest; sonst neu synchronisieren.",
+    },
+    "no_change": {
+        "title": "Keine Änderung",
+        "explanation": "Die Datei enthält die vorgeschlagenen Werte schon; ein Pull Request wäre leer und wurde nicht erstellt.",
+        "fix": "Nichts zu tun; nach der nächsten Synchronisation zeigt das Brain die Werte.",
+    },
+    "github.rate_limited": {
+        "title": "GitHub begrenzt die Anfragen",
+        "explanation": "GitHub hat die Anfrage wegen zu vieler Aufrufe mit diesem Token abgewiesen.",
+        "fix": "Später erneut versuchen; häuft es sich, ein eigenes Token für diese Quelle setzen.",
+    },
+    "github.branch_left": {
+        "title": "Zweig ist stehen geblieben",
+        "explanation": "Ein Schritt nach dem Anlegen des Zweigs für den Pull Request ist gescheitert, und der Zweig liess "
+                       "sich nicht wieder löschen; er steht noch im Repository (knovas/write-…).",
+        "fix": "Den Zweig im Repository löschen, dann den Vorschlag erneut annehmen lassen.",
+    },
+    "github.branch_exists": {
+        "title": "Zweig schon vorhanden",
+        "explanation": "Ein Zweig dieses Namens hält schon eine andere Änderung; er wird nie überschrieben oder gelöscht.",
+        "fix": "Den Zweig im Repository prüfen und, wenn er nicht mehr gebraucht wird, löschen.",
+    },
+    "github.unreachable": {
+        "title": "GitHub nicht erreichbar",
+        "explanation": "Die Komponente hat GitHub nicht erreicht.",
+        "fix": "Die ausgehende Verbindung des Standorts zu GitHub prüfen (Netz knovas-egress, Firewall, Proxy).",
+    },
+    "github.bad_repository": {
+        "title": "Repository nicht gültig",
+        "explanation": "Repository oder Branch der Quelle sind nicht gültig oder für dieses Token nicht sichtbar.",
+        "fix": "Repository (owner/name) und Branch der Quelle prüfen, und ob das Token dieses Repository lesen darf.",
+    },
+    "github.bad_answer": {
+        "title": "Unerwartete Antwort von GitHub",
+        "explanation": "GitHub hat anders geantwortet, als die Komponente es erwartet.",
+        "fix": "Später erneut versuchen; bleibt es so, Knovas melden.",
+    },
+    "github.base_not_a_branch": {
+        "title": "Kein Branch",
+        "explanation": "Die Quelle liest einen Tag oder eine Version, keinen Branch; ein Pull Request braucht einen Branch.",
+        "fix": "An der Quelle einen Branch (etwa main) eintragen, wenn zurückgeschrieben werden soll.",
     },
     # Knovas Link (MVP-15, MVP-17)
     "waiting_for_certificate": {
@@ -249,8 +315,19 @@ def not_invertible(reason: Any) -> dict:
             "text": f"{CODES['not_invertible']['title']}: {explanation}"}
 
 
+#: A code family: GitHub answered with an HTTP status the component has no own code for.
+GITHUB_HTTP = re.compile(r"^github\.http_(\d{3})$")
+
+
 def describe(code: Any) -> dict:
     """The title, explanation and fix of ``code``; a code without an entry is named as itself."""
+    family = GITHUB_HTTP.match(str(code or ""))
+    if family:
+        status = family.group(1)
+        return {"code": str(code), "title": f"GitHub antwortete mit {status}",
+                "explanation": f"GitHub hat die Anfrage der Komponente mit dem Status {status} beantwortet.",
+                "fix": "Token und Repository prüfen: Ist das Token gültig, darf es dieses Repository lesen (und für "
+                       "Vorschläge schreiben), und stimmen owner/name und Branch der Quelle?"}
     found = CODES.get(str(code or ""))
     if found is None:
         return {"code": str(code or ""), "title": "Unbekannter Code", "explanation": f"Code «{code}».",

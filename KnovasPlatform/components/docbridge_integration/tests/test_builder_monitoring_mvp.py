@@ -44,6 +44,21 @@ class TestTheCodes:
         missing = sorted(c for c in literals if c not in codes.CODES and c not in codes.NOT_INVERTIBLE)
         assert literals and missing == []
 
+    @pytest.mark.parametrize("code", ["too_large", "version_mismatch", "edit_unsupported", "front_matter_missing",
+                                      "no_change", "github.rate_limited", "github.branch_left"])
+    def test_the_component_s_fetch_and_write_codes(self, code):
+        found = codes.describe(code)
+        assert found["title"] != "Unbekannter Code" and found["explanation"].strip() and found["fix"].strip()
+
+    @pytest.mark.parametrize("code,status", [("github.http_401", "401"), ("github.http_403", "403"),
+                                             ("github.http_502", "502")])
+    def test_any_github_status_says_what_github_answered(self, code, status):
+        found = codes.describe(code)
+        assert found["title"] == f"GitHub antwortete mit {status}"
+        assert "Token und Repository prüfen" in found["fix"]
+        assert codes.describe("github.http_")["title"] == "Unbekannter Code"
+        assert codes.describe("github.http_40x")["title"] == "Unbekannter Code"
+
     def test_an_unknown_code_is_named_not_hidden(self):
         assert codes.describe("neu_seit_gestern")["title"] == "Unbekannter Code"
 
