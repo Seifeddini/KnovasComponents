@@ -10,7 +10,7 @@ import datetime as dt
 import json
 import logging
 import time
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 from sync_component.client import PlatformClient, Refused
 from sync_component.engine import EngineError, Result, RunnerEngine
@@ -44,10 +44,17 @@ def schedule_due(schedule: Mapping[str, Any], last: Optional[dt.datetime], now: 
 
 
 class Agent:
+    """``client`` is the Platform's protocol (direct mode) or Knovas Link's local API (link mode, ``LinkClient``).
+    ``writable_kinds`` are the kinds of source this component writes to through jobs (link mode): such a source may be
+    switched to ``read_write`` and is still read; any other source that is not ``read`` is refused as before."""
+
     def __init__(self, client: PlatformClient, engine: RunnerEngine, *, fetchers: Optional[Mapping[str, Callable]] = None,
                  checks: Optional[Mapping[str, Callable]] = None, environ: Optional[Mapping[str, str]] = None,
-                 now: Callable[[], dt.datetime] = _utc):
+                 now: Callable[[], dt.datetime] = _utc, writable_kinds: Iterable[str] = (),
+                 capabilities: Optional[list[str]] = None):
         self.client = client
+        self.writable_kinds = frozenset(writable_kinds)
+        self.capabilities = list(CAPABILITIES if capabilities is None else capabilities)
         self.engine = engine
         self.fetchers = dict(FETCHERS if fetchers is None else fetchers)
         # A stand-in fetcher is checked by fetching, unless it brings its own check.
@@ -74,8 +81,12 @@ class Agent:
                 out.append({**s, "mapping_ids": mappings, "files": package[s["workspace"]].get("files") or {}})
         return out
 
+    def _readable(self, source: Mapping[str, Any]) -> bool:
+        access = source.get("access", "read")
+        return access == "read" or (access == "read_write" and source.get("kind") in self.writable_kinds)
+
     def _dry_run(self, source: Mapping[str, Any]) -> Result:
-        if source.get("access", "read") != "read":
+        if not self._readable(source):
             return Result(status="failed", errors=1, codes=["source.write_unsupported"])
         fetcher = self.fetchers.get(source.get("kind"))
         if fetcher is None:
@@ -104,7 +115,7 @@ class Agent:
             return
         items = []
         for s in sources:
-            code, counts = ("source.write_unsupported", {}) if s.get("access", "read") != "read" else check(
+            code, counts = ("source.write_unsupported", {}) if not self._readable(s) else check(
                 str(s.get("kind")), s.get("settings") or {}, self._credential(s), fetchers=self.fetchers, checks=self.checks)
             items.append({"workspace": s.get("workspace"), "source": s.get("key"), "code": code, "counts": counts})
         self.client.report_checks(items)
@@ -184,7 +195,7 @@ class Agent:
         """One heartbeat, its commands, and a scheduled dry run when one is due."""
         lag = int((self.now() - self.last_run).total_seconds()) if self.last_run else None
         answer = self.client.heartbeat(state="degraded" if self.open_errors else "online", lag_seconds=lag,
-                                       open_errors=self.open_errors, capabilities=CAPABILITIES)
+                                       open_errors=self.open_errors, capabilities=self.capabilities)
         self.paused = bool(answer.get("paused"))
         for command in answer.get("commands") or []:
             self.handle(command)

@@ -1,4 +1,18 @@
-"""Start a sync component. Everything comes from the environment:
+"""Start a sync component. Everything comes from the environment.
+
+Link mode (MVP-20), when the site runs Knovas Link:
+
+    SYNC_LINK_URL         Link's local API on the site's network, e.g. http://knovas-link:8460 (turns link mode on)
+    SYNC_LINK_TOKEN_FILE  the token Link wrote for this component (default /link/token: its folder, mounted read only)
+    SYNC_NAME             the component's name, as Link knows it and wrote its token for (default sync-component)
+    SYNC_DATA_DIR, SYNC_INTERVAL_SECONDS, SYNC_CREDENTIAL_<KEY>, SYNC_CREDENTIAL_GITHUB, SYNC_FILES_ROOT  as below
+
+  In link mode the component does not enrol and holds no certificate: it registers with Link, sends its heartbeat
+  there (commands come back with it), reads its configuration and package from Link, reports there, answers Link's
+  jobs (fetch and write for GitHub sources, probe), and the runner's Brain calls go through Link's relay.
+  SYNC_PLATFORM_URL and the certificate settings are not read.
+
+Direct mode (connector protocol v1, without Link):
 
     SYNC_PLATFORM_URL     the Platform's protocol address, https://…/api/connectors/v1 (required)
     SYNC_ENROL_TOKEN      the one-time token from the Platform (only for the first start)
@@ -20,6 +34,8 @@ import argparse
 import logging
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 from sync_component import VERSION
@@ -40,11 +56,76 @@ def enrolled(client: PlatformClient, store: Store, token: str, name: str) -> Cre
     return store.save(client.enrol(token, store.request(name), CAPABILITIES), token)
 
 
+#: How long link mode waits between attempts to register while Link has no configuration yet.
+REGISTER_RETRY_SECONDS = 15.0
+
+
+def register(client, *, once: bool = False, sleep=time.sleep) -> bool:
+    """Register with Link (a later registration replaces the earlier one). While Link has no configuration from the
+    Platform yet (503) or is not up, try again, unless ``once``."""
+    from sync_component.jobs import JOB_CAPABILITIES, JOB_KINDS
+    while True:
+        try:
+            sources = client.register(CAPABILITIES + JOB_CAPABILITIES, JOB_KINDS)
+            logging.info("registered with Knovas Link, sources %d", len(sources))
+            return True
+        except Refused as exc:
+            if exc.status == 401:
+                logging.error("Knovas Link refused this component's token (%s): check SYNC_NAME and the mounted "
+                              "token folder.", exc.code)
+                return False
+            logging.warning("Knovas Link cannot register this component yet (%s)", exc.code)
+        except OSError as exc:
+            logging.warning("Knovas Link is not reachable at SYNC_LINK_URL (%s)", type(exc).__name__)
+        if once:
+            return False
+        sleep(REGISTER_RETRY_SECONDS)
+
+
+def link_main(args: argparse.Namespace, environ=os.environ) -> int:
+    """Link mode: everything through Knovas Link's local API; no enrolment, no certificate."""
+    from sync_component.jobs import JOB_CAPABILITIES, WRITABLE_KINDS, JobWorker
+    from sync_component.link_client import LinkClient, read_token
+
+    url = str(environ.get("SYNC_LINK_URL") or "").rstrip("/")
+    if not url.startswith(("http://", "https://")):
+        logging.error("SYNC_LINK_URL must be Knovas Link's local address, e.g. http://knovas-link:8460.")
+        return 2
+    if environ.get("SYNC_PLATFORM_URL"):
+        logging.warning("SYNC_PLATFORM_URL is ignored in link mode: the component talks to Knovas Link only.")
+    name = environ.get("SYNC_NAME") or "sync-component"
+    try:
+        token = read_token(environ.get("SYNC_LINK_TOKEN_FILE") or "/link/token")
+    except (OSError, ValueError) as exc:
+        logging.error("No token from Knovas Link (%s): mount Link's folder for this component at /link, read only, "
+                      "or set SYNC_LINK_TOKEN_FILE.", type(exc).__name__)
+        return 2
+    client = LinkClient(url, name, token)
+    if not register(client, once=args.once):
+        return 2
+    data = Path(environ.get("SYNC_DATA_DIR") or "/data")
+    engine = RunnerEngine(data / "sources", {"BRAIN_API_URL": url + "/local/v1/brain", "BRAIN_LOCAL_TOKEN": token,
+                                             "BRAIN_COMPONENT_NAME": name}, keep_stream=True)
+    agent = Agent(client, engine, writable_kinds=WRITABLE_KINDS, capabilities=CAPABILITIES + JOB_CAPABILITIES)
+    worker = JobWorker(client, engine, register=lambda: register(client, once=True))
+    logging.info("sync component %s running behind Knovas Link", VERSION)
+    if args.once:
+        agent.tick()
+        worker.poll_once(wait=0)
+        worker.close()
+        return 0
+    threading.Thread(target=worker.forever, name="jobs", daemon=True).start()
+    agent.forever(float(environ.get("SYNC_INTERVAL_SECONDS") or 30))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--once", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if os.environ.get("SYNC_LINK_URL"):
+        return link_main(args)
     url = os.environ.get("SYNC_PLATFORM_URL", "")
     if not url:
         raise SystemExit("Set SYNC_PLATFORM_URL to the Platform's protocol address.")

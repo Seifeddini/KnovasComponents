@@ -275,3 +275,170 @@ def test_the_wizard_offers_the_one_line_for_a_sync_component():
     assert "SYNC_CREDENTIAL_GITHUB" in script, "the GitHub line says where its token goes"
     assert "data-enrol-command" in (web / "templates" / "builder" / "components.html").read_text(encoding="utf-8")
     assert protocol.VERSION == "v1"
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Link mode (MVP-20): the same component behind an in-process Knovas Link (tests/fake_knovas_link.py), with the real
+# brain-runner for plans; only the runner's apply stands in. The company, repository and people are made up
+# (tests/sync_link_world.py). The tests above run the direct mode, unchanged.
+
+import os  # noqa: E402
+import subprocess  # noqa: E402
+
+import sync_link_world as LW  # noqa: E402
+from sync_component import __main__ as component_main  # noqa: E402
+from sync_component.link_client import LinkClient  # noqa: E402
+
+
+class _ApplyStandIn:
+    """The real runner for everything but apply, which answers as brain-runner's apply does."""
+
+    def __init__(self, returncode=0, blocked=()):
+        self.returncode, self.blocked, self.applies = returncode, list(blocked), 0
+
+    def __call__(self, argv, **kw):
+        if argv[3:4] == ["apply"]:
+            self.applies += 1
+            return SimpleNamespace(returncode=self.returncode, stderr="", stdout=json.dumps(
+                {"writes": 2, "errors": 0 if self.returncode == 0 else 1, "done": {"m.added": 2}, "blocked": self.blocked}))
+        return subprocess.run(argv, **kw)
+
+
+@pytest.fixture
+def link_world(tmp_path, monkeypatch):
+    w = LW.build(tmp_path, monkeypatch, run=_ApplyStandIn(), credential="read-token")
+    yield w
+    w.close()
+
+
+def _reports(w, kind):
+    return [body for _, k, body in w.link.reports if k == kind]
+
+
+class TestLinkMode:
+    def test_a_dry_run_reads_plans_and_reports_through_link_only(self, link_world):
+        result = link_world.agent.run("dry_run")
+        assert (result.status, result.added) == ("ok", 2)
+        runs = _reports(link_world, "runs")
+        assert [(r["kind"], r["status"], r["added"]) for r in runs] == [("dry_run", "ok", 2)]
+        assert link_world.link.calls and all(path.startswith("/local/v1/") for _, path in link_world.link.calls)
+
+    def test_the_runners_brain_calls_go_through_links_relay_with_the_local_token(self, link_world):
+        link_world.agent.run("dry_run")
+        calls = link_world.link.brain_calls
+        assert {"secured/graph/node-types", "secured/graph/nodes", "secured/graph/edges"} <= {c["path"] for c in calls}
+        assert all(c["authorization"] == f"Bearer {LW.TOKEN}" and c["component"] == LW.COMPONENT for c in calls)
+        assert all(c["client_certificate"] is None for c in calls)
+
+    def test_commands_come_with_the_local_heartbeat_and_are_done_through_link(self, link_world):
+        cid = link_world.link.command(LW.COMPONENT, "check")
+        link_world.agent.tick()
+        assert (LW.COMPONENT, cid, "ok") in link_world.link.done
+        checks = {c["source"]: c["code"] for body in _reports(link_world, "checks") for c in body["checks"]}
+        assert checks == {LW.GITHUB_KEY: "source.ok", LW.SHARE_KEY: "source.ok"}, \
+            "a GitHub source switched to read_write is still read in link mode"
+        beat = link_world.link.beats[-1]
+        assert {"fetch:github", "write:github"} <= set(beat["capabilities"])
+
+    def test_a_run_command_is_finished_by_its_run_report(self, link_world):
+        cid = link_world.link.command(LW.COMPONENT, "run", {"kind": "dry_run"})
+        link_world.agent.tick()
+        assert [r["command"] for r in _reports(link_world, "runs")] == [cid]
+
+    def test_a_paused_site_refuses_a_run(self, link_world):
+        link_world.link.paused = True
+        cid = link_world.link.command(LW.COMPONENT, "run", {"kind": "dry_run"})
+        link_world.agent.tick()
+        assert (LW.COMPONENT, cid, "refused") in link_world.link.done and _reports(link_world, "runs") == []
+
+    def test_the_last_acknowledged_stream_is_the_next_plans_previous(self, link_world):
+        engine, agent = link_world.engine, link_world.agent
+        root = engine.source_root(LW.WORKSPACE, LW.SHARE_KEY)
+        agent.run("dry_run")
+        stream = json.loads((root / "plan.json").read_text(encoding="utf-8"))["source"]["stream"]
+        assert stream["source"] == LW.SHARE_KEY and stream["counts"] == {"documents": 2, "tombstones": 0}
+        assert engine.acknowledged(root) is None, "a dry run acknowledges nothing"
+        assert agent.run("apply").status == "ok"
+        assert set(engine.acknowledged(root)["documents"]) == set(LW.POLICIES)
+        (link_world.share / "policies" / "remote.md").unlink()
+        agent.run("dry_run")
+        stream = json.loads((root / "plan.json").read_text(encoding="utf-8"))["source"]["stream"]
+        assert stream["counts"] == {"documents": 1, "tombstones": 1}
+
+    @pytest.mark.parametrize("stand_in", [_ApplyStandIn(returncode=1), _ApplyStandIn(blocked=["policy-pages"])])
+    def test_a_failed_or_held_apply_acknowledges_nothing(self, link_world, stand_in):
+        link_world.engine._run = stand_in
+        root = link_world.engine.source_root(LW.WORKSPACE, LW.SHARE_KEY)
+        link_world.agent.run("dry_run")
+        assert link_world.agent.run("apply").status in ("failed", "held")
+        assert stand_in.applies == 1 and link_world.engine.acknowledged(root) is None
+
+    def test_direct_mode_keeps_no_stream_and_passes_no_previous(self, world):
+        world.agent.run("dry_run")
+        assert world.agent.run("apply").status == "ok"
+        assert [c[0] for c in world.runner.calls] == ["plan", "apply"]
+        assert not any("--previous" in c for c in world.runner.calls)
+        assert not list((world.root / "sources").rglob("stream-acknowledged.json"))
+
+    def test_link_calls_use_no_proxy_and_a_session_per_thread(self, link_world):
+        import threading
+
+        client = LinkClient(link_world.url, LW.COMPONENT, LW.TOKEN)
+        seen = [client.session]
+        thread = threading.Thread(target=lambda: seen.append(client.session))
+        thread.start()
+        thread.join(5)
+        assert all(s.trust_env is False for s in seen) and seen[0] is not seen[1] and client.session is seen[0]
+
+    def test_only_link_mode_reads_a_read_write_source(self, world, link_world):
+        github = {"workspace": "w", "key": "k", "kind": "github", "access": "read_write"}
+        assert link_world.agent._readable(github) and not world.agent._readable(github)
+        assert not link_world.agent._readable({**github, "kind": "http_json"})
+
+
+class TestLinkModeStart:
+    def _env(self, w, tmp_path, monkeypatch, token=LW.TOKEN):
+        token_file = tmp_path / "link" / "token"
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(token + "\n", encoding="ascii")
+        data = tmp_path / "component-data"
+        env = {"SYNC_LINK_URL": w.url, "SYNC_LINK_TOKEN_FILE": str(token_file), "SYNC_DATA_DIR": str(data),
+               "SYNC_PLATFORM_URL": "https://platform.invalid/api/connectors/v1", "SYNC_CREDENTIAL_GITHUB": "read-token"}
+        for k, v in {**env, **LW.runner_env()}.items():
+            monkeypatch.setenv(k, v)
+        return data
+
+    def test_once_registers_runs_and_answers_without_enrolment_or_certificate(self, link_world, tmp_path, monkeypatch):
+        data = self._env(link_world, tmp_path, monkeypatch)
+        cid = link_world.link.command(LW.COMPONENT, "run", {"kind": "dry_run"})
+        probe = link_world.link.queue(LW.COMPONENT, LW.probe_job())
+        assert component_main.main(["--once"]) == 0
+        assert link_world.link.registered[LW.COMPONENT]["job_kinds"] == ["fetch", "write", "probe"]
+        assert [(r["command"], r["status"]) for r in _reports(link_world, "runs")] == [(cid, "ok")]
+        assert link_world.link.results[probe]["status"] == "ok"
+        assert link_world.link.brain_calls and all(c["authorization"] == f"Bearer {LW.TOKEN}" for c in link_world.link.brain_calls)
+        assert not (data / "identity").exists(), "no enrolment, no key, no certificate"
+        assert all(path.startswith("/local/v1/") for _, path in link_world.link.calls)
+
+    def test_a_token_link_does_not_know_stops_it(self, link_world, tmp_path, monkeypatch):
+        self._env(link_world, tmp_path, monkeypatch, token="not-the-token-" + "y" * 30)
+        link_world.link.registered.clear()
+        assert component_main.main(["--once"]) == 2
+        assert link_world.link.registered == {} and link_world.link.beats == []
+
+    def test_without_its_token_file_it_does_not_start(self, link_world, tmp_path, monkeypatch):
+        self._env(link_world, tmp_path, monkeypatch)
+        monkeypatch.setenv("SYNC_LINK_TOKEN_FILE", str(tmp_path / "nowhere" / "token"))
+        assert component_main.main(["--once"]) == 2
+
+    def test_it_waits_until_link_has_a_configuration(self, link_world):
+        link_world.link.has_config = False
+        slept = []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            link_world.link.has_config = True
+
+        client = LinkClient(link_world.url, LW.COMPONENT, LW.TOKEN)
+        assert component_main.register(client, sleep=sleep) is True and len(slept) == 1
+        assert component_main.register(LinkClient(link_world.url, LW.COMPONENT, "wrong-" + "z" * 32), sleep=sleep) is False
