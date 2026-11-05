@@ -22,6 +22,13 @@
     {"code": "waiting_for_certificate", "meaning": "Knovas Link has no certificate yet: it runs its control plane but claims no job and writes nothing to the tenant."},
     {"code": "not_relayed", "meaning": "The Brain route is not on Knovas Link's relay allow-list."},
     {"code": "invalid_job", "meaning": "Knovas Link received a job that does not validate against the contract; it is never handed to a component."},
-    {"code": "part_not_accepted", "meaning": "Knovas did not take a part of a fetch; the relay of that job ends."}
+    {"code": "part_not_accepted", "meaning": "Knovas did not take a part of a fetch; the relay of that job ends."},
+    {"code": "too_large", "meaning": "The original is larger than the fetch's max_bytes; nothing was sent."},
+    {"code": "version_mismatch", "meaning": "The fetched bytes' git blob hash differs from the requested version; nothing was sent."},
+    {"code": "edit_unsupported", "meaning": "The component cannot write back into this kind of file or this key, for example a nested key or a value that is not one scalar."},
+    {"code": "front_matter_missing", "meaning": "The file has no front matter block to write the value into."},
+    {"code": "no_change", "meaning": "The edits leave the file exactly as it is; nothing was staged."},
+    {"code": "github.rate_limited", "meaning": "GitHub refused the call because the credential's rate limit is used up."},
+    {"code": "github.branch_left", "meaning": "A write's branch was left in the repository without a pull request; remove it or open the pull request by hand."}
   ]
 }
