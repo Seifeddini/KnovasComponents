@@ -1,6 +1,6 @@
 """Mapping a source to the ontology (build plan step B8).
 
-A mapping is brain-runner's: the YAML of KnowledgeBase's mappings/*.yaml
+A mapping is brain-runner's: the YAML of a company package's mappings/*.yaml
 (schema brain_runner/schemas/mapping.schema.json) -- a source (extractor, path
 or glob, ``select``, ``as``), freshness, deletion guard, edit policy, and what
 it emits per item: a type, the identify rule and key, name, facts and

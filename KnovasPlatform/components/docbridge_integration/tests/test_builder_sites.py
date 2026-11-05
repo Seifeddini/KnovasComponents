@@ -343,6 +343,37 @@ class TestSubComponents:
         assert link.report_run(kind="apply", status="ok", sub_component="sync-component").status_code == 201
         assert [r["kind"] for r in world["store"].component_runs(child["id"])] == ["apply"]
 
+    def test_a_child_s_command_is_done_as_the_child_s(self, world):
+        _, link, child = self._child(world)
+        assert world["http"].post(f"/builder/api/components/{child['id']}/check").status_code == 200
+        [command] = link.heartbeat().get_json()["commands"]
+        assert command["component"] == "sync-component"
+        # Without naming the component, Link cannot finish it: the command is the child's, not Link's.
+        assert link.done(command["id"]).status_code == 404
+        self._as(link, "sync-component")
+        assert link.done(command["id"]).status_code == 200
+        [done] = world["store"].commands(child["id"])
+        assert done["result"] == "ok" and done["done_at"]
+
+    def test_link_s_configuration_names_the_component_serving_each_source(self, world):
+        from builder import editing, package
+        from builder_harness import SAMPLE_PACKAGE
+
+        _, link, child = self._child(world)
+        model = package.read_package(package.files_from_directory(SAMPLE_PACKAGE)).model
+        editing.apply(model, {"op": "source.create", "kind": "github", "name": "Akten", "component": child["id"],
+                              "settings": {"repository": "muster-partner/akten", "ref": "main"}})
+        world["store"].create(name="Muster & Partner", model=model, actor_id=world["admin"].id, source={"kind": "blank"},
+                              tenant=TENANT)
+        [source] = link.config().get_json()["sources"]
+        assert source["component"] == "sync-component" and source["key"] == "akten"
+        assert source["fetch"] is False and source["write"] is False
+        assert [w["workspace"] for w in link._send("GET", "/package").get_json()["workspaces"]] == [source["workspace"]]
+        # Asked for one component, the configuration is that component's.
+        self._as(link, "sync-component")
+        [own] = link.config().get_json()["sources"]
+        assert own["key"] == "akten" and "component" not in own
+
     def test_an_unknown_sub_component_is_refused(self, world):
         _, link, _ = self._child(world)
         self._as(link, "jira-connector")

@@ -28,8 +28,10 @@ contract as the Platform implements it, until KC-7a writes it down in full:
   A report Link forwards for one of its components names it: header X-Sub-Component: <name on the site>, or the
   body field ``sub_component``. Runs, events, checks, command results, config and package are then the component's.
   GET  /api/connectors/v1/config
-    -> {component, paused, schedule, brain_url, sources: [{workspace, key, kind, access, settings}],
+    -> {component, paused, schedule, brain_url, sources: [{workspace, key, kind, access, settings, fetch, write}],
         mappings: [{workspace, id, source}]}
+       For Knovas Link: the sources and mappings of every component behind it, each with ``component`` (its name on
+       the site). ``fetch`` and ``write`` are the source's switches as last published (MVP-25).
   GET  /api/connectors/v1/package
     -> {workspaces: [{workspace, files: {path: base64}}]}    the configuration of the workspaces it serves, compiled
   POST /api/connectors/v1/runs
@@ -415,9 +417,24 @@ def resolve_reporter(store: Any, tenant: str, c: Mapping[str, Any], name: Option
     return child
 
 
+def _served(store: Any, c: Mapping[str, Any]) -> dict:
+    """The sources and mappings a component serves. Knovas Link serves those of the components behind it, each
+    named by its component (``component``: its name on the site), so Link knows which of them serves which source."""
+    if not hasattr(store, "served_by"):
+        return {"sources": [], "mappings": []}
+    if not C.is_link(c) or not hasattr(store, "children"):
+        return store.served_by(c["id"])
+    sources, mappings = [], []
+    for child in store.children(c["id"]):
+        found = store.served_by(child["id"])
+        sources += [{**s, "component": child["local_name"]} for s in found["sources"]]
+        mappings += [{**m, "component": child["local_name"]} for m in found["mappings"]]
+    return {"sources": sources, "mappings": mappings}
+
+
 def config_of(store: Any, c: Mapping[str, Any]) -> dict:
     """What the component runs: the sources served through it and their mappings, in every workspace."""
-    served = store.served_by(c["id"]) if hasattr(store, "served_by") else {"sources": [], "mappings": []}
+    served = _served(store, c)
     return {"component": c["id"], "paused": bool(c.get("paused")), "schedule": c.get("schedule") or {"mode": "manual"},
             "sources": served["sources"], "mappings": served["mappings"]}
 
@@ -432,7 +449,7 @@ def package_of(store: Any, c: Mapping[str, Any], write: Optional[Callable[[Mappi
 
         write = lambda model: package.write_package(publisher.for_engine(model))  # noqa: E731
     out = []
-    served = store.served_by(c["id"]) if hasattr(store, "served_by") else {"sources": []}
+    served = _served(store, c)
     for workspace in dict.fromkeys(s["workspace"] for s in served["sources"]):
         model = store.model(workspace)
         if model is None:
