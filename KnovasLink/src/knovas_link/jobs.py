@@ -50,6 +50,10 @@ LOCAL_PROBE_SECONDS = 30
 #: secure-api takes at most this many sources in one long-poll.
 MAX_SOURCES = 32
 BACKOFF_MAX_SECONDS = 60.0
+#: Link's own codes for its own failures (codes.json): a job that does not validate, and a fetch that ended because
+#: one of its parts was not accepted.
+INVALID_JOB = "invalid_job"
+PART_NOT_ACCEPTED = "part_not_accepted"
 #: The actor of the jobs Link makes itself (local probes).
 LINK_ACTOR = {"kind": "component", "id": "knovas-link"}
 _UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -198,7 +202,7 @@ class WorkChannel:
             await self._post_own(jid, self._finished[jid][0], self._finished[jid][1], lease)
             return
         if not contracts.job_valid(job):
-            await self.answer(jid, str(job.get("kind") or "unknown"), "failed", "bad_field", claimed, lease)
+            await self.answer(jid, str(job.get("kind") or "unknown"), "failed", INVALID_JOB, claimed, lease)
             return
         kind = job["kind"]
         if kind == "probe":
@@ -342,10 +346,11 @@ class WorkChannel:
             raise LocalError(409, "lease_lost", "this job is not the caller's, or it has an outcome already")
         return h
 
-    def _fail_fetch(self, jid: str, h: Held, code: str) -> None:
-        """A refused part ends the fetch: Link answers it failed, and every later part or result is 409."""
+    def _fail_fetch(self, jid: str, h: Held) -> None:
+        """A part that was not accepted (refused by Link, or not taken by Knovas) ends the fetch: Link answers it
+        failed with ``part_not_accepted`` and relays nothing more of it; every later part or result is 409."""
         self._end(h)
-        self.spawn(self.answer(jid, h.kind, "failed", code, h.claimed_at, h.lease))
+        self.spawn(self.answer(jid, h.kind, "failed", PART_NOT_ACCEPTED, h.claimed_at, h.lease))
 
     # ------------------------------------------------------------------ parts and results from a component
 
@@ -356,7 +361,7 @@ class WorkChannel:
             raise LocalError(400, "bad_field", "only a fetch job takes parts")
 
         def refuse(status: int, what: str) -> LocalError:
-            self._fail_fetch(jid, h, "bad_field")
+            self._fail_fetch(jid, h)
             log.info("job.part_refused fetch %d", status)
             return LocalError(status, "bad_field", what)
 
@@ -395,14 +400,14 @@ class WorkChannel:
 
             brain = self.link.brain
             if brain is None:
-                self._fail_fetch(jid, h, "unreachable")
+                self._fail_fetch(jid, h)
                 raise LocalError(503, "unreachable", "Knovas did not take the part")
             try:
                 status, code = await brain.post_part(jid, h.next_part, through(), length, h.lease)
             except PartTooLarge:
                 raise refuse(413, f"a part is at most {MAX_PART_BYTES} bytes") from None
             except BrainUnreachable:
-                self._fail_fetch(jid, h, "unreachable")
+                self._fail_fetch(jid, h)
                 raise LocalError(503, "unreachable", "Knovas did not take the part") from None
             except LocalError:
                 raise
@@ -421,7 +426,7 @@ class WorkChannel:
             raise refuse(413, f"a part is at most {MAX_PART_BYTES} bytes")
         if status in (400, 409):
             raise refuse(400, "secure-api refused the part")
-        self._fail_fetch(jid, h, "unreachable")
+        self._fail_fetch(jid, h)
         raise LocalError(503, "unreachable", "Knovas did not take the part")
 
     async def finish(self, name: str, jid: str, raw: bytes) -> None:

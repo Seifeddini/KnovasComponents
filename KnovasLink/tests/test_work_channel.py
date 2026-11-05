@@ -105,7 +105,8 @@ def test_a_refused_part_ends_the_fetch(world, channel, n, data, status):
     jid = _take(world, client)["id"]
     answer = client.post(f"/local/v1/jobs/{jid}/part" + (f"?n={n}" if n else ""), headers=world.headers(), content=data)
     assert answer.status_code == status and answer.json()["error"] == "bad_field"
-    assert _outcome(world, jid) == {"status": "failed", "code": "bad_field", "duration_ms": world.secure.outcome(jid)["duration_ms"]}
+    assert _outcome(world, jid) == {"status": "failed", "code": "part_not_accepted",
+                                    "duration_ms": world.secure.outcome(jid)["duration_ms"]}
     assert _part(world, client, jid, 0, b"late").status_code == 409
     late = _result(world, client, jid, _fetched([b"late"]))
     assert late.status_code == 409 and late.json()["error"] == "lease_lost"
@@ -119,7 +120,37 @@ def test_a_gap_after_a_good_part_ends_the_fetch(world, channel):
     assert _part(world, client, jid, 0, b"one").status_code == 200
     assert _part(world, client, jid, 2, b"three").status_code == 400
     assert _part(world, client, jid, 1, b"two").status_code == 409
-    assert _outcome(world, jid)["status"] == "failed" and world.secure.parts(jid) == [b"one"]
+    assert _outcome(world, jid)["code"] == "part_not_accepted" and world.secure.parts(jid) == [b"one"]
+
+
+@pytest.mark.parametrize("part_status,local_status", [(413, 413), (400, 400), (500, 503)])
+def test_a_part_knovas_does_not_take_ends_the_fetch_part_not_accepted(world, channel, part_status, local_status):
+    client, _ = channel
+    world.secure.enqueue(make_job("fetch", "handbook"))
+    jid = _take(world, client)["id"]
+    world.secure.part_status = part_status
+    answer = _part(world, client, jid, 0, b"one")
+    assert answer.status_code == local_status
+    world.secure.part_status = None
+    outcome = _outcome(world, jid)
+    assert (outcome["status"], outcome["code"]) == ("failed", "part_not_accepted")
+    assert _part(world, client, jid, 1, b"two").status_code == 409, "nothing more of that job is relayed"
+    assert world.secure.parts(jid) == []
+
+
+def test_a_part_while_secure_api_is_away_ends_the_fetch_part_not_accepted(world, channel):
+    client, _ = channel
+    world.secure.enqueue(make_job("fetch", "handbook"))
+    jid = _take(world, client)["id"]
+    world.secure.transport.down = True
+    answer = _part(world, client, jid, 0, b"one")
+    assert answer.status_code == 503 and answer.json()["error"] == "unreachable"
+    world.secure.transport.down = False
+    assert world.secure.outcome(jid) is None, "the answer did not get through either"
+    world.secure.lease_runs_out(jid)                                     # secure-api offers the job again
+    outcome = eventually(lambda: world.secure.outcome(jid))
+    assert (outcome["status"], outcome["code"]) == ("failed", "part_not_accepted"), "Link's answer, sent again"
+    assert world.secure.parts(jid) == []
 
 
 def test_a_part_for_a_write_is_refused_and_the_write_goes_on(world, channel):
@@ -223,7 +254,16 @@ def test_a_job_that_breaks_the_contract_is_answered_failed(world, channel):
     claimed = world.secure.claim_now(job)
     client.portal.call(link.channel.accept, claimed)
     assert world.secure.outcome(job["id"])["status"] == "failed"
-    assert world.secure.outcome(job["id"])["code"] == "bad_field"
+    assert world.secure.outcome(job["id"])["code"] == "invalid_job"
+    assert client.get("/local/v1/jobs?wait=0", headers=world.headers()).status_code == 204, "never handed out"
+
+
+def test_a_job_with_a_lease_unfit_for_a_header_is_not_taken(world, channel):
+    client, link = channel
+    job = world.secure.claim_now(make_job("fetch", "handbook"))
+    for lease in ("short", "lease with spaces in it", "x" * 129):
+        client.portal.call(link.channel.accept, {**job, "lease": lease})
+    assert world.secure.outcome(job["id"]) is None and link.channel.held == {}
 
 
 # ------------------------------------------------------------------ leases

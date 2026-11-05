@@ -45,8 +45,8 @@ def error_code(answer: httpx.Response) -> Optional[str]:
 
 #: The header that carries a claim's lease back on its parts and its result.
 LEASE_HEADER = "X-Knovas-Lease"
-#: A lease is an opaque token; it must at least be fit for a header.
-LEASE = re.compile(r"^[\x21-\x7e]{1,512}$")
+#: A lease is an opaque token of visible ASCII, as job.schema.json has it.
+LEASE = re.compile(r"^[!-~]{16,128}$")
 
 
 def _lease(lease: Optional[str]) -> dict:
