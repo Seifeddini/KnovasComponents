@@ -491,7 +491,7 @@ def create_builder_blueprint(
             if workspace is not None:
                 return _render("builder/sources.html", stage=current, stage_number=number,
                                current_workspace=workspace, history=_history_counts(workspace.id),
-                               sources=_sources_view(store, store.model(workspace.id)))
+                               sources=_sources_view(store, store.model(workspace.id), workspace.id))
         if current.slug == "prozesse":
             store = _store()
             workspace = _current_workspace(store)
@@ -769,7 +769,7 @@ def create_builder_blueprint(
         if wanted == "processes":
             view = {"processes": processes.build(model)}
         elif wanted == "sources":
-            view = {"sources": _sources_view(store, model)}
+            view = {"sources": _sources_view(store, model, workspace_id)}
         elif wanted == "mapping":
             view = {"mapping": _mapping_view(model, request.args.get("mapping") or "")}
         elif wanted == "views":
@@ -795,6 +795,7 @@ def create_builder_blueprint(
         op = request.get_json(silent=True)
         try:
             _check_source_op(store, op)
+            _check_switch_op(store, current, op)
             _check_role_op(op)
             model, changes, batch = store.edit(current.id, gate.current_user().id,
                                                lambda m: editing.apply(m, op))
@@ -2107,11 +2108,16 @@ def create_builder_blueprint(
     def _secrets():
         return source_secrets() if source_secrets is not None else None
 
-    def _sources_view(store, model) -> dict:
+    def _sources_view(store, model, workspace_id: Optional[str] = None) -> dict:
         tenant = _platform_tenant()
         components = {c["id"]: c for c in (store.components(tenant) if tenant else [])}
         secrets = _secrets()
         found = []
+        if workspace_id is None:
+            workspace = _current_workspace(store)
+            workspace_id = workspace.id if workspace is not None else None
+        published = {s.get("key"): s for s in ((store.published_model(workspace_id) if workspace_id and
+                                                hasattr(store, "published_model") else None) or {}).get("sources") or []}
         for s in model.get("sources") or []:
             c = components.get(s.get("component"))
             kind = source_kinds.SOURCE_KINDS.get(s.get("kind"), {})
@@ -2125,6 +2131,12 @@ def create_builder_blueprint(
                           "credential_required": bool(kind.get("credential_required")),
                           # A source on a site (MVP-24): its credential is a line of knovas-site.env, never a value here.
                           "on_site": on_site,
+                          # Its switches (MVP-25): as in the draft, as published, and why one is not offered.
+                          "fetch": source_kinds.fetch_of(s), "write": source_kinds.write_of(s),
+                          "fetch_published": source_kinds.fetch_of(published.get(s.get("key")) or {}),
+                          "write_published": source_kinds.write_of(published.get(s.get("key")) or {}),
+                          "fetch_reason": source_kinds.fetch_offered(s.get("kind")),
+                          "write_reason": source_kinds.write_offered(s.get("kind"), c),
                           **({"credential_line": site_rules.credential_line(s.get("key")), "site_name": c.get("site"),
                               "check_url": url_for("builder.component_check", component_id=c["id"])} if on_site else {})})
         kinds = {k: {"label": v["label"], "component": v["component"], "components": [v["component"], *v.get("also_on", ())],
@@ -2167,6 +2179,21 @@ def create_builder_blueprint(
             wanted = kind.get("component")
             if wanted and component["kind"] not in (wanted, *kind.get("also_on", ())):
                 raise editing.EditError(f"Eine Quelle dieser Art liest nur ein {source_kinds.COMPONENT_KINDS[wanted]['label']}.")
+
+    def _check_switch_op(store, current, op) -> None:
+        """Writing back is switched on only where the component serving the source can write to its kind (MVP-25)."""
+        if not isinstance(op, Mapping) or op.get("op") != "source.switches" or op.get("access") != "read_write":
+            return
+        source = next((s for s in (store.model(current.id) or {}).get("sources") or [] if s.get("key") == op.get("key")), None)
+        if source is None:
+            return          # the edit itself says that the source does not exist
+        if not source_kinds.SOURCE_KINDS.get(source.get("kind"), {}).get("write"):
+            return          # the edit itself refuses a kind that cannot be written
+        tenant = _platform_tenant()
+        component = store.component(tenant, str(source.get("component"))) if tenant else None
+        why = source_kinds.write_offered(source.get("kind"), component)
+        if why:
+            raise editing.EditError(why, 409)
 
     def _forget_moved_credentials(workspace_id: str, changes) -> None:
         """A source that moved to another address or repository loses its credential in the registry too."""
@@ -2402,7 +2429,7 @@ def create_builder_blueprint(
         model, changes, _ = store.edit(current.id, user.id, lambda m: editing.apply(
             m, {"op": "source.credential", "key": key, "set": bool(value)}))
         logger.info("Builder: source credential %s", "set" if value else "removed")
-        return jsonify({"success": True, "history": _history_counts(current.id), "sources": _sources_view(store, model)})
+        return jsonify({"success": True, "history": _history_counts(current.id), "sources": _sources_view(store, model, current.id)})
 
     def _reader(store, current, source):
         from platform_settings import source_secret_key
