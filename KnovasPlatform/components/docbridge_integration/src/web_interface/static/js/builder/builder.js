@@ -279,6 +279,17 @@
 
     window.BuilderUI = { toast: toast };
 
+    /* «Freigaben» in the rail (connection layer MVP-27): how many write proposals wait, read after the page. */
+    var badge = document.querySelector('[data-approvals-badge]');
+    if (badge && window.fetch) {
+        fetch(badge.dataset.url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (body) {
+                if (body && body.open) { badge.textContent = String(body.open); badge.hidden = false; }
+            })
+            .catch(function () { /* no badge */ });
+    }
+
     var DEMO = {
         good: { title: 'Entwurf gespeichert', text: 'Die Änderungen liegen im Entwurf.', tone: 'good' },
         critical: { title: 'Veröffentlichen fehlgeschlagen', text: 'Der Mandant hat nicht geantwortet. Erneut versuchen.', tone: 'critical' }

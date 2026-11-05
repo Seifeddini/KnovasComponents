@@ -1615,6 +1615,116 @@ def create_builder_blueprint(
         _command(link, "probe", {}, "probe.requested")
         return jsonify({"success": True, "queued": True})
 
+    # -------------------------------------------------------- «Freigaben»: write proposals (MVP-27, decision CL-4)
+
+    def _tenant_client():
+        """The Builder's line to the tenant's connection routes, or None where the Platform has none."""
+        if tenant_client is None:
+            return None
+        try:
+            return tenant_client()
+        except Exception as exc:  # noqa: BLE001 - no certificate here: the page says so
+            logger.warning("Builder: the tenant's connection routes are not reachable (%s)", type(exc).__name__)
+            return None
+
+    def _tenant_wide_or_refuse():
+        """«Freigaben» and «Verbindung» are the tenant's: a Platform role sees them, a grant on one workspace does not."""
+        if not _tenant_wide():
+            return _refuse("Das sieht, wer eine Builder-Rolle der Plattform hat.")
+        return None
+
+    def _workspace_models(store) -> list:
+        if store is None:
+            return []
+        tenant = _platform_tenant()
+        return [store.model(w.id) or {} for w in store.list() if not w.tenant or w.tenant == tenant]
+
+    @bp.route("/betrieb/freigaben")
+    def approvals_page():
+        """«Freigaben»: the open write proposals and what became of the decided ones."""
+        refusal = _tenant_wide_or_refuse()
+        if refusal:
+            return refusal
+        from builder import approvals as approval_rules
+        from builder.connection_api import ConnectionApiError
+
+        client, error, found = _tenant_client(), None, {"open": [], "decided": []}
+        if client is None:
+            error = "Diese Plattform liest keine Änderungsvorschläge des Mandanten (kein Zertifikat)."
+        else:
+            try:
+                found = approval_rules.rows(client.source_writes("proposed"), client.source_writes(),
+                                            approval_rules.mapping_writes(_workspace_models(_store())))
+            except ConnectionApiError as exc:
+                logger.warning("Builder: write proposals not read (HTTP %s, %s)", exc.status, exc.code or "-")
+                error = f"Das Brain hat die Vorschläge nicht geliefert ({codes_text(exc.code) or f'HTTP {exc.status}'})."
+            except Exception as exc:  # noqa: BLE001 - the page says it could not read
+                logger.warning("Builder: write proposals not read (%s)", type(exc).__name__)
+                error = f"Das Brain war nicht erreichbar ({type(exc).__name__})."
+        logger.info("Builder Freigaben: %d open, %d decided shown", len(found["open"]), len(found["decided"]))
+        stage = STAGES_BY_SLUG["betrieb"]
+        return _render("builder/approvals.html", stage=stage, stage_number=STAGES.index(stage) + 1,
+                       proposals=found, error=error, may_decide=g.builder_access.may("publish"))
+
+    def codes_text(code) -> Optional[str]:
+        from builder import codes
+
+        return codes.describe(code)["title"] if code else None
+
+    @bp.route("/api/freigaben/count")
+    def approvals_count():
+        """The badge: how many proposals wait. Zero where nothing can be read."""
+        refusal = _tenant_wide_or_refuse()
+        if refusal:
+            return refusal
+        client = _tenant_client()
+        try:
+            return jsonify({"open": len(client.source_writes("proposed")) if client is not None else 0})
+        except Exception as exc:  # noqa: BLE001 - the badge stays empty
+            logger.info("Builder: open proposals not counted (%s)", type(exc).__name__)
+            return jsonify({"open": None})
+
+    def _decide(proposal_id: str, accept: bool):
+        refusal = _tenant_wide_or_refuse()
+        if refusal:
+            return refusal
+        from builder import approvals as approval_rules
+        from builder import codes
+        from builder.connection_api import ConnectionApiError
+
+        client = _tenant_client()
+        if client is None:
+            return jsonify({"success": False, "error": "Diese Plattform erreicht die Vorschläge des Mandanten nicht."}), 503
+        reason = str((request.get_json(silent=True) or {}).get("reason") or "").strip()
+        if not accept and not 3 <= len(reason) <= 500:
+            return jsonify({"success": False, "error": "Warum wird abgelehnt? Ein Grund ist nötig (3 bis 500 Zeichen)."}), 400
+        # The person deciding, as the declared actor; the Brain records it (verified only with I2).
+        actor = {"kind": "user", "id": str(gate.current_user().id)}
+        try:
+            result = client.accept_source_write(proposal_id, actor) if accept else \
+                client.reject_source_write(proposal_id, actor, reason)
+        except ConnectionApiError as exc:
+            logger.info("Builder: write proposal %s not %s (HTTP %s, %s)", proposal_id,
+                        "accepted" if accept else "rejected", exc.status, exc.code or "-")
+            found = codes.describe(exc.code) if exc.code else None
+            text = f"{found['title']}: {found['explanation']} {found['fix']}" if found else f"Das Brain hat abgelehnt (HTTP {exc.status})."
+            return jsonify({"success": False, "error": text, "code": exc.code}), exc.status if 400 <= exc.status < 500 else 502
+        except Exception as exc:  # noqa: BLE001 - said on the page
+            logger.warning("Builder: write proposal decision failed (%s)", type(exc).__name__)
+            return jsonify({"success": False, "error": "Das Brain war nicht erreichbar."}), 502
+        status = result.get("status") or ("queued" if accept else "rejected")
+        logger.info("Builder: write proposal %s %s, now %s", proposal_id, "accepted" if accept else "rejected", status)
+        return jsonify({"success": True, "status": status, "status_text": approval_rules.status_text(status),
+                        "pull_request": result.get("result_ref") if str(result.get("result_ref") or "").startswith("https://") else None})
+
+    @bp.route("/api/freigaben/<proposal_id>/accept", methods=["POST"])
+    def approval_accept(proposal_id: str):
+        return _decide(proposal_id, True)
+
+    @bp.route("/api/freigaben/<proposal_id>/reject", methods=["POST"])
+    def approval_reject(proposal_id: str):
+        return _decide(proposal_id, False)
+
     # -------------------------------------------------------- the access window (B14)
 
     class _DraftAccess:
