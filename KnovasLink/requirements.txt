@@ -1,0 +1,6 @@
+# Knovas Link's dependencies as the image installs them (pyproject.toml has the ranges).
+starlette==1.7.0
+uvicorn==0.54.0
+httpx==0.28.1
+jsonschema==4.26.0
+cryptography>=42,<50
