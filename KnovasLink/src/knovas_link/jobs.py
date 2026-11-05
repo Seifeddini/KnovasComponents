@@ -279,10 +279,18 @@ class WorkChannel:
         self.spawn(self._expire(jid))
 
     def _end(self, h: Held) -> None:
+        """The job has its outcome, or the claim is gone: forget it (a late part or result then finds nothing and is
+        409), unless a new claim of the same job already took its place."""
         h.ended = True
         if h.timer:
             h.timer.cancel()
             h.timer = None
+        jid = h.job.get("id")
+        if self.held.get(jid) is h:
+            del self.held[jid]
+        queue = self._queues.get(h.component)
+        if queue and jid in queue and self.held.get(jid) is None:
+            queue.remove(jid)
 
     async def _expire(self, jid: str) -> None:
         h = self.held.get(jid)

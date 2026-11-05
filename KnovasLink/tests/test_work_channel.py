@@ -344,3 +344,19 @@ def test_the_waiter_cap_is_respected_and_the_channel_comes_back(world, channel):
     assert len(world.secure.claims) == before, "Retry-After is waited out, not hammered"
     world.secure.busy = False
     eventually(lambda: link.channel.state == "connected", timeout=5)
+
+
+def test_link_forgets_every_job_once_it_has_its_outcome(world, channel):
+    client, link = channel
+    done = world.secure.enqueue(make_job("fetch", "handbook"))
+    silent = world.secure.enqueue(make_job("write", "handbook", seconds=0.4))
+    world.secure.enqueue(make_job("fetch", "archive"))                   # refused by Link
+    job = _take(world, client)
+    assert job["id"] == done["id"]
+    assert _result(world, client, done["id"], {"status": "refused", "code": "not_found", "duration_ms": 1}).status_code == 200
+    _outcome(world, silent["id"])
+    client.portal.call(link.channel.local_probes)
+    local = _take(world, client)
+    assert _result(world, client, local["id"], {"status": "ok", "duration_ms": 0}).status_code == 200
+    eventually(lambda: link.channel.held == {})
+    assert all(not q for q in link.channel._queues.values())
