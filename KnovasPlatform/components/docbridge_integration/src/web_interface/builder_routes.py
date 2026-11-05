@@ -2449,8 +2449,9 @@ def create_builder_blueprint(
 
         writes = defn.get("writes") or {}
         write_types = [{"type": t, "facts": [{"name": f, "writable": ok, "reason": reason,
-                                              "reason_title": code_texts.describe(reason)["title"] if reason else None,
-                                              "reason_text": code_texts.describe(reason)["explanation"] if reason else None,
+                                              # «Nicht umkehrbar: <explanation>», with the sub-reason's fix.
+                                              "reason_title": code_texts.not_invertible(reason)["text"] if reason else None,
+                                              "reason_text": code_texts.not_invertible(reason)["fix"] if reason else None,
                                               "on": f in (writes.get(t) or {}),
                                               "field": (writes.get(t) or {}).get(f, {}).get("field")
                                               or mapping_rules.write_field(defn, t, f),

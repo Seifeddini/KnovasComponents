@@ -100,7 +100,7 @@
                 <label class="b-check"><input type="checkbox" data-write-type="{{ t.type }}" data-write-name="{{ f.name }}" {% if f.on %}checked{% endif %}>{{ f.name }}</label>
                 <span class="b-small b-muted">Feld <span class="b-mono">{{ f.field }}</span>{% if f.allowed %} · erlaubt: {{ f.allowed | join(', ') }}{% endif %}</span>
                 {% else %}
-                <span class="b-muted">{{ f.name }}</span> <span class="b-tag">{{ f.reason_title }}</span>
+                <span class="b-muted">{{ f.name }}</span> <span class="b-small" data-write-reason="{{ f.reason }}">{{ f.reason_title }}</span>
                 <span class="b-small b-muted">{{ f.reason_text }}</span>
                 {% endif %}
             </li>

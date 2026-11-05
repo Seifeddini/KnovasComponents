@@ -338,7 +338,8 @@ def plan_summary(plan: Mapping[str, Any], mapping_id: str) -> dict:
 #: time that they exist. ``from_source`` waits for the permissions from the source (I5) and is refused until then.
 ACCESS_CHOICES = {"inherit": "Wie die Ordnerregel", "all": "Alle im Mandanten", "groups": "Gruppen",
                   "from_source": "aus der Quelle"}
-#: Why a fact cannot be written back, as builder.codes names it.
+#: Why a fact cannot be written back, as builder.codes names it; the sub-reasons of not_invertible are in
+#: codes.NOT_INVERTIBLE.
 WRITE_REASONS = ("not_invertible", "computed_attribute", "not_writable")
 
 
@@ -359,16 +360,65 @@ def _plain_path(expr: Any, var: str) -> Optional[str]:
     return found[len(var) + 1:]
 
 
+#: Where an extractor's document holds the file's own values (brain-runner's inverse.WRITABLE_ROOTS).
+WRITABLE_ROOTS = {"markdown_front_matter": "front_matter", "yaml_file": "data", "json_file": "data"}
+
+
+def _select_keys(select: Any) -> Optional[list]:
+    """The keys ``select`` walks into the document when it gives exactly one item: [] for ``@``, the path for a plain
+    dotted path; None when it may give several items."""
+    text = str(select or "@").strip()
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1].strip()
+    if text == "@":
+        return []
+    parts = text.split(".")
+    return parts if all(IDENT.match(p) for p in parts) else None
+
+
 def _local_invertible(defn: Mapping[str, Any]) -> dict:
     """MVP-13's rule, here until brain-runner ships it: brain-runner as pinned by this Platform has no
-    ``brain_runner.inverse`` yet, so the Builder applies the same rule itself -- a fact can be written back only when
-    its expression is a plain path into the item, never a computed value. Remove once the pin carries MVP-13."""
-    var = str((defn.get("source") or {}).get("as") or VAR)
+    ``brain_runner.inverse`` yet, so the Builder applies the same rule itself, with the same reason codes -- a fact can
+    be written back only when its expression is a plain path into an item that is one place in a file, below the part
+    of the document that holds the file's own values. Remove once the pin carries MVP-13."""
+    src = defn.get("source") or {}
+    var = str(src.get("as") or VAR)
+    place, why = None, ""
+    if src.get("group"):
+        why = "grouped_items"
+    elif src.get("also"):
+        why = "several_file_sets"
+    elif src.get("extractor") not in WRITABLE_ROOTS:
+        why = "extractor_not_writable"
+    else:
+        place = _select_keys(src.get("select"))
+        why = "" if place is not None else "several_items_per_file"
     out: dict[str, dict] = {}
-    for em in defn.get("emits") or []:
-        facts = out.setdefault(str(em.get("type")), {})
-        for name, spec in (em.get("facts") or {}).items():
-            facts[name] = (True, None) if _plain_path((spec or {}).get("value"), var) else (False, "not_invertible")
+    emits = defn.get("emits") or []
+    for em in emits:
+        type_key = str(em.get("type"))
+        facts = out.setdefault(type_key, {})
+        for name in (em.get("facts") or {}):
+            if name in facts:
+                continue
+            if place is None:
+                facts[name] = (False, why)
+                continue
+            same_type = [e for e in emits if str(e.get("type")) == type_key]
+            if any(e.get("combine") or e.get("merge") for e in same_type):
+                facts[name] = (False, "combined_items")
+                continue
+            exprs = {((e.get("facts") or {}).get(name) or {}).get("value") for e in same_type if name in (e.get("facts") or {})}
+            if len(exprs) != 1:
+                facts[name] = (False, "stated_differently")
+                continue
+            path = _plain_path(next(iter(exprs)), var)
+            if path is None:
+                facts[name] = (False, "not_a_plain_path")
+                continue
+            full = place + path.split(".")
+            facts[name] = (True, None) if len(full) >= 2 and full[0] == WRITABLE_ROOTS[src["extractor"]] \
+                else (False, "not_a_stored_value")
     return out
 
 
@@ -389,6 +439,7 @@ def invertible(defn: Mapping[str, Any], model: Optional[Mapping[str, Any]] = Non
             ok, reason = (list(verdict) + [None, None])[:2] if isinstance(verdict, (list, tuple)) else (bool(verdict), None)
             if reason == "computed_attribute" or is_computed(onto.attribute(str(type_key), str(name))):
                 continue
+            # Writable: no reason (brain-runner says plain_path). Not: its sub-reason, shown as «Nicht umkehrbar: …».
             kept[name] = (bool(ok), None if ok else (reason or "not_invertible"))
         out[str(type_key)] = kept
     return out

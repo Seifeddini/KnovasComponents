@@ -329,10 +329,14 @@ def _mapping_access(edit: _Edit, op: Mapping[str, Any]) -> None:
 
 
 def _refused_write(fact: str, code: str) -> EditError:
+    """The refusal: a code of builder.codes, or a sub-reason of not_invertible as «Nicht umkehrbar: …»."""
     from builder import codes
 
-    found = codes.describe(code)
-    return EditError(f"«{fact}» lässt sich nicht zurückschreiben: {found['title']}. {found['explanation']}")
+    if code in codes.CODES and code != "not_invertible":
+        found = codes.describe(code)
+        return EditError(f"«{fact}» lässt sich nicht zurückschreiben: {found['title']}. {found['explanation']}")
+    found = codes.not_invertible(code)
+    return EditError(f"«{fact}» lässt sich nicht zurückschreiben: {found['text']} {found['fix']}")
 
 
 def _mapping_writes(edit: _Edit, op: Mapping[str, Any]) -> None:
@@ -358,7 +362,7 @@ def _mapping_writes(edit: _Edit, op: Mapping[str, Any]) -> None:
         if verdict is None:
             raise _refused_write(fact, "not_writable")
         if not verdict[0]:
-            raise _refused_write(fact, verdict[1] or "not_invertible")
+            raise _refused_write(fact, verdict[1] or "not_invertible")      # a sub-reason of not_invertible
         spec: dict = {"field": M.write_field(defn, type_key, fact)}
         if op.get("allowed") is not None:
             allowed = op["allowed"]

@@ -179,6 +179,64 @@ CODES: Mapping[str, Mapping[str, str]] = {
 }
 
 
+#: Why a fact is not invertible (``not_invertible``), as brain-runner's inverse mapping (MVP-13) says it per fact. The
+#: shared title stays «Nicht umkehrbar»; the sub-reason gives the explanation and the fix.
+NOT_INVERTIBLE: Mapping[str, Mapping[str, str]] = {
+    "not_a_plain_path": {
+        "explanation": "Der Wert entsteht mit Schritten oder einem Ausdruck, oder er wird aus dem Dokument statt aus dem "
+                       "Eintrag gelesen; aus dem Brain lässt sich nicht eindeutig sagen, was in der Quelle stehen müsste.",
+        "fix": "Das Attribut ohne Schritte direkt an ein Feld des Eintrags binden, wenn es zurückgeschrieben werden soll.",
+    },
+    "not_a_stored_value": {
+        "explanation": "Das Feld steht nicht in der Datei selbst, sondern wird beim Lesen abgeleitet (etwa Titel, Pfad "
+                       "oder erster Absatz); in eine solche Angabe kann nichts geschrieben werden.",
+        "fix": "An ein Feld binden, das in der Datei steht: bei Markdown im Front Matter, bei YAML oder JSON in den Daten.",
+    },
+    "stated_differently": {
+        "explanation": "Mehrere Zieltypen-Einträge der Zuordnung setzen dieses Attribut mit unterschiedlichen Ausdrücken; "
+                       "welcher zurückgeschrieben würde, ist nicht eindeutig.",
+        "fix": "Das Attribut überall mit demselben Feld setzen, oder nur an einer Stelle.",
+    },
+    "combined_items": {
+        "explanation": "Die Zuordnung führt mehrere Einträge zu einem Knoten zusammen; eine Datei hält dann nur einen Teil "
+                       "des Knotens.",
+        "fix": "Zurückschreiben geht nur bei Zuordnungen, die je Eintrag einen eigenen Knoten machen.",
+    },
+    "grouped_items": {
+        "explanation": "Die Quelle der Zuordnung gruppiert Einträge; ein Wert gehört dann zu keiner einzelnen Stelle "
+                       "einer Datei.",
+        "fix": "Zurückschreiben geht nur bei Zuordnungen ohne Gruppierung.",
+    },
+    "several_items_per_file": {
+        "explanation": "Die Auswahl der Zuordnung liest mehrere Einträge aus einer Datei; welcher Eintrag zu ändern wäre, "
+                       "ist nicht eindeutig.",
+        "fix": "Zurückschreiben geht nur, wenn je Datei ein Eintrag gelesen wird (Auswahl «@» oder ein einfacher Pfad).",
+    },
+    "several_file_sets": {
+        "explanation": "Die Zuordnung liest mehrere Dateimengen zusammen; ein Wert gehört dann zu keiner einzelnen Datei.",
+        "fix": "Zurückschreiben geht nur bei Zuordnungen, die eine Dateimenge lesen.",
+    },
+    "extractor_not_writable": {
+        "explanation": "Diese Art von Datei kann nicht beschrieben werden; zurückgeschrieben wird in Markdown mit Front "
+                       "Matter, YAML und JSON.",
+        "fix": "Nichts zu tun, solange die Quelle in dieser Form gelesen wird.",
+    },
+    "computed_attribute": {
+        "explanation": "Das Attribut wird aus anderen Angaben berechnet und nie in die Quelle geschrieben.",
+        "fix": "Stattdessen die Angaben ändern, aus denen es berechnet wird.",
+    },
+}
+
+
+def not_invertible(reason: Any) -> dict:
+    """«Nicht umkehrbar» with the sub-reason's explanation and fix; an unknown sub-reason is named as itself."""
+    found = NOT_INVERTIBLE.get(str(reason or ""))
+    explanation = found["explanation"] if found else f"Grund «{reason}»." if reason else CODES["not_invertible"]["explanation"]
+    return {"code": "not_invertible", "reason": str(reason or "not_invertible"), "title": CODES["not_invertible"]["title"],
+            "explanation": explanation, "fix": found["fix"] if found else CODES["not_invertible"]["fix"],
+            "text": f"{CODES['not_invertible']['title']}: {explanation}"}
+
+
 def describe(code: Any) -> dict:
     """The title, explanation and fix of ``code``; a code without an entry is named as itself."""
     found = CODES.get(str(code or ""))

@@ -41,7 +41,7 @@ class TestTheCodes:
             text = path.read_text(encoding="utf-8")
             for pattern in patterns:
                 literals.update(re.findall(pattern, text))
-        missing = sorted(c for c in literals if c not in codes.CODES)
+        missing = sorted(c for c in literals if c not in codes.CODES and c not in codes.NOT_INVERTIBLE)
         assert literals and missing == []
 
     def test_an_unknown_code_is_named_not_hidden(self):
