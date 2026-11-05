@@ -11,6 +11,8 @@ every file this page relies on.
   also on the outbound network. A component reaches Link at the address the install package gives it.
 - Plain HTTP. Names and bytes travel on this network, and never leave the machine except through Link.
 - A component opens no port and holds no Knovas certificate. It calls Link; Link never calls it.
+- A component in link mode never calls the Platform or the Brain. Its heartbeat, commands, configuration, package,
+  reports, jobs and Brain calls all go through this API.
 
 ## Authentication
 
@@ -25,13 +27,15 @@ endpoint below needs them.
 
 ## Endpoints
 
-Codes are written as the HTTP status and the code, for example 409 `lease_lost`. `bad_field`, `bad_token` and
-`unknown_component` are protocol v1's request errors, used here as the Platform uses them; every other code is in
-`codes.json`.
+Codes are written as the HTTP status and the code, for example 409 `lease_lost`. `bad_field`, `bad_token`,
+`unknown_component` and `unknown_command` are protocol v1's request errors, used here as the Platform uses them; every
+other code is in `codes.json`.
 
 | Endpoint | Body | Answer | Other answers |
 |---|---|---|---|
 | `POST /local/v1/register` | `{component, kind, version, capabilities, job_kinds}` | 200 `{sources}` | 400 `bad_field`, 401 `bad_token`, 401 `unknown_component`, 503 `unreachable` |
+| `POST /local/v1/heartbeat` | as protocol v1's `POST /heartbeat` | 200 `{paused, schedule, commands}` | 400 `bad_field`, 401 `bad_token`, 401 `unknown_component` |
+| `POST /local/v1/commands/<id>/done` | `{result: ok\|failed\|refused}` | the Platform's answer | 400 `bad_field`, 401 `bad_token`, 401 `unknown_component`, 404 `unknown_command`, 503 `unreachable` |
 | `GET /local/v1/config` | | 200, protocol v1's `GET /config` answer | 401 `bad_token`, 401 `unknown_component`, 503 `unreachable` |
 | `GET /local/v1/package` | | 200, protocol v1's `GET /package` answer | 401 `bad_token`, 401 `unknown_component`, 503 `unreachable` |
 | `GET /local/v1/ping` | | 200 `{version, certificate, work_channel}` | 401 `bad_token`, 401 `unknown_component` |
@@ -58,7 +62,9 @@ English and never holds a name or a value.
 - `job_kinds`: the job kinds it answers, from `fetch`, `write`, `probe`. A kind Link does not know is ignored.
 - A component registers when it starts. A later registration replaces the earlier one.
 
-The answer lists the sources this component serves, as the Platform's configuration assigns them. It holds no credential.
+The answer lists the sources assigned to this component's name. The Platform's configuration, which Link receives
+through protocol v1's `GET /config`, names for each source the component that serves it, as `"component": "<name>"`;
+Link answers a component with the sources whose `component` is the name it registered. The answer holds no credential.
 
 ```json
 {"sources": [{"workspace": "ws-1", "key": "handbook", "kind": "github", "access": "read_write",
@@ -68,10 +74,29 @@ The answer lists the sources this component serves, as the Platform's configurat
 `access` is `read` or `read_write`; `fetch` is true when fetching originals is switched on for the source. Both are off
 until a person switches them on and publishes. 503 `unreachable`: Link has never had a configuration from the Platform.
 
+### `POST /local/v1/heartbeat` and `POST /local/v1/commands/<id>/done`
+
+The control plane of protocol v1, through Link. A component in link mode sends its heartbeat here, never to the
+Platform.
+
+- The body is exactly protocol v1's heartbeat body: `{state: online|degraded, version, lag_seconds, open_errors,
+  capabilities}`. Link reports what it learns in its own heartbeat's `components`.
+- The answer is shaped as the Platform's: `{paused, schedule, commands: [{id, command, args}]}`. `paused` and
+  `schedule` are those of the Platform's last answer to Link.
+- **Commands fan out.** In the Platform's heartbeat answer to Link, a command meant for a component carries
+  `"component": "<name>"`. Link delivers it once, on that component's next local heartbeat, without the `component`
+  field. A command without `component` is Link's own.
+- The component finishes a command with `POST /local/v1/commands/<id>/done {result: ok|failed|refused}`. Link passes
+  it to the Platform's `POST /commands/<id>/done` with `"component": "<name>"` added, and answers with the Platform's
+  answer. 404 `unknown_command`: no open command of that id was delivered to this component. 503 `unreachable`: the
+  Platform did not answer.
+- A `run` command is finished, as in protocol v1, by the run report that names it in `command`
+  (`POST /local/v1/report/runs`).
+
 ### `GET /local/v1/config` and `GET /local/v1/package`
 
 The bodies of protocol v1's `GET /config` and `GET /package`, as Link last had them from the Platform, limited to the
-sources this component serves and their workspaces. 503 `unreachable`: Link has no copy and cannot reach the Platform.
+sources assigned to this component's name and their workspaces. 503 `unreachable`: Link has no copy and cannot reach the Platform.
 
 ### `GET /local/v1/ping`
 
@@ -87,14 +112,17 @@ health check and the components use it to see that Link is up and what it is wai
 A long-poll. `wait` is whole seconds from 0 to 25; a larger number counts as 25, and anything else is 400 `bad_field`.
 The answer is 200 `{"job": <job>}` (`job.schema.json`) or, when nothing came within `wait`, 204.
 
-- A component gets only jobs of a kind it named in `job_kinds`, for a source it serves.
+- A component gets only jobs of a kind it named in `job_kinds`, for a source assigned to its name.
 - A job is handed out once. Link answers for the component if it stays silent: past the job's `deadline` Link reports
   `unreachable` to Knovas, and the component's late part or result gets 409 `lease_lost`.
 - While Link waits for its certificate it claims no job, so this answers 204; ping says why.
 - A job whose kind no registered component named is answered `unsupported` by Link and never handed out. A job for a
   source whose switch is off is answered by Link with `refused` and `fetch_disabled` or `write_disabled`.
-- Link may hand a component that named `probe` a probe job (`args` `{}`) to measure the local round trip. The
-  component answers it at once with `{"status": "ok", "duration_ms": …}`.
+- **Local probes.** Link measures each component's local round trip with a probe job of its own: `kind` `probe`,
+  `args` `{}`, no `source` and no `target_serial`, handed out through this endpoint with each channel probe. A component
+  names `probe` in `job_kinds` and answers it at once with `{"status": "ok", "duration_ms": …}`. The time from hand-out
+  to result is the component's `local_ping_ms` in Link's heartbeat. A component that did not name `probe` has no local
+  round trip, and it is shown as unknown, never as fine.
 
 ### `POST /local/v1/jobs/<id>/part?n=`
 

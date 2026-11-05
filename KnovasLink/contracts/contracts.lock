@@ -3,8 +3,8 @@
   "files": {
     "codes.json": "e9d786428a0be252baa5ab08af661141fba8222760c52829aba881717f4fb571",
     "job-result.schema.json": "1794a34e37b02c057eb98170e3c535ebcc625a6eb4a9032415b8258f7a7347f6",
-    "job.schema.json": "ee8f599cc6946f502b522e1c356c73bdc91e5dccb665789c6538dfe0f0fa30a2",
-    "local-api.md": "0aa828bb48a280f08363c14e410aa08f5c38d1e7fd655a312842918de57d8d67",
+    "job.schema.json": "7e76aa6eaf31d8a06aa497faf889cf32c4dd76029145004281a05ef5e6c4b64b",
+    "local-api.md": "8b10cc056f28cdf4ff7116fb4d7f4c6962d28f7de34c9d16e7514871a7517c1b",
     "stream-message.schema.json": "94c02690dd4a649b83c54bb0c5deb31241481c8f350485800946c02fca1fa35c"
   }
 }

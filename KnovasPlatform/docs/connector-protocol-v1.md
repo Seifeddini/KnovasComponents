@@ -106,7 +106,9 @@ A **site** is one machine at the company, with one Docker network. **Knovas Link
 
 - **Enrolment.** Link enrols as described above, as kind `knovas_link`, with the site's one-time token. Its key is made on site and never leaves it. Its components register with Link, not with the Platform; Link's heartbeat reports them, and the Platform shows them under the site.
 - **Certificates and the data path are DEC-0056's (proposed).** This version proposes one certificate per site, held by Link, as an input to that decision: a site then needs one certificate instead of one per component. Until a certificate comes by the route DEC-0056 decides, Link enrols and runs the control plane, but claims no job and writes nothing to the tenant (`waiting_for_certificate`).
-- **Direct enrolment keeps working.** A component enrolled directly, as described above, keeps calling the Platform and the Brain itself. A component in link mode does not enrol and holds no certificate: its configuration, package, reports and Brain calls go through Link.
+- **Direct enrolment keeps working.** A component enrolled directly, as described above, keeps calling the Platform and the Brain itself. A component in link mode never calls the Platform: it does not enrol and holds no certificate, and its heartbeat, commands, configuration, package, reports, jobs and Brain calls go through Link.
+- **Which component serves a source.** `GET /config` names for each source the component on the site that serves it, as `"component": "<name>"`. A component registers with Link under its name and gets the sources assigned to that name.
+- **Commands fan out.** In the Platform's heartbeat answer to Link, a command meant for one of its components carries `"component": "<name>"`; Link delivers it on that component's next local heartbeat. Link reports the outcome with `POST /commands/<id>/done`, adding the same `"component": "<name>"`. A command without `component` is Link's own.
 - **Additions to existing calls.** `GET /config` gives each source `fetch`: true when fetching originals is switched on, false by default, also for sources published before. Link's `POST /heartbeat` adds `certificate: present|waiting`, `work_channel: connected|down`, `probe: {last_at, ok, round_trip_ms}`, `components: [{name, kind, version, state, capabilities, local_ping_ms}]`, per source `{last_read_ok_at, last_run_status}`, and job counts by kind and outcome since the last beat. All of them are codes, counts, versions and times.
 
 ## Streams
@@ -141,8 +143,8 @@ Knovas asks a site for work with **jobs**, `{id, kind, source, target_serial, de
 
 | Kind | Args | What the component does |
 |---|---|---|
-| `fetch` | `{external_id, version?, max_bytes}`, `max_bytes` at most 25 MiB | reads the original and posts it in parts, then the result ("Fetching originals") |
-| `write` | `{mapping, node_key, external_id, expected_version, facts, mode: "proposal"}` | stages the change where the source reviews it ("Write proposals") |
+| `fetch` | `{external_id, version?, max_bytes}`, `max_bytes` at most 25 MiB; the job's `source` is required | reads the original and posts it in parts, then the result ("Fetching originals") |
+| `write` | `{mapping, node_key, external_id, expected_version, facts, mode: "proposal"}`; the job's `source` is required | stages the change where the source reviews it ("Write proposals") |
 | `probe` | `{}` | nothing; the round trip measures the channel ("Probes") |
 
 - **Not jobs.** `run`, `pause`, `check` and the other commands stay on the heartbeat, as above. `inventory` and `sample` stay proposed.
@@ -152,7 +154,7 @@ Knovas asks a site for work with **jobs**, `{id, kind, source, target_serial, de
   - `POST /secured/connector/jobs/<id>/part?n=` takes the bytes of one part.
   - `POST /secured/connector/jobs/<id>/result` takes the result and answers 200 `{"accepted": true}`, or 409 `lease_lost` when the lease ended or the job has an outcome already. A late answer is discarded and counted.
   - Long-polls and waiting fetches hold a server thread each, so they are capped per pod and per tenant; beyond the caps the answer is 429 with `Retry-After`.
-- **On the site.** Link hands each job to the component that registered its kind and serves its source, and passes the parts and the result on unchanged and in order. No component for the kind: Link answers `unsupported`. Silent past the deadline: `unreachable`. The source's switch off: `refused` with `fetch_disabled` or `write_disabled`.
+- **On the site.** Link hands each job to the component that registered its kind and to which its source is assigned, and passes the parts and the result on unchanged and in order. No component for the kind: Link answers `unsupported`. Silent past the deadline: `unreachable`. The source's switch off: `refused` with `fetch_disabled` or `write_disabled`.
 - **The tenant comes from the certificate,** on every claim, part and result. A job of one tenant is never visible to, claimable by or answerable from another.
 - **Results.** The status is `ok`, `refused`, `conflict`, `unsupported`, `unreachable` or `failed`. A code says why: one of `KnovasLink/contracts/codes.json`, or a component's own of the same shape. A result holds codes, counts, versions, hashes and one reference, never text.
 
@@ -163,7 +165,8 @@ Knovas asks a site for work with **jobs**, `{id, kind, source, target_serial, de
 A heartbeat says that a process runs. A probe says that the whole channel works.
 
 - `POST /secured/connector/probe` answers 201 `{job_id}`. secure-api queues a `probe` addressed to the caller's certificate serial (`target_serial`); Link claims it through its long-poll and answers `ok`. The round trip is the measure.
-- Link probes every 5 minutes, and when a person asks in the Builder. It also checks each registered component locally, and reports the last round trips in its heartbeat (`probe`, `local_ping_ms`).
+- Link probes every 5 minutes, and when a person asks in the Builder. With each probe it also hands every registered component that answers probes a local `probe` job, with no `source` and no `target_serial`; the time to its result is the component's `local_ping_ms`. Link reports the last round trips in its heartbeat (`probe`, `local_ping_ms`).
+- A probe from secure-api always carries `target_serial`; only a local probe has none.
 - A site counts as online only when a probe went round recently; the Builder asks for one within the last 10 minutes. A state nobody measured is shown as unknown, never as fine.
 
 ## Write proposals

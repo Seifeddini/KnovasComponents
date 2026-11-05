@@ -58,6 +58,7 @@ REQUIRED = {
     ("job.schema.json", "", ("actor",)), ("job.schema.json", "", ("args",)),
     ("job.schema.json", "", ("actor", "kind")), ("job.schema.json", "", ("actor", "id")),
     ("job.schema.json", "", ("actor", "on_behalf_of", "kind")), ("job.schema.json", "", ("actor", "on_behalf_of", "id")),
+    ("job.schema.json", "kind=fetch", ("source",)), ("job.schema.json", "kind=write", ("source",)),
     ("job.schema.json", "kind=fetch", ("args", "external_id")), ("job.schema.json", "kind=fetch", ("args", "max_bytes")),
     *{("job.schema.json", "kind=write", ("args", f)) for f in
       ("mapping", "node_key", "external_id", "expected_version", "facts", "mode")},
@@ -79,7 +80,7 @@ COMPANY_SPECIFIC = [
 ]
 
 # Request errors of protocol v1 that the local API reuses; they are protocol v1's, not part of codes.json.
-PROTOCOL_V1_REQUEST_CODES = {"bad_field", "bad_token", "unknown_component"}
+PROTOCOL_V1_REQUEST_CODES = {"bad_field", "bad_token", "unknown_component", "unknown_command"}
 
 
 def _load(path: Path):
@@ -251,8 +252,19 @@ def test_every_required_field_has_an_invalid_vector_that_drops_it():
 def test_the_rules_the_shared_contract_names_have_invalid_vectors():
     names = {p.name for p in _vectors("invalid")}
     for wanted in ("job.write-mode-standing.json", "job.missing-actor.json", "job.fetch-max-bytes-over-25-mib.json",
-                   "result.bytes-over-25-mib.json", "stream.generation-not-complete.json"):
+                   "result.bytes-over-25-mib.json", "stream.generation-not-complete.json", "job.fetch-source-null.json",
+                   "job.write-source-null.json"):
         assert wanted in names
+
+
+def test_a_probe_needs_no_source_and_no_target_serial():
+    """secure-api sets target_serial on the probes it sends Link; Link's local probes to a component carry neither."""
+    s = _schemas()["job.schema.json"]
+    probe = next(b for b in s["allOf"] if b["if"]["properties"]["kind"]["const"] == "probe")
+    assert "required" not in probe["then"]
+    assert "source" not in probe["then"].get("properties", {})
+    local = _load(VECTORS / "valid" / "job.probe-local.json")["instance"]
+    assert "source" not in local and "target_serial" not in local
 
 
 def test_fetch_result_vector_is_the_git_blob_of_its_bytes():
@@ -293,7 +305,8 @@ def test_contracts_lock_matches_the_files():
 
 def test_local_api_names_every_endpoint_and_the_limits():
     text = LOCAL_API.read_text(encoding="utf-8")
-    for endpoint in ("POST /local/v1/register", "GET /local/v1/config", "GET /local/v1/package", "GET /local/v1/ping",
+    for endpoint in ("POST /local/v1/register", "POST /local/v1/heartbeat", "POST /local/v1/commands/<id>/done",
+                     "GET /local/v1/config", "GET /local/v1/package", "GET /local/v1/ping",
                      "GET /local/v1/jobs?wait=25", "POST /local/v1/jobs/<id>/part?n=", "POST /local/v1/jobs/<id>/result",
                      "ANY /local/v1/brain/<path>", "POST /local/v1/report/runs", "POST /local/v1/report/events",
                      "POST /local/v1/report/checks"):
@@ -317,6 +330,13 @@ def test_local_api_answers_only_known_codes_and_names_every_code():
         assert f"`{code}`" in text, f"local-api.md does not say where {code} appears"
 
 
+def test_local_api_writes_down_the_control_plane_and_source_assignment():
+    text = LOCAL_API.read_text(encoding="utf-8")
+    for needle in ('"component": "<name>"', "never calls the Platform", "{paused, schedule, commands",
+                   "{result: ok|failed|refused}", "sources assigned to this component's name", "local_ping_ms"):
+        assert needle in text, needle
+
+
 def test_local_api_says_which_objects_are_closed():
     section = _section(LOCAL_API.read_text(encoding="utf-8"), "Open and closed objects")
     for obj in ("stream message", "job", "actor", "args", "job result"):
@@ -330,7 +350,9 @@ def test_protocol_doc_is_version_1_1_with_the_new_sections():
                     "Fetching originals"):
         assert re.search(rf"^## {re.escape(heading)}$", text, re.M), heading
     assert "DEC-0056" in _section(text, "Sites and Knovas Link")
-    assert "Direct enrolment" in _section(text, "Sites and Knovas Link")
+    link = _section(text, "Sites and Knovas Link")
+    assert "Direct enrolment" in link
+    assert '"component": "<name>"' in link and "never calls the Platform" in link
 
 
 def test_every_contract_file_the_protocol_doc_names_exists():

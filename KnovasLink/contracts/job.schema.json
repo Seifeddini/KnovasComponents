@@ -15,12 +15,12 @@
     "source": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "The workspace source key the job is for; null for a probe."
+      "description": "The workspace source key the job is for: required, and not null, for fetch and write; null or absent for a probe."
     },
     "target_serial": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "The certificate serial a probe is addressed to; null otherwise."
+      "description": "The certificate serial a probe from secure-api is addressed to; secure-api always sets it on those. A local probe from Knovas Link to a component has none. Null or absent otherwise."
     },
     "deadline": {
       "type": "string",
@@ -34,11 +34,17 @@
   "allOf": [
     {
       "if": {"properties": {"kind": {"const": "fetch"}}, "required": ["kind"]},
-      "then": {"properties": {"args": {"$ref": "#/$defs/fetch_args"}}}
+      "then": {
+        "required": ["source"],
+        "properties": {"source": {"type": "string"}, "args": {"$ref": "#/$defs/fetch_args"}}
+      }
     },
     {
       "if": {"properties": {"kind": {"const": "write"}}, "required": ["kind"]},
-      "then": {"properties": {"args": {"$ref": "#/$defs/write_args"}}}
+      "then": {
+        "required": ["source"],
+        "properties": {"source": {"type": "string"}, "args": {"$ref": "#/$defs/write_args"}}
+      }
     },
     {
       "if": {"properties": {"kind": {"const": "probe"}}, "required": ["kind"]},
