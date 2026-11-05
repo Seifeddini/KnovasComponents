@@ -14,7 +14,10 @@ blob sha other than ``expected_version`` is a ``conflict`` and nothing is writte
 text in the front matter is replaced (``front_matter_edit``), committed on a new branch ``knovas/write-<job id>`` with
 a message naming the declared agent and a short hash of the declared person, and a pull request is opened whose body
 names the proposal by its job id. The result is ``ok`` with the pull request's URL as ``source_ref``. A mode other
-than ``proposal`` is refused ``mode_unsupported``; 403 from GitHub on a write is refused ``token_cannot_write``.
+than ``proposal`` is refused ``mode_unsupported``; 403 from GitHub on a write step, or 404 (GitHub's answer to a token
+that may read but not write, here only after the file was read), is refused ``token_cannot_write``. When a step fails
+after the branch was made, the branch is deleted again, best effort; if that fails, the result's code is
+``github.branch_left``.
 
 Logs carry codes, counts and durations only: never a path, a file name, a value, a token or a repository.
 """
@@ -194,11 +197,22 @@ class GitHub:
         return sha
 
     def _write(self, answer: Any, ok: tuple) -> Any:
+        """A write step's answer. 403, and 404 (GitHub's answer to a token that may read but not write, here only
+        ever after the file was read), are a credential that cannot write; a rate limit is not."""
         if answer.status_code in ok:
             return answer
-        if answer.status_code == 403 and str(answer.headers.get("X-RateLimit-Remaining", "")) != "0":
+        if answer.status_code == 404 or (answer.status_code == 403
+                                         and str(answer.headers.get("X-RateLimit-Remaining", "")) != "0"):
             raise Outcome("refused", "token_cannot_write")
         raise self.failed(answer)
+
+    def delete_branch(self, branch: str) -> bool:
+        """Best effort: whether the branch is gone."""
+        try:
+            answer = self.call("DELETE", "/git/refs/heads/" + quote(branch, safe="/"))
+        except Outcome:
+            return False
+        return answer.status_code in (204, 404, 422)
 
     def find_pull(self, branch: str) -> Optional[str]:
         owner = self.repository.split("/", 1)[0]
@@ -213,7 +227,8 @@ class GitHub:
     def propose(self, *, branch: str, head: str, base: str, path: str, expected: str, new: bytes,
                 message: str, title: str, body: str) -> str:
         """Branch, commit and pull request; the pull request's URL. A job claimed again after its lease ran out
-        finds its own branch and pull request and ends with the same URL."""
+        finds its own branch and pull request and ends with the same URL. When a step after the branch fails, the
+        branch is deleted again (best effort); if that fails too, the result's code is ``github.branch_left``."""
         created = self._write(self.call("POST", "/git/refs", body={"ref": "refs/heads/" + branch, "sha": head}), (201, 422))
         commit = True
         if created.status_code == 422:                       # the branch is there: this job ran before
@@ -226,8 +241,18 @@ class GitHub:
                 raise self.failed(created) from None
             if on_branch == git_blob_sha(new):
                 commit = False
-            elif on_branch != expected:
+            elif on_branch != expected:                      # someone else's change: never deleted
                 raise Outcome("failed", "github.branch_exists")
+        try:
+            return self._commit_and_open(commit=commit, branch=branch, base=base, path=path, expected=expected, new=new,
+                                         message=message, title=title, body=body)
+        except Outcome as out:
+            if not self.delete_branch(branch):
+                raise Outcome(out.result["status"], "github.branch_left") from None
+            raise
+
+    def _commit_and_open(self, *, commit: bool, branch: str, base: str, path: str, expected: str, new: bytes,
+                         message: str, title: str, body: str) -> str:
         if commit:
             self._write(self.call("PUT", "/contents/" + quote(path, safe="/"),
                                   body={"message": message, "content": base64.b64encode(new).decode("ascii"),

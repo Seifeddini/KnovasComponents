@@ -163,3 +163,62 @@ def test_logs_carry_codes_counts_and_durations_only(world, caplog):
         assert secret not in text, secret
     assert "job.done write ok" in text and "computed_attribute" in text
     assert COMPONENT not in text
+
+
+class TestATokenThatCannotWrite:
+    def test_a_404_on_a_write_step_after_the_file_was_read_is_token_cannot_write(self, tmp_path, monkeypatch):
+        w = build(tmp_path, monkeypatch, credential="read-token")
+        try:
+            w.github.deny_with = 404
+            result = run_job(w, write_job({"summary": NEW_SUMMARY}, w.travel_version))
+            assert (result["status"], result["code"]) == ("refused", "token_cannot_write")
+            assert any(c == ("GET", "/repos/example-org/handbook/contents/policies/travel.md") for c in w.github.calls), \
+                "the file was read first"
+            assert set(w.github.branches) == {"main"} and w.github.pulls == []
+        finally:
+            w.close()
+
+    def test_a_404_on_a_read_keeps_the_reads_code(self, world):
+        gh = github_jobs.GitHub("example-org/elsewhere", "write-token")      # a repository GitHub does not show
+        with pytest.raises(github_jobs.Outcome) as out:
+            gh.find_pull("knovas/write-x")
+        assert out.value.result == {"status": "failed", "code": "github.http_404"}
+
+
+class TestABranchLeftBehindIsCleanedUp:
+    @pytest.mark.parametrize("step,status,code", [
+        ("pull", 403, ("refused", "token_cannot_write")),       # contents write, but no pull requests write
+        ("pull", 404, ("refused", "token_cannot_write")),
+        ("put", 500, ("failed", "github.http_500")),
+        ("put", 409, ("failed", "github.http_409")),
+    ])
+    def test_a_failed_step_after_the_branch_deletes_the_branch(self, world, step, status, code):
+        world.github.faults[step] = status
+        job = write_job({"summary": NEW_SUMMARY}, world.travel_version)
+        result = run_job(world, job)
+        assert (result["status"], result["code"]) == code
+        assert ("DELETE", "/repos/example-org/handbook/git/refs/heads/knovas/write-" + job["id"]) in world.github.calls
+        assert set(world.github.branches) == {"main"} and world.github.pulls == []
+        assert world.github.file_at("main", "policies/travel.md") == TRAVEL
+
+    def test_a_branch_that_cannot_be_deleted_is_named_in_the_code(self, world):
+        world.github.faults.update(pull=403, delete=403)
+        job = write_job({"summary": NEW_SUMMARY}, world.travel_version)
+        result = run_job(world, job)
+        assert (result["status"], result["code"]) == ("refused", "github.branch_left")
+        assert "knovas/write-" + job["id"] in world.github.branches
+
+    def test_a_branch_someone_else_changed_is_never_deleted(self, world):
+        job = write_job({"summary": NEW_SUMMARY}, world.travel_version)
+        branch = "knovas/write-" + job["id"]
+        world.github.branches[branch] = world.github.branches["main"]
+        world.github.commit({"policies/travel.md": b"---\nid: POLICY-travel\n---\nsomeone else\n"}, branch=branch)
+        result = run_job(world, job)
+        assert (result["status"], result["code"]) == ("failed", "github.branch_exists")
+        assert branch in world.github.branches and not any(c[0] == "DELETE" for c in world.github.calls)
+
+    def test_a_refusal_before_the_branch_leaves_nothing_to_clean(self, world):
+        world.github.faults["ref"] = 403
+        result = run_job(world, write_job({"summary": NEW_SUMMARY}, world.travel_version))
+        assert (result["status"], result["code"]) == ("refused", "token_cannot_write")
+        assert not any(c[0] == "DELETE" for c in world.github.calls)
