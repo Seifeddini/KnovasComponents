@@ -776,7 +776,9 @@ def create_builder_blueprint(
             view = {"views": brain_views.build(model, roles=_roles())}
         else:
             view = {"ontology": ontology_view.build(model)}
-        return jsonify({"success": True, "changes": len(changes),
+        # What an edit did beside what was asked, in the same change (a fact taken out of «Zurückschreiben», MVP-26).
+        notices = [c["notice"] for c in changes if c.get("notice")]
+        return jsonify({"success": True, "changes": len(changes), "notices": notices,
                         "history": _history_counts(workspace_id), **view})
 
     def _refused(exc: editing.EditError):
@@ -2258,7 +2260,26 @@ def create_builder_blueprint(
                           "relations": relations, "offered": offered[:200],
                           "attributes": [a["name"] for a in attrs]})
         src = next((s for s in model.get("sources") or [] if s.get("key") == builder_meta.get("source")), None)
+        # «Zugriff» and «Zurückschreiben» (MVP-26): what is chosen, what may be written back and why not.
+        verdicts = mapping_rules.invertible(defn, model)
+        from builder import codes as code_texts
+
+        writes = defn.get("writes") or {}
+        write_types = [{"type": t, "facts": [{"name": f, "writable": ok, "reason": reason,
+                                              "reason_title": code_texts.describe(reason)["title"] if reason else None,
+                                              "reason_text": code_texts.describe(reason)["explanation"] if reason else None,
+                                              "on": f in (writes.get(t) or {}),
+                                              "field": (writes.get(t) or {}).get(f, {}).get("field")
+                                              or mapping_rules.write_field(defn, t, f),
+                                              "allowed": (writes.get(t) or {}).get(f, {}).get("allowed")}
+                                             for f, (ok, reason) in sorted(facts.items())]}
+                       for t, facts in verdicts.items() if facts]
+        access_panel = {"value": defn.get("access"), "groups": [{"key": g.get("key"), "name": g.get("name") or g.get("key")}
+                                                                for g in (model.get("access") or {}).get("groups") or []]}
+        write_panel = {"enabled": bool(src) and source_kinds.write_of(src), "types": write_types,
+                       "source_name": (src or {}).get("name")}
         return {"id": defn.get("id"), "file": entry.get("file"), "description": defn.get("description") or "",
+                "access": access_panel, "writes": write_panel, "explanation": mapping_rules.describe(model, entry),
                 "source_spec": defn.get("source") or {}, "var": var, "source": src,
                 "sources": [{"key": s["key"], "name": s["name"], "kind": s["kind"]} for s in model.get("sources") or []],
                 "collection": builder_meta.get("collection"), "priority": builder_meta.get("priority", 10),

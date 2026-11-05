@@ -203,8 +203,16 @@ def problems(model: Mapping[str, Any], entry: Mapping[str, Any]) -> list[dict]:
 
     validator = _schema_validator()
     if validator is not None:
+        # «Zugriff» and «Zurückschreiben» (MVP-26) need a brain-runner whose schema knows them (MVP-12); with an older
+        # pin the mapping is refused, and the problem says why instead of the schema's generic sentence.
+        unknown = [k for k in ("access", "writes") if k in defn and k not in (validator.schema.get("properties") or {})]
+        if unknown:
+            add("mapping", "Die installierte brain-runner-Version kennt «Zugriff» und «Zurückschreiben» noch nicht "
+                           f"({', '.join(unknown)}); erst mit der Version, die sie einführt, läuft diese Zuordnung.")
         for err in sorted(validator.iter_errors(_written(defn)), key=lambda e: list(map(str, e.absolute_path))):
             path = list(err.absolute_path)
+            if unknown and not path and err.validator == "additionalProperties":
+                continue
             target = "mapping"
             if len(path) >= 3 and path[0] == "emits":
                 target = f"{path[1]}:fact:{path[3]}" if path[2] == "facts" and len(path) > 3 else f"{path[1]}:{path[2]}"
@@ -321,3 +329,116 @@ def plan_summary(plan: Mapping[str, Any], mapping_id: str) -> dict:
             "guard": {"tripped": bool(guard.get("tripped")), "max_share": guard.get("max_share"),
                       "min_retire": guard.get("min_retire"), "types": guard.get("types") or {}},
             "blocked": mapping_id in (plan.get("blocked") or [])}
+
+
+# ------------------------------------------------------------------ access and writing back (connection layer MVP-26)
+
+#: The access a mapping's documents get (brain-runner's ``access``, MVP-12). ``from_source`` waits for the
+#: permissions from the source (I5) and is refused until then.
+ACCESS_CHOICES = {"inherit": "Wie die Ordnerregel", "all": "Alle im Mandanten", "groups": "Gruppen",
+                  "from_source": "aus der Quelle"}
+#: Why a fact cannot be written back, as builder.codes names it.
+WRITE_REASONS = ("not_invertible", "computed_attribute", "not_writable")
+
+
+def is_computed(attribute: Optional[Mapping[str, Any]]) -> bool:
+    """Whether the ontology defines the attribute as computed. The terms file has no field for it yet: an attribute
+    counts as computed when it says so (``computed: true``, kept under ``extra``) or its description begins with
+    «Computed»/«Berechnet». The second is a convention, not a schema; it errs towards not writing."""
+    if not attribute:
+        return False
+    if attribute.get("computed") is True or (attribute.get("extra") or {}).get("computed") is True:
+        return True
+    note = attribute.get("note")
+    texts = [note] if isinstance(note, str) else []
+    for value in (attribute.get("description") or {}).values() if isinstance(attribute.get("description"), Mapping) else []:
+        texts.append(value)
+    return any(isinstance(t, str) and t.strip().lower().startswith(("computed", "berechnet")) for t in texts)
+
+
+def _plain_path(expr: Any, var: str) -> Optional[str]:
+    """The path a fact's expression reads from the item, when it is nothing but that path; else None."""
+    found = simple_field(expr, var)
+    if not found or not found.startswith(var + "."):
+        return None             # a document's field (doc.…) is not the item's
+    return found[len(var) + 1:]
+
+
+def _local_invertible(defn: Mapping[str, Any]) -> dict:
+    """MVP-13's rule, here until brain-runner ships it: brain-runner as pinned by this Platform has no
+    ``brain_runner.inverse`` yet, so the Builder applies the same rule itself -- a fact can be written back only when
+    its expression is a plain path into the item, never a computed value. Remove once the pin carries MVP-13."""
+    var = str((defn.get("source") or {}).get("as") or VAR)
+    out: dict[str, dict] = {}
+    for em in defn.get("emits") or []:
+        facts = out.setdefault(str(em.get("type")), {})
+        for name, spec in (em.get("facts") or {}).items():
+            facts[name] = (True, None) if _plain_path((spec or {}).get("value"), var) else (False, "not_invertible")
+    return out
+
+
+def invertible(defn: Mapping[str, Any], model: Optional[Mapping[str, Any]] = None) -> dict:
+    """{Type: {fact: (writable, reason code or None)}} for the mapping's facts. brain-runner's own rule
+    (``brain_runner.inverse.invertible``) when it is installed, else the same rule here (MVP-13). An attribute the
+    ontology defines as computed is never listed."""
+    try:
+        from brain_runner.inverse import invertible as runner_invertible
+    except ImportError:
+        runner_invertible = None
+    raw = runner_invertible(dict(defn)) if runner_invertible is not None else _local_invertible(defn)
+    onto = Ontology(model or {})
+    out: dict[str, dict] = {}
+    for type_key, facts in (raw or {}).items():
+        kept = {}
+        for name, verdict in (facts or {}).items():
+            ok, reason = (list(verdict) + [None, None])[:2] if isinstance(verdict, (list, tuple)) else (bool(verdict), None)
+            if reason == "computed_attribute" or is_computed(onto.attribute(str(type_key), str(name))):
+                continue
+            kept[name] = (bool(ok), None if ok else (reason or "not_invertible"))
+        out[str(type_key)] = kept
+    return out
+
+
+def write_field(defn: Mapping[str, Any], type_key: str, fact: str) -> Optional[str]:
+    """The plain path a fact is written back to (the path its expression reads), or None."""
+    var = str((defn.get("source") or {}).get("as") or VAR)
+    for em in defn.get("emits") or []:
+        if em.get("type") == type_key and fact in (em.get("facts") or {}):
+            return _plain_path(((em.get("facts") or {}).get(fact) or {}).get("value"), var)
+    return None
+
+
+def access_text(access: Any) -> str:
+    if not isinstance(access, Mapping) or not access:
+        return "nicht gewählt"
+    if access.get("fixed") == "all":
+        return "alle im Mandanten (überschreibt Ordnerregeln)"
+    if isinstance(access.get("fixed"), list):
+        return "die Gruppen " + ", ".join(str(g) for g in access["fixed"])
+    if access.get("inherit") == "folder_rule":
+        return "wie die Ordnerregel"
+    return "nicht gewählt"
+
+
+def describe(model: Mapping[str, Any], entry: Mapping[str, Any]) -> str:
+    """«Was diese Zuordnung tut»: one sentence (and the access and write-back) from the definition."""
+    defn = entry.get("definition") or {}
+    spec = defn.get("source") or {}
+    what = spec.get("glob") or spec.get("path") or "Einträge"
+    source_key = (entry.get("builder") or {}).get("source")
+    source = next((s for s in model.get("sources") or [] if s.get("key") == source_key), None)
+    where = f" aus der Quelle «{source.get('name')}»" if source else ""
+    parts = []
+    for em in defn.get("emits") or []:
+        facts = sorted((em.get("facts") or {}).keys())
+        relations = len(em.get("relations") or [])
+        bits = [f"erkannt an {', '.join(em.get('identify') or ['key'])}"]
+        if facts:
+            bits.append(f"mit {len(facts)} Fakt{'' if len(facts) == 1 else 'en'} ({', '.join(facts)})")
+        if relations:
+            bits.append(f"{relations} Beziehung{'' if relations == 1 else 'en'}")
+        parts.append(f"einen Knoten vom Typ {em.get('type')} ({'; '.join(bits)})")
+    made = " und ".join(parts) if parts else "noch nichts"
+    writes = [f"{t}.{f}" for t, facts in sorted((defn.get("writes") or {}).items()) for f in sorted(facts or {})]
+    return (f"Liest {what}{where} und macht aus jedem Eintrag {made}. Zugriff: {access_text(defn.get('access'))}. "
+            + (f"Zurückgeschrieben werden darf: {', '.join(writes)}." if writes else "Zurückgeschrieben wird nichts."))
