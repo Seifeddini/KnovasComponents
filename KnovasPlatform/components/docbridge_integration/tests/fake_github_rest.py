@@ -3,8 +3,10 @@ requests for the sync component's fetch and write jobs (MVP-21, MVP-22). A test 
 company are made up.
 
 Tokens: ``read`` tokens may read, ``write`` tokens may also create branches, commit and open pull requests; any other
-write answers 403 as GitHub does for a token without contents or pull requests write. ``rate_limited`` makes the next
-write answer 403 with ``X-RateLimit-Remaining: 0``.
+write answers 403 as GitHub does for a token without contents or pull requests write (``deny_with = 404`` answers as
+GitHub does in places, to hide a repository's writes). ``rate_limited`` makes the next write answer 403 with
+``X-RateLimit-Remaining: 0``. ``faults`` makes one write step answer a given status: keys ``ref`` (create a branch),
+``put`` (commit a file), ``pull`` (open a pull request), ``delete`` (delete a branch).
 """
 from __future__ import annotations
 
@@ -34,6 +36,8 @@ class FakeGitHub:
         self.pulls: list[dict] = []
         self.calls: list[tuple[str, str]] = []
         self.rate_limited = False
+        self.deny_with = 403
+        self.faults: dict[str, int] = {}
         self.lock = threading.Lock()
         self.app = self._app()
 
@@ -76,8 +80,12 @@ class FakeGitHub:
                 return jsonify({"message": "Bad credentials"}), 401
             return None
 
-        def write():
+        def write(step: str):
             gh.calls.append((request.method, request.path))
+            if step in gh.faults:
+                status = gh.faults[step]
+                return Response('{"message": "fault"}', status=status,
+                                headers={"X-RateLimit-Remaining": "4999", "Content-Type": "application/json"})
             if gh.rate_limited:
                 gh.rate_limited = False
                 return Response('{"message": "API rate limit exceeded"}', status=403,
@@ -86,7 +94,8 @@ class FakeGitHub:
             if level is None:
                 return jsonify({"message": "Bad credentials"}), 401
             if level != "write":
-                return Response('{"message": "Resource not accessible by personal access token"}', status=403,
+                message = "Resource not accessible by personal access token" if gh.deny_with == 403 else "Not Found"
+                return Response('{"message": "%s"}' % message, status=gh.deny_with,
                                 headers={"X-RateLimit-Remaining": "4999", "Content-Type": "application/json"})
             return None
 
@@ -147,7 +156,7 @@ class FakeGitHub:
 
         @app.post(prefix + "/git/refs")
         def create_ref():
-            denied = write()
+            denied = write("ref")
             if denied:
                 return denied
             body = request.get_json()
@@ -161,9 +170,19 @@ class FakeGitHub:
                 gh.branches[branch] = body["sha"]
             return jsonify({"ref": name, "object": {"sha": body["sha"]}}), 201
 
+        @app.delete(prefix + "/git/refs/heads/<path:branch>")
+        def delete_ref(branch):
+            denied = write("delete")
+            if denied:
+                return denied
+            with gh.lock:
+                if gh.branches.pop(branch, None) is None:
+                    return jsonify({"message": "Reference does not exist"}), 422
+            return Response(status=204)
+
         @app.put(prefix + "/contents/<path:path>")
         def put(path):
-            denied = write()
+            denied = write("put")
             if denied:
                 return denied
             body = request.get_json()
@@ -179,7 +198,7 @@ class FakeGitHub:
 
         @app.post(prefix + "/pulls")
         def open_pull():
-            denied = write()
+            denied = write("pull")
             if denied:
                 return denied
             body = request.get_json()
