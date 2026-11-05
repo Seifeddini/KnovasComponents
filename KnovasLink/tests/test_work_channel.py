@@ -123,14 +123,14 @@ def test_a_gap_after_a_good_part_ends_the_fetch(world, channel):
     assert _outcome(world, jid)["code"] == "part_not_accepted" and world.secure.parts(jid) == [b"one"]
 
 
-@pytest.mark.parametrize("part_status,local_status", [(413, 413), (400, 400), (500, 503)])
+@pytest.mark.parametrize("part_status,local_status", [(413, 400), (400, 400), (404, 400), (409, 400), (500, 400)])
 def test_a_part_knovas_does_not_take_ends_the_fetch_part_not_accepted(world, channel, part_status, local_status):
     client, _ = channel
     world.secure.enqueue(make_job("fetch", "handbook"))
     jid = _take(world, client)["id"]
     world.secure.part_status = part_status
     answer = _part(world, client, jid, 0, b"one")
-    assert answer.status_code == local_status
+    assert answer.status_code == local_status and answer.json()["error"] == "bad_field"
     world.secure.part_status = None
     outcome = _outcome(world, jid)
     assert (outcome["status"], outcome["code"]) == ("failed", "part_not_accepted")

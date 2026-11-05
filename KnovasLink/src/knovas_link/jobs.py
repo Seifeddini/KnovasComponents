@@ -419,15 +419,11 @@ class WorkChannel:
         if 200 <= status < 300:
             h.next_part += 1
             return
-        if status == 404 or (status == 409 and code == "lease_lost"):
+        if status == 409 and code == "lease_lost":
             self._end(h)
             raise LocalError(409, "lease_lost", "the job's lease ended")
-        if status == 413:
-            raise refuse(413, f"a part is at most {MAX_PART_BYTES} bytes")
-        if status in (400, 409):
-            raise refuse(400, "secure-api refused the part")
-        self._fail_fetch(jid, h)
-        raise LocalError(503, "unreachable", "Knovas did not take the part")
+        # Knovas answered, but not with success: it refused the part, and the relay of the job ends.
+        raise refuse(400, "Knovas did not take the part")
 
     async def finish(self, name: str, jid: str, raw: bytes) -> None:
         """The component's result for a job it holds: checked against the contract, then passed on unchanged."""
