@@ -23,7 +23,7 @@ ALLOWED = frozenset({
 })
 #: Everything below it, not the path itself.
 ALLOWED_BELOW = "secured/graph/"
-_PATH_CHARS = re.compile(r"^[A-Za-z0-9._~!$&'()*+,;=:@%-]+$")
+_PATH_CHARS = re.compile(r"^[A-Za-z0-9/._~!$&'()*+,;=:@%-]+$")
 _ENCODED_SEPARATORS = ("%2f", "%5c", "%2e", "%00")
 
 #: Request headers passed on to secure-api; never the component's own token.

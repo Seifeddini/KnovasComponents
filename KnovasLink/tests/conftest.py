@@ -341,6 +341,8 @@ class FakeSecureApi:
             self.relayed.append(seen)
         if request.url.path.endswith("/missing"):
             return self._error(404, "not_found")
+        if request.url.path.endswith("/flaky"):
+            return self._error(503, "admission_rejected", **{"Retry-After": "2"})
         return JSONResponse({"echo": {k: seen[k] for k in ("method", "path", "query", "body")}}, status_code=200,
                             headers={"X-Brain-Answer": "yes"})
 
