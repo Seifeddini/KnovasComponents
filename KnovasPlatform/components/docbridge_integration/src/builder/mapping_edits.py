@@ -294,7 +294,9 @@ def _relation(edit: _Edit, op: Mapping[str, Any]) -> None:
 # ------------------------------------------------------------------ access and writing back (connection layer MVP-26)
 
 def _check_access(raw: Any, model: Mapping[str, Any]) -> dict:
-    """``{fixed: all}``, ``{fixed: [group keys of the access design]}`` or ``{inherit: folder_rule}``."""
+    """``{fixed: all}``, ``{fixed: [group keys]}`` or ``{inherit: folder_rule}``. Group keys are the group tree's stable
+    keys as the access window (B14) names them in the draft, never live group ids; the runner checks at plan time that
+    they exist on the tenant."""
     if not isinstance(raw, Mapping) or len(raw) != 1:
         raise EditError("Zugriff: «Wie die Ordnerregel», «Alle im Mandanten» oder Gruppen.")
     if "from_source" in raw:

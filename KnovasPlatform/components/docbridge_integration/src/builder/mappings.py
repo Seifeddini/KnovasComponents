@@ -333,8 +333,9 @@ def plan_summary(plan: Mapping[str, Any], mapping_id: str) -> dict:
 
 # ------------------------------------------------------------------ access and writing back (connection layer MVP-26)
 
-#: The access a mapping's documents get (brain-runner's ``access``, MVP-12). ``from_source`` waits for the
-#: permissions from the source (I5) and is refused until then.
+#: The access a mapping's documents get (brain-runner's ``access``, MVP-12). ``fixed: [keys]`` names groups by the
+#: group tree's stable keys as the access window (B14) names them, never live group ids; the runner checks at plan
+#: time that they exist. ``from_source`` waits for the permissions from the source (I5) and is refused until then.
 ACCESS_CHOICES = {"inherit": "Wie die Ordnerregel", "all": "Alle im Mandanten", "groups": "Gruppen",
                   "from_source": "aus der Quelle"}
 #: Why a fact cannot be written back, as builder.codes names it.
@@ -342,18 +343,12 @@ WRITE_REASONS = ("not_invertible", "computed_attribute", "not_writable")
 
 
 def is_computed(attribute: Optional[Mapping[str, Any]]) -> bool:
-    """Whether the ontology defines the attribute as computed. The terms file has no field for it yet: an attribute
-    counts as computed when it says so (``computed: true``, kept under ``extra``) or its description begins with
-    «Computed»/«Berechnet». The second is a convention, not a schema; it errs towards not writing."""
+    """Whether the ontology configuration marks the attribute as computed: an explicit ``computed: true`` on it (the
+    package's terms file; the model keeps the key under ``extra``). Nothing else counts -- a description that says
+    «computed» is text, not a mark; each company package marks its own computed attributes."""
     if not attribute:
         return False
-    if attribute.get("computed") is True or (attribute.get("extra") or {}).get("computed") is True:
-        return True
-    note = attribute.get("note")
-    texts = [note] if isinstance(note, str) else []
-    for value in (attribute.get("description") or {}).values() if isinstance(attribute.get("description"), Mapping) else []:
-        texts.append(value)
-    return any(isinstance(t, str) and t.strip().lower().startswith(("computed", "berechnet")) for t in texts)
+    return attribute.get("computed") is True or (attribute.get("extra") or {}).get("computed") is True
 
 
 def _plain_path(expr: Any, var: str) -> Optional[str]:

@@ -23,8 +23,10 @@ FACT_SHEET = {"key": "Merkblatt", "level": "company", "label": {"de": "Merkblatt
     {"name": "titel", "datatype": "text", "level": "company"},
     {"name": "ablage", "datatype": "text", "level": "company"},
     {"name": "status", "datatype": "enum", "enum_values": ["belegt", "veraltet"], "level": "company",
-     "note": "Computed: veraltet, wenn die Belege älter sind als die letzte Änderung."},
+     "note": "veraltet, wenn die Belege älter sind als die letzte Änderung.", "extra": {"computed": True}},
     {"name": "stufe", "datatype": "text", "level": "company", "extra": {"computed": True}},
+    # Only the explicit mark counts: a description that says «Computed» marks nothing.
+    {"name": "hinweis", "datatype": "text", "level": "company", "note": "Computed by hand once a year."},
 ]}
 
 
@@ -40,7 +42,8 @@ def _model(source_component="c1"):
     for target, field, steps in (("key", "front_matter.id", []), ("name", "title", []),
                                  ("fact:satz", "front_matter.summary", []), ("fact:pruefdatum", "front_matter.geprueft_am", []),
                                  ("fact:titel", "title", [{"step": "trim"}]), ("fact:ablage", "doc.path", []),
-                                 ("fact:status", "front_matter.status", []), ("fact:stufe", "front_matter.stufe", [])):
+                                 ("fact:status", "front_matter.status", []), ("fact:stufe", "front_matter.stufe", []),
+                                 ("fact:hinweis", "front_matter.hinweis", [])):
         ops.append({"op": "mapping.bind", "id": MAPPING, "emit": 0, "target": target, "field": field, "steps": steps})
     for op in ops:
         editing.apply(model, op)
@@ -58,8 +61,24 @@ class TestInvertible:
         assert facts["satz"] == (True, None) and facts["pruefdatum"] == (True, None)
         assert facts["titel"] == (False, "not_invertible")        # built with a step
         assert facts["ablage"] == (False, "not_invertible")       # the document's path, not a field of the item
-        # Computed attributes are never listed, plain path or not.
+        # Computed attributes (computed: true) are never listed, plain path or not; a description marks nothing.
         assert "status" not in facts and "stufe" not in facts
+        assert facts["hinweis"] == (True, None)
+
+    def test_only_the_explicit_mark_makes_an_attribute_computed(self):
+        assert M.is_computed({"name": "a", "extra": {"computed": True}})
+        assert not M.is_computed({"name": "a", "note": "Computed: from the evidence."})
+        assert not M.is_computed({"name": "a", "description": {"de": "Berechnet aus den Belegen."}})
+        assert not M.is_computed({"name": "a", "extra": {"computed": "yes"}})
+
+    def test_the_package_s_computed_true_reaches_the_model(self):
+        files = package.files_from_directory(SAMPLE_PACKAGE)
+        model = package.read_package(files).model
+        typed = next(t for t in model["ontology"]["types"] if t.get("attributes"))
+        typed["attributes"][0]["extra"] = {"computed": True}
+        again = package.read_package(package.write_package(model)).model
+        same = next(t for t in again["ontology"]["types"] if t["key"] == typed["key"])
+        assert M.is_computed(same["attributes"][0])
 
     def test_the_field_is_the_plain_path_without_the_item(self):
         assert M.write_field(_definition(_model()), "Merkblatt", "satz") == "front_matter.summary"
