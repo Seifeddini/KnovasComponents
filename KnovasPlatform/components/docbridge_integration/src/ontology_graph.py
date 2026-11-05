@@ -23,6 +23,8 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+import requests
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_TTL_SECONDS = 60
@@ -142,6 +144,9 @@ class GraphOntologySource:
     (die Secure-API begrenzt sie deutlich).
     """
 
+    #: How long a failed whole-graph export keeps the source on the list routes.
+    EXPORT_RETRY_SECONDS = 600
+
     def __init__(self, client: Any,
                  text_resolver: Any = None,
                  ttl_seconds: int = DEFAULT_TTL_SECONDS,
@@ -160,6 +165,9 @@ class GraphOntologySource:
         self._export_by_subject: Dict[str, tuple[float, float, Dict[str, Any], int]] = {}
         self._export_lock = threading.Lock()
         self._marker = marker_path or GENERATION_MARKER
+        # When the export route last failed, the lists are read instead until
+        # this moment (EXPORT_RETRY_SECONDS after the failure).
+        self._export_unavailable_until: float = 0.0
         self.warnings: List[str] = []
 
     # -- Topologie ------------------------------------------------------
@@ -251,9 +259,25 @@ class GraphOntologySource:
                 if hit is not None and now - hit[0] < self._ttl and hit[3] == generation:
                     self._export_by_subject[key] = (hit[0], now, hit[2], hit[3])
                     return hit[2]
-        from knovas_client import _graph_payload_list
+        from knovas_client import GraphError, _graph_payload_list
 
-        raw = self._client.graph_export() or {}
+        # The whole-graph export fails on a large tenant (the Knovas tenant
+        # answers 500 on GET /secured/graph, 2026-11-05). The three list routes
+        # carry the same topology, as the views read it; so a failed export is
+        # not the end of the page but the start of the slower path, and it is
+        # not asked again for a while: every miss would otherwise wait for the
+        # same 500 before reading the lists.
+        raw: Dict[str, Any] = {}
+        if now >= self._export_unavailable_until:
+            try:
+                raw = self._client.graph_export() or {}
+            except (GraphError, requests.exceptions.RequestException) as exc:
+                self._export_unavailable_until = now + self.EXPORT_RETRY_SECONDS
+                logger.warning(
+                    "Cortex: Topologie-Export /secured/graph nicht verfuegbar (%s). Typen, Knoten "
+                    "und Kanten werden einzeln gelesen; der Export wird in %d s wieder versucht.",
+                    exc, self.EXPORT_RETRY_SECONDS,
+                )
         node_types = _graph_payload_list(raw.get("node_types") or raw,
                                          "node_types", "nodeTypes", "types")
         nodes = _graph_payload_list(raw.get("nodes") or raw, "nodes")

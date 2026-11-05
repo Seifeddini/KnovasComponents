@@ -676,3 +676,47 @@ def test_update_type_and_entity_call_the_graph_api():
     assert node_calls == [("n-1", {"name": "Neu", "description": "Notiz"})]
     assert source.update_entity("n-1", label="") is None
     assert source.entity_detail("n-1")["entity"]["description"] == ""
+
+
+# -- Export route unavailable (the Knovas tenant answers 500 on GET /secured/graph) --
+
+from knovas_client import GraphError  # noqa: E402
+
+
+class ExportFailsClient(FakeGraphClient):
+    """The whole-graph export fails; the three list routes answer."""
+
+    def __init__(self, **overrides):
+        super().__init__(**overrides)
+        self.export_calls = 0
+
+    def graph_export(self):
+        self.export_calls += 1
+        raise GraphError(500, "INTERNAL_ERROR", "An unexpected error occurred.")
+
+
+def test_export_failure_falls_back_to_the_list_routes():
+    client = ExportFailsClient()
+    source = GraphOntologySource(client)
+    summary = source.summary()
+    assert [t["id"] for t in summary["types"]] == ["t-mandant", "t-dossier"]
+    assert [t["count"] for t in summary["types"]] == [1, 1]
+    assert summary["relations"] == [
+        {"src": "t-mandant", "predicate": "hat_Dossier", "dst": "t-dossier", "count": 1},
+    ]
+    assert source.entities_for_type("t-mandant")["entities"][0]["id"] == "n-1"
+    assert client.export_calls == 1
+
+
+def test_export_failure_is_remembered_and_retried_later():
+    clock = [0.0]
+    client = ExportFailsClient()
+    source = GraphOntologySource(client, ttl_seconds=60, now=lambda: clock[0])
+    source.summary()
+    assert client.export_calls == 1
+    clock[0] = 61.0                       # the topology cache expired: refetch, but not the export
+    source.summary()
+    assert client.export_calls == 1
+    clock[0] = 61.0 + source.EXPORT_RETRY_SECONDS
+    source.summary()
+    assert client.export_calls == 2       # tried again once the retry window passed
