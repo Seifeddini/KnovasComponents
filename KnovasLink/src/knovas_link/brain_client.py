@@ -43,6 +43,16 @@ def error_code(answer: httpx.Response) -> Optional[str]:
     return None
 
 
+#: The header that carries a claim's lease back on its parts and its result.
+LEASE_HEADER = "X-Knovas-Lease"
+#: A lease is an opaque token; it must at least be fit for a header.
+LEASE = re.compile(r"^[\x21-\x7e]{1,512}$")
+
+
+def _lease(lease: Optional[str]) -> dict:
+    return {LEASE_HEADER: lease} if lease else {}
+
+
 def _retry_after(answer: httpx.Response) -> int:
     raw = answer.headers.get("Retry-After", "")
     return int(raw) if raw.isdigit() and 0 < int(raw) <= 600 else 5
@@ -91,10 +101,10 @@ class BrainClient:
             raise BrainRefused(200, "no_job")
         raise BrainRefused(answer.status_code, error_code(answer))
 
-    async def post_part(self, job_id: str, n: int, content: AsyncIterable[bytes],
-                        length: Optional[int]) -> tuple[int, Optional[str]]:
-        """One part, streamed through as it arrives; (status, error code)."""
-        headers = {"Content-Type": "application/octet-stream"}
+    async def post_part(self, job_id: str, n: int, content: AsyncIterable[bytes], length: Optional[int],
+                        lease: Optional[str] = None) -> tuple[int, Optional[str]]:
+        """One part, streamed through as it arrives, with the claim's lease; (status, error code)."""
+        headers = {"Content-Type": "application/octet-stream", **_lease(lease)}
         if length is not None:
             headers["Content-Length"] = str(length)
         try:
@@ -105,10 +115,11 @@ class BrainClient:
             raise BrainUnreachable(type(exc).__name__) from None
         return answer.status_code, error_code(answer)
 
-    async def post_result(self, job_id: str, raw: bytes) -> tuple[int, Optional[str]]:
+    async def post_result(self, job_id: str, raw: bytes, lease: Optional[str] = None) -> tuple[int, Optional[str]]:
+        """The job's result, with the claim's lease; (status, error code)."""
         try:
             answer = await self.http.post(f"{self.base}/secured/connector/jobs/{self._job(job_id)}/result",
-                                          content=raw, headers={"Content-Type": "application/json"})
+                                          content=raw, headers={"Content-Type": "application/json", **_lease(lease)})
         except httpx.HTTPError as exc:
             raise BrainUnreachable(type(exc).__name__) from None
         return answer.status_code, error_code(answer)

@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
 
 from knovas_link import contracts
-from knovas_link.brain_client import BrainBusy, BrainRefused, BrainUnreachable
+from knovas_link.brain_client import LEASE, BrainBusy, BrainRefused, BrainUnreachable
 from knovas_link.errors import LocalError
 
 if TYPE_CHECKING:                                     # pragma: no cover
@@ -80,12 +80,13 @@ class PartTooLarge(Exception):
 @dataclass
 class Held:
     """A job Link holds for one component, from the claim to its outcome."""
-    job: dict
+    job: dict                        # as the component gets it: without the lease
     kind: str
     component: str
     source: Optional[str]
     local: bool
     claimed_at: float
+    lease: Optional[str] = None      # the claim's lease, sent back with every part and the result
     handed_at: Optional[float] = None
     next_part: int = 0
     part_in_flight: bool = False
@@ -178,44 +179,53 @@ class WorkChannel:
         if not isinstance(jid, str) or not _UUID.match(jid):
             log.warning("job.no_id")
             return
+        lease = job.get("lease")
+        if lease is not None and (not isinstance(lease, str) or not LEASE.match(lease)):
+            log.warning("job.bad_lease")
+            return
+        job = {k: v for k, v in job.items() if k != "lease"}          # the lease stays with Link
         held = self.held.get(jid)
         if held is not None and not held.ended:
-            return          # claimed again after its lease ran out: the hand-out stands, the new lease covers its answer
+            # Claimed again after its lease ran out: the first claim is gone. Its hand-out ends (a late part or
+            # result of it is 409 lease_lost), and the job is handed out afresh under the new lease.
+            self._end(held)
+            log.info("job.claimed_again %s", held.kind)
         if jid in self._finished:
-            await self._post_own(jid, self._finished[jid][0], self._finished[jid][1])
+            await self._post_own(jid, self._finished[jid][0], self._finished[jid][1], lease)
             return
         if not contracts.job_valid(job):
-            await self.answer(jid, str(job.get("kind") or "unknown"), "failed", "bad_field", claimed)
+            await self.answer(jid, str(job.get("kind") or "unknown"), "failed", "bad_field", claimed, lease)
             return
         kind = job["kind"]
         if kind == "probe":
-            await self._answer_probe(jid, claimed)
+            await self._answer_probe(jid, claimed, lease)
             return
         deadline = parse_deadline(job["deadline"])
         remaining = (deadline - utcnow()).total_seconds() if deadline else 0
         if remaining <= 0:
-            await self.answer(jid, kind, "unreachable", "unreachable", claimed)
+            await self.answer(jid, kind, "unreachable", "unreachable", claimed, lease)
             return
         source = self.link.source(job["source"])
         if source is None:
-            await self.answer(jid, kind, "unsupported", "unsupported", claimed)
+            await self.answer(jid, kind, "unsupported", "unsupported", claimed, lease)
             return
         if kind == "fetch" and source.get("fetch") is not True:
-            await self.answer(jid, kind, "refused", "fetch_disabled", claimed)
+            await self.answer(jid, kind, "refused", "fetch_disabled", claimed, lease)
             return
         if kind == "write" and source.get("access") != "read_write":
-            await self.answer(jid, kind, "refused", "write_disabled", claimed)
+            await self.answer(jid, kind, "refused", "write_disabled", claimed, lease)
             return
         name = source.get("component")
         component = self.link.registry.get(name)
         if component is None or not component.registered or kind not in component.job_kinds:
-            await self.answer(jid, kind, "unsupported", "unsupported", claimed)
+            await self.answer(jid, kind, "unsupported", "unsupported", claimed, lease)
             return
-        self._hold(jid, job, kind, name, job["source"], remaining, local=False, claimed=claimed)
+        self._hold(jid, job, kind, name, job["source"], remaining, local=False, claimed=claimed, lease=lease)
 
     # ------------------------------------------------------------------ Link's own answers
 
-    async def answer(self, jid: str, kind: str, status: str, code: Optional[str], since: float) -> bool:
+    async def answer(self, jid: str, kind: str, status: str, code: Optional[str], since: float,
+                     lease: Optional[str] = None) -> bool:
         result = {"status": status, "code": code, "duration_ms": self._ms(since)}
         if status == "ok":
             result.pop("code")
@@ -224,14 +234,14 @@ class WorkChannel:
         self.link.telemetry.job(kind, status)
         log.info("job.answered %s %s %s", kind, status, code or "-")
         self._remember(self._finished, jid, (kind, raw))
-        return await self._post_own(jid, kind, raw)
+        return await self._post_own(jid, kind, raw, lease)
 
-    async def _post_own(self, jid: str, kind: str, raw: bytes) -> bool:
+    async def _post_own(self, jid: str, kind: str, raw: bytes, lease: Optional[str]) -> bool:
         brain = self.link.brain
         if brain is None:
             return False
         try:
-            status, code = await brain.post_result(jid, raw)
+            status, code = await brain.post_result(jid, raw, lease)
         except BrainUnreachable as exc:
             log.warning("job.answer_not_taken %s (%s)", kind, exc)
             return False
@@ -240,8 +250,8 @@ class WorkChannel:
             return False
         return True
 
-    async def _answer_probe(self, jid: str, claimed: float) -> None:
-        if await self.answer(jid, "probe", "ok", None, claimed):
+    async def _answer_probe(self, jid: str, claimed: float, lease: Optional[str]) -> None:
+        if await self.answer(jid, "probe", "ok", None, claimed, lease):
             now = self._loop().time()
             waiting = self._probes.get(jid)
             if waiting is not None:
@@ -253,8 +263,8 @@ class WorkChannel:
     # ------------------------------------------------------------------ held jobs and the components' queues
 
     def _hold(self, jid: str, job: dict, kind: str, component: str, source: Optional[str], seconds: float, *,
-              local: bool, claimed: float) -> Held:
-        h = Held(job=job, kind=kind, component=component, source=source, local=local, claimed_at=claimed)
+              local: bool, claimed: float, lease: Optional[str] = None) -> Held:
+        h = Held(job=job, kind=kind, component=component, source=source, local=local, claimed_at=claimed, lease=lease)
         h.timer = self._loop().call_later(max(0.0, seconds), self._deadline, jid)
         self.held[jid] = h
         self._queues.setdefault(component, collections.deque()).append(jid)
@@ -284,7 +294,7 @@ class WorkChannel:
                 component.local_ping_ms = None
             log.info("probe.local_silent")
             return
-        await self.answer(jid, h.kind, "unreachable", "unreachable", h.claimed_at)
+        await self.answer(jid, h.kind, "unreachable", "unreachable", h.claimed_at, h.lease)
 
     def _pop(self, name: str) -> Optional[dict]:
         queue = self._queues.get(name)
@@ -323,7 +333,7 @@ class WorkChannel:
     def _fail_fetch(self, jid: str, h: Held, code: str) -> None:
         """A refused part ends the fetch: Link answers it failed, and every later part or result is 409."""
         self._end(h)
-        self.spawn(self.answer(jid, h.kind, "failed", code, h.claimed_at))
+        self.spawn(self.answer(jid, h.kind, "failed", code, h.claimed_at, h.lease))
 
     # ------------------------------------------------------------------ parts and results from a component
 
@@ -376,7 +386,7 @@ class WorkChannel:
                 self._fail_fetch(jid, h, "unreachable")
                 raise LocalError(503, "unreachable", "Knovas did not take the part")
             try:
-                status, code = await brain.post_part(jid, h.next_part, through(), length)
+                status, code = await brain.post_part(jid, h.next_part, through(), length, h.lease)
             except PartTooLarge:
                 raise refuse(413, f"a part is at most {MAX_PART_BYTES} bytes") from None
             except BrainUnreachable:
@@ -424,7 +434,7 @@ class WorkChannel:
             raise LocalError(503, "unreachable", "secure-api did not answer")
         h.finishing = True
         try:
-            status, code = await brain.post_result(jid, raw)
+            status, code = await brain.post_result(jid, raw, h.lease)
         except BrainUnreachable:
             status, code = 503, None
         finally:

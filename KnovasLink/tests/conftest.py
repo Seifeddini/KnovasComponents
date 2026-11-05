@@ -251,8 +251,36 @@ class FakeSecureApi:
     def enqueue(self, job: dict) -> dict:
         with self.lock:
             self.queued.append(job)
-            self.jobs[job["id"]] = {"job": job, "parts": [], "result": None, "state": "queued"}
+            self.jobs[job["id"]] = {"job": job, "parts": [], "result": None, "state": "queued", "lease": None,
+                                    "leases": [], "refused": []}
         return job
+
+    def claim_now(self, job: dict) -> dict:
+        """Enqueue and claim at once, as the long-poll would: the job with its lease."""
+        self.enqueue(job)
+        with self.lock:
+            self.queued.remove(job)
+            entry = self.jobs[job["id"]]
+            entry["state"], entry["lease"] = "claimed", "lease-" + uuid.uuid4().hex
+            entry["leases"].append(entry["lease"])
+            return {**job, "lease": entry["lease"]}
+
+    def lease_runs_out(self, jid: str, *, claimed_by_another: bool = False) -> None:
+        """The claim's lease ends: the job is claimable again, or another claimer took it under a new lease."""
+        with self.lock:
+            entry = self.jobs[jid]
+            if claimed_by_another:
+                entry["lease"] = "lease-other-" + uuid.uuid4().hex
+                entry["leases"].append(entry["lease"])
+            else:
+                entry["state"], entry["lease"] = "queued", None
+                self.queued.append(entry["job"])
+
+    def _lease_held(self, request: Request, entry: dict) -> bool:
+        if entry["state"] == "claimed" and request.headers.get("x-knovas-lease") == entry["lease"]:
+            return True
+        entry["refused"].append(request.url.path.rsplit("/", 1)[-1])
+        return False
 
     def outcome(self, jid: str) -> Optional[dict]:
         with self.lock:
@@ -277,8 +305,12 @@ class FakeSecureApi:
                 for job in self.queued:
                     if (job["kind"] == "probe" and job.get("target_serial") == SERIAL) or job.get("source") in sources:
                         self.queued.remove(job)
-                        self.jobs[job["id"]]["state"] = "claimed"
-                        return JSONResponse({"status": "success", "message": "Job claimed", "job": job})
+                        entry = self.jobs[job["id"]]
+                        entry["state"] = "claimed"
+                        entry["lease"] = "lease-" + uuid.uuid4().hex          # fresh per claim
+                        entry["leases"].append(entry["lease"])
+                        return JSONResponse({"status": "success", "message": "Job claimed",
+                                             "job": {**job, "lease": entry["lease"]}})
             if time.monotonic() >= until:
                 return Response(status_code=204)
             await asyncio.sleep(0.01)
@@ -290,7 +322,7 @@ class FakeSecureApi:
             entry = self.jobs.get(jid)
             if entry is None:
                 return self._error(404, "unknown_job")
-            if entry["state"] != "claimed":
+            if not self._lease_held(request, entry):
                 return self._error(409, "lease_lost")
             if entry["job"]["kind"] != "fetch":
                 return self._error(409, "parts_not_expected")
@@ -311,7 +343,7 @@ class FakeSecureApi:
             entry = self.jobs.get(jid)
             if entry is None:
                 return self._error(404, "unknown_job")
-            if entry["state"] != "claimed":
+            if not self._lease_held(request, entry):
                 return self._error(409, "lease_lost")
             status = body.get("status")
             if status not in ("ok", "refused", "conflict", "unsupported", "unreachable", "failed"):
