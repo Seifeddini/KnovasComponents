@@ -37,7 +37,7 @@ MAX_PART_BYTES = 4194304            # 4 MiB
 CODES = ["unsupported_type", "unsupported", "unreachable", "lease_lost", "source_unreachable", "source_refused",
          "no_source_ref", "not_found", "conflict", "mode_unsupported", "token_cannot_write", "fetch_disabled",
          "write_disabled", "not_writable", "computed_attribute", "value_not_allowed", "not_invertible", "unknown_mapping",
-         "previously_rejected", "waiting_for_certificate", "not_relayed"]
+         "previously_rejected", "waiting_for_certificate", "not_relayed", "invalid_job", "part_not_accepted"]
 
 # Required fields per schema and discriminator: (schema, "type=…" / "kind=…" / "", path).
 REQUIRED = {
@@ -179,6 +179,21 @@ def test_lease_is_optional_opaque_and_documented():
     assert "X-Knovas-Lease" in local and "never sees it" in local
     jobs = _section(PROTOCOL_DOC.read_text(encoding="utf-8"), "Jobs and the work channel")
     assert "X-Knovas-Lease" in jobs and "Components never see the lease" in jobs
+
+
+def test_source_ref_is_a_string_address():
+    """An applied write's result names where the source staged it (GitHub: the pull request) as a string."""
+    ref = _schemas()["job-result.schema.json"]["properties"]["source_ref"]
+    assert ref["type"] == ["string", "null"] and ref["minLength"] == 1
+    ok_write = _load(VECTORS / "valid" / "result.ok-write.json")["instance"]
+    assert isinstance(ok_write["source_ref"], str) and ok_write["source_ref"].startswith("https://")
+
+
+def test_links_own_failures_are_documented():
+    text = LOCAL_API.read_text(encoding="utf-8")
+    codes = _section(text, "Where each code appears")
+    for code in ("invalid_job", "part_not_accepted"):
+        assert re.search(rf"^\| `{code}` \| Link \| job result `failed`", codes, re.M), code
 
 
 def test_result_statuses_and_fields():

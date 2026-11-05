@@ -7,6 +7,10 @@ one-time enrolment token for /enrol, the control token (and, behind a TLS
 terminator, the client certificate's fingerprint) for everything else. The
 tenant is the Platform's own, from its certificate; a component never names it.
 Logs carry the component id and counts only.
+
+Knovas Link (connection layer MVP-23) speaks the same calls for its site: its heartbeat carries the site's telemetry,
+and a report it forwards for a component behind it names that component (header X-Sub-Component or the body field
+``sub_component``), so it is kept as that component's. A component enrolled on its own keeps working as before.
 """
 from __future__ import annotations
 
@@ -70,6 +74,15 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
                                      bearer, request.headers.get("X-Client-Cert-Fingerprint"),
                                      require_certificate=require_client_certificate)
 
+    def _reporter(body: Optional[dict] = None, c=None):
+        """The component a report is about: the caller, or the one behind Knovas Link it names (MVP-23)."""
+        c = c if c is not None else _component()
+        header = request.headers.get("X-Sub-Component", "").strip()
+        field = str((body or {}).get("sub_component") or "").strip()
+        if header and field and header != field:
+            raise protocol.ProtocolError(400, "bad_field", "sub_component: header and field name different components")
+        return protocol.resolve_reporter(store_factory(), _tenant(), c, header or field or None)
+
     @bp.route("/enrol", methods=["POST"])
     def enrol():
         try:
@@ -85,21 +98,21 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
     def heartbeat():
         try:
             c = _component()
-            return jsonify(protocol.heartbeat(store_factory(), c, _body(), _now()))
+            return jsonify(protocol.heartbeat(store_factory(), c, _body(), _now(), tenant=_tenant()))
         except protocol.ProtocolError as exc:
             return _error(exc)
 
     @bp.route("/config")
     def config():
         try:
-            return jsonify({**protocol.config_of(store_factory(), _component()), "brain_url": brain_url() if brain_url else None})
+            return jsonify({**protocol.config_of(store_factory(), _reporter()), "brain_url": brain_url() if brain_url else None})
         except protocol.ProtocolError as exc:
             return _error(exc)
 
     @bp.route("/package")
     def package():
         try:
-            return jsonify(protocol.package_of(store_factory(), _component()))
+            return jsonify(protocol.package_of(store_factory(), _reporter()))
         except protocol.ProtocolError as exc:
             return _error(exc)
 
@@ -107,7 +120,9 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
     def runs():
         try:
             c = _component()
-            run_id = protocol.report_run(store_factory(), c, _body(), _now())
+            body = _body()
+            c = _reporter(body, c)
+            run_id = protocol.report_run(store_factory(), c, body, _now())
         except protocol.ProtocolError as exc:
             return _error(exc)
         logger.info("Connector run reported: component %s", c["id"])
@@ -116,7 +131,9 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
     @bp.route("/commands/<command_id>/done", methods=["POST"])
     def command_done(command_id: str):
         try:
-            protocol.command_done(store_factory(), _component(), command_id, _body(), _now())
+            c = _component()
+            body = _body()
+            protocol.command_done(store_factory(), _reporter(body, c), command_id, body, _now())
         except protocol.ProtocolError as exc:
             return _error(exc)
         return jsonify({"ok": True})
@@ -124,7 +141,9 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
     @bp.route("/events", methods=["POST"])
     def events():
         try:
-            n = protocol.events(store_factory(), _component(), _body())
+            c = _component()
+            body = _body()
+            n = protocol.events(store_factory(), _reporter(body, c), body)
         except protocol.ProtocolError as exc:
             return _error(exc)
         return jsonify({"stored": n}), 201
@@ -132,7 +151,9 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
     @bp.route("/checks", methods=["POST"])
     def checks():
         try:
-            n = protocol.report_checks(store_factory(), _component(), _body(), _now())
+            c = _component()
+            body = _body()
+            n = protocol.report_checks(store_factory(), _reporter(body, c), body, _now())
         except protocol.ProtocolError as exc:
             return _error(exc)
         return jsonify({"stored": n}), 201

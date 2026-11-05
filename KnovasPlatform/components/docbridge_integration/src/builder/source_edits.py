@@ -107,6 +107,31 @@ def _source_update(edit: _Edit, op: Mapping[str, Any]) -> None:
     edit.write(SOURCES, old, new)
 
 
+def _source_switches(edit: _Edit, op: Mapping[str, Any]) -> None:
+    """The source's switches (connection layer MVP-25): ``fetch`` -- agents may fetch its originals -- and ``access``
+    -- read, or read_write so that accepted changes are written back. Both off until switched on here; like every
+    edit, a switch is reviewed and published before the component sees it (store.served_source). Whether the
+    component serving the source can write is the route's check: it knows the register."""
+    old, new = _source(edit, op.get("key"))
+    if "fetch" not in op and "access" not in op:
+        raise EditError("Schalter: fetch oder access angeben.")
+    if "fetch" in op:
+        if not isinstance(op["fetch"], bool):
+            raise EditError(f"«{S.SWITCHES['fetch']}»: an oder aus.")
+        if op["fetch"]:
+            why = S.fetch_offered(new.get("kind"))
+            if why:
+                raise EditError(why)
+        new["fetch"] = op["fetch"]
+    if "access" in op:
+        if op["access"] not in S.ACCESS:
+            raise EditError(f"«{S.SWITCHES['write']}»: {', '.join(S.ACCESS.values())}.")
+        if op["access"] == "read_write" and not S.SOURCE_KINDS.get(new.get("kind"), {}).get("write"):
+            raise EditError("In diese Art von Quelle kann noch nichts zurückgeschrieben werden.")
+        new["access"] = op["access"]
+    edit.write(SOURCES, old, new)
+
+
 def _source_credential(edit: _Edit, op: Mapping[str, Any]) -> None:
     """That the credential was set or removed; the value is the registry's, never the model's."""
     old, new = _source(edit, op.get("key"))
@@ -128,5 +153,6 @@ OPERATIONS.update({
     "source.create": _source_create,
     "source.update": _source_update,
     "source.credential": _source_credential,
+    "source.switches": _source_switches,
     "source.remove": _source_remove,
 })

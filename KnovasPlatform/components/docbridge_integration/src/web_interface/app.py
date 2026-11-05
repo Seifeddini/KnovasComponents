@@ -1929,6 +1929,13 @@ def create_app(config_path: Optional[str] = None):
 
             return BrainAccess(api_client)
 
+        # connection layer (MVP-27, MVP-28): begin
+        def _builder_tenant_client():
+            from builder.connection_api import BrainConnection
+
+            return BrainConnection(api_client)
+        # connection layer (MVP-27, MVP-28): end
+
         def _builder_assistant():
             """The views assistant: a Claude client on the settings registry's API key and the chosen model; None
             without a key."""
@@ -2031,6 +2038,11 @@ def create_app(config_path: Optional[str] = None):
             assistant_client=_builder_assistant,
             # Relations and hierarchies from what the tenant's links show (builder.brain_shape).
             tenant_graph=lambda: (api_client.graph_node_types(), api_client.graph_nodes(), api_client.graph_edges()),
+            # connection layer (MVP-27, MVP-28): begin
+            # «Freigaben» and the «Verbindung» card read the tenant's write proposals and job counts on this
+            # Platform's certificate (builder.connection_api), as the access window reads its groups.
+            tenant_client=_builder_tenant_client,
+            # connection layer (MVP-27, MVP-28): end
         ))
 
         # Connector protocol v1 (B13): components call out to these; each checks the component's own credential,

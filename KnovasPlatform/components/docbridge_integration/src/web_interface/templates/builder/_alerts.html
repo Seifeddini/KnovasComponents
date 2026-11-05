@@ -1,18 +1,26 @@
 {# The sync components' alerts (build plan step B13): offline beyond the limit,
    two failed runs in a row, lag beyond the limit, a plan held more than a day.
-   Shown on the start page, the registry and the Betrieb stage. #}
+   The connection layer (MVP-28) adds Knovas Link's and the write proposals' alerts, each with its title and fix
+   from builder.codes; an alert that is not one component's links where it is fixed (``url``).
+   Shown on the start page, the registry, the Betrieb stage and the «Verbindung» cards. #}
+{% macro alert_items(alerts) %}
+{% for a in alerts %}
+<li class="b-alert b-alert--{{ a.severity }}" data-alert="{{ a.code }}">
+    <span class="b-tag b-tag--{{ a.severity }}"><span class="b-tag-dot"></span>{{ {'offline': 'Offline', 'failed_twice': 'Fehlgeschlagen', 'lag': 'Rückstand', 'held_plan': 'Wartet'}.get(a.code, a.title or a.code) }}</span>
+    <span>{{ a.text }}</span>
+    {% if a.fix %}<span class="b-small b-muted" data-alert-fix>{{ a.fix }}</span>{% endif %}
+    {% if a.url %}<a class="b-link-strong b-small" href="{{ a.url }}">Ansehen</a>
+    {% elif a.component %}<a class="b-link-strong b-small" href="{{ url_for('builder.component_page', component_id=a.component) }}">Ansehen</a>{% endif %}
+</li>
+{% endfor %}
+{% endmacro %}
+
 {% macro alerts_box(alerts) %}
 {% if alerts %}
 <section class="b-alerts" aria-labelledby="b-alerts-title" data-component-alerts>
     <h2 class="b-h3" id="b-alerts-title">Warnungen der Komponenten</h2>
     <ul>
-        {% for a in alerts %}
-        <li class="b-alert b-alert--{{ a.severity }}" data-alert="{{ a.code }}">
-            <span class="b-tag b-tag--{{ a.severity }}"><span class="b-tag-dot"></span>{{ {'offline': 'Offline', 'failed_twice': 'Fehlgeschlagen', 'lag': 'Rückstand', 'held_plan': 'Wartet'}.get(a.code, a.code) }}</span>
-            <span>{{ a.text }}</span>
-            <a class="b-link-strong b-small" href="{{ url_for('builder.component_page', component_id=a.component) }}">Ansehen</a>
-        </li>
-        {% endfor %}
+        {{ alert_items(alerts) }}
     </ul>
 </section>
 {% endif %}

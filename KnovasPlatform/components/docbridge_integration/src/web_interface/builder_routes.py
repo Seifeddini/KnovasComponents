@@ -45,6 +45,7 @@ from builder import components as component_rules
 from builder import protocol as connector_protocol
 from builder.adapters import AdapterError
 from builder import access as access_rules
+from builder import sites as site_rules
 from builder.access_edits import draft_tree
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,12 @@ ENDPOINT_PERMISSIONS = {
     "access_page": "edit", "access_preview": "edit", "access_apply": "edit", "access_rules_add": "edit",
     "access_rule_remove": "edit", "access_members": "manage", "access_explain": "manage", "access_posture": "manage",
     "access_posture_approve": "manage",
+    # The connection layer (MVP-23..28): sites and their packages are managed; the connection card and «Freigaben» are
+    # read with a Platform role; accepting or rejecting a write proposal needs publish (decision CL-4).
+    "site_page": "manage", "create_site": "manage", "site_package": "manage", "site_rotate": "manage",
+    "site_probe": "manage",
+    "connection_page": "view", "approvals_page": "view", "approvals_count": "view",
+    "approval_accept": "publish", "approval_reject": "publish",
 }
 #: Endpoints about the workspace chosen in the session rather than one in the address.
 SESSION_ENDPOINTS = frozenset({"stage", "mapping_page", "access_page", "access_preview", "access_apply",
@@ -212,6 +219,7 @@ def create_builder_blueprint(
     sync_status: Optional[Callable[[], Mapping[str, Any]]] = None,
     assistant_client: Optional[Callable[[], Optional[tuple]]] = None,
     tenant_graph: Optional[Callable[[], tuple]] = None,
+    tenant_client: Optional[Callable[[], Any]] = None,
 ):
     """Build the /builder blueprint.
 
@@ -268,6 +276,10 @@ def create_builder_blueprint(
     ``sync_status()`` returns the Platform's sync as the Betrieb stage reads
     it (step B10): ``state`` (brain-runner's state of the mappings), ``runs``
     (the sync's run history) and ``evaluation``; None where nothing syncs.
+
+    ``tenant_client()`` returns the Builder's line to the tenant's connection routes (builder.connection_api.
+    BrainConnection on the Platform's certificate): write proposals for «Freigaben» and the job counts of the
+    «Verbindung» card (connection layer MVP-27, MVP-28).
 
     ``engine_factory`` returns the engine that compiles, dry-runs and applies
     a version (``builder.publisher.BrainRunnerEngine`` on the Platform's
@@ -479,7 +491,7 @@ def create_builder_blueprint(
             if workspace is not None:
                 return _render("builder/sources.html", stage=current, stage_number=number,
                                current_workspace=workspace, history=_history_counts(workspace.id),
-                               sources=_sources_view(store, store.model(workspace.id)))
+                               sources=_sources_view(store, store.model(workspace.id), workspace.id))
         if current.slug == "prozesse":
             store = _store()
             workspace = _current_workspace(store)
@@ -757,14 +769,16 @@ def create_builder_blueprint(
         if wanted == "processes":
             view = {"processes": processes.build(model)}
         elif wanted == "sources":
-            view = {"sources": _sources_view(store, model)}
+            view = {"sources": _sources_view(store, model, workspace_id)}
         elif wanted == "mapping":
             view = {"mapping": _mapping_view(model, request.args.get("mapping") or "")}
         elif wanted == "views":
             view = {"views": brain_views.build(model, roles=_roles())}
         else:
             view = {"ontology": ontology_view.build(model)}
-        return jsonify({"success": True, "changes": len(changes),
+        # What an edit did beside what was asked, in the same change (a fact taken out of «Zurückschreiben», MVP-26).
+        notices = [c["notice"] for c in changes if c.get("notice")]
+        return jsonify({"success": True, "changes": len(changes), "notices": notices,
                         "history": _history_counts(workspace_id), **view})
 
     def _refused(exc: editing.EditError):
@@ -783,6 +797,7 @@ def create_builder_blueprint(
         op = request.get_json(silent=True)
         try:
             _check_source_op(store, op)
+            _check_switch_op(store, current, op)
             _check_role_op(op)
             model, changes, batch = store.edit(current.id, gate.current_user().id,
                                                lambda m: editing.apply(m, op))
@@ -1129,7 +1144,7 @@ def create_builder_blueprint(
         return found
 
     def _adapter(component: Mapping[str, Any]):
-        if component.get("transport") == "v1" or component_adapter is None:
+        if component_rules.on_site(component) or component_adapter is None:
             return None
         try:
             return component_adapter(component)
@@ -1141,7 +1156,7 @@ def create_builder_blueprint(
         """The component as the registry shows it, its runs and its held plans: from its own reports (v1), or
         through its adapter (what it reports today), or -- the HTTP/JSON reader, part of the Platform -- online."""
         store = _store()
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             return dict(component), store.component_runs(component["id"]), store.held_plans(component["id"])
         adapter = _adapter(component)
         now = datetime.now().astimezone().isoformat()
@@ -1186,8 +1201,10 @@ def create_builder_blueprint(
         return {"registry": component_rules.registry(overview["rows"], state=state, kind=kind),
                 "registry_all": len(overview["rows"]), "component_alerts": overview["alerts"],
                 "limits": overview["limits"], "state_filter": state, "kind_filter": kind,
-                "registry_states": component_rules.STATES, "enrol_kinds": component_rules.KINDS,
-                "protocol_path": PROTOCOL_PATH, "issue_certificates": issue_certificates}
+                "registry_states": component_rules.STATES,
+                "enrol_kinds": {k: v for k, v in component_rules.KINDS.items() if not v.get("site_only")},
+                "protocol_path": PROTOCOL_PATH, "issue_certificates": issue_certificates,
+                "sites": _site_rows(store), "site_options": site_rules.OPTIONS}
 
     def _component_or_404(component_id: str) -> dict:
         tenant = _platform_tenant()
@@ -1215,8 +1232,8 @@ def create_builder_blueprint(
         return _render("builder/component.html", stage=stage, stage_number=STAGES.index(stage) + 1,
                        component=observed, row=row, runs=runs[:30], held=held, served=store.served_by(component_id),
                        checks=component_rules.check_rows(observed, store.served_by(component_id)["sources"]),
-                       events=store.events(component_id, 50) if component.get("transport") == "v1" else [],
-                       commands=store.commands(component_id) if component.get("transport") == "v1" else [],
+                       events=store.events(component_id, 50) if component_rules.on_site(component) else [],
+                       commands=store.commands(component_id) if component_rules.on_site(component) else [],
                        alerts=component_rules.alerts([observed], {component_id: runs}, {component_id: held}, now, limits),
                        chart=_run_chart(runs[:30]), kinds=component_rules.KINDS, limits=limits,
                        protocol_path=PROTOCOL_PATH,
@@ -1300,7 +1317,11 @@ def create_builder_blueprint(
         if component.get("state") not in ("pending", "revoked"):
             return jsonify({"success": False, "error": "Diese Komponente läuft noch: zuerst widerrufen, dann löschen."}), 409
         store = _store()
-        sources = store.served_by(component_id)["sources"]
+        sources = list(store.served_by(component_id)["sources"])
+        if component_rules.is_link(component) and hasattr(store, "children"):
+            # Knovas Link's components go with it (their rows cascade): a source read through one of them must go first.
+            for child in store.children(component_id):
+                sources += store.served_by(child["id"])["sources"]
         if sources:
             names = ", ".join(sorted({str(s.get("name")) for s in sources}))
             return jsonify({"success": False, "error": f"Diese Quellen lesen noch über sie; zuerst entfernen: {names}."}), 409
@@ -1328,7 +1349,7 @@ def create_builder_blueprint(
             return jsonify({"success": False, "error": "Anwenden darf, wer veröffentlicht."}), 403
         if component.get("state") in ("revoked", "pending") or component.get("paused"):
             return jsonify({"success": False, "error": "Die Komponente läuft nicht (pausiert, widerrufen oder nicht angemeldet)."}), 409
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             if kind == "apply" and not any(r["kind"] == "dry_run" and r["status"] in ("ok", "held")
                                            for r in _store().component_runs(component_id, 5)):
                 return jsonify({"success": False, "error": "Erst ein Probelauf: Angewendet wird, was ein Probelauf gezeigt hat."}), 409
@@ -1349,14 +1370,14 @@ def create_builder_blueprint(
     def component_check(component_id: str):
         """Ask a component to report whether it can read its sources: reads nothing into the Platform, writes nothing."""
         component = _component_or_404(component_id)
-        if component.get("transport") != "v1" or component.get("state") != "enrolled":
+        if not component_rules.on_site(component) or component.get("state") != "enrolled":
             return jsonify({"success": False, "error": "Das geht bei einer angemeldeten Komponente."}), 409
         _command(component, "check", {}, "check.requested")
         return jsonify({"success": True, "queued": True})
 
     def _pause(component_id: str, paused: bool):
         component = _component_or_404(component_id)
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             _store().update_component(component_id, paused=paused)
             _command(component, "pause" if paused else "resume", {}, "paused" if paused else "resumed")
             return jsonify({"success": True})
@@ -1387,7 +1408,7 @@ def create_builder_blueprint(
             return jsonify({"success": False, "error": str(exc)}), 400
         _store().update_component(component_id, schedule=schedule)
         _store().add_event(component_id, "schedule.changed", {})
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             _command(component, "reload_config", {}, "config.changed")
         return jsonify({"success": True, "schedule": schedule, "text": component_rules.schedule_text(schedule)})
 
@@ -1404,7 +1425,7 @@ def create_builder_blueprint(
                   "owner": str(body.get("owner", component.get("owner")) or "").strip()[:120]}
         _store().update_component(component_id, **fields)
         _store().add_event(component_id, "config.changed", {})
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             _command(component, "reload_config", {}, "config.changed")
         return jsonify({"success": True})
 
@@ -1421,7 +1442,7 @@ def create_builder_blueprint(
             # The approval lets the component write -- retire nodes -- on the tenant: as an apply does.
             return jsonify({"success": False, "error": "Freigeben darf, wer veröffentlicht."}), 403
         store = _store()
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             plan = next((h for h in store.held_plans(component_id) if h["id"] == plan_id and h["state"] == "held"), None)
             if plan is None or not store.decide_held(component_id, plan_id, approve=approve, actor_id=gate.current_user().id,
                                                      reason=reason):
@@ -1447,6 +1468,335 @@ def create_builder_blueprint(
         except Exception as exc:  # noqa: BLE001 - the sync's own refusal
             return jsonify({"success": False, "error": str(exc)[:300] or type(exc).__name__}), 409
         return jsonify({"success": True})
+
+    # -------------------------------------------------------- sites and Knovas Link (connection layer MVP-23)
+
+    def _site_rows(store) -> list:
+        """The tenant's sites for the «Verbinden» page, each with its Link's state."""
+        from datetime import timezone
+
+        tenant = _platform_tenant()
+        if not _tenant_wide() or store is None or not tenant or not hasattr(store, "sites"):
+            return []
+        now, limits = datetime.now(timezone.utc), _limits()
+        rows = []
+        for s in store.sites(tenant):
+            link = site_rules.site_link(store, tenant, s["id"])
+            state = component_rules.state_of(link, now, limits) if link else "pending"
+            rows.append({**s, "url": url_for("builder.site_page", site_id=s["id"]), "state": state,
+                         "state_label": component_rules.STATES[state],
+                         "options_text": ", ".join(site_rules.OPTIONS[o]["label"] for o in s["options"]
+                                                   if o in site_rules.OPTIONS) or "nur Knovas Link"})
+        return rows
+
+    def _site_or_404(site_id: str) -> dict:
+        tenant = _platform_tenant()
+        store = _store()
+        found = store.site(tenant, site_id) if store is not None and tenant and hasattr(store, "site") else None
+        if found is None:
+            abort(404)
+        return found
+
+    def _ensure_link(site: Mapping[str, Any]) -> dict:
+        """The site's Knovas Link row; made when it is missing (a site whose Link could not be made at first)."""
+        from datetime import timezone
+
+        store, tenant = _store(), _platform_tenant()
+        link = site_rules.site_link(store, tenant, site["id"])
+        if link is None:
+            connector_protocol.issue_enrolment(store, _component_secrets(), tenant, kind="knovas_link",
+                                               name=site_rules.link_name(site["name"]), site=site["name"],
+                                               owner=site.get("owner") or "", actor=gate.current_user(),
+                                               now=datetime.now(timezone.utc), site_id=site["id"])
+            link = site_rules.site_link(store, tenant, site["id"])
+        return link
+
+    @bp.route("/standorte/<site_id>")
+    def site_page(site_id: str):
+        """A site: the one command, the certificate step, the setup checklist and the package."""
+        from datetime import timezone
+
+        site = _site_or_404(site_id)
+        store, tenant = _store(), _platform_tenant()
+        link = site_rules.site_link(store, tenant, site["id"])
+        children = store.children(link["id"]) if link else []
+        now, limits = datetime.now(timezone.utc), _limits()
+        stage = STAGES_BY_SLUG["verbinden"]
+        return _render("builder/site.html", stage=stage, stage_number=STAGES.index(stage) + 1, site=site, link=link,
+                       link_state=component_rules.state_of(link, now, limits) if link else "pending",
+                       children=[component_rules.row(c, [], [], now, limits) for c in children],
+                       checklist=site_rules.checklist(site, link, children, now, limits),
+                       containers=[{"name": c, **site_rules.CONTAINERS[c]} for c in site_rules.containers_of(site["options"])],
+                       options=site_rules.OPTIONS, command=site_rules.COMMAND, env_file=site_rules.LINK_ENV_FILE,
+                       sources_env_file=site_rules.SOURCES_ENV_FILE,
+                       certificate_step=site_rules.CERTIFICATE_STEP, protocol_path=PROTOCOL_PATH,
+                       compose_preview=site_rules.compose_file(site, site["options"]),
+                       states=component_rules.STATES)
+
+    @bp.route("/api/sites", methods=["POST"])
+    def create_site():
+        """«Standort anlegen»: the site and its Knovas Link, waiting for the package to be installed."""
+        store, tenant = _store(), _platform_tenant()
+        if store is None or not tenant:
+            return jsonify({"success": False, "error": "Diese Plattform kennt ihren Mandanten nicht."}), 409
+        body = request.get_json(silent=True) or {}
+        try:
+            name = site_rules.check_name(body.get("name"))
+            options = site_rules.check_options(body.get("options"))
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        owner = str(body.get("owner") or "").strip()[:120]
+        site_id = store.create_site(tenant, name=name, owner=owner, options=options, actor_id=gate.current_user().id)
+        if site_id is None:
+            return jsonify({"success": False, "error": f"Einen Standort «{name}» gibt es schon."}), 409
+        try:
+            _ensure_link(store.site(tenant, site_id))
+        except connector_protocol.ProtocolError as exc:
+            # The site stays; its page makes Link again when the package is asked for.
+            logger.warning("Builder: Knovas Link of a new site not made (%s)", exc.code)
+            return jsonify({"success": False, "error": exc.message,
+                            "url": url_for("builder.site_page", site_id=site_id)}), exc.status
+        logger.info("Builder: site created, %d options", len(options))
+        return jsonify({"success": True, "id": site_id, "url": url_for("builder.site_page", site_id=site_id)}), 201
+
+    _PLATFORM_URL = re.compile(r"^https?://[A-Za-z0-9.-]+(:\d{1,5})?" + re.escape(PROTOCOL_PATH) + "$")
+
+    @bp.route("/api/sites/<site_id>/package", methods=["POST"])
+    def site_package(site_id: str):
+        """«Installationspaket herunterladen»: docker-compose.yml, knovas-link.env and knovas-sources.env. While Link
+        has not enrolled, each
+        download carries a new one-time token and the one before stops working; once it runs, the package carries none."""
+        from datetime import timedelta, timezone
+
+        site = _site_or_404(site_id)
+        body = request.get_json(silent=True) or {}
+        platform_url = str(body.get("platform_url") or "").strip()
+        if platform_url and not _PLATFORM_URL.match(platform_url):
+            return jsonify({"success": False, "error": "Adresse der Plattform: http(s)://Host[:Port]" + PROTOCOL_PATH}), 400
+        # The page sends the address its browser reached: behind nginx the server's own Host has no port.
+        platform_url = platform_url or request.url_root.rstrip("/") + PROTOCOL_PATH
+        try:
+            link = _ensure_link(site)
+            secrets = _component_secrets()
+        except connector_protocol.ProtocolError as exc:
+            return _protocol_refused(exc)
+        token = None
+        if link.get("state") == "pending":
+            now = datetime.now(timezone.utc)
+            token, digest = component_rules.new_token("kce")
+            secrets.put(connector_protocol.secret_key(link["id"], "enrol"), digest, gate.current_user())
+            _store().update_component(link["id"], enrol_expires_at=(now + timedelta(hours=component_rules.ENROL_HOURS)).isoformat())
+            _store().add_event(link["id"], "enrol.token_issued", {})
+        elif link.get("state") != "enrolled":
+            return jsonify({"success": False, "error": "Knovas Link dieses Standorts ist widerrufen."}), 409
+        data = site_rules.package_zip(site, platform_url=platform_url, token=token)
+        logger.info("Builder: site package made, site %s, with token: %s", site["id"], token is not None)
+        name = re.sub(r"[^a-z0-9]+", "-", site["name"].lower()).strip("-") or "standort"
+        return Response(data, mimetype="application/zip", headers={
+            "Content-Disposition": f'attachment; filename="knovas-site-{name}.zip"', "Cache-Control": "no-store"})
+
+    @bp.route("/api/sites/<site_id>/rotate", methods=["POST"])
+    def site_rotate(site_id: str):
+        """«Token erneuern»: Link enrols again; its control token stops at once. The next package carries the token."""
+        from datetime import timezone
+
+        site = _site_or_404(site_id)
+        try:
+            link = _ensure_link(site)
+            if link.get("state") != "pending":
+                connector_protocol.rotate_enrolment(_store(), _component_secrets(), _platform_tenant(), link["id"],
+                                                    gate.current_user(), datetime.now(timezone.utc))
+        except connector_protocol.ProtocolError as exc:
+            return _protocol_refused(exc)
+        logger.info("Builder: the token of a site's Knovas Link renewed, site %s", site["id"])
+        return jsonify({"success": True})
+
+    @bp.route("/api/sites/<site_id>/probe", methods=["POST"])
+    def site_probe(site_id: str):
+        """«Jetzt prüfen»: Link goes round the work channel now and reports the round trip with its next beat."""
+        site = _site_or_404(site_id)
+        link = site_rules.site_link(_store(), _platform_tenant(), site["id"])
+        if link is None or link.get("state") != "enrolled":
+            return jsonify({"success": False, "error": "Knovas Link dieses Standorts ist nicht angemeldet."}), 409
+        _command(link, "probe", {}, "probe.requested")
+        return jsonify({"success": True, "queued": True})
+
+    # -------------------------------------------------------- «Freigaben»: write proposals (MVP-27, decision CL-4)
+
+    def _tenant_client():
+        """The Builder's line to the tenant's connection routes, or None where the Platform has none."""
+        if tenant_client is None:
+            return None
+        try:
+            return tenant_client()
+        except Exception as exc:  # noqa: BLE001 - no certificate here: the page says so
+            logger.warning("Builder: the tenant's connection routes are not reachable (%s)", type(exc).__name__)
+            return None
+
+    def _tenant_wide_or_refuse():
+        """«Freigaben» and «Verbindung» are the tenant's: a Platform role sees them, a grant on one workspace does not."""
+        if not _tenant_wide():
+            return _refuse("Das sieht, wer eine Builder-Rolle der Plattform hat.")
+        return None
+
+    def _workspace_models(store) -> list:
+        if store is None:
+            return []
+        tenant = _platform_tenant()
+        return [store.model(w.id) or {} for w in store.list() if not w.tenant or w.tenant == tenant]
+
+    @bp.route("/betrieb/freigaben")
+    def approvals_page():
+        """«Freigaben»: the open write proposals and what became of the decided ones."""
+        refusal = _tenant_wide_or_refuse()
+        if refusal:
+            return refusal
+        from builder import approvals as approval_rules
+        from builder.connection_api import ConnectionApiError
+
+        client, error, found = _tenant_client(), None, {"open": [], "decided": []}
+        if client is None:
+            error = "Diese Plattform liest keine Änderungsvorschläge des Mandanten (kein Zertifikat)."
+        else:
+            try:
+                found = approval_rules.rows(client.source_writes("proposed"), client.source_writes(),
+                                            approval_rules.mapping_writes(_workspace_models(_store())))
+            except ConnectionApiError as exc:
+                logger.warning("Builder: write proposals not read (HTTP %s, %s)", exc.status, exc.code or "-")
+                error = f"Das Brain hat die Vorschläge nicht geliefert ({codes_text(exc.code) or f'HTTP {exc.status}'})."
+            except Exception as exc:  # noqa: BLE001 - the page says it could not read
+                logger.warning("Builder: write proposals not read (%s)", type(exc).__name__)
+                error = f"Das Brain war nicht erreichbar ({type(exc).__name__})."
+        logger.info("Builder Freigaben: %d open, %d decided shown", len(found["open"]), len(found["decided"]))
+        stage = STAGES_BY_SLUG["betrieb"]
+        return _render("builder/approvals.html", stage=stage, stage_number=STAGES.index(stage) + 1,
+                       proposals=found, error=error, may_decide=g.builder_access.may("publish"))
+
+    def codes_text(code) -> Optional[str]:
+        from builder import codes
+
+        return codes.describe(code)["title"] if code else None
+
+    @bp.route("/api/freigaben/count")
+    def approvals_count():
+        """The badge: how many proposals wait. Zero where nothing can be read."""
+        refusal = _tenant_wide_or_refuse()
+        if refusal:
+            return refusal
+        client = _tenant_client()
+        try:
+            return jsonify({"open": len(client.source_writes("proposed")) if client is not None else 0})
+        except Exception as exc:  # noqa: BLE001 - the badge stays empty
+            logger.info("Builder: open proposals not counted (%s)", type(exc).__name__)
+            return jsonify({"open": None})
+
+    def _decide(proposal_id: str, accept: bool):
+        refusal = _tenant_wide_or_refuse()
+        if refusal:
+            return refusal
+        from builder import approvals as approval_rules
+        from builder import codes
+        from builder.connection_api import ConnectionApiError
+
+        client = _tenant_client()
+        if client is None:
+            return jsonify({"success": False, "error": "Diese Plattform erreicht die Vorschläge des Mandanten nicht."}), 503
+        reason = str((request.get_json(silent=True) or {}).get("reason") or "").strip()
+        if not accept and not 3 <= len(reason) <= 500:
+            return jsonify({"success": False, "error": "Warum wird abgelehnt? Ein Grund ist nötig (3 bis 500 Zeichen)."}), 400
+        # The person deciding, as the declared actor; the Brain records it (verified only with I2).
+        actor = {"kind": "user", "id": str(gate.current_user().id)}
+        try:
+            result = client.accept_source_write(proposal_id, actor) if accept else \
+                client.reject_source_write(proposal_id, actor, reason)
+        except ConnectionApiError as exc:
+            logger.info("Builder: write proposal %s not %s (HTTP %s, %s)", proposal_id,
+                        "accepted" if accept else "rejected", exc.status, exc.code or "-")
+            found = codes.describe(exc.code) if exc.code else None
+            text = f"{found['title']}: {found['explanation']} {found['fix']}" if found else f"Das Brain hat abgelehnt (HTTP {exc.status})."
+            return jsonify({"success": False, "error": text, "code": exc.code}), exc.status if 400 <= exc.status < 500 else 502
+        except Exception as exc:  # noqa: BLE001 - said on the page
+            logger.warning("Builder: write proposal decision failed (%s)", type(exc).__name__)
+            return jsonify({"success": False, "error": "Das Brain war nicht erreichbar."}), 502
+        status = result.get("status") or ("queued" if accept else "rejected")
+        logger.info("Builder: write proposal %s %s, now %s", proposal_id, "accepted" if accept else "rejected", status)
+        return jsonify({"success": True, "status": status, "status_text": approval_rules.status_text(status),
+                        "pull_request": result.get("result_ref") if str(result.get("result_ref") or "").startswith("https://") else None})
+
+    @bp.route("/api/freigaben/<proposal_id>/accept", methods=["POST"])
+    def approval_accept(proposal_id: str):
+        return _decide(proposal_id, True)
+
+    @bp.route("/api/freigaben/<proposal_id>/reject", methods=["POST"])
+    def approval_reject(proposal_id: str):
+        return _decide(proposal_id, False)
+
+    # -------------------------------------------------------- «Verbindung»: the sites at work (MVP-28)
+
+    def _site_sources(store, children: list) -> list:
+        """The sources read through a site's components, each with how many mappings read it and the shortest
+        freshness window among them."""
+        out = []
+        models: dict = {}
+        for child in children:
+            served = store.served_by(child["id"])
+            for s in served["sources"]:
+                ws = s["workspace"]
+                model = models.setdefault(ws, store.model(ws) or {})
+                ids = {m["id"] for m in served["mappings"] if m["workspace"] == ws and m["source"] == s["key"]}
+                windows = [((m.get("definition") or {}).get("freshness") or {}).get("window")
+                           for m in model.get("mappings") or [] if (m.get("definition") or {}).get("id") in ids]
+                windows = [w for w in windows if component_rules._window(w) is not None]
+                out.append({"workspace": ws, "key": s["key"], "name": s.get("name"), "component": child["id"],
+                            "mappings": len(ids),
+                            "freshness": min(windows, key=component_rules._window) if windows else None})
+        return out
+
+    def _connection_cards() -> tuple[list, Optional[str]]:
+        from datetime import timedelta, timezone
+
+        from builder import connection as connection_rules
+
+        store, tenant = _store(), _platform_tenant()
+        if store is None or not tenant or not hasattr(store, "sites"):
+            return [], "Diese Plattform kennt ihren Mandanten nicht."
+        now, limits = datetime.now(timezone.utc), _limits()
+        client, stats, proposals, note = _tenant_client(), None, None, None
+        if client is None:
+            note = "Diese Plattform liest die Zahlen des Mandanten nicht (kein Zertifikat): die letzten 24 Stunden sind unbekannt."
+        else:
+            try:
+                stats = client.job_stats((now - timedelta(hours=connection_rules.WINDOW_HOURS)).isoformat())
+            except Exception as exc:  # noqa: BLE001 - shown as unbekannt
+                logger.info("Builder Verbindung: job counts not read (%s)", type(exc).__name__)
+            try:
+                proposals = client.source_writes()
+            except Exception as exc:  # noqa: BLE001 - shown as unbekannt
+                logger.info("Builder Verbindung: proposals not read (%s)", type(exc).__name__)
+        cards = []
+        for site in store.sites(tenant):
+            link = site_rules.site_link(store, tenant, site["id"])
+            children = store.children(link["id"]) if link else []
+            cards.append(connection_rules.site_card(site, link, children, sources=_site_sources(store, children),
+                                                    stats=stats, proposals=proposals, now=now, limits=limits,
+                                                    proposals_url=url_for("builder.approvals_page")))
+        logger.info("Builder Verbindung: %d sites, %d alerts", len(cards), sum(len(c["alerts"]) for c in cards))
+        return cards, note
+
+    @bp.route("/betrieb/verbindung")
+    def connection_page():
+        """«Verbindung»: per site whether everything works, the last 24 hours, and what to do about what does not."""
+        refusal = _tenant_wide_or_refuse()
+        if refusal:
+            return refusal
+        from builder import connection as connection_rules
+
+        cards, note = _connection_cards()
+        if request.args.get("teil") == "karten":
+            return render_template("builder/_connection_cards.html", cards=cards)
+        stage = STAGES_BY_SLUG["betrieb"]
+        return _render("builder/connection.html", stage=stage, stage_number=STAGES.index(stage) + 1, cards=cards,
+                       note=note, refresh_seconds=connection_rules.REFRESH_SECONDS)
 
     # -------------------------------------------------------- the access window (B14)
 
@@ -1943,21 +2293,37 @@ def create_builder_blueprint(
     def _secrets():
         return source_secrets() if source_secrets is not None else None
 
-    def _sources_view(store, model) -> dict:
+    def _sources_view(store, model, workspace_id: Optional[str] = None) -> dict:
         tenant = _platform_tenant()
         components = {c["id"]: c for c in (store.components(tenant) if tenant else [])}
         secrets = _secrets()
         found = []
+        if workspace_id is None:
+            workspace = _current_workspace(store)
+            workspace_id = workspace.id if workspace is not None else None
+        published = {s.get("key"): s for s in ((store.published_model(workspace_id) if workspace_id and
+                                                hasattr(store, "published_model") else None) or {}).get("sources") or []}
         for s in model.get("sources") or []:
             c = components.get(s.get("component"))
             kind = source_kinds.SOURCE_KINDS.get(s.get("kind"), {})
+            on_site = bool(c and c.get("site_id"))
             found.append({**s, "kind_label": kind.get("label", s.get("kind")),
                           "access": source_kinds.access_of(s),
                           "access_label": source_kinds.ACCESS.get(source_kinds.access_of(s), source_kinds.access_of(s)),
                           "component_name": c["name"] if c else None,
                           "component_kind": c["kind"] if c else None,
                           "credential_label": kind.get("credential"),
-                          "credential_required": bool(kind.get("credential_required"))})
+                          "credential_required": bool(kind.get("credential_required")),
+                          # A source on a site (MVP-24): its credential is a line of knovas-sources.env, never a value here.
+                          "on_site": on_site,
+                          # Its switches (MVP-25): as in the draft, as published, and why one is not offered.
+                          "fetch": source_kinds.fetch_of(s), "write": source_kinds.write_of(s),
+                          "fetch_published": source_kinds.fetch_of(published.get(s.get("key")) or {}),
+                          "write_published": source_kinds.write_of(published.get(s.get("key")) or {}),
+                          "fetch_reason": source_kinds.fetch_offered(s.get("kind")),
+                          "write_reason": source_kinds.write_offered(s.get("kind"), c),
+                          **({"credential_line": site_rules.credential_line(s.get("key")), "site_name": c.get("site"),
+                              "check_url": url_for("builder.component_check", component_id=c["id"])} if on_site else {})})
         kinds = {k: {"label": v["label"], "component": v["component"], "components": [v["component"], *v.get("also_on", ())],
                      "credential": v["credential"],
                      "credential_required": v["credential_required"],
@@ -1998,6 +2364,21 @@ def create_builder_blueprint(
             wanted = kind.get("component")
             if wanted and component["kind"] not in (wanted, *kind.get("also_on", ())):
                 raise editing.EditError(f"Eine Quelle dieser Art liest nur ein {source_kinds.COMPONENT_KINDS[wanted]['label']}.")
+
+    def _check_switch_op(store, current, op) -> None:
+        """Writing back is switched on only where the component serving the source can write to its kind (MVP-25)."""
+        if not isinstance(op, Mapping) or op.get("op") != "source.switches" or op.get("access") != "read_write":
+            return
+        source = next((s for s in (store.model(current.id) or {}).get("sources") or [] if s.get("key") == op.get("key")), None)
+        if source is None:
+            return          # the edit itself says that the source does not exist
+        if not source_kinds.SOURCE_KINDS.get(source.get("kind"), {}).get("write"):
+            return          # the edit itself refuses a kind that cannot be written
+        tenant = _platform_tenant()
+        component = store.component(tenant, str(source.get("component"))) if tenant else None
+        why = source_kinds.write_offered(source.get("kind"), component)
+        if why:
+            raise editing.EditError(why, 409)
 
     def _forget_moved_credentials(workspace_id: str, changes) -> None:
         """A source that moved to another address or repository loses its credential in the registry too."""
@@ -2062,7 +2443,27 @@ def create_builder_blueprint(
                           "relations": relations, "offered": offered[:200],
                           "attributes": [a["name"] for a in attrs]})
         src = next((s for s in model.get("sources") or [] if s.get("key") == builder_meta.get("source")), None)
+        # «Zugriff» and «Zurückschreiben» (MVP-26): what is chosen, what may be written back and why not.
+        verdicts = mapping_rules.invertible(defn, model)
+        from builder import codes as code_texts
+
+        writes = defn.get("writes") or {}
+        write_types = [{"type": t, "facts": [{"name": f, "writable": ok, "reason": reason,
+                                              # «Nicht umkehrbar: <explanation>», with the sub-reason's fix.
+                                              "reason_title": code_texts.not_invertible(reason)["text"] if reason else None,
+                                              "reason_text": code_texts.not_invertible(reason)["fix"] if reason else None,
+                                              "on": f in (writes.get(t) or {}),
+                                              "field": (writes.get(t) or {}).get(f, {}).get("field")
+                                              or mapping_rules.write_field(defn, t, f),
+                                              "allowed": (writes.get(t) or {}).get(f, {}).get("allowed")}
+                                             for f, (ok, reason) in sorted(facts.items())]}
+                       for t, facts in verdicts.items() if facts]
+        access_panel = {"value": defn.get("access"), "groups": [{"key": g.get("key"), "name": g.get("name") or g.get("key")}
+                                                                for g in (model.get("access") or {}).get("groups") or []]}
+        write_panel = {"enabled": bool(src) and source_kinds.write_of(src), "types": write_types,
+                       "source_name": (src or {}).get("name")}
         return {"id": defn.get("id"), "file": entry.get("file"), "description": defn.get("description") or "",
+                "access": access_panel, "writes": write_panel, "explanation": mapping_rules.describe(model, entry),
                 "source_spec": defn.get("source") or {}, "var": var, "source": src,
                 "sources": [{"key": s["key"], "name": s["name"], "kind": s["kind"]} for s in model.get("sources") or []],
                 "collection": builder_meta.get("collection"), "priority": builder_meta.get("priority", 10),
@@ -2094,7 +2495,7 @@ def create_builder_blueprint(
                        if entry and s.get("key") == (entry.get("builder") or {}).get("source")), None)
         tenant = _platform_tenant()
         component = store.component(tenant, source.get("component")) if source and tenant else None
-        return component if component and component.get("transport") == "v1" else None
+        return component if component and component_rules.on_site(component) else None
 
     def _mapping_run(store, current, model, mapping_id: str):
         entry = _mapping_entry(model, mapping_id)
@@ -2211,6 +2612,13 @@ def create_builder_blueprint(
         from platform_settings import SettingError, source_secret_key
 
         store, current, _, source = _source_of(workspace_id, key)
+        tenant = _platform_tenant()
+        component = store.component(tenant, source.get("component")) if tenant and source.get("component") else None
+        if component is not None and component.get("site_id"):
+            # MVP-24: no credential of a source on a site is typed into the Platform.
+            return jsonify({"success": False, "error": "Der Zugang dieser Quelle gehört an den Standort: die Zeile "
+                            f"{site_rules.credential_line(key)}… in {site_rules.SOURCES_ENV_FILE} eintragen, danach neu starten und "
+                            "Verbindung prüfen. In die Plattform wird er nicht eingegeben."}), 409
         secrets = _secrets()
         if secrets is None:
             return jsonify({"success": False, "error": "Diese Plattform speichert keine Geheimnisse."}), 409
@@ -2226,7 +2634,7 @@ def create_builder_blueprint(
         model, changes, _ = store.edit(current.id, user.id, lambda m: editing.apply(
             m, {"op": "source.credential", "key": key, "set": bool(value)}))
         logger.info("Builder: source credential %s", "set" if value else "removed")
-        return jsonify({"success": True, "history": _history_counts(current.id), "sources": _sources_view(store, model)})
+        return jsonify({"success": True, "history": _history_counts(current.id), "sources": _sources_view(store, model, current.id)})
 
     def _reader(store, current, source):
         from platform_settings import source_secret_key
@@ -2238,12 +2646,12 @@ def create_builder_blueprint(
         secrets = _secrets()
         secret = secrets.get(source_secret_key(current.id, source["key"])) if secrets and source.get("credential_set") else None
         kind = source_kinds.SOURCE_KINDS.get(source.get("kind"), {})
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             # Read at the company. The Platform reads nothing from a company's network; what it can design from is the
             # shape of a file, or a public source with a credential of its own.
             if source.get("kind") == "knovas_connector":
                 return source_kinds.OnSiteFiles((component.get("source_checks") or {}).get(f"{current.id}/{source['key']}"))
-            problem = source_kinds.on_site_problem(source.get("kind"), secret)
+            problem = source_kinds.on_site_problem(source.get("kind"), secret, site=bool(component.get("site_id")))
             if problem:
                 raise source_kinds.ReaderError(problem)
         if reader_factory is None:

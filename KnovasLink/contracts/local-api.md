@@ -113,6 +113,9 @@ A long-poll. `wait` is whole seconds from 0 to 25; a larger number counts as 25,
 The answer is 200 `{"job": <job>}` (`job.schema.json`) or, when nothing came within `wait`, 204.
 
 - A component gets only jobs of a kind it named in `job_kinds`, for a source assigned to its name.
+- **Link checks every job first.** A job that does not validate against `job.schema.json` is never handed out; Link
+  answers it `failed` with `invalid_job`. That includes a kind this version does not know and a write whose `mode` is
+  not `proposal`.
 - **Components never see a lease.** secure-api sets an opaque `lease` on every job it hands Link. Link keeps it and
   removes it before it hands the job out; Link's own local jobs carry none.
 - A job is handed out once. Link answers for the component if it stays silent: past the job's `deadline` Link reports
@@ -136,7 +139,10 @@ Only for a `fetch` job the caller holds. The body is raw bytes of the original, 
 - A refused part ends the fetch: Link answers the job `failed` to Knovas, and every later part or result for it is
   409 `lease_lost`. A fetch is never reported complete with a part missing.
 - Link passes each accepted part on unchanged and in order, with the job's lease as the header `X-Knovas-Lease`.
-  503 `unreachable`: Knovas did not take the part; the fetch has failed.
+- **Knovas did not take the part:** it did not answer, or answered anything but success or 409 `lease_lost`. The relay
+  of that job ends: Link answers the job `failed` with `part_not_accepted`, and every later part or result for it is
+  409 `lease_lost`. The part itself gets 503 `unreachable` when Knovas did not answer, and 400 `bad_field` when it
+  refused the part.
 
 ### `POST /local/v1/jobs/<id>/result`
 
@@ -167,15 +173,16 @@ Which status and code a component answers with:
 |---|---|---|
 | ok | none (`null`) | done; for a write, `source_ref` is where the source staged it (GitHub: the pull request) |
 | refused | `not_found` | the item is not in the source at that version |
-| refused | `mode_unsupported` | a write whose `mode` is not `proposal`, even though such a job fails `job.schema.json` |
+| refused | `mode_unsupported` | a write whose `mode` is not `proposal`, received without Link; through Link such a job ends as `invalid_job` |
 | refused | `token_cannot_write` | the credential cannot write (GitHub: needs contents and pull requests write) |
 | refused | `not_writable`, `computed_attribute`, `value_not_allowed`, `not_invertible`, `unknown_mapping` | the inverse mapping refused the write |
 | conflict | `conflict` | the item's version is not `expected_version`; `version` is the one found; nothing written |
 | failed | any code, or none | anything else |
 
 A component may answer its own codes of the same shape (`^[a-z][a-z0-9_.]{1,60}$`), never text or a name. Link answers
-three outcomes itself: status `unsupported` with code `unsupported`, `unreachable` with `unreachable`, and `refused`
-with `fetch_disabled` or `write_disabled`.
+these outcomes itself, without a component: status `unsupported` with code `unsupported`; `unreachable` with
+`unreachable`; `refused` with `fetch_disabled` or `write_disabled`; `failed` with `invalid_job` (the job does not
+validate) or `part_not_accepted` (Knovas did not take a part).
 
 ### `ANY /local/v1/brain/<path>`
 
@@ -223,6 +230,8 @@ anything else with 400 `bad_field`. 503 `unreachable`: the Platform did not answ
 | `previously_rejected` | secure-api | `POST /secured/source-writes`: the same change was rejected before |
 | `waiting_for_certificate` | Link | 503 on `/local/v1/brain/…`; `certificate: waiting` in ping and in Link's heartbeat |
 | `not_relayed` | Link | 403 on `/local/v1/brain/…` for a route outside the allow-list |
+| `invalid_job` | Link | job result `failed`: the job does not validate against `job.schema.json` and is never handed out |
+| `part_not_accepted` | Link | job result `failed`: Knovas did not take a part of the fetch; the relay of that job ends |
 
 ## Open and closed objects
 

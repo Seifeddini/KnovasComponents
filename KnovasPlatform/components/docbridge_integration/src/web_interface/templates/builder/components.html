@@ -17,6 +17,7 @@
         <p class="b-muted">Jede Quelle wird nur über eine registrierte Komponente gelesen. Hochgeladen wird nichts von Hand.</p>
     </div>
     <div class="b-onto-edit-bar">
+        <button type="button" class="b-button b-button--secondary" data-site-new data-url="{{ url_for('builder.create_site') }}" {% if not platform_tenant %}disabled{% endif %}>Standort anlegen</button>
         <button type="button" class="b-button b-button--secondary" data-comp-new data-url="{{ url_for('builder.register_component') }}" {% if not platform_tenant %}disabled{% endif %}>Komponente registrieren</button>
         <button type="button" class="b-button b-button--primary" data-enrol-open data-url="{{ url_for('builder.enrol_component') }}" {% if not platform_tenant %}disabled title="Diese Plattform kennt ihren Mandanten nicht."{% endif %}>{{ icon('plus') }}Komponente anmelden</button>
     </div>
@@ -30,6 +31,22 @@
 {% endif %}
 
 {{ alerts_box(component_alerts) }}
+
+<section aria-labelledby="b-sites-title" class="b-comp-section" data-sites>
+    <h2 class="b-h3" id="b-sites-title">Standorte</h2>
+    <p class="b-small b-muted">Ein Standort ist ein Rechner bei der Firma mit Knovas Link und den Komponenten daneben, installiert aus einem Paket mit einem Befehl.</p>
+    {% if sites %}
+    <ul class="b-comp-kinds">
+        {% for s in sites %}
+        <li class="b-card" data-site="{{ s.id }}" data-component-state="{{ s.state }}"><a class="b-link-strong" href="{{ s.url }}">{{ s.name }}</a>
+            <span class="b-small b-muted">{{ s.options_text }}</span>
+            <span class="b-tag b-reg-state is-{{ s.state }}"><span class="b-tag-dot"></span>Knovas Link: {{ s.state_label }}</span></li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="b-muted">Noch kein Standort.</p>
+    {% endif %}
+</section>
 
 <section aria-labelledby="b-comp-title" class="b-comp-section">
     <div class="b-src-head">
@@ -165,6 +182,33 @@
     </form>
 </dialog>
 
+<dialog class="b-dialog" id="b-site-new" aria-labelledby="b-site-new-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-site-new-title">Standort anlegen</h2>
+            <p class="b-muted">Danach laden Sie das Installationspaket herunter und starten es auf dem Rechner mit einem Befehl.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <div class="b-field"><label class="b-label" for="b-sn-site-name">Name</label><input class="b-input" id="b-sn-site-name" name="name" required autocomplete="off" placeholder="z. B. Büro Zürich"></div>
+            <div class="b-field"><label class="b-label" for="b-sn-site-owner">Verantwortlich</label><input class="b-input" id="b-sn-site-owner" name="owner" autocomplete="off"></div>
+            <fieldset class="b-field b-choice">
+                <legend class="b-label">Was dort gelesen wird</legend>
+                {% for key, o in site_options.items() %}
+                <label class="b-check"><input type="checkbox" name="options" value="{{ key }}">{{ o.label }}</label>
+                {% endfor %}
+            </fieldset>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Standort anlegen</button>
+        </div>
+    </form>
+</dialog>
+
 <dialog class="b-dialog" id="b-comp-new" aria-labelledby="b-comp-new-title">
     <div class="b-dialog-head">
         <div>
@@ -205,4 +249,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/builder/components.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/builder/site.js') }}?v={{ asset_version }}"></script>
 {% endblock %}
