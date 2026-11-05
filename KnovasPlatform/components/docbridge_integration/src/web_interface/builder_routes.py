@@ -1725,6 +1725,73 @@ def create_builder_blueprint(
     def approval_reject(proposal_id: str):
         return _decide(proposal_id, False)
 
+    # -------------------------------------------------------- «Verbindung»: the sites at work (MVP-28)
+
+    def _site_sources(store, children: list) -> list:
+        """The sources read through a site's components, each with how many mappings read it and the shortest
+        freshness window among them."""
+        out = []
+        models: dict = {}
+        for child in children:
+            served = store.served_by(child["id"])
+            for s in served["sources"]:
+                ws = s["workspace"]
+                model = models.setdefault(ws, store.model(ws) or {})
+                ids = {m["id"] for m in served["mappings"] if m["workspace"] == ws and m["source"] == s["key"]}
+                windows = [((m.get("definition") or {}).get("freshness") or {}).get("window")
+                           for m in model.get("mappings") or [] if (m.get("definition") or {}).get("id") in ids]
+                windows = [w for w in windows if component_rules._window(w) is not None]
+                out.append({"workspace": ws, "key": s["key"], "name": s.get("name"), "component": child["id"],
+                            "mappings": len(ids),
+                            "freshness": min(windows, key=component_rules._window) if windows else None})
+        return out
+
+    def _connection_cards() -> tuple[list, Optional[str]]:
+        from datetime import timedelta, timezone
+
+        from builder import connection as connection_rules
+
+        store, tenant = _store(), _platform_tenant()
+        if store is None or not tenant or not hasattr(store, "sites"):
+            return [], "Diese Plattform kennt ihren Mandanten nicht."
+        now, limits = datetime.now(timezone.utc), _limits()
+        client, stats, proposals, note = _tenant_client(), None, None, None
+        if client is None:
+            note = "Diese Plattform liest die Zahlen des Mandanten nicht (kein Zertifikat): die letzten 24 Stunden sind unbekannt."
+        else:
+            try:
+                stats = client.job_stats((now - timedelta(hours=connection_rules.WINDOW_HOURS)).isoformat())
+            except Exception as exc:  # noqa: BLE001 - shown as unbekannt
+                logger.info("Builder Verbindung: job counts not read (%s)", type(exc).__name__)
+            try:
+                proposals = client.source_writes()
+            except Exception as exc:  # noqa: BLE001 - shown as unbekannt
+                logger.info("Builder Verbindung: proposals not read (%s)", type(exc).__name__)
+        cards = []
+        for site in store.sites(tenant):
+            link = site_rules.site_link(store, tenant, site["id"])
+            children = store.children(link["id"]) if link else []
+            cards.append(connection_rules.site_card(site, link, children, sources=_site_sources(store, children),
+                                                    stats=stats, proposals=proposals, now=now, limits=limits,
+                                                    proposals_url=url_for("builder.approvals_page")))
+        logger.info("Builder Verbindung: %d sites, %d alerts", len(cards), sum(len(c["alerts"]) for c in cards))
+        return cards, note
+
+    @bp.route("/betrieb/verbindung")
+    def connection_page():
+        """«Verbindung»: per site whether everything works, the last 24 hours, and what to do about what does not."""
+        refusal = _tenant_wide_or_refuse()
+        if refusal:
+            return refusal
+        from builder import connection as connection_rules
+
+        cards, note = _connection_cards()
+        if request.args.get("teil") == "karten":
+            return render_template("builder/_connection_cards.html", cards=cards)
+        stage = STAGES_BY_SLUG["betrieb"]
+        return _render("builder/connection.html", stage=stage, stage_number=STAGES.index(stage) + 1, cards=cards,
+                       note=note, refresh_seconds=connection_rules.REFRESH_SECONDS)
+
     # -------------------------------------------------------- the access window (B14)
 
     class _DraftAccess:

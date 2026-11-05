@@ -12,7 +12,7 @@
 
 {% block main %}
 <header class="b-page-head">
-    <p class="b-step-count b-small"><a href="{{ url_for('builder.stage', slug='betrieb') }}">Betrieb</a> · Freigaben</p>
+    <p class="b-step-count b-small"><a href="{{ url_for('builder.stage', slug='betrieb') }}">Betrieb</a> · <a href="{{ url_for('builder.connection_page') }}">Verbindung</a> · Freigaben</p>
     <h1 class="b-h1">Freigaben</h1>
     <p class="b-muted">Änderungen, die Agenten oder Personen für die Quellen vorschlagen. Angenommen wird ein Vorschlag als Änderung, die die Quelle selbst prüft (bei GitHub ein Pull Request); das Brain zeigt den neuen Wert erst nach der nächsten Synchronisation.</p>
 </header>

@@ -37,6 +37,8 @@
     <a href="#b-op-history">Laufhistorie</a>
     <a href="#b-op-lint">Ordnung <span class="b-tab-count">{{ lint.values() | sum(attribute='count') }}</span></a>
     <a href="#b-op-coverage">Abdeckung</a>
+    {% if builder_access and builder_access.via == 'role' %}<a href="{{ url_for('builder.connection_page') }}">Verbindung</a>
+    <a href="{{ url_for('builder.approvals_page') }}">Freigaben</a>{% endif %}
 </nav>
 
 {{ alerts_box(component_alerts or []) }}
