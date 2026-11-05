@@ -45,6 +45,7 @@ from builder import components as component_rules
 from builder import protocol as connector_protocol
 from builder.adapters import AdapterError
 from builder import access as access_rules
+from builder import sites as site_rules
 from builder.access_edits import draft_tree
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,12 @@ ENDPOINT_PERMISSIONS = {
     "access_page": "edit", "access_preview": "edit", "access_apply": "edit", "access_rules_add": "edit",
     "access_rule_remove": "edit", "access_members": "manage", "access_explain": "manage", "access_posture": "manage",
     "access_posture_approve": "manage",
+    # The connection layer (MVP-23..28): sites and their packages are managed; the connection card and «Freigaben» are
+    # read with a Platform role; accepting or rejecting a write proposal needs publish (decision CL-4).
+    "site_page": "manage", "create_site": "manage", "site_package": "manage", "site_rotate": "manage",
+    "site_probe": "manage",
+    "connection_page": "view", "approvals_page": "view", "approvals_count": "view",
+    "approval_accept": "publish", "approval_reject": "publish",
 }
 #: Endpoints about the workspace chosen in the session rather than one in the address.
 SESSION_ENDPOINTS = frozenset({"stage", "mapping_page", "access_page", "access_preview", "access_apply",
@@ -212,6 +219,7 @@ def create_builder_blueprint(
     sync_status: Optional[Callable[[], Mapping[str, Any]]] = None,
     assistant_client: Optional[Callable[[], Optional[tuple]]] = None,
     tenant_graph: Optional[Callable[[], tuple]] = None,
+    tenant_client: Optional[Callable[[], Any]] = None,
 ):
     """Build the /builder blueprint.
 
@@ -268,6 +276,10 @@ def create_builder_blueprint(
     ``sync_status()`` returns the Platform's sync as the Betrieb stage reads
     it (step B10): ``state`` (brain-runner's state of the mappings), ``runs``
     (the sync's run history) and ``evaluation``; None where nothing syncs.
+
+    ``tenant_client()`` returns the Builder's line to the tenant's connection routes (builder.connection_api.
+    BrainConnection on the Platform's certificate): write proposals for «Freigaben» and the job counts of the
+    «Verbindung» card (connection layer MVP-27, MVP-28).
 
     ``engine_factory`` returns the engine that compiles, dry-runs and applies
     a version (``builder.publisher.BrainRunnerEngine`` on the Platform's
@@ -1129,7 +1141,7 @@ def create_builder_blueprint(
         return found
 
     def _adapter(component: Mapping[str, Any]):
-        if component.get("transport") == "v1" or component_adapter is None:
+        if component_rules.on_site(component) or component_adapter is None:
             return None
         try:
             return component_adapter(component)
@@ -1141,7 +1153,7 @@ def create_builder_blueprint(
         """The component as the registry shows it, its runs and its held plans: from its own reports (v1), or
         through its adapter (what it reports today), or -- the HTTP/JSON reader, part of the Platform -- online."""
         store = _store()
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             return dict(component), store.component_runs(component["id"]), store.held_plans(component["id"])
         adapter = _adapter(component)
         now = datetime.now().astimezone().isoformat()
@@ -1186,8 +1198,10 @@ def create_builder_blueprint(
         return {"registry": component_rules.registry(overview["rows"], state=state, kind=kind),
                 "registry_all": len(overview["rows"]), "component_alerts": overview["alerts"],
                 "limits": overview["limits"], "state_filter": state, "kind_filter": kind,
-                "registry_states": component_rules.STATES, "enrol_kinds": component_rules.KINDS,
-                "protocol_path": PROTOCOL_PATH, "issue_certificates": issue_certificates}
+                "registry_states": component_rules.STATES,
+                "enrol_kinds": {k: v for k, v in component_rules.KINDS.items() if not v.get("site_only")},
+                "protocol_path": PROTOCOL_PATH, "issue_certificates": issue_certificates,
+                "sites": _site_rows(store), "site_options": site_rules.OPTIONS}
 
     def _component_or_404(component_id: str) -> dict:
         tenant = _platform_tenant()
@@ -1215,8 +1229,8 @@ def create_builder_blueprint(
         return _render("builder/component.html", stage=stage, stage_number=STAGES.index(stage) + 1,
                        component=observed, row=row, runs=runs[:30], held=held, served=store.served_by(component_id),
                        checks=component_rules.check_rows(observed, store.served_by(component_id)["sources"]),
-                       events=store.events(component_id, 50) if component.get("transport") == "v1" else [],
-                       commands=store.commands(component_id) if component.get("transport") == "v1" else [],
+                       events=store.events(component_id, 50) if component_rules.on_site(component) else [],
+                       commands=store.commands(component_id) if component_rules.on_site(component) else [],
                        alerts=component_rules.alerts([observed], {component_id: runs}, {component_id: held}, now, limits),
                        chart=_run_chart(runs[:30]), kinds=component_rules.KINDS, limits=limits,
                        protocol_path=PROTOCOL_PATH,
@@ -1328,7 +1342,7 @@ def create_builder_blueprint(
             return jsonify({"success": False, "error": "Anwenden darf, wer veröffentlicht."}), 403
         if component.get("state") in ("revoked", "pending") or component.get("paused"):
             return jsonify({"success": False, "error": "Die Komponente läuft nicht (pausiert, widerrufen oder nicht angemeldet)."}), 409
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             if kind == "apply" and not any(r["kind"] == "dry_run" and r["status"] in ("ok", "held")
                                            for r in _store().component_runs(component_id, 5)):
                 return jsonify({"success": False, "error": "Erst ein Probelauf: Angewendet wird, was ein Probelauf gezeigt hat."}), 409
@@ -1349,14 +1363,14 @@ def create_builder_blueprint(
     def component_check(component_id: str):
         """Ask a component to report whether it can read its sources: reads nothing into the Platform, writes nothing."""
         component = _component_or_404(component_id)
-        if component.get("transport") != "v1" or component.get("state") != "enrolled":
+        if not component_rules.on_site(component) or component.get("state") != "enrolled":
             return jsonify({"success": False, "error": "Das geht bei einer angemeldeten Komponente."}), 409
         _command(component, "check", {}, "check.requested")
         return jsonify({"success": True, "queued": True})
 
     def _pause(component_id: str, paused: bool):
         component = _component_or_404(component_id)
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             _store().update_component(component_id, paused=paused)
             _command(component, "pause" if paused else "resume", {}, "paused" if paused else "resumed")
             return jsonify({"success": True})
@@ -1387,7 +1401,7 @@ def create_builder_blueprint(
             return jsonify({"success": False, "error": str(exc)}), 400
         _store().update_component(component_id, schedule=schedule)
         _store().add_event(component_id, "schedule.changed", {})
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             _command(component, "reload_config", {}, "config.changed")
         return jsonify({"success": True, "schedule": schedule, "text": component_rules.schedule_text(schedule)})
 
@@ -1404,7 +1418,7 @@ def create_builder_blueprint(
                   "owner": str(body.get("owner", component.get("owner")) or "").strip()[:120]}
         _store().update_component(component_id, **fields)
         _store().add_event(component_id, "config.changed", {})
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             _command(component, "reload_config", {}, "config.changed")
         return jsonify({"success": True})
 
@@ -1421,7 +1435,7 @@ def create_builder_blueprint(
             # The approval lets the component write -- retire nodes -- on the tenant: as an apply does.
             return jsonify({"success": False, "error": "Freigeben darf, wer veröffentlicht."}), 403
         store = _store()
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             plan = next((h for h in store.held_plans(component_id) if h["id"] == plan_id and h["state"] == "held"), None)
             if plan is None or not store.decide_held(component_id, plan_id, approve=approve, actor_id=gate.current_user().id,
                                                      reason=reason):
@@ -1447,6 +1461,156 @@ def create_builder_blueprint(
         except Exception as exc:  # noqa: BLE001 - the sync's own refusal
             return jsonify({"success": False, "error": str(exc)[:300] or type(exc).__name__}), 409
         return jsonify({"success": True})
+
+    # -------------------------------------------------------- sites and Knovas Link (connection layer MVP-23)
+
+    def _site_rows(store) -> list:
+        """The tenant's sites for the «Verbinden» page, each with its Link's state."""
+        from datetime import timezone
+
+        tenant = _platform_tenant()
+        if not _tenant_wide() or store is None or not tenant or not hasattr(store, "sites"):
+            return []
+        now, limits = datetime.now(timezone.utc), _limits()
+        rows = []
+        for s in store.sites(tenant):
+            link = site_rules.site_link(store, tenant, s["id"])
+            state = component_rules.state_of(link, now, limits) if link else "pending"
+            rows.append({**s, "url": url_for("builder.site_page", site_id=s["id"]), "state": state,
+                         "state_label": component_rules.STATES[state],
+                         "options_text": ", ".join(site_rules.OPTIONS[o]["label"] for o in s["options"]
+                                                   if o in site_rules.OPTIONS) or "nur Knovas Link"})
+        return rows
+
+    def _site_or_404(site_id: str) -> dict:
+        tenant = _platform_tenant()
+        store = _store()
+        found = store.site(tenant, site_id) if store is not None and tenant and hasattr(store, "site") else None
+        if found is None:
+            abort(404)
+        return found
+
+    def _ensure_link(site: Mapping[str, Any]) -> dict:
+        """The site's Knovas Link row; made when it is missing (a site whose Link could not be made at first)."""
+        from datetime import timezone
+
+        store, tenant = _store(), _platform_tenant()
+        link = site_rules.site_link(store, tenant, site["id"])
+        if link is None:
+            connector_protocol.issue_enrolment(store, _component_secrets(), tenant, kind="knovas_link",
+                                               name=site_rules.link_name(site["name"]), site=site["name"],
+                                               owner=site.get("owner") or "", actor=gate.current_user(),
+                                               now=datetime.now(timezone.utc), site_id=site["id"])
+            link = site_rules.site_link(store, tenant, site["id"])
+        return link
+
+    @bp.route("/standorte/<site_id>")
+    def site_page(site_id: str):
+        """A site: the one command, the certificate step, the setup checklist and the package."""
+        from datetime import timezone
+
+        site = _site_or_404(site_id)
+        store, tenant = _store(), _platform_tenant()
+        link = site_rules.site_link(store, tenant, site["id"])
+        children = store.children(link["id"]) if link else []
+        now, limits = datetime.now(timezone.utc), _limits()
+        stage = STAGES_BY_SLUG["verbinden"]
+        return _render("builder/site.html", stage=stage, stage_number=STAGES.index(stage) + 1, site=site, link=link,
+                       link_state=component_rules.state_of(link, now, limits) if link else "pending",
+                       children=[component_rules.row(c, [], [], now, limits) for c in children],
+                       checklist=site_rules.checklist(site, link, children, now, limits),
+                       containers=[{"name": c, **site_rules.CONTAINERS[c]} for c in site_rules.containers_of(site["options"])],
+                       options=site_rules.OPTIONS, command=site_rules.COMMAND, env_file=site_rules.ENV_FILE,
+                       certificate_step=site_rules.CERTIFICATE_STEP, protocol_path=PROTOCOL_PATH,
+                       compose_preview=site_rules.compose_file(site, site["options"]),
+                       states=component_rules.STATES)
+
+    @bp.route("/api/sites", methods=["POST"])
+    def create_site():
+        """«Standort anlegen»: the site and its Knovas Link, waiting for the package to be installed."""
+        store, tenant = _store(), _platform_tenant()
+        if store is None or not tenant:
+            return jsonify({"success": False, "error": "Diese Plattform kennt ihren Mandanten nicht."}), 409
+        body = request.get_json(silent=True) or {}
+        try:
+            name = site_rules.check_name(body.get("name"))
+            options = site_rules.check_options(body.get("options"))
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        owner = str(body.get("owner") or "").strip()[:120]
+        site_id = store.create_site(tenant, name=name, owner=owner, options=options, actor_id=gate.current_user().id)
+        if site_id is None:
+            return jsonify({"success": False, "error": f"Einen Standort «{name}» gibt es schon."}), 409
+        try:
+            _ensure_link(store.site(tenant, site_id))
+        except connector_protocol.ProtocolError as exc:
+            # The site stays; its page makes Link again when the package is asked for.
+            logger.warning("Builder: Knovas Link of a new site not made (%s)", exc.code)
+            return jsonify({"success": False, "error": exc.message,
+                            "url": url_for("builder.site_page", site_id=site_id)}), exc.status
+        logger.info("Builder: site created, %d options", len(options))
+        return jsonify({"success": True, "id": site_id, "url": url_for("builder.site_page", site_id=site_id)}), 201
+
+    _PLATFORM_URL = re.compile(r"^https?://[A-Za-z0-9.-]+(:\d{1,5})?" + re.escape(PROTOCOL_PATH) + "$")
+
+    @bp.route("/api/sites/<site_id>/package", methods=["POST"])
+    def site_package(site_id: str):
+        """«Installationspaket herunterladen»: docker-compose.yml and knovas-site.env. While Link has not enrolled, each
+        download carries a new one-time token and the one before stops working; once it runs, the package carries none."""
+        from datetime import timedelta, timezone
+
+        site = _site_or_404(site_id)
+        body = request.get_json(silent=True) or {}
+        platform_url = str(body.get("platform_url") or "").strip()
+        if platform_url and not _PLATFORM_URL.match(platform_url):
+            return jsonify({"success": False, "error": "Adresse der Plattform: http(s)://Host[:Port]" + PROTOCOL_PATH}), 400
+        # The page sends the address its browser reached: behind nginx the server's own Host has no port.
+        platform_url = platform_url or request.url_root.rstrip("/") + PROTOCOL_PATH
+        try:
+            link = _ensure_link(site)
+            secrets = _component_secrets()
+        except connector_protocol.ProtocolError as exc:
+            return _protocol_refused(exc)
+        token = None
+        if link.get("state") == "pending":
+            now = datetime.now(timezone.utc)
+            token, digest = component_rules.new_token("kce")
+            secrets.put(connector_protocol.secret_key(link["id"], "enrol"), digest, gate.current_user())
+            _store().update_component(link["id"], enrol_expires_at=(now + timedelta(hours=component_rules.ENROL_HOURS)).isoformat())
+            _store().add_event(link["id"], "enrol.token_issued", {})
+        elif link.get("state") != "enrolled":
+            return jsonify({"success": False, "error": "Knovas Link dieses Standorts ist widerrufen."}), 409
+        data = site_rules.package_zip(site, platform_url=platform_url, token=token)
+        logger.info("Builder: site package made, site %s, with token: %s", site["id"], token is not None)
+        name = re.sub(r"[^a-z0-9]+", "-", site["name"].lower()).strip("-") or "standort"
+        return Response(data, mimetype="application/zip", headers={
+            "Content-Disposition": f'attachment; filename="knovas-site-{name}.zip"', "Cache-Control": "no-store"})
+
+    @bp.route("/api/sites/<site_id>/rotate", methods=["POST"])
+    def site_rotate(site_id: str):
+        """«Token erneuern»: Link enrols again; its control token stops at once. The next package carries the token."""
+        from datetime import timezone
+
+        site = _site_or_404(site_id)
+        try:
+            link = _ensure_link(site)
+            if link.get("state") != "pending":
+                connector_protocol.rotate_enrolment(_store(), _component_secrets(), _platform_tenant(), link["id"],
+                                                    gate.current_user(), datetime.now(timezone.utc))
+        except connector_protocol.ProtocolError as exc:
+            return _protocol_refused(exc)
+        logger.info("Builder: the token of a site's Knovas Link renewed, site %s", site["id"])
+        return jsonify({"success": True})
+
+    @bp.route("/api/sites/<site_id>/probe", methods=["POST"])
+    def site_probe(site_id: str):
+        """«Jetzt prüfen»: Link goes round the work channel now and reports the round trip with its next beat."""
+        site = _site_or_404(site_id)
+        link = site_rules.site_link(_store(), _platform_tenant(), site["id"])
+        if link is None or link.get("state") != "enrolled":
+            return jsonify({"success": False, "error": "Knovas Link dieses Standorts ist nicht angemeldet."}), 409
+        _command(link, "probe", {}, "probe.requested")
+        return jsonify({"success": True, "queued": True})
 
     # -------------------------------------------------------- the access window (B14)
 
@@ -2094,7 +2258,7 @@ def create_builder_blueprint(
                        if entry and s.get("key") == (entry.get("builder") or {}).get("source")), None)
         tenant = _platform_tenant()
         component = store.component(tenant, source.get("component")) if source and tenant else None
-        return component if component and component.get("transport") == "v1" else None
+        return component if component and component_rules.on_site(component) else None
 
     def _mapping_run(store, current, model, mapping_id: str):
         entry = _mapping_entry(model, mapping_id)
@@ -2238,12 +2402,12 @@ def create_builder_blueprint(
         secrets = _secrets()
         secret = secrets.get(source_secret_key(current.id, source["key"])) if secrets and source.get("credential_set") else None
         kind = source_kinds.SOURCE_KINDS.get(source.get("kind"), {})
-        if component.get("transport") == "v1":
+        if component_rules.on_site(component):
             # Read at the company. The Platform reads nothing from a company's network; what it can design from is the
             # shape of a file, or a public source with a credential of its own.
             if source.get("kind") == "knovas_connector":
                 return source_kinds.OnSiteFiles((component.get("source_checks") or {}).get(f"{current.id}/{source['key']}"))
-            problem = source_kinds.on_site_problem(source.get("kind"), secret)
+            problem = source_kinds.on_site_problem(source.get("kind"), secret, site=bool(component.get("site_id")))
             if problem:
                 raise source_kinds.ReaderError(problem)
         if reader_factory is None:

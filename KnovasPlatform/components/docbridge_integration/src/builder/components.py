@@ -34,13 +34,17 @@ KINDS = {
     "sync_component": {"label": "Sync-Komponente (vor Ort)", "short": "Sync-Komponente"},
     "database_connector": {"label": "Datenbank-Connector", "short": "Datenbank", "planned": True},
     "http_json": {"label": "HTTP/JSON-Leser", "short": "HTTP/JSON", "adapter_only": True},
+    # One per site, made with its site (builder.sites), never in the component wizard (MVP-23).
+    "knovas_link": {"label": "Knovas Link (Standort)", "short": "Knovas Link", "site_only": True},
 }
 STATES = {"online": "online", "offline": "offline", "degraded": "eingeschränkt", "paused": "pausiert",
           "pending": "wartet auf Anmeldung", "revoked": "widerrufen"}
 #: How long an enrolment token is good for.
 ENROL_HOURS = 24
 #: Defaults of the limits the alerts use (minutes, hours); the settings registry may set others.
-LIMITS = {"offline_after_minutes": 30, "lag_hours": 24, "held_plan_hours": 24}
+LIMITS = {"offline_after_minutes": 30, "lag_hours": 24, "held_plan_hours": 24,
+          # Knovas Link counts as reachable only while a probe went round the work channel this recently (MVP-28).
+          "link_probe_minutes": 10, "proposal_waiting_hours": 48}
 DAYS = ("mo", "di", "mi", "do", "fr", "sa", "so")
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 EVENT_CODE = re.compile(r"^[a-z][a-z0-9_.]{1,60}$")
@@ -122,8 +126,33 @@ def _moment(value: Any) -> Optional[dt.datetime]:
     return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
 
+def on_site(component: Mapping[str, Any]) -> bool:
+    """Whether the component runs at the company and reports itself: enrolled under protocol v1, or behind Knovas
+    Link (transport ``link``). The Platform then reads nothing of its sources itself and sends it commands."""
+    return component.get("transport") in ("v1", "link")
+
+
+def is_link(component: Mapping[str, Any]) -> bool:
+    return component.get("kind") == "knovas_link"
+
+
+def probe_ok_at(component: Mapping[str, Any]) -> Optional[dt.datetime]:
+    """When Link's last probe went round the work channel, if that probe succeeded; else None."""
+    probe = (component.get("telemetry") or {}).get("probe") or {}
+    return _moment(probe.get("last_at")) if probe.get("ok") is True else None
+
+
+def _offline_minutes(component: Mapping[str, Any], limits: Mapping[str, Any]) -> int:
+    if is_link(component):
+        return int(limits.get("link_probe_minutes", 10))
+    return int(limits.get("offline_after_minutes", 30))
+
+
 def state_of(component: Mapping[str, Any], now: dt.datetime, limits: Mapping[str, Any]) -> str:
-    """online, offline, degraded, paused, pending or revoked."""
+    """online, offline, degraded, paused, pending or revoked.
+
+    Knovas Link is online only while a probe went round the work channel within ``link_probe_minutes``: a heartbeat
+    alone says it runs, not that Knovas reaches the site (MVP-28). Without its heartbeat for as long it is offline."""
     if component.get("state") == "revoked":
         return "revoked"
     if component.get("transport") == "v1" and component.get("state") == "pending":
@@ -131,8 +160,14 @@ def state_of(component: Mapping[str, Any], now: dt.datetime, limits: Mapping[str
     if component.get("paused"):
         return "paused"
     seen = _moment(component.get("last_heartbeat_at"))
-    if seen is None or now - seen > dt.timedelta(minutes=int(limits.get("offline_after_minutes", 30))):
+    if seen is None or now - seen > dt.timedelta(minutes=_offline_minutes(component, limits)):
         return "offline"
+    if component.get("transport") == "link" and (component.get("telemetry") or {}).get("state") == "offline":
+        return "offline"          # Knovas Link does not reach it on the site
+    if is_link(component):
+        probed = probe_ok_at(component)
+        fresh = probed is not None and now - probed <= dt.timedelta(minutes=int(limits.get("link_probe_minutes", 10)))
+        return "online" if fresh else "degraded"
     if component.get("reported_state") == "degraded" or int(component.get("open_errors") or 0) > 0:
         return "degraded"
     return "online"
@@ -148,11 +183,12 @@ def row(component: Mapping[str, Any], runs: list[Mapping[str, Any]], held: list[
     offline_for = int((now - seen).total_seconds() // 60) if seen and state == "offline" else None
     return {
         **{k: component.get(k) for k in ("id", "name", "kind", "site", "owner", "version", "transport", "paused",
-                                         "schedule", "lag_seconds", "open_errors", "last_heartbeat_at", "settings")},
+                                         "schedule", "lag_seconds", "open_errors", "last_heartbeat_at", "settings",
+                                         "site_id", "parent_id")},
         "kind_label": KINDS.get(str(component.get("kind")), {}).get("short", component.get("kind")),
         "state": state, "state_label": STATES[state], "offline_minutes": offline_for,
         "beyond_limit": state == "offline" and (seen is None or offline_for is not None and
-                                                offline_for > int(limits.get("offline_after_minutes", 30))),
+                                                offline_for > _offline_minutes(component, limits)),
         "last_run": last, "held": len(waiting), "schedule_text": schedule_text(component.get("schedule") or {}),
     }
 
@@ -163,15 +199,93 @@ def registry(rows: list[dict], *, state: Optional[str] = None, kind: Optional[st
     return sorted(out, key=lambda r: (not (r["state"] == "offline" and r["beyond_limit"]), str(r["name"]).lower()))
 
 
+def _coded(component: Optional[str], name: Any, code: str, severity: str, text: str, url: Optional[str] = None) -> dict:
+    """An alert with its fix from builder.codes."""
+    from builder import codes
+
+    found = codes.describe(code)
+    return {"component": component, "name": name, "code": code, "severity": severity, "text": text,
+            "title": found["title"], "fix": found["fix"], **({"url": url} if url else {})}
+
+
+def _link_alerts(c: Mapping[str, Any], now: dt.datetime, limits: Mapping[str, Any]) -> list[dict]:
+    """Knovas Link: unreachable when no probe succeeded for ``link_probe_minutes`` (counted from its enrolment until the
+    first), its work channel down, or waiting for its certificate (MVP-28)."""
+    cid, name = str(c["id"]), c.get("name")
+    telemetry = c.get("telemetry") or {}
+    limit = dt.timedelta(minutes=int(limits.get("link_probe_minutes", 10)))
+    seen = _moment(c.get("last_heartbeat_at"))
+    beating = seen is not None and now - seen <= limit
+    out = []
+    if beating and telemetry.get("certificate") == "waiting":
+        out.append(_coded(cid, name, "waiting_for_certificate", "warning",
+                          f"{name} wartet auf sein Zertifikat und nimmt noch keine Aufträge an."))
+        return out
+    since = probe_ok_at(c) or _moment(c.get("enrolled_at"))
+    if since is None or now - since > limit or not beating:
+        minutes = int((now - (probe_ok_at(c) or seen or now)).total_seconds() // 60) if (probe_ok_at(c) or seen) else None
+        out.append(_coded(cid, name, "link_unreachable", "critical",
+                          "Knovas Link nicht erreichbar" + (f": keine gelungene Probe seit {_duration(minutes)}."
+                                                            if probe_ok_at(c) else ": noch keine gelungene Probe.")))
+    if beating and telemetry.get("work_channel") == "down":
+        out.append(_coded(cid, name, "work_channel_down", "critical", f"{name}: der Arbeitskanal ist unterbrochen."))
+    return out
+
+
+def _proposal_alerts(proposals: Iterable[Mapping[str, Any]], now: dt.datetime, limits: Mapping[str, Any],
+                     url: Optional[str]) -> list[dict]:
+    """A write proposal waiting over ``proposal_waiting_hours``; a write that ended in conflict or refusal in the last
+    day. Counts only: the proposals' nodes are named on «Freigaben», not here."""
+    waiting_limit = dt.timedelta(hours=int(limits.get("proposal_waiting_hours", 48)))
+    waiting = conflicts = refused = 0
+    for p in proposals:
+        status = p.get("status")
+        created = _moment(p.get("created_at"))
+        decided = _moment(p.get("decided_at") or p.get("finished_at") or p.get("created_at"))
+        if status == "proposed" and created is not None and now - created > waiting_limit:
+            waiting += 1
+        elif status in ("conflict", "refused") and decided is not None and now - decided <= dt.timedelta(days=1):
+            conflicts += status == "conflict"
+            refused += status == "refused"
+    out = []
+    if waiting:
+        out.append(_coded(None, "Freigaben", "proposal_waiting", "warning",
+                          f"{waiting} Änderungsvorschl{'ag wartet' if waiting == 1 else 'äge warten'} seit mehr als "
+                          f"{int(waiting_limit.total_seconds() // 3600)} Stunden.", url))
+    if conflicts:
+        out.append(_coded(None, "Freigaben", "write_conflict", "warning",
+                          f"{conflicts} angenommene{'r Vorschlag endete' if conflicts == 1 else ' Vorschläge endeten'} "
+                          f"im Konflikt.", url))
+    if refused:
+        out.append(_coded(None, "Freigaben", "write_refused", "warning",
+                          f"{refused} angenommene{'r Vorschlag wurde' if refused == 1 else ' Vorschläge wurden'} "
+                          f"abgelehnt.", url))
+    return out
+
+
 def alerts(components: Iterable[Mapping[str, Any]], runs: Mapping[str, list], held: Mapping[str, list],
-           now: dt.datetime, limits: Mapping[str, Any]) -> list[dict]:
-    """Offline beyond the limit, two failed runs in a row, lag beyond the limit, a plan held more than a day."""
+           now: dt.datetime, limits: Mapping[str, Any], *, proposals: Optional[Iterable[Mapping[str, Any]]] = None,
+           freshness: Optional[Iterable[Mapping[str, Any]]] = None, proposals_url: Optional[str] = None) -> list[dict]:
+    """Offline beyond the limit, two failed runs in a row, lag beyond the limit, a plan held more than a day.
+
+    The connection layer (MVP-28) adds: Knovas Link unreachable, its work channel down or waiting for its certificate;
+    a source check failing on a component behind Link; a mapping read through Link stale past its freshness window
+    (``freshness``: ``{component, name, last_ok_at, window}``); a write proposal waiting or ending in conflict or
+    refusal (``proposals``)."""
     out = []
     for c in components:
         cid, name = str(c["id"]), c.get("name")
         state = state_of(c, now, limits)
         if state in ("revoked", "pending", "paused"):
             continue
+        if is_link(c):
+            out += _link_alerts(c, now, limits)
+            continue
+        if c.get("transport") == "link":
+            failing = [v for v in (c.get("source_checks") or {}).values() if v.get("code") not in (None, "source.ok")]
+            if failing:
+                out.append(_coded(cid, name, "source_check_failed", "warning",
+                                  f"{name}: {len(failing)} Quelle{'' if len(failing) == 1 else 'n'} nicht lesbar."))
         seen = _moment(c.get("last_heartbeat_at"))
         if state == "offline":
             minutes = int((now - seen).total_seconds() // 60) if seen else None
@@ -192,8 +306,26 @@ def alerts(components: Iterable[Mapping[str, Any]], runs: Mapping[str, list], he
                 out.append({"component": cid, "name": name, "code": "held_plan", "severity": "warning",
                             "text": f"{name}: der Plan der Zuordnung {h.get('mapping')} wartet seit "
                                     f"{_duration(int((now - at).total_seconds() // 60))} auf Freigabe."})
+    for f in freshness or []:
+        window, last = _window(f.get("window")), _moment(f.get("last_ok_at"))
+        if window is not None and (last is None or now - last > window):
+            out.append(_coded(f.get("component"), f.get("name"), "mapping_stale", "warning",
+                              f"{f.get('name')}: " + (f"zuletzt gelesen vor {_duration(int((now - last).total_seconds() // 60))}, "
+                                                       if last else "noch nie gelesen, ")
+                              + f"erlaubt sind {f.get('window')}."))
+    if proposals is not None:
+        out += _proposal_alerts(proposals, now, limits, proposals_url)
     order = {"critical": 0, "warning": 1}
     return sorted(out, key=lambda a: (order[a["severity"]], str(a["name"])))
+
+
+def _window(text: Any) -> Optional[dt.timedelta]:
+    """A mapping's freshness window, like «7 d» or «12 h»."""
+    match = re.match(r"^\s*(\d+)\s*([dhm])\s*$", str(text or ""))
+    if not match:
+        return None
+    n, unit = int(match.group(1)), match.group(2)
+    return dt.timedelta(days=n) if unit == "d" else dt.timedelta(hours=n) if unit == "h" else dt.timedelta(minutes=n)
 
 
 #: What a component's report about a source means, for the person who has to fix it. Codes, because the component

@@ -63,7 +63,11 @@ SOURCE_KINDS: dict[str, dict] = {
     "github": {"label": "GitHub-Repository", "component": "github_runner",
                "settings": [("repository", "Repository", "owner/name"), ("ref", "Branch oder Tag", "main")],
                "also_on": ["sync_component"],        # on site its token stays in the component's own environment
-               "credential": "Lese-Token (nur Contents: read)", "credential_required": True},
+               "credential": "Lese-Token (nur Contents: read)", "credential_required": True,
+               # The connection layer (MVP-25): its originals are fetched as blobs, and it can take a change as a pull
+               # request. Both are a source's switch, off until a reviewed edit switches them on.
+               "fetch": True, "write": True,
+               "write_credential": "Token mit Contents: write und Pull requests: write"},
     "knovas_connector": {"label": "Dateiablage / DMS", "component": "knovas_connector",
                          "settings": [("folder", "Ordner", "Pfad unter dem Wurzelordner des Connectors"),
                                       ("access_groups", "Zugriffsgruppen",
@@ -90,6 +94,42 @@ def access_modes(kind: Any) -> list[str]:
 def access_of(source: Mapping[str, Any]) -> str:
     """A source's access; one from before this field reads."""
     return str(source.get("access") or "read")
+
+
+# ------------------------------------------------------------------ the source's switches (MVP-25)
+
+#: The two switches of a source, as the page names them.
+SWITCHES = {"fetch": "Agenten dürfen Originale abrufen", "write": "Änderungen dürfen zurückgeschrieben werden"}
+
+
+def fetch_of(source: Mapping[str, Any]) -> bool:
+    """Whether agents may fetch the source's originals; off for a source from before the switch."""
+    return source.get("fetch") is True
+
+
+def write_of(source: Mapping[str, Any]) -> bool:
+    """Whether accepted changes may be written back to the source; off unless its access says read_write."""
+    return access_of(source) == "read_write"
+
+
+def fetch_offered(kind: Any) -> Optional[str]:
+    """Why the fetch switch is not offered for this kind, or None when it is."""
+    if not SOURCE_KINDS.get(kind, {}).get("fetch"):
+        return "Originale dieser Art von Quelle kann noch keine Komponente abrufen."
+    return None
+
+
+def write_offered(kind: Any, component: Optional[Mapping[str, Any]]) -> Optional[str]:
+    """Why the write switch is not offered for a source of ``kind`` read through ``component``, or None when it is:
+    the kind declares that it can be written, and the component that serves the source has ``write:<kind>``."""
+    if not SOURCE_KINDS.get(kind, {}).get("write"):
+        return "In diese Art von Quelle kann noch nichts zurückgeschrieben werden."
+    if component is None:
+        return "Die Komponente dieser Quelle ist nicht registriert."
+    if f"write:{kind}" not in (component.get("capabilities") or []):
+        return (f"Die Komponente «{component.get('name')}» kann in diese Quelle nicht schreiben (ihr fehlt "
+                f"«write:{kind}»): eine neuere Version installieren.")
+    return None
 
 
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -398,8 +438,12 @@ class OnSiteFiles:
         return [dict(self.EXAMPLE)]
 
 
-def on_site_problem(kind: Any, secret: Optional[str]) -> Optional[str]:
-    """Why the Platform cannot read this source that a component reads at the company, or None."""
+def on_site_problem(kind: Any, secret: Optional[str], site: bool = False) -> Optional[str]:
+    """Why the Platform cannot read this source that a component reads at the company, or None. A source on a site
+    (behind Knovas Link) takes no credential in the Platform at all (MVP-24)."""
+    if site and kind != "knovas_connector":
+        return ("Diese Quelle liest die Komponente am Standort, mit dem Zugang aus knovas-site.env; die Plattform liest "
+                "sie nicht und nimmt keinen Zugang an. Ob die Quelle lesbar ist, zeigt «Verbindung prüfen».")
     if kind == "github" and not secret:
         return ("Diese Quelle liest die Komponente bei der Firma, mit ihrem eigenen Token. Um hier Felder zu sehen und die "
                 "Zuordnung zu entwerfen, hier zusätzlich ein Lese-Token setzen. Ob die Komponente die Quelle erreicht, "

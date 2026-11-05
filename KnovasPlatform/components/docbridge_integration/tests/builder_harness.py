@@ -242,7 +242,8 @@ class MemoryWorkspaceStore:
             return None
         row = self.rows[workspace_id]
         row["published"].append({"number": draft["number"], "bundle": copy.deepcopy(bundle), "bundle_hash": bundle_hash,
-                                 "published_at": self._now(), "published_by": self._actor(publisher_id)[0]})
+                                 "published_at": self._now(), "published_by": self._actor(publisher_id)[0],
+                                 "model": copy.deepcopy(row["model"])})
         row["draft"] = None
         return draft["number"]
 
@@ -252,6 +253,12 @@ class MemoryWorkspaceStore:
             return None
         last = row["published"][-1]
         return {k: copy.deepcopy(last[k]) for k in ("number", "bundle", "bundle_hash", "published_at")}
+
+    def published_model(self, workspace_id):
+        row = self.rows.get(workspace_id)
+        if not row or not row["published"]:
+            return None
+        return copy.deepcopy(row["published"][-1].get("model"))
 
     def link_tenant(self, workspace_id, tenant):
         self.rows[workspace_id]["tenant"] = tenant
@@ -324,7 +331,8 @@ class MemoryWorkspaceStore:
     _COMPONENT_DEFAULTS = {"transport": "adapter", "paused": False, "schedule": {"mode": "manual"}, "version": "",
                            "capabilities": [], "enrol_expires_at": None, "enrolled_at": None,
                            "certificate_fingerprint": None, "last_heartbeat_at": None, "reported_state": None,
-                           "lag_seconds": None, "open_errors": 0, "revoked_at": None, "source_checks": {}}
+                           "lag_seconds": None, "open_errors": 0, "revoked_at": None, "source_checks": {},
+                           "site_id": None, "parent_id": None, "local_name": None, "telemetry": {}}
 
     def components(self, tenant, *, every=False):
         states = ("registered", "enrolled", "pending", "revoked") if every else ("registered", "enrolled")
@@ -345,11 +353,45 @@ class MemoryWorkspaceStore:
 
     # -------------------------------------------------------- enrolment and monitoring (B13)
 
-    def create_component(self, tenant, *, kind, name, site, owner, actor_id, enrol_expires_at):
+    def create_component(self, tenant, *, kind, name, site, owner, actor_id, enrol_expires_at, site_id=None):
         cid = self.register_component(tenant, kind=kind, name=name, site=site, owner=owner, settings={}, actor_id=actor_id)
         if cid is not None:
-            self.update_component(cid, state="pending", enrol_expires_at=enrol_expires_at)
+            self.update_component(cid, state="pending", enrol_expires_at=enrol_expires_at, site_id=site_id)
             self._row(cid)["transport"] = "v1"
+        return cid
+
+    # -------------------------------------------------------- sites and Knovas Link (migration 0022)
+
+    def create_site(self, tenant, *, name, owner, options, actor_id):
+        if any(s["tenant"] == tenant and s["name"] == name for s in self._bag("sites")):
+            return None
+        site = {"id": str(uuid.uuid4()), "tenant": tenant, "name": name, "owner": owner, "options": list(options),
+                "created_at": self._now(), "created_by_name": self._actor(actor_id)[1]}
+        self._bag("sites").append(site)
+        return site["id"]
+
+    def sites(self, tenant):
+        return [{k: copy.deepcopy(v) for k, v in s.items() if k != "tenant"}
+                for s in sorted(self._bag("sites"), key=lambda s: s["name"].lower()) if s["tenant"] == tenant]
+
+    def site(self, tenant, site_id):
+        return next((s for s in self.sites(tenant) if s["id"] == site_id), None)
+
+    def children(self, parent_id):
+        found = [c for c in self.component_rows if c.get("parent_id") == parent_id]
+        return [{k: copy.deepcopy(v) for k, v in c.items() if k != "tenant"}
+                for c in sorted(found, key=lambda c: c["local_name"])]
+
+    def upsert_child(self, tenant, *, parent_id, site_id, local_name, kind, name):
+        found = next((c for c in self.component_rows if c.get("parent_id") == parent_id
+                      and c.get("local_name") == local_name), None)
+        if found:
+            return found["id"]
+        parent = self._row(parent_id)
+        cid = self.register_component(tenant, kind=kind, name=name, site=parent["site"], owner=parent["owner"],
+                                      settings={}, actor_id=None)
+        self.update_component(cid, state="enrolled", transport="link", site_id=site_id, parent_id=parent_id,
+                              local_name=local_name, enrolled_at=self._now())
         return cid
 
     def _row(self, component_id):
@@ -461,13 +503,15 @@ class MemoryWorkspaceStore:
         return True
 
     def served_by(self, component_id):
+        from builder.store import served_source
+
         sources, mappings = [], []
         for w in self.list():
             model = self.model(w.id) or {}
             mine = [s for s in model.get("sources") or [] if s.get("component") == component_id]
             keys = {s.get("key") for s in mine}
-            sources += [{"workspace": w.id, "workspace_name": w.name, "key": s.get("key"), "name": s.get("name"),
-                         "kind": s.get("kind"), "access": s.get("access") or "read", "settings": s.get("settings") or {}} for s in mine]
+            published = {s.get("key"): s for s in (self.published_model(w.id) or {}).get("sources") or []}
+            sources += [served_source(w, s, published.get(s.get("key"))) for s in mine]
             mappings += [{"workspace": w.id, "id": (m.get("definition") or {}).get("id"),
                           "source": (m.get("builder") or {}).get("source")}
                          for m in model.get("mappings") or [] if (m.get("builder") or {}).get("source") in keys]
