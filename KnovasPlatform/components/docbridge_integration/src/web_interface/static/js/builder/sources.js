@@ -81,7 +81,7 @@
             meta.appendChild(el('span', null, s.kind_label));
             meta.appendChild(el('span', null, s.component_name ? 'über ' + s.component_name : 'Komponente fehlt'));
             b.appendChild(meta);
-            if (s.credential_required && !s.credential_set) b.appendChild(tag('Zugang fehlt', 'warning'));
+            if (s.credential_required && !s.credential_set && !s.on_site) b.appendChild(tag('Zugang fehlt', 'warning'));
             b.addEventListener('click', function () { current = s.key; renderList(); renderDetail(); });
             li.appendChild(b);
             list.appendChild(li);
@@ -139,6 +139,7 @@
         kind.settings.forEach(function (f) { rows.push([f.label, (s.settings || {})[f.name]]); });
         box.appendChild(dl(rows));
 
+        box.appendChild(switchesBox(s));
         if (kind.credential) box.appendChild(credentialBox(s, kind));
         var result = el('div', 'b-src-result');
         result.setAttribute('data-src-result', '');
@@ -146,7 +147,72 @@
         if (tested[s.key]) showTest(s, tested[s.key]);
     }
 
+    /* The source's two switches (connection layer MVP-25): off until switched on here; each is an edit of the draft,
+       reviewed and published before the component sees it. Not offered: disabled, with the reason. */
+    function switchesBox(s) {
+        var box = el('section', 'b-src-switches');
+        box.setAttribute('data-src-switches', '');
+        box.appendChild(el('h3', 'b-h3', 'Agenten und Rückschreiben'));
+        [['fetch', 'Agenten dürfen Originale abrufen', s.fetch, s.fetch_published, s.fetch_reason,
+          function (on) { return { fetch: on }; }],
+         ['write', 'Änderungen dürfen zurückgeschrieben werden', s.write, s.write_published, s.write_reason,
+          function (on) { return { access: on ? 'read_write' : 'read' }; }]].forEach(function (sw) {
+            var label = el('label', 'b-check');
+            var input = el('input');
+            input.type = 'checkbox';
+            input.checked = !!sw[2];
+            input.disabled = !!sw[4] && !sw[2];
+            input.setAttribute('data-src-switch', sw[0]);
+            label.appendChild(input);
+            label.appendChild(document.createTextNode(sw[1]));
+            box.appendChild(label);
+            var note = sw[4] && !sw[2] ? sw[4] : (sw[2] === sw[3] ? (sw[2] ? 'An, veröffentlicht.' : 'Aus.')
+                : (sw[2] ? 'An im Entwurf: wirkt nach Prüfen & Veröffentlichen.' : 'Aus im Entwurf: wirkt nach Prüfen & Veröffentlichen.'));
+            box.appendChild(el('p', 'b-small b-muted', note));
+            input.addEventListener('change', function () {
+                var op = Object.assign({ op: 'source.switches', key: s.key }, sw[5](input.checked));
+                post(root.dataset.editUrl, op).then(function (payload) {
+                    if (!payload.success) { input.checked = !input.checked; toast(payload.error, null, 'critical'); return; }
+                    toast(input.checked ? 'Im Entwurf eingeschaltet' : 'Im Entwurf ausgeschaltet', 'Wirkt nach Prüfen & Veröffentlichen.');
+                    load(payload.sources, s.key);
+                });
+            });
+        });
+        return box;
+    }
+
+    /* A source on a site (connection layer MVP-24): its credential is a line of knovas-sources.env at the company, typed
+       there; the Platform shows the line and never takes the value. */
+    function siteCredentialBox(s, kind) {
+        var box = el('section', 'b-src-credential');
+        box.setAttribute('data-src-site-credential', '');
+        box.appendChild(el('h3', 'b-h3', 'Zugang'));
+        box.appendChild(el('p', 'b-small', (s.write ? (kind.write_credential || kind.credential) : kind.credential) +
+            '. Diese Quelle liest eine Komponente am Standort «' + (s.site_name || '') + '»: den Wert dort in knovas-sources.env eintragen, hinter dieser Zeile.'));
+        var row = el('div', 'b-proc-inline');
+        var line = el('code', 'b-mono', s.credential_line);
+        line.setAttribute('data-src-credential-line', '');
+        row.appendChild(line);
+        row.appendChild(button('Kopieren', 'b-button--secondary', function () {
+            var done = function () { toast('Zeile kopiert', s.credential_line); };
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(s.credential_line).then(done, function () { window.prompt('Zeile kopieren:', s.credential_line); });
+            else window.prompt('Zeile kopieren:', s.credential_line);
+        }));
+        box.appendChild(row);
+        box.appendChild(el('p', 'b-small b-muted', 'Danach neu starten und Verbindung prüfen: «docker compose up -d» am Standort.'));
+        if (s.check_url) {
+            box.appendChild(button('Verbindung prüfen', 'b-button--quiet', function () {
+                post(s.check_url).then(function (payload) {
+                    if (!payload.success) { toast(payload.error, null, 'critical'); return; }
+                    toast('Prüfung angefragt', 'Die Komponente meldet über Knovas Link, ob sie die Quelle lesen kann; ihre Seite zeigt das Ergebnis.');
+                });
+            }));
+        }
+        return box;
+    }
+
     function credentialBox(s, kind) {
+        if (s.on_site && s.credential_line) return siteCredentialBox(s, kind);
         var box = el('section', 'b-src-credential');
         var h = el('h3', 'b-h3', 'Zugang');
         box.appendChild(h);

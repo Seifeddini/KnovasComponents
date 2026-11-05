@@ -114,6 +114,11 @@
             <div class="b-rail-links">
                 {% if builder_access and (builder_access.may('edit') or builder_access.may('manage')) %}<a href="{{ url_for('builder.access_page') }}"
                    {% if request.endpoint == 'builder.access_page' %}aria-current="page"{% endif %}>{{ icon('lock') }}Zugriff</a>{% endif %}
+                {% if builder_access and builder_access.via == 'role' %}<a href="{{ url_for('builder.connection_page') }}"
+                   {% if request.endpoint == 'builder.connection_page' %}aria-current="page"{% endif %}>{{ icon('verbinden') }}Verbindung</a>{% endif %}
+                {% if builder_access and builder_access.via == 'role' %}<a href="{{ url_for('builder.approvals_page') }}"
+                   {% if request.endpoint == 'builder.approvals_page' %}aria-current="page"{% endif %}>{{ icon('check') }}Freigaben
+                   <span class="b-tab-count" data-approvals-badge data-url="{{ url_for('builder.approvals_count') }}" hidden></span></a>{% endif %}
                 <a href="{{ url_for('builder.styleguide') }}"
                    {% if request.endpoint == 'builder.styleguide' %}aria-current="page"{% endif %}>{{ icon('swatch') }}Stilvorlage</a>
                 <a href="{{ platform_url }}">{{ icon('back') }}Zur Plattform</a>

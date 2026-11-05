@@ -85,9 +85,46 @@
             chosen = null;
             render();
             preview();
+            var explained = document.querySelector('[data-map-explanation]');
+            if (explained && data.explanation) explained.textContent = data.explanation;
+            /* An edit that made a written-back fact not invertible took it out of «Zurückschreiben» (MVP-26). */
+            (payload.notices || []).forEach(function (n) { toast('Zurückschreiben angepasst', n, 'warning'); });
+            if ((payload.notices || []).length) setTimeout(function () { window.location.reload(); }, 2500);
             return payload;
         });
     }
+
+    /* ---- «Zugriff» and «Zurückschreiben» (connection layer MVP-26): drawn on the server, sent from here -------- */
+
+    function panelEdit(op) {
+        op.id = data.id;
+        working(1);
+        return post(root.dataset.editUrl, op).then(function (payload) {
+            working(-1);
+            if (!payload.success) { toast(payload.error || 'Das hat nicht geklappt.', null, 'critical'); return payload; }
+            window.location.reload();
+            return payload;
+        });
+    }
+
+    var accessBox = document.querySelector('[data-map-access]');
+    if (accessBox) {
+        accessBox.addEventListener('change', function (e) {
+            var choice = (accessBox.querySelector('input[name="map-access"]:checked') || {}).value;
+            var groups = Array.prototype.map.call(accessBox.querySelectorAll('input[name="map-access-group"]:checked'),
+                                                  function (i) { return i.value; });
+            if (e.target.name === 'map-access-group' && choice !== 'groups') return;
+            if (choice === 'all') panelEdit({ op: 'mapping.access', access: { fixed: 'all' } });
+            else if (choice === 'inherit') panelEdit({ op: 'mapping.access', access: { inherit: 'folder_rule' } });
+            else if (choice === 'groups' && groups.length) panelEdit({ op: 'mapping.access', access: { fixed: groups } });
+        });
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-map-writes] input[data-write-name]'), function (box) {
+        box.addEventListener('change', function () {
+            panelEdit({ op: 'mapping.writes', type: box.dataset.writeType, fact: box.dataset.writeName, on: box.checked })
+                .then(function (payload) { if (!payload.success) box.checked = !box.checked; });
+        });
+    });
 
     function step(which) {
         if (pending || !history[which]) return;

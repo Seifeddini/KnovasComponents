@@ -56,6 +56,63 @@
     </section>
 </div>
 
+<section class="b-map-explain" aria-labelledby="b-map-explain-title">
+    <h2 class="b-h3" id="b-map-explain-title">Was diese Zuordnung tut</h2>
+    <p data-map-explanation>{{ mapping.explanation }}</p>
+</section>
+
+{# Connection layer MVP-26: who reads what the mapping uploads, and what may be written back to the source.
+   static/js/builder/mapping.js sends mapping.access and mapping.writes. #}
+<section class="b-map-settings" aria-labelledby="b-map-access-title">
+    <h2 class="b-h3" id="b-map-access-title">Zugriff</h2>
+    {% set chosen = mapping.access.value or {} %}
+    <fieldset class="b-field b-choice" data-map-access>
+        <legend class="b-label">Wer liest die Dokumente dieser Zuordnung?</legend>
+        <label class="b-check"><input type="radio" name="map-access" value="inherit" {% if chosen.inherit == 'folder_rule' %}checked{% endif %}>Wie die Ordnerregel</label>
+        <p class="b-small b-muted">Die Ordnerregel des Pfads entscheidet. Deckt keine Regel ein neues Dokument, hält der Probelauf an: dann ist kein Zugriff entschieden.</p>
+        <label class="b-check"><input type="radio" name="map-access" value="all" {% if chosen.fixed == 'all' %}checked{% endif %}>Alle im Mandanten</label>
+        <p class="b-small b-callout b-callout--warning" data-map-access-all>«Alle im Mandanten» überschreibt die Ordnerregeln. Der Probelauf hält an, wo eine Ordnerregel gilt, und sagt warum, damit nichts unbemerkt geöffnet wird.</p>
+        <label class="b-check"><input type="radio" name="map-access" value="groups" {% if chosen.fixed is defined and chosen.fixed is sequence and chosen.fixed is not string %}checked{% endif %} {% if not mapping.access.groups %}disabled{% endif %}>Gruppen</label>
+        <div class="b-proc-inline" data-map-access-groups>
+            {% for g in mapping.access.groups %}
+            <label class="b-check b-small"><input type="checkbox" name="map-access-group" value="{{ g.key }}" {% if chosen.fixed is defined and chosen.fixed is sequence and chosen.fixed is not string and g.key in chosen.fixed %}checked{% endif %}>{{ g.name }}</label>
+            {% else %}
+            <span class="b-small b-muted">Gruppen entwerfen Sie im Zugriffsfenster.</span>
+            {% endfor %}
+        </div>
+        <label class="b-check b-muted"><input type="radio" name="map-access" value="from_source" disabled>aus der Quelle <span class="b-tag">kommt mit der Berechtigungsübernahme</span></label>
+    </fieldset>
+</section>
+
+<section class="b-map-settings" aria-labelledby="b-map-writes-title">
+    <h2 class="b-h3" id="b-map-writes-title">Zurückschreiben</h2>
+    <fieldset class="b-field" data-map-writes{% if not mapping.writes.enabled %} disabled{% endif %}>
+        <legend class="b-label">Welche Attribute dürfen als Änderungsvorschlag in die Quelle zurück?</legend>
+        {% if not mapping.writes.enabled %}
+        <p class="b-small b-muted">Ausgeschaltet: an der Quelle{% if mapping.writes.source_name %} «{{ mapping.writes.source_name }}»{% endif %} ist «Änderungen dürfen zurückgeschrieben werden» aus.</p>
+        {% endif %}
+        {% for t in mapping.writes.types %}
+        <p class="b-small"><strong>{{ t.type }}</strong></p>
+        <ul class="b-map-writes">
+            {% for f in t.facts %}
+            <li data-write-fact="{{ f.name }}">
+                {% if f.writable %}
+                <label class="b-check"><input type="checkbox" data-write-type="{{ t.type }}" data-write-name="{{ f.name }}" {% if f.on %}checked{% endif %}>{{ f.name }}</label>
+                <span class="b-small b-muted">Feld <span class="b-mono">{{ f.field }}</span>{% if f.allowed %} · erlaubt: {{ f.allowed | join(', ') }}{% endif %}</span>
+                {% else %}
+                <span class="b-muted">{{ f.name }}</span> <span class="b-tag">{{ f.reason_title }}</span>
+                <span class="b-small b-muted">{{ f.reason_text }}</span>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="b-small b-muted">Diese Zuordnung schreibt keine Fakten, die zurückgeschrieben werden könnten.</p>
+        {% endfor %}
+        <p class="b-small b-muted">Berechnete Attribute stehen nicht in dieser Liste: sie werden nie zurückgeschrieben. Beziehungen auch nicht.</p>
+    </fieldset>
+</section>
+
 <section class="b-map-settings" aria-labelledby="b-map-settings-title">
     <h2 class="b-h3" id="b-map-settings-title">Einstellungen</h2>
     <form class="b-map-settings-form" data-map-settings novalidate></form>

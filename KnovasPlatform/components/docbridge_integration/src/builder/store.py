@@ -48,6 +48,17 @@ def _uuid(value) -> Optional[str]:
     return str(value) if value is not None else None
 
 
+def served_source(workspace, source: dict, published: Optional[dict]) -> dict:
+    """One source as a component's configuration names it (served_by). Its switches come from the published version
+    only: a source published before them neither fetches nor writes (MVP-25)."""
+    from builder.sources import fetch_of, write_of
+
+    return {"workspace": workspace.id, "workspace_name": workspace.name, "key": source.get("key"),
+            "name": source.get("name"), "kind": source.get("kind"), "access": source.get("access") or "read",
+            "settings": source.get("settings") or {},
+            "fetch": fetch_of(published or {}), "write": write_of(published or {})}
+
+
 class WorkspaceStore:
     """The builder's record. Built per request on the request's connection."""
 
@@ -351,7 +362,8 @@ class WorkspaceStore:
     _COMPONENT = """SELECT c.id, c.kind, c.name, c.site, c.owner, c.settings, c.state, c.registered_at, u.display_name,
                            c.transport, c.paused, c.schedule, c.version, c.capabilities, c.enrol_expires_at,
                            c.enrolled_at, c.certificate_fingerprint, c.last_heartbeat_at, c.reported_state,
-                           c.lag_seconds, c.open_errors, c.revoked_at, c.source_checks
+                           c.lag_seconds, c.open_errors, c.revoked_at, c.source_checks,
+                           c.site_id, c.parent_id, c.local_name, c.telemetry
                       FROM builder_component c LEFT JOIN users u ON u.id = c.registered_by"""
     #: The states a source may be read through (B7) or a component may run in.
     _USABLE = "('registered', 'enrolled')"
@@ -364,7 +376,10 @@ class WorkspaceStore:
                 "version": row[12] or "", "capabilities": list(row[13] or []), "enrol_expires_at": _iso(row[14]),
                 "enrolled_at": _iso(row[15]), "certificate_fingerprint": row[16], "last_heartbeat_at": _iso(row[17]),
                 "reported_state": row[18], "lag_seconds": row[19], "open_errors": row[20] or 0,
-                "revoked_at": _iso(row[21]), "source_checks": row[22] or {}}
+                "revoked_at": _iso(row[21]), "source_checks": row[22] or {},
+                # Sites (migration 0022): the site a component runs at, and for one behind Knovas Link its parent and
+                # its name on the site; Link's own row keeps what its heartbeat reports of the site.
+                "site_id": _uuid(row[23]), "parent_id": _uuid(row[24]), "local_name": row[25], "telemetry": row[26] or {}}
 
     def components(self, tenant: str, *, every: bool = False) -> list[dict]:
         """The tenant's sync components a source can use, by name; ``every``: pending and revoked ones too."""
@@ -386,19 +401,21 @@ class WorkspaceStore:
     # -------------------------------------------------------- enrolment and monitoring (B13)
 
     def create_component(self, tenant: str, *, kind: str, name: str, site: str, owner: str, actor_id,
-                         enrol_expires_at: str) -> Optional[str]:
-        """A component that speaks protocol v1, waiting for its enrolment; None when the name is taken."""
+                         enrol_expires_at: str, site_id: Optional[str] = None) -> Optional[str]:
+        """A component that speaks protocol v1, waiting for its enrolment; None when the name is taken. ``site_id``:
+        Knovas Link, made with its site (migration 0022)."""
         row = self.conn.execute(
             """INSERT INTO builder_component (tenant, kind, name, site, owner, registered_by, state, transport,
-                                              enrol_expires_at)
-               VALUES (%s, %s, %s, %s, %s, %s, 'pending', 'v1', %s) ON CONFLICT (tenant, name) DO NOTHING RETURNING id""",
-            (tenant, kind, name, site, owner, actor_id, enrol_expires_at),
+                                              enrol_expires_at, site_id)
+               VALUES (%s, %s, %s, %s, %s, %s, 'pending', 'v1', %s, %s)
+               ON CONFLICT (tenant, name) DO NOTHING RETURNING id""",
+            (tenant, kind, name, site, owner, actor_id, enrol_expires_at, site_id),
         ).fetchone()
         return str(row[0]) if row else None
 
     _UPDATABLE = {"state", "paused", "schedule", "version", "capabilities", "enrol_expires_at", "enrolled_at",
                   "certificate_fingerprint", "last_heartbeat_at", "reported_state", "lag_seconds", "open_errors",
-                  "revoked_at", "name", "site", "owner", "settings", "source_checks"}
+                  "revoked_at", "name", "site", "owner", "settings", "source_checks", "telemetry"}
 
     def update_component(self, component_id: str, **fields) -> None:
         unknown = set(fields) - self._UPDATABLE
@@ -407,7 +424,7 @@ class WorkspaceStore:
         if not fields:
             return
         names = sorted(fields)
-        documents = ("schedule", "capabilities", "settings", "source_checks")
+        documents = ("schedule", "capabilities", "settings", "source_checks", "telemetry")
         values = [json.dumps(fields[n]) if n in documents else fields[n] for n in names]
         sets = ", ".join(f"{n} = %s::jsonb" if n in documents else f"{n} = %s" for n in names)
         self.conn.execute(f"UPDATE builder_component SET {sets} WHERE id = %s", (*values, component_id))
@@ -416,6 +433,66 @@ class WorkspaceStore:
         """The component, with its runs, events, held plans and commands (their foreign keys cascade)."""
         done = self.conn.execute("DELETE FROM builder_component WHERE tenant = %s AND id = %s", (tenant, component_id))
         return done.rowcount > 0
+
+    # -------------------------------------------------------- sites and Knovas Link (migration 0022)
+
+    _SITE = """SELECT s.id, s.name, s.owner, s.options, s.created_at, u.display_name
+                 FROM builder_site s LEFT JOIN users u ON u.id = s.created_by"""
+
+    @staticmethod
+    def _site(row) -> dict:
+        return {"id": str(row[0]), "name": row[1], "owner": row[2], "options": list(row[3] or []),
+                "created_at": _iso(row[4]), "created_by_name": row[5]}
+
+    def create_site(self, tenant: str, *, name: str, owner: str, options: list, actor_id) -> Optional[str]:
+        """A site of the tenant; None when it has one of that name."""
+        row = self.conn.execute(
+            """INSERT INTO builder_site (tenant, name, owner, options, created_by) VALUES (%s, %s, %s, %s::jsonb, %s)
+               ON CONFLICT (tenant, name) DO NOTHING RETURNING id""",
+            (tenant, name, owner, json.dumps(list(options)), actor_id)).fetchone()
+        return str(row[0]) if row else None
+
+    def sites(self, tenant: str) -> list[dict]:
+        rows = self.conn.execute(self._SITE + " WHERE s.tenant = %s ORDER BY lower(s.name)", (tenant,)).fetchall()
+        return [self._site(r) for r in rows]
+
+    def site(self, tenant: str, site_id: str) -> Optional[dict]:
+        try:
+            uuid.UUID(str(site_id))
+        except ValueError:
+            return None
+        row = self.conn.execute(self._SITE + " WHERE s.tenant = %s AND s.id = %s", (tenant, site_id)).fetchone()
+        return self._site(row) if row else None
+
+    def children(self, parent_id: str) -> list[dict]:
+        """The components behind Knovas Link ``parent_id``, by their name on the site."""
+        rows = self.conn.execute(self._COMPONENT + " WHERE c.parent_id = %s ORDER BY c.local_name",
+                                 (parent_id,)).fetchall()
+        return [self._component(r) for r in rows]
+
+    def upsert_child(self, tenant: str, *, parent_id: str, site_id: Optional[str], local_name: str, kind: str,
+                     name: str) -> str:
+        """The row of the component ``local_name`` behind Link ``parent_id``, made the first time Link reports it."""
+        def mine():
+            return self.conn.execute("SELECT id FROM builder_component WHERE parent_id = %s AND local_name = %s",
+                                     (parent_id, local_name)).fetchone()
+
+        for attempt in range(5):
+            found = mine()
+            if found:
+                return str(found[0])
+            # The tenant's names are unique; a name someone else took gets a number.
+            candidate = name if attempt == 0 else f"{name[:110]} ({attempt + 1})"
+            row = self.conn.execute(
+                """INSERT INTO builder_component (tenant, kind, name, site, owner, state, transport, site_id, parent_id,
+                                                  local_name, enrolled_at)
+                   SELECT %s, %s, %s, p.site, p.owner, 'enrolled', 'link', %s, p.id, %s, now()
+                     FROM builder_component p WHERE p.id = %s
+                   ON CONFLICT DO NOTHING RETURNING id""",
+                (tenant, kind, candidate, site_id, local_name, parent_id)).fetchone()
+            if row:
+                return str(row[0])
+        raise LookupError("no free name for a component behind Knovas Link")
 
     def pending_components(self, tenant: str) -> list[dict]:
         rows = self.conn.execute(self._COMPONENT + " WHERE c.tenant = %s AND c.state = 'pending'", (tenant,)).fetchall()
@@ -540,16 +617,25 @@ class WorkspaceStore:
             (actor_id, outcome, tenant, request_id, actor_id)).fetchone()
         return row is not None
 
+    def published_model(self, workspace_id: str) -> Optional[dict]:
+        """The model of the newest published version, or None before the first publish."""
+        row = self.conn.execute(
+            """SELECT model FROM builder_version WHERE workspace = %s AND state = 'published'
+                ORDER BY number DESC LIMIT 1""", (workspace_id,)).fetchone()
+        return row[0] if row else None
+
     def served_by(self, component_id: str) -> dict:
-        """The sources served through the component, in every workspace, and the mappings that read them."""
+        """The sources served through the component, in every workspace, and the mappings that read them.
+
+        ``fetch`` and ``write`` are the source's switches as last published (MVP-25): switched on in a draft, they
+        reach the component only once reviewed and published."""
         sources, mappings = [], []
         for w in self.list():
             model = self.model(w.id) or {}
             mine = [s for s in model.get("sources") or [] if s.get("component") == component_id]
             keys = {s.get("key") for s in mine}
-            sources += [{"workspace": w.id, "workspace_name": w.name, "key": s.get("key"), "name": s.get("name"),
-                         "kind": s.get("kind"), "access": s.get("access") or "read",
-                         "settings": s.get("settings") or {}} for s in mine]
+            published = {s.get("key"): s for s in (self.published_model(w.id) or {}).get("sources") or []} if mine else {}
+            sources += [served_source(w, s, published.get(s.get("key"))) for s in mine]
             mappings += [{"workspace": w.id, "id": (m.get("definition") or {}).get("id"),
                           "source": (m.get("builder") or {}).get("source")}
                          for m in model.get("mappings") or [] if (m.get("builder") or {}).get("source") in keys]

@@ -291,6 +291,150 @@ def _relation(edit: _Edit, op: Mapping[str, Any]) -> None:
     edit.write(MAPPINGS, old, new)
 
 
+# ------------------------------------------------------------------ access and writing back (connection layer MVP-26)
+
+def _check_access(raw: Any, model: Mapping[str, Any]) -> dict:
+    """``{fixed: all}``, ``{fixed: [group keys]}`` or ``{inherit: folder_rule}``. Group keys are the group tree's stable
+    keys as the access window (B14) names them in the draft, never live group ids; the runner checks at plan time that
+    they exist on the tenant."""
+    if not isinstance(raw, Mapping) or len(raw) != 1:
+        raise EditError("Zugriff: «Wie die Ordnerregel», «Alle im Mandanten» oder Gruppen.")
+    if "from_source" in raw:
+        raise EditError("Zugriff «aus der Quelle» kommt mit der Berechtigungsübernahme.")
+    if raw.get("inherit") == "folder_rule":
+        return {"inherit": "folder_rule"}
+    fixed = raw.get("fixed")
+    if fixed == "all":
+        return {"fixed": "all"}
+    if isinstance(fixed, list):
+        known = {g.get("key") for g in (model.get("access") or {}).get("groups") or []}
+        keys = list(dict.fromkeys(str(k) for k in fixed))
+        if not keys:
+            raise EditError("Zugriff: mindestens eine Gruppe.")
+        unknown = [k for k in keys if k not in known]
+        if unknown:
+            raise EditError("Zugriff: diese Gruppen gibt es im Zugriffsentwurf nicht: " + ", ".join(unknown) + ".")
+        return {"fixed": keys}
+    raise EditError("Zugriff: «Wie die Ordnerregel», «Alle im Mandanten» oder Gruppen.")
+
+
+def _mapping_access(edit: _Edit, op: Mapping[str, Any]) -> None:
+    """«Zugriff»: who reads the documents the mapping uploads; ``None`` takes the choice back (no choice is preset)."""
+    old, new = _mapping(edit, op.get("id"))
+    if op.get("access") is None:
+        new["definition"].pop("access", None)
+    else:
+        new["definition"]["access"] = _check_access(op.get("access"), edit.model)
+    edit.write(MAPPINGS, old, new)
+
+
+def _refused_write(fact: str, code: str) -> EditError:
+    from builder import codes
+
+    found = codes.describe(code)
+    return EditError(f"«{fact}» lässt sich nicht zurückschreiben: {found['title']}. {found['explanation']}")
+
+
+def _mapping_writes(edit: _Edit, op: Mapping[str, Any]) -> None:
+    """«Zurückschreiben»: a fact accepted changes may be written back to, at the plain path its expression reads.
+    Switching one on needs the source's write switch (MVP-25); switching off always works."""
+    from builder.sources import write_of
+
+    old, new = _mapping(edit, op.get("id"))
+    defn = new["definition"]
+    type_key = _text(op.get("type"), "Typ", limit=80)
+    fact = _text(op.get("fact"), "Attribut", limit=80)
+    if not isinstance(op.get("on"), bool):
+        raise EditError("Zurückschreiben: an oder aus.")
+    writes = copy.deepcopy(defn.get("writes") or {})
+    if op["on"]:
+        source = edit.find(SOURCES, new["builder"].get("source"))
+        if source is None or not write_of(source):
+            raise EditError("Zurückschreiben ist für die Quelle dieser Zuordnung ausgeschaltet: erst an der Quelle "
+                            "«Änderungen dürfen zurückgeschrieben werden» einschalten.", 409)
+        if M.is_computed(M.Ontology(edit.model).attribute(type_key, fact)):
+            raise _refused_write(fact, "computed_attribute")
+        verdict = M.invertible(defn, edit.model).get(type_key, {}).get(fact)
+        if verdict is None:
+            raise _refused_write(fact, "not_writable")
+        if not verdict[0]:
+            raise _refused_write(fact, verdict[1] or "not_invertible")
+        spec: dict = {"field": M.write_field(defn, type_key, fact)}
+        if op.get("allowed") is not None:
+            allowed = op["allowed"]
+            if not isinstance(allowed, list) or not 1 <= len(allowed) <= 50 or \
+                    not all(isinstance(v, str) and 0 < len(v) <= 200 for v in allowed):
+                raise EditError("Erlaubte Werte: eine Liste von 1 bis 50 Werten.")
+            spec["allowed"] = list(dict.fromkeys(allowed))
+        writes.setdefault(type_key, {})[fact] = spec
+    else:
+        (writes.get(type_key) or {}).pop(fact, None)
+        writes = {k: v for k, v in writes.items() if v}
+    if writes:
+        defn["writes"] = writes
+    else:
+        defn.pop("writes", None)
+    edit.write(MAPPINGS, old, new)
+
+
+def keep_writes(model: Mapping[str, Any], entry: dict) -> str | None:
+    """After an edit of the mapping: a written fact that is no longer invertible leaves ``writes``, and one whose
+    plain path moved follows it -- in the same change. The sentence that says so, or None."""
+    defn = entry.get("definition") or {}
+    writes = defn.get("writes") or {}
+    if not writes:
+        return None
+    verdicts = M.invertible(defn, model)
+    removed, moved, kept = [], [], {}
+    for type_key, facts in writes.items():
+        for fact, spec in (facts or {}).items():
+            verdict = verdicts.get(type_key, {}).get(fact)
+            if not verdict or not verdict[0]:
+                removed.append(fact)
+                continue
+            field = M.write_field(defn, type_key, fact)
+            if field != (spec or {}).get("field"):
+                moved.append(fact)
+                spec = {**(spec or {}), "field": field}
+            kept.setdefault(type_key, {})[fact] = spec
+    if not removed and not moved:
+        return None
+    if kept:
+        defn["writes"] = kept
+    else:
+        defn.pop("writes", None)
+    said = []
+    if removed:
+        said.append("Aus «Zurückschreiben» entfernt, weil nicht mehr umkehrbar: " + ", ".join(removed) + ".")
+    if moved:
+        said.append("«Zurückschreiben» folgt dem neuen Feld: " + ", ".join(moved) + ".")
+    return " ".join(said)
+
+
+class _KeepingWrites:
+    """An edit of a mapping whose ``writes`` stay what can be written back (keep_writes), in the same change."""
+
+    def __init__(self, edit: _Edit):
+        self._edit = edit
+
+    def __getattr__(self, name):
+        return getattr(self._edit, name)
+
+    def write(self, section: str, old, new) -> None:
+        notice = keep_writes(self._edit.model, new) if section == MAPPINGS and new is not None else None
+        before = len(self._edit.changes)
+        self._edit.write(section, old, new)
+        if notice and len(self._edit.changes) > before:
+            self._edit.changes[-1]["notice"] = notice
+
+
+def _keeping_writes(operation):
+    def run(edit: _Edit, op: Mapping[str, Any]) -> None:
+        operation(_KeepingWrites(edit), op)
+    run.__name__ = operation.__name__
+    return run
+
+
 OPERATIONS.update({
     "mapping.create": _mapping_create,
     "mapping.source": _mapping_source,
@@ -303,4 +447,10 @@ OPERATIONS.update({
     "mapping.expression": _expression,
     "mapping.unbind": _unbind,
     "mapping.relation": _relation,
+    "mapping.access": _mapping_access,
+    "mapping.writes": _mapping_writes,
 })
+# Every other edit of a mapping keeps its writes invertible (MVP-26).
+for _name in ("mapping.source", "mapping.settings", "mapping.emit.add", "mapping.emit.remove", "mapping.identify",
+              "mapping.bind", "mapping.expression", "mapping.unbind", "mapping.relation"):
+    OPERATIONS[_name] = _keeping_writes(OPERATIONS[_name])
