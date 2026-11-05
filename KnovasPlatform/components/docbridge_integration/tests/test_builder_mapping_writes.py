@@ -21,6 +21,7 @@ FACT_SHEET = {"key": "Merkblatt", "level": "company", "label": {"de": "Merkblatt
     {"name": "satz", "datatype": "text", "level": "company"},
     {"name": "pruefdatum", "datatype": "date", "level": "company"},
     {"name": "titel", "datatype": "text", "level": "company"},
+    {"name": "kurztitel", "datatype": "text", "level": "company"},
     {"name": "ablage", "datatype": "text", "level": "company"},
     {"name": "status", "datatype": "enum", "enum_values": ["belegt", "veraltet"], "level": "company",
      "note": "veraltet, wenn die Belege älter sind als die letzte Änderung.", "extra": {"computed": True}},
@@ -42,6 +43,7 @@ def _model(source_component="c1"):
     for target, field, steps in (("key", "front_matter.id", []), ("name", "title", []),
                                  ("fact:satz", "front_matter.summary", []), ("fact:pruefdatum", "front_matter.geprueft_am", []),
                                  ("fact:titel", "title", [{"step": "trim"}]), ("fact:ablage", "doc.path", []),
+                                 ("fact:kurztitel", "title", []),
                                  ("fact:status", "front_matter.status", []), ("fact:stufe", "front_matter.stufe", []),
                                  ("fact:hinweis", "front_matter.hinweis", [])):
         ops.append({"op": "mapping.bind", "id": MAPPING, "emit": 0, "target": target, "field": field, "steps": steps})
@@ -59,8 +61,10 @@ class TestInvertible:
         found = M.invertible(_definition(_model()), _model())
         facts = found["Merkblatt"]
         assert facts["satz"] == (True, None) and facts["pruefdatum"] == (True, None)
-        assert facts["titel"] == (False, "not_invertible")        # built with a step
-        assert facts["ablage"] == (False, "not_invertible")       # the document's path, not a field of the item
+        # Not invertible, with brain-runner's reason (the local rule gives the same ones):
+        assert facts["titel"] == (False, "not_a_plain_path")        # built with a step
+        assert facts["ablage"] == (False, "not_a_plain_path")       # the document's path, not a field of the item
+        assert facts["kurztitel"] == (False, "not_a_stored_value")  # a plain path, but to what the extractor derives
         # Computed attributes (computed: true) are never listed, plain path or not; a description marks nothing.
         assert "status" not in facts and "stufe" not in facts
         assert facts["hinweis"] == (True, None)
@@ -89,10 +93,34 @@ class TestInvertible:
         import types
 
         fake = types.ModuleType("brain_runner.inverse")
-        fake.invertible = lambda mapping: {"Merkblatt": {"satz": (False, "not_invertible"), "status": (True, None)}}
+        fake.invertible = lambda mapping: {"Merkblatt": {"satz": [False, "stated_differently"], "status": [True, "plain_path"],
+                                                         "pruefdatum": [True, "plain_path"]}}
         monkeypatch.setitem(sys.modules, "brain_runner.inverse", fake)
         found = M.invertible(_definition(_model()), _model())
-        assert found == {"Merkblatt": {"satz": (False, "not_invertible")}}   # still: computed never listed
+        # Its reasons as they come, writable without one; computed attributes still never listed.
+        assert found == {"Merkblatt": {"satz": (False, "stated_differently"), "pruefdatum": (True, None)}}
+
+    def test_the_local_rule_gives_brain_runner_s_reasons(self):
+        defn = _definition(_model())
+        assert M._local_invertible({**defn, "source": {**defn["source"], "group": "x"}})["Merkblatt"]["satz"] == \
+            (False, "grouped_items")
+        assert M._local_invertible({**defn, "source": {**defn["source"], "select": "data.items[]"}})["Merkblatt"]["satz"] == \
+            (False, "several_items_per_file")
+        assert M._local_invertible({**defn, "source": {**defn["source"], "extractor": "file_glob"}})["Merkblatt"]["satz"] == \
+            (False, "extractor_not_writable")
+        twice = {**defn, "emits": defn["emits"] + [{**defn["emits"][0], "facts": {"satz": {"value": "f.front_matter.other"}}}]}
+        assert M._local_invertible(twice)["Merkblatt"]["satz"] == (False, "stated_differently")
+        merged = {**defn, "emits": [{**defn["emits"][0], "merge": True}]}
+        assert M._local_invertible(merged)["Merkblatt"]["satz"] == (False, "combined_items")
+
+    def test_every_reason_has_a_german_explanation_and_fix(self):
+        from builder import codes
+
+        for reason in ("not_a_plain_path", "not_a_stored_value", "stated_differently", "combined_items", "grouped_items",
+                       "several_items_per_file", "computed_attribute"):
+            found = codes.not_invertible(reason)
+            assert found["title"] == "Nicht umkehrbar" and found["text"].startswith("Nicht umkehrbar: ")
+            assert codes.NOT_INVERTIBLE[reason]["explanation"] and codes.NOT_INVERTIBLE[reason]["fix"]
 
 
 @pytest.fixture
@@ -183,7 +211,9 @@ class TestWrites:
         assert _op(world, op="mapping.writes", id=MAPPING, type="Merkblatt", fact="pruefdatum", on=False).status_code == 200
         assert _stored(world)["writes"] == {"Merkblatt": {"satz": {"field": "front_matter.summary"}}}
 
-    @pytest.mark.parametrize("fact,code", [("titel", "Nicht umkehrbar"), ("ablage", "Nicht umkehrbar"),
+    @pytest.mark.parametrize("fact,code", [("titel", "Nicht umkehrbar: Der Wert entsteht mit Schritten"),
+                                           ("ablage", "Nicht umkehrbar: Der Wert entsteht mit Schritten"),
+                                           ("kurztitel", "Nicht umkehrbar: Das Feld steht nicht in der Datei"),
                                            ("status", "Berechnetes Attribut"), ("stufe", "Berechnetes Attribut"),
                                            ("gibt_es_nicht", "Nicht beschreibbar")])
     def test_what_cannot_be_inverted_is_refused_with_the_reason(self, world, fact, code):
@@ -217,7 +247,8 @@ class TestWrites:
         page = world["http"].get(f"/builder/zuordnung/{MAPPING}").get_data(as_text=True)
         panel = page.split("data-map-writes", 1)[1].split("</fieldset>", 1)[0]
         assert 'data-write-fact="satz"' in panel and 'data-write-fact="titel"' in panel
-        assert "Nicht umkehrbar" in panel
+        assert "Nicht umkehrbar: Der Wert entsteht mit Schritten" in panel
+        assert 'data-write-reason="not_a_stored_value"' in panel
         assert 'data-write-fact="status"' not in panel and 'data-write-fact="stufe"' not in panel
 
     def test_editing_needs_edit(self, world):

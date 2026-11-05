@@ -41,7 +41,7 @@ class TestTheCodes:
             text = path.read_text(encoding="utf-8")
             for pattern in patterns:
                 literals.update(re.findall(pattern, text))
-        missing = sorted(c for c in literals if c not in codes.CODES)
+        missing = sorted(c for c in literals if c not in codes.CODES and c not in codes.NOT_INVERTIBLE)
         assert literals and missing == []
 
     def test_an_unknown_code_is_named_not_hidden(self):
@@ -71,7 +71,7 @@ STATS = {"since": (NOW - dt.timedelta(hours=24)).isoformat(), "truncated": False
          "duration_ms": {"fetch": {"count": 43, "median": 380, "p95": 1900}, "write": {"count": 1, "median": 2100, "p95": 2100}},
          "queue": {"depth": 0, "in_flight": 0, "oldest_queued_age_s": None},
          "probe": {"count": 288, "last_round_trip_ms": 410, "last_at": NOW.isoformat(), "median_round_trip_ms": 395},
-         "stale_found": 1}
+         "stale_found": {"akten": 1, "fremd": 4}}
 
 
 def _telemetry(probe_minutes=3, **changes):
@@ -136,7 +136,7 @@ class TestTheCard:
         assert "0.2.0" in card and "lesen, Original, Vorschlag schreiben" in card
         assert "Originale 41 abgerufen · 2 nicht erreichbar" in card
         assert "Vorschläge 3 · 1 als Pull Request" in card
-        assert "veraltet gefunden 1 (im ganzen Mandanten)" in card
+        assert re.search(r"veraltet gefunden 1\s", card) and "im ganzen Mandanten" not in card     # its own sources only
         assert "Akten" in card and "Alarme" in card and "keine" in card
         assert world["tenant"].asked and dt.datetime.fromisoformat(world["tenant"].asked[0]) < NOW - dt.timedelta(hours=23)
 
@@ -160,6 +160,13 @@ class TestTheCard:
         assert connection.stat_counts(STATS)[("akten", "fetch", "ok")] == 41
         assert connection.stat_counts({"counts": [{"source": "akten", "kind": "fetch", "outcome": "ok", "n": 5}]}) == {}
         assert connection.stat_counts({"since": "x"}) is None
+        day = connection.last_day(STATS, {"akten", "fremd"}, None, NOW)
+        assert day["stale"] == 5 and day["fetched"] == 140
+        assert connection.last_day({k: v for k, v in STATS.items() if k != "stale_found"}, {"akten"}, None, NOW)["stale"] is None
+
+    def test_link_s_own_failures_have_german_texts(self):
+        for code in ("invalid_job", "part_not_accepted"):
+            assert all(codes.CODES[code][k].strip() for k in ("title", "explanation", "fix")), code
 
     def test_a_failed_probe_is_not_green(self):
         world = _world(FakeTenant(STATS))
