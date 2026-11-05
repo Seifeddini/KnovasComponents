@@ -81,7 +81,7 @@
             meta.appendChild(el('span', null, s.kind_label));
             meta.appendChild(el('span', null, s.component_name ? 'über ' + s.component_name : 'Komponente fehlt'));
             b.appendChild(meta);
-            if (s.credential_required && !s.credential_set) b.appendChild(tag('Zugang fehlt', 'warning'));
+            if (s.credential_required && !s.credential_set && !s.on_site) b.appendChild(tag('Zugang fehlt', 'warning'));
             b.addEventListener('click', function () { current = s.key; renderList(); renderDetail(); });
             li.appendChild(b);
             list.appendChild(li);
@@ -146,7 +146,38 @@
         if (tested[s.key]) showTest(s, tested[s.key]);
     }
 
+    /* A source on a site (connection layer MVP-24): its credential is a line of knovas-site.env at the company, typed
+       there; the Platform shows the line and never takes the value. */
+    function siteCredentialBox(s, kind) {
+        var box = el('section', 'b-src-credential');
+        box.setAttribute('data-src-site-credential', '');
+        box.appendChild(el('h3', 'b-h3', 'Zugang'));
+        box.appendChild(el('p', 'b-small', (s.write ? (kind.write_credential || kind.credential) : kind.credential) +
+            '. Diese Quelle liest eine Komponente am Standort «' + (s.site_name || '') + '»: den Wert dort in knovas-site.env eintragen, hinter dieser Zeile.'));
+        var row = el('div', 'b-proc-inline');
+        var line = el('code', 'b-mono', s.credential_line);
+        line.setAttribute('data-src-credential-line', '');
+        row.appendChild(line);
+        row.appendChild(button('Kopieren', 'b-button--secondary', function () {
+            var done = function () { toast('Zeile kopiert', s.credential_line); };
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(s.credential_line).then(done, function () { window.prompt('Zeile kopieren:', s.credential_line); });
+            else window.prompt('Zeile kopieren:', s.credential_line);
+        }));
+        box.appendChild(row);
+        box.appendChild(el('p', 'b-small b-muted', 'Danach neu starten und Verbindung prüfen: «docker compose --env-file knovas-site.env up -d» am Standort.'));
+        if (s.check_url) {
+            box.appendChild(button('Verbindung prüfen', 'b-button--quiet', function () {
+                post(s.check_url).then(function (payload) {
+                    if (!payload.success) { toast(payload.error, null, 'critical'); return; }
+                    toast('Prüfung angefragt', 'Die Komponente meldet über Knovas Link, ob sie die Quelle lesen kann; ihre Seite zeigt das Ergebnis.');
+                });
+            }));
+        }
+        return box;
+    }
+
     function credentialBox(s, kind) {
+        if (s.on_site && s.credential_line) return siteCredentialBox(s, kind);
         var box = el('section', 'b-src-credential');
         var h = el('h3', 'b-h3', 'Zugang');
         box.appendChild(h);

@@ -2115,13 +2115,18 @@ def create_builder_blueprint(
         for s in model.get("sources") or []:
             c = components.get(s.get("component"))
             kind = source_kinds.SOURCE_KINDS.get(s.get("kind"), {})
+            on_site = bool(c and c.get("site_id"))
             found.append({**s, "kind_label": kind.get("label", s.get("kind")),
                           "access": source_kinds.access_of(s),
                           "access_label": source_kinds.ACCESS.get(source_kinds.access_of(s), source_kinds.access_of(s)),
                           "component_name": c["name"] if c else None,
                           "component_kind": c["kind"] if c else None,
                           "credential_label": kind.get("credential"),
-                          "credential_required": bool(kind.get("credential_required"))})
+                          "credential_required": bool(kind.get("credential_required")),
+                          # A source on a site (MVP-24): its credential is a line of knovas-site.env, never a value here.
+                          "on_site": on_site,
+                          **({"credential_line": site_rules.credential_line(s.get("key")), "site_name": c.get("site"),
+                              "check_url": url_for("builder.component_check", component_id=c["id"])} if on_site else {})})
         kinds = {k: {"label": v["label"], "component": v["component"], "components": [v["component"], *v.get("also_on", ())],
                      "credential": v["credential"],
                      "credential_required": v["credential_required"],
@@ -2375,6 +2380,13 @@ def create_builder_blueprint(
         from platform_settings import SettingError, source_secret_key
 
         store, current, _, source = _source_of(workspace_id, key)
+        tenant = _platform_tenant()
+        component = store.component(tenant, source.get("component")) if tenant and source.get("component") else None
+        if component is not None and component.get("site_id"):
+            # MVP-24: no credential of a source on a site is typed into the Platform.
+            return jsonify({"success": False, "error": "Der Zugang dieser Quelle gehört an den Standort: die Zeile "
+                            f"{site_rules.credential_line(key)}… in knovas-site.env eintragen, danach neu starten und "
+                            "Verbindung prüfen. In die Plattform wird er nicht eingegeben."}), 409
         secrets = _secrets()
         if secrets is None:
             return jsonify({"success": False, "error": "Diese Plattform speichert keine Geheimnisse."}), 409
