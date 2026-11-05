@@ -18,6 +18,7 @@ LINK = Path(__file__).resolve().parents[1]
 CONTRACTS = LINK / "contracts"
 VECTORS = CONTRACTS / "vectors"
 REPO = LINK.parent
+PROTOCOL_DOC = REPO / "KnovasPlatform" / "docs" / "connector-protocol-v1.md"
 PLATFORM_PROTOCOL = REPO / "KnovasPlatform" / "components" / "docbridge_integration" / "src" / "builder" / "protocol.py"
 LOCAL_API = CONTRACTS / "local-api.md"
 
@@ -129,6 +130,10 @@ def _section(text: str, heading: str) -> str:
     m = re.search(rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)", text, re.S | re.M)
     assert m, f"section «{heading}» missing"
     return m.group(1)
+
+
+def _table_first_column(section: str) -> list[str]:
+    return re.findall(r"^\| `([a-z_]+)` \|", section, re.M)
 
 
 # ------------------------------------------------------------------ the schemas themselves
@@ -318,6 +323,42 @@ def test_local_api_says_which_objects_are_closed():
         assert obj in section.lower(), obj
 
 
+def test_protocol_doc_is_version_1_1_with_the_new_sections():
+    text = PROTOCOL_DOC.read_text(encoding="utf-8")
+    assert re.search(r"\*\*Version 1\.1\*\*", text)
+    for heading in ("Sites and Knovas Link", "Streams", "Jobs and the work channel", "Probes", "Write proposals",
+                    "Fetching originals"):
+        assert re.search(rf"^## {re.escape(heading)}$", text, re.M), heading
+    assert "DEC-0056" in _section(text, "Sites and Knovas Link")
+    assert "Direct enrolment" in _section(text, "Sites and Knovas Link")
+
+
+def test_every_contract_file_the_protocol_doc_names_exists():
+    text = PROTOCOL_DOC.read_text(encoding="utf-8")
+    named = set(re.findall(r"KnovasLink/contracts/([A-Za-z0-9_.-]+)", text))
+    assert set(SCHEMA_OF_PREFIX.values()) <= named
+    for name in named:
+        assert (CONTRACTS / name).is_file(), name
+
+
+def test_every_job_kind_the_protocol_doc_names_exists_and_none_is_missing():
+    section = _section(PROTOCOL_DOC.read_text(encoding="utf-8"), "Jobs and the work channel")
+    assert _table_first_column(section) == JOB_KINDS
+
+
+def test_every_stream_type_the_protocol_doc_names_exists_and_none_is_missing():
+    section = _section(PROTOCOL_DOC.read_text(encoding="utf-8"), "Streams")
+    assert _table_first_column(section) == STREAM_TYPES
+
+
+def test_every_code_the_protocol_doc_names_is_known():
+    text = PROTOCOL_DOC.read_text(encoding="utf-8")
+    new = "\n".join(_section(text, h) for h in ("Sites and Knovas Link", "Streams", "Jobs and the work channel", "Probes",
+                                                "Write proposals", "Fetching originals"))
+    named = set(re.findall(r"\d{3} `([a-z_]+)`", new)) | set(re.findall(r"`(?:refused|conflict): ([a-z_]+)`", new))
+    assert named <= set(CODES), sorted(named - set(CODES))
+
+
 # ------------------------------------------------------------------ generic, for any company
 
 def _company_specific(text: str) -> list[str]:
@@ -328,3 +369,11 @@ def _company_specific(text: str) -> list[str]:
                          ids=lambda p: str(p.relative_to(LINK)))
 def test_contracts_name_no_particular_company(path):
     assert not _company_specific(path.read_text(encoding="utf-8")), path.name
+
+
+def test_protocol_1_1_text_names_no_particular_company():
+    text = PROTOCOL_DOC.read_text(encoding="utf-8")
+    added = text[text.index("**Version 1.1**"):text.index("\n", text.index("**Version 1.1**"))]
+    added += "\n".join(_section(text, h) for h in ("Sites and Knovas Link", "Streams", "Jobs and the work channel",
+                                                   "Probes", "Write proposals", "Fetching originals"))
+    assert not _company_specific(added)
