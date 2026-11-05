@@ -1,0 +1,25 @@
+{
+  "codes": [
+    {"code": "unsupported_type", "meaning": "A stream message of a type this receiver does not handle yet; in 1.1 every record, principal, group, membership and permission message."},
+    {"code": "unsupported", "meaning": "No component on the site answers this job's kind for this source."},
+    {"code": "unreachable", "meaning": "The other side did not answer in time: a component past the job's deadline, or Knovas when Link called it."},
+    {"code": "lease_lost", "meaning": "The job is no longer the caller's: its lease ended or it has an outcome already; the late part or result is discarded and counted."},
+    {"code": "source_unreachable", "meaning": "The original could not be fetched: no component answered before the deadline, or the source did not answer."},
+    {"code": "source_refused", "meaning": "The site or the source refused to hand out the original; the component's own code says why."},
+    {"code": "no_source_ref", "meaning": "The document has no source reference, so its original cannot be located."},
+    {"code": "not_found", "meaning": "The item is not in the source, or not at the requested version."},
+    {"code": "conflict", "meaning": "The item changed in the source since the expected version; nothing was written."},
+    {"code": "mode_unsupported", "meaning": "The write's mode is not accepted; only proposal is, until autonomous agents exist."},
+    {"code": "token_cannot_write", "meaning": "The component's credential for the source lacks the rights a write needs (GitHub: contents and pull requests write)."},
+    {"code": "fetch_disabled", "meaning": "Fetching originals is switched off for this source."},
+    {"code": "write_disabled", "meaning": "Writing back is switched off for this source."},
+    {"code": "not_writable", "meaning": "The mapping's writes section does not name this fact."},
+    {"code": "computed_attribute", "meaning": "The attribute is computed from other data and is never written."},
+    {"code": "value_not_allowed", "meaning": "The value breaks the source's own rule for the field (length, allowed values, date)."},
+    {"code": "not_invertible", "meaning": "The fact is built by an expression that cannot be turned back into one field of the source."},
+    {"code": "unknown_mapping", "meaning": "The write names a mapping that the component's package does not hold."},
+    {"code": "previously_rejected", "meaning": "The same change to this node was rejected before; a rejection is a tombstone."},
+    {"code": "waiting_for_certificate", "meaning": "Knovas Link has no certificate yet: it runs its control plane but claims no job and writes nothing to the tenant."},
+    {"code": "not_relayed", "meaning": "The Brain route is not on Knovas Link's relay allow-list."}
+  ]
+}

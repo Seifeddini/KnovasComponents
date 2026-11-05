@@ -1,0 +1,10 @@
+{
+  "schema": "job-result.schema.json",
+  "description": "A write staged as a pull request.",
+  "instance": {
+    "status": "ok",
+    "code": null,
+    "source_ref": "https://github.com/example-org/handbook/pull/17",
+    "duration_ms": 2310
+  }
+}

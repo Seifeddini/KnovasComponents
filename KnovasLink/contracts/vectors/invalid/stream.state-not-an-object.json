@@ -1,0 +1,12 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "state is an object.",
+  "breaks": [
+    "state"
+  ],
+  "instance": {
+    "type": "state",
+    "source": "handbook",
+    "state": "9fceb02d"
+  }
+}

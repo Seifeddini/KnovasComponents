@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/connector/v1.1/stream-message.schema.json",
+  "title": "Stream message (connector protocol 1.1)",
+  "description": "One message of a stream: an item, a deletion, a completed listing or a source state. Open: a receiver ignores fields it does not know. Types record, principal, group, membership and permission are reserved; every 1.1 receiver refuses them with unsupported_type.",
+  "type": "object",
+  "required": ["type", "source"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["document", "tombstone", "generation", "state", "record", "principal", "group", "membership", "permission"]
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The workspace source key. Not the runner's source_key fact."
+    },
+    "external_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The item's key in the source; for GitHub its path in the repository."
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The source's own version of the original; for GitHub the blob sha (the git hash of the raw bytes). Never compared with content_hash."
+    },
+    "content_hash": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The Brain's hash of the normalised text that is uploaded. Never compared with version."
+    },
+    "payload": {
+      "type": "object",
+      "description": "What the message carries; its shape depends on type."
+    },
+    "state": {
+      "type": "object",
+      "description": "The source's own position after everything before this message, for example the commit read. Opaque to every receiver but the component that wrote it."
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"type": {"const": "document"}}, "required": ["type"]},
+      "then": {
+        "required": ["external_id", "version", "payload"],
+        "properties": {"payload": {"$ref": "#/$defs/document_payload"}}
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "tombstone"}}, "required": ["type"]},
+      "then": {"required": ["external_id"]}
+    },
+    {
+      "if": {"properties": {"type": {"const": "generation"}}, "required": ["type"]},
+      "then": {
+        "required": ["payload"],
+        "properties": {"payload": {"$ref": "#/$defs/generation_payload"}}
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "state"}}, "required": ["type"]},
+      "then": {"required": ["state"]}
+    }
+  ],
+  "$defs": {
+    "document_payload": {
+      "type": "object",
+      "description": "An item's indexed form. Open.",
+      "required": ["title", "path", "text"],
+      "properties": {
+        "title": {"type": "string"},
+        "path": {"type": "string", "minLength": 1},
+        "text": {"type": "string"}
+      }
+    },
+    "generation_payload": {
+      "type": "object",
+      "description": "The end of a complete listing of the source: what was not listed in it may be retired, under the deletion guard. Open.",
+      "required": ["id", "complete", "counts"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "complete": {"const": true},
+        "counts": {
+          "type": "object",
+          "description": "Items listed, by name of the count; whole numbers only.",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "A generation names its source.",
+  "breaks": [
+    "source"
+  ],
+  "instance": {
+    "type": "generation",
+    "payload": {
+      "id": "7f1c2d9e-5b4a-4c3e-9a8b-1d2e3f4a5b6c",
+      "complete": true,
+      "counts": {
+        "documents": 32
+      }
+    }
+  }
+}

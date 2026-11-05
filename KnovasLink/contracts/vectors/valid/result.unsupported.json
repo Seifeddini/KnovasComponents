@@ -1,0 +1,9 @@
+{
+  "schema": "job-result.schema.json",
+  "description": "No component answers this kind.",
+  "instance": {
+    "status": "unsupported",
+    "code": "unsupported",
+    "duration_ms": 0
+  }
+}

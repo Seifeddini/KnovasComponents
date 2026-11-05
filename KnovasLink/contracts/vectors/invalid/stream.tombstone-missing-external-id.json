@@ -1,0 +1,11 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "A tombstone names the item it retires.",
+  "breaks": [
+    "external_id"
+  ],
+  "instance": {
+    "type": "tombstone",
+    "source": "handbook"
+  }
+}
