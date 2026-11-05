@@ -24,7 +24,8 @@
         <dd data-conn-source="{{ s.key }}">zuletzt gelesen {{ s.last_read_ok }} · letzter Lauf {{ s.last_run }} · {{ s.mappings }} Zuordnung{{ '' if s.mappings == 1 else 'en' }}</dd>
         {% endfor %}
         <dt>Letzte 24 h</dt>
-        <dd data-conn-day>{% set d = card.last_day %}{% if d.known %}Originale {{ d.fetched }} abgerufen · {{ d.unreachable }} nicht erreichbar · veraltet gefunden {{ d.stale if d.stale is not none else 'unbekannt' }}{% else %}Letzte 24 h unbekannt{% endif %}
+        <dd data-conn-day>{% set d = card.last_day %}{% if d.known %}Originale {{ d.fetched }} abgerufen · {{ d.unreachable }} nicht erreichbar{% if d.truncated %} (gekürzt){% endif %}{% else %}Letzte 24 h unbekannt{% endif %}
+            · veraltet gefunden {{ (d.stale ~ ' (im ganzen Mandanten)') if d.stale is not none else 'unbekannt' }}
             · {% if d.proposals is defined %}Vorschläge {{ d.proposals }}{% else %}Vorschläge unbekannt{% endif %} · {% if d.known %}{{ d.pull_requests }} als Pull Request{% else %}Pull Requests unbekannt{% endif %}
             {% if d.open %}· <a href="{{ url_for('builder.approvals_page') }}">{{ d.open }} offen</a>{% endif %}</dd>
         <dt>Alarme</dt>

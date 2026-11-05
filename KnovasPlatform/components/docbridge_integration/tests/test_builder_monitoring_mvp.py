@@ -63,11 +63,15 @@ class FakeTenant:
         return [p for p in self.proposals if status is None or p["status"] == status]
 
 
-STATS = {"counts": [{"source": "akten", "kind": "fetch", "outcome": "ok", "n": 41},
-                    {"source": "akten", "kind": "fetch", "outcome": "unreachable", "n": 2},
-                    {"source": "akten", "kind": "write", "outcome": "ok", "n": 1},
-                    {"source": "fremd", "kind": "fetch", "outcome": "ok", "n": 99}],
-         "stale_found": {"akten": 1}}
+STATS = {"since": (NOW - dt.timedelta(hours=24)).isoformat(), "truncated": False,
+         "counts": [{"source": "akten", "kind": "fetch", "outcome": "ok", "count": 41},
+                    {"source": "akten", "kind": "fetch", "outcome": "unreachable", "count": 2},
+                    {"source": "akten", "kind": "write", "outcome": "ok", "count": 1},
+                    {"source": "fremd", "kind": "fetch", "outcome": "ok", "count": 99}],
+         "duration_ms": {"fetch": {"count": 43, "median": 380, "p95": 1900}, "write": {"count": 1, "median": 2100, "p95": 2100}},
+         "queue": {"depth": 0, "in_flight": 0, "oldest_queued_age_s": None},
+         "probe": {"count": 288, "last_round_trip_ms": 410, "last_at": NOW.isoformat(), "median_round_trip_ms": 395},
+         "stale_found": 1}
 
 
 def _telemetry(probe_minutes=3, **changes):
@@ -132,7 +136,7 @@ class TestTheCard:
         assert "0.2.0" in card and "lesen, Original, Vorschlag schreiben" in card
         assert "Originale 41 abgerufen · 2 nicht erreichbar" in card
         assert "Vorschläge 3 · 1 als Pull Request" in card
-        assert "veraltet gefunden 1" in card
+        assert "veraltet gefunden 1 (im ganzen Mandanten)" in card
         assert "Akten" in card and "Alarme" in card and "keine" in card
         assert world["tenant"].asked and dt.datetime.fromisoformat(world["tenant"].asked[0]) < NOW - dt.timedelta(hours=23)
 
@@ -144,6 +148,18 @@ class TestTheCard:
         assert "Knovas Link nicht erreichbar" in card and "docker compose ps" in card
         # The same alert on the Verbinden page.
         assert 'data-alert="link_unreachable"' in world["http"].get("/builder/verbinden").get_data(as_text=True)
+
+    def test_stale_found_may_be_absent(self):
+        world = _world(FakeTenant({k: v for k, v in STATS.items() if k != "stale_found"}))
+        card = _card(world)
+        assert "Originale 41 abgerufen" in card and "veraltet gefunden unbekannt" in card
+
+    def test_the_stats_are_read_as_the_route_answers_them(self):
+        from builder import connection
+
+        assert connection.stat_counts(STATS)[("akten", "fetch", "ok")] == 41
+        assert connection.stat_counts({"counts": [{"source": "akten", "kind": "fetch", "outcome": "ok", "n": 5}]}) == {}
+        assert connection.stat_counts({"since": "x"}) is None
 
     def test_a_failed_probe_is_not_green(self):
         world = _world(FakeTenant(STATS))

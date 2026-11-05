@@ -5,7 +5,7 @@ builder.access_backend does: the tenant is the Platform's, never one a request n
 signed-in person's principal assertion. Each call is made once (``_request_quiet``: no retry, no response body in a
 log): accepting a proposal queues a write job, and a retried accept must not be a second decision.
 
-  GET  /secured/source-writes?status=…               write proposals (MVP-8)
+  GET  /secured/source-writes?status=…               write proposals (MVP-8): {"proposals": [...]}
   POST /secured/source-writes/<id>/accept {actor}     the person accepting, as the declared actor
   POST /secured/source-writes/<id>/reject {actor, reason}
   GET  /secured/connector/jobs/stats?since=…          job counts for the «Verbindung» card (MVP-5)
@@ -49,8 +49,9 @@ class BrainConnection:
         """The tenant's write proposals, of one status or all."""
         endpoint = "/secured/source-writes" + (f"?{urlencode({'status': status})}" if status else "")
         body = self._call("GET", endpoint)
-        rows = body.get("proposals") if isinstance(body, Mapping) else body
-        return [dict(r) for r in rows or [] if isinstance(r, Mapping)]
+        if not isinstance(body, Mapping) or not isinstance(body.get("proposals"), list):
+            raise ConnectionApiError(502, "bad_answer")       # not the route's {"proposals": [...]}
+        return [dict(r) for r in body["proposals"] if isinstance(r, Mapping)]
 
     def accept_source_write(self, proposal_id: str, actor: Mapping[str, Any]) -> dict:
         body = self._call("POST", f"/secured/source-writes/{quote(str(proposal_id), safe='')}/accept", {"actor": dict(actor)})

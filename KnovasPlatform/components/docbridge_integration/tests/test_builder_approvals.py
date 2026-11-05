@@ -174,6 +174,9 @@ def test_the_brain_connection_calls_the_routes():
         brain.reject_source_write("p1", {"kind": "user", "id": "u"}, "nein")
     assert refused.value.code == "previously_rejected" and refused.value.status == 409
     brain.job_stats("2026-11-04T00:00:00+00:00")
+    bare = connection_api.BrainConnection(type("C", (), {"_request_quiet": lambda self, *a, **k: Answer(200, [{"id": "p1"}])})())
+    with pytest.raises(connection_api.ConnectionApiError):
+        bare.source_writes("proposed")          # the route answers {"proposals": [...]}, nothing else
     assert client.calls == [
         ("GET", "/secured/source-writes?status=proposed", None),
         ("POST", "/secured/source-writes/p%201/accept", {"actor": {"kind": "user", "id": "u"}}),

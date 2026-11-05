@@ -65,25 +65,19 @@ def capabilities_text(caps: Iterable[str]) -> str:
 
 
 def stat_counts(stats: Optional[Mapping[str, Any]]) -> Optional[dict]:
-    """{(source, kind, outcome): n} from the job stats, or None when there are none to read. Rows
-    ``[{source, kind, outcome, n}]`` and the nested form ``{source: {kind: {outcome: n}}}`` both count."""
-    if not isinstance(stats, Mapping) or "counts" not in stats:
+    """{(source, kind, outcome): count} from GET /secured/connector/jobs/stats, or None when there are none to read.
+
+    The route answers ``{since, truncated, counts: [{source, kind, outcome, count}], duration_ms: {<kind>: {count,
+    median, p95}}, queue: {depth, in_flight, oldest_queued_age_s}, probe: {count, last_round_trip_ms, last_at,
+    median_round_trip_ms}, stale_found?}``; ``stale_found`` is one number for the tenant and may be absent."""
+    if not isinstance(stats, Mapping) or not isinstance(stats.get("counts"), list):
         return None
-    raw = stats.get("counts")
     out: dict = {}
-    if isinstance(raw, list):
-        for r in raw:
-            if isinstance(r, Mapping) and isinstance(r.get("n"), int):
-                key = (str(r.get("source")), str(r.get("kind")), str(r.get("outcome")))
-                out[key] = out.get(key, 0) + r["n"]
-    elif isinstance(raw, Mapping):
-        for source, kinds in raw.items():
-            for kind, outcomes in (kinds or {}).items() if isinstance(kinds, Mapping) else []:
-                for outcome, n in (outcomes or {}).items() if isinstance(outcomes, Mapping) else []:
-                    if isinstance(n, int):
-                        out[(str(source), str(kind), str(outcome))] = n
-    else:
-        return None
+    for r in stats["counts"]:
+        n = r.get("count") if isinstance(r, Mapping) else None
+        if isinstance(n, int) and not isinstance(n, bool):
+            key = (str(r.get("source")), str(r.get("kind")), str(r.get("outcome")))
+            out[key] = out.get(key, 0) + n
     return out
 
 
@@ -98,9 +92,10 @@ def last_day(stats: Optional[Mapping[str, Any]], keys: set, proposals: Optional[
         out["fetched"] = total("fetch", ("ok",))
         out["unreachable"] = total("fetch", ("unreachable", "failed", "refused"))
         out["pull_requests"] = total("write", ("ok",))
-        stale = (stats or {}).get("stale_found")
-        out["stale"] = sum(v for s, v in stale.items() if s in keys and isinstance(v, int)) \
-            if isinstance(stale, Mapping) else None
+        out["truncated"] = bool((stats or {}).get("truncated"))
+    # Stale documents found by fetches: one number for the whole tenant, not per site; absent means unknown.
+    stale = (stats or {}).get("stale_found") if isinstance(stats, Mapping) else None
+    out["stale"] = stale if isinstance(stale, int) and not isinstance(stale, bool) else None
     if proposals is not None:
         since = now - dt.timedelta(hours=WINDOW_HOURS)
         mine = [p for p in proposals if str(p.get("source")) in keys]
