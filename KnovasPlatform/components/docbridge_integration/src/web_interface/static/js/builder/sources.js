@@ -181,14 +181,14 @@
         return box;
     }
 
-    /* A source on a site (connection layer MVP-24): its credential is a line of knovas-site.env at the company, typed
+    /* A source on a site (connection layer MVP-24): its credential is a line of knovas-sources.env at the company, typed
        there; the Platform shows the line and never takes the value. */
     function siteCredentialBox(s, kind) {
         var box = el('section', 'b-src-credential');
         box.setAttribute('data-src-site-credential', '');
         box.appendChild(el('h3', 'b-h3', 'Zugang'));
         box.appendChild(el('p', 'b-small', (s.write ? (kind.write_credential || kind.credential) : kind.credential) +
-            '. Diese Quelle liest eine Komponente am Standort «' + (s.site_name || '') + '»: den Wert dort in knovas-site.env eintragen, hinter dieser Zeile.'));
+            '. Diese Quelle liest eine Komponente am Standort «' + (s.site_name || '') + '»: den Wert dort in knovas-sources.env eintragen, hinter dieser Zeile.'));
         var row = el('div', 'b-proc-inline');
         var line = el('code', 'b-mono', s.credential_line);
         line.setAttribute('data-src-credential-line', '');
@@ -199,7 +199,7 @@
             else window.prompt('Zeile kopieren:', s.credential_line);
         }));
         box.appendChild(row);
-        box.appendChild(el('p', 'b-small b-muted', 'Danach neu starten und Verbindung prüfen: «docker compose --env-file knovas-site.env up -d» am Standort.'));
+        box.appendChild(el('p', 'b-small b-muted', 'Danach neu starten und Verbindung prüfen: «docker compose up -d» am Standort.'));
         if (s.check_url) {
             box.appendChild(button('Verbindung prüfen', 'b-button--quiet', function () {
                 post(s.check_url).then(function (payload) {

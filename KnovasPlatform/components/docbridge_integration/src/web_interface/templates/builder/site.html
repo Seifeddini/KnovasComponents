@@ -1,5 +1,6 @@
 {# A site (connection layer MVP-23): Knovas Link and the components beside it on one machine at the company.
-   Expects site, link, link_state, children, checklist, containers, options, command, env_file, certificate_step,
+   Expects site, link, link_state, children, checklist, containers, options, command, env_file, sources_env_file,
+   certificate_step,
    protocol_path, compose_preview, states (builder_routes.site_page). static/js/builder/site.js downloads the package,
    renews the token and asks for a probe. #}
 {% extends 'builder/_base.html' %}
@@ -26,7 +27,7 @@
 <section class="b-comp-section" aria-labelledby="b-site-steps-title">
     <h2 class="b-h3" id="b-site-steps-title">Einrichten</h2>
     <ol class="b-site-steps">
-        <li><strong>Installationspaket herunterladen.</strong> Es enthält <span class="b-mono">docker-compose.yml</span> und <span class="b-mono">{{ env_file }}</span> mit der Adresse der Plattform und einem Einmal-Token für Knovas Link (24 Stunden, nur einmal). Jedes Herunterladen erzeugt ein neues Token; das vorige gilt dann nicht mehr.</li>
+        <li><strong>Installationspaket herunterladen.</strong> Es enthält <span class="b-mono">docker-compose.yml</span>, <span class="b-mono">{{ env_file }}</span> mit der Adresse der Plattform und einem Einmal-Token für Knovas Link (24 Stunden, nur einmal; nur Knovas Link liest diese Datei) und <span class="b-mono">{{ sources_env_file }}</span> für die Zugänge der Quellen (nur die Komponenten lesen sie). Jedes Herunterladen erzeugt ein neues Token; das vorige gilt dann nicht mehr.</li>
         <li><strong>Auf dem Rechner des Standorts starten:</strong><br><code class="b-mono" data-site-command>{{ command }}</code></li>
         <li><strong>Zertifikat:</strong> {{ certificate_step }}.</li>
     </ol>
@@ -34,6 +35,7 @@
         <p class="b-callout-title">Abbilder per Digest: noch Platzhalter</p>
         <p>Es gibt noch keine Registry. Die Abbilder ({% for c in containers %}<span class="b-mono">{{ c.image }}</span>{% if not loop.last %}, {% endif %}{% endfor %}) werden aus dem Repository gebaut und auf den Rechner kopiert (<span class="b-mono">docker save</span> / <span class="b-mono">docker load</span>). Die Variablen {% for c in containers %}<span class="b-mono">{{ c.digest }}</span>{% if not loop.last %}, {% endif %}{% endfor %} sind Platzhalter, bis Knovas Abbilder mit Digest veröffentlicht; bis dahin setzt sie, wer installiert.</p>
     </div>
+    <p class="b-small b-muted">Netze: Die Komponenten erreichen Knovas Link nur über das interne Netz <span class="b-mono">knovas-site</span>; ihre eigenen Quellen (GitHub, Microsoft 365, …) über das Netz <span class="b-mono">knovas-egress</span>. Die eine Tür je Standort sichern die Zugänge, nicht ein gesperrtes Netz: Nur Knovas Link hat ein Zertifikat und ein Token von Knovas; eine Komponente hat keines und kennt nur die lokale Adresse von Knovas Link.</p>
     {% if 'share' in site.options %}
     <p class="b-small b-muted">Dateiablage: den Ordner auf diesem Rechner beim Start als <span class="b-mono">KNOVAS_SHARE_FOLDER</span> angeben; er wird nur lesend eingehängt.</p>
     {% endif %}

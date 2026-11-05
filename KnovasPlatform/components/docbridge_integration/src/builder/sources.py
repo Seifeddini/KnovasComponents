@@ -442,7 +442,7 @@ def on_site_problem(kind: Any, secret: Optional[str], site: bool = False) -> Opt
     """Why the Platform cannot read this source that a component reads at the company, or None. A source on a site
     (behind Knovas Link) takes no credential in the Platform at all (MVP-24)."""
     if site and kind != "knovas_connector":
-        return ("Diese Quelle liest die Komponente am Standort, mit dem Zugang aus knovas-site.env; die Plattform liest "
+        return ("Diese Quelle liest die Komponente am Standort, mit dem Zugang aus knovas-sources.env; die Plattform liest "
                 "sie nicht und nimmt keinen Zugang an. Ob die Quelle lesbar ist, zeigt «Verbindung prüfen».")
     if kind == "github" and not secret:
         return ("Diese Quelle liest die Komponente bei der Firma, mit ihrem eigenen Token. Um hier Felder zu sehen und die "

@@ -1527,7 +1527,8 @@ def create_builder_blueprint(
                        children=[component_rules.row(c, [], [], now, limits) for c in children],
                        checklist=site_rules.checklist(site, link, children, now, limits),
                        containers=[{"name": c, **site_rules.CONTAINERS[c]} for c in site_rules.containers_of(site["options"])],
-                       options=site_rules.OPTIONS, command=site_rules.COMMAND, env_file=site_rules.ENV_FILE,
+                       options=site_rules.OPTIONS, command=site_rules.COMMAND, env_file=site_rules.LINK_ENV_FILE,
+                       sources_env_file=site_rules.SOURCES_ENV_FILE,
                        certificate_step=site_rules.CERTIFICATE_STEP, protocol_path=PROTOCOL_PATH,
                        compose_preview=site_rules.compose_file(site, site["options"]),
                        states=component_rules.STATES)
@@ -1562,7 +1563,8 @@ def create_builder_blueprint(
 
     @bp.route("/api/sites/<site_id>/package", methods=["POST"])
     def site_package(site_id: str):
-        """«Installationspaket herunterladen»: docker-compose.yml and knovas-site.env. While Link has not enrolled, each
+        """«Installationspaket herunterladen»: docker-compose.yml, knovas-link.env and knovas-sources.env. While Link
+        has not enrolled, each
         download carries a new one-time token and the one before stops working; once it runs, the package carries none."""
         from datetime import timedelta, timezone
 
@@ -2312,7 +2314,7 @@ def create_builder_blueprint(
                           "component_kind": c["kind"] if c else None,
                           "credential_label": kind.get("credential"),
                           "credential_required": bool(kind.get("credential_required")),
-                          # A source on a site (MVP-24): its credential is a line of knovas-site.env, never a value here.
+                          # A source on a site (MVP-24): its credential is a line of knovas-sources.env, never a value here.
                           "on_site": on_site,
                           # Its switches (MVP-25): as in the draft, as published, and why one is not offered.
                           "fetch": source_kinds.fetch_of(s), "write": source_kinds.write_of(s),
@@ -2614,7 +2616,7 @@ def create_builder_blueprint(
         if component is not None and component.get("site_id"):
             # MVP-24: no credential of a source on a site is typed into the Platform.
             return jsonify({"success": False, "error": "Der Zugang dieser Quelle gehört an den Standort: die Zeile "
-                            f"{site_rules.credential_line(key)}… in knovas-site.env eintragen, danach neu starten und "
+                            f"{site_rules.credential_line(key)}… in {site_rules.SOURCES_ENV_FILE} eintragen, danach neu starten und "
                             "Verbindung prüfen. In die Plattform wird er nicht eingegeben."}), 409
         secrets = _secrets()
         if secrets is None:

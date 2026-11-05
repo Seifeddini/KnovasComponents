@@ -88,7 +88,7 @@ def world():
 
     made = http.post("/builder/api/sites", json={"name": "Kanzlei Chur", "options": ["github"]}).get_json()
     env = zipfile.ZipFile(io.BytesIO(http.post(f"/builder/api/sites/{made['id']}/package", json={}).data)) \
-        .read("knovas-site.env").decode()
+        .read("knovas-link.env").decode()
     link = ProtocolClient(http)
     link.enrol(next(line.split("=", 1)[1] for line in env.splitlines() if line.startswith("LINK_ENROL_TOKEN=")))
     link.heartbeat(site={"certificate": "present", "probe": {"last_at": dt.datetime.now(dt.timezone.utc).isoformat(), "ok": True},

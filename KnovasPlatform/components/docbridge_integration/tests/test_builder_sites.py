@@ -1,7 +1,7 @@
 """Sites and the install package (connection layer MVP-23, KC-7b).
 
 A site is one machine at a company with Knovas Link and the components ticked for it. The Builder makes the site,
-its install package (docker-compose.yml and knovas-site.env) and Link's one-time enrolment token; Link enrols through
+its install package (docker-compose.yml, knovas-link.env, knovas-sources.env) and Link's one-time enrolment token; Link enrols through
 the existing /api/connectors/v1/enrol. Its heartbeat carries the object ``site`` (codes and counts only), which the
 Platform keeps as telemetry on Link's row and turns into child rows for the components behind it. Link forwards its
 components' reports with the component named as a sub-component (``X-Sub-Component``).
@@ -50,7 +50,7 @@ def _env(text):
 
 def _online_link(world, options=("github",)):
     made = _site(world, options=options)
-    token = _env(_package(world, made["id"])["knovas-site.env"])["LINK_ENROL_TOKEN"]
+    token = _env(_package(world, made["id"])["knovas-link.env"])["LINK_ENROL_TOKEN"]
     link = ProtocolClient(world["http"])
     assert link.enrol(token, version="1.1.0", capabilities=["work_channel"]).status_code == 201
     return made, link
@@ -92,10 +92,10 @@ class TestTheRules:
         # Images by digest: no registry yet, so the digest is a placeholder variable.
         assert services["knovas-link"]["image"].startswith("knovas-link@${KNOVAS_LINK_DIGEST")
         assert services["sync-component"]["image"].startswith("sync-component@${SYNC_COMPONENT_DIGEST")
-        # The internal network; Link alone is also on the outbound one.
-        assert compose["networks"]["knovas-site"]["internal"] is True
-        assert sorted(services["knovas-link"]["networks"]) == ["knovas-outbound", "knovas-site"]
-        assert services["sync-component"]["networks"] == ["knovas-site"]
+        # The internal network where components reach Link; every service also reaches its own sources (egress).
+        assert compose["networks"]["knovas-site"]["internal"] is True and "internal" not in (compose["networks"]["knovas-egress"] or {})
+        assert services["knovas-link"]["networks"] == ["knovas-site", "knovas-egress"]
+        assert services["sync-component"]["networks"] == ["knovas-site", "knovas-egress"]
         assert "ports" not in services["knovas-link"] and "ports" not in services["sync-component"]
         # The token volume: Link writes /link/<component>/; each component mounts only its own folder.
         link_mounts = services["knovas-link"]["volumes"]
@@ -104,9 +104,31 @@ class TestTheRules:
         assert token["volume"] == {"subpath": "sync-component"} and token["read_only"] is True and token["target"] == "/link"
         # Link's local API: service knovas-link, port 8460, on the internal network; Link's data at /data.
         assert services["sync-component"]["environment"]["SYNC_LINK_URL"] == "http://knovas-link:8460"
-        assert "link-data:/data" in link_mounts and services["knovas-link"]["env_file"] == ["knovas-site.env"]
+        assert "link-data:/data" in link_mounts and services["knovas-link"]["env_file"] == ["knovas-link.env"]
+        assert services["sync-component"]["env_file"] == ["knovas-sources.env"]
+        assert "One door per site is held by credentials" in sites.compose_file({"name": "Büro"}, ["github"])
         # No share is mounted unless Dateiablage is ticked.
         assert not any(isinstance(v, dict) and v.get("target") == "/sources" for v in services["sync-component"]["volumes"])
+
+    @pytest.mark.parametrize("options", [["github"], ["github", "http_json", "share"]])
+    def test_only_knovas_link_holds_what_reaches_knovas(self, options):
+        services = yaml.safe_load(sites.compose_file({"name": "Büro"}, options))["services"]
+        for name, service in services.items():
+            if name == "knovas-link":
+                continue
+            assert "knovas-link.env" not in service.get("env_file", []), name
+            env = service.get("environment") or {}
+            assert not [k for k in env if k.startswith("LINK_")], name
+            assert not [k for k in env if "TOKEN" in k or "CERT" in k or k.endswith("_KEY")], name
+            assert not [v for v in env.values() if "LINK_" in str(v)], name
+            for mount in service.get("volumes") or []:
+                target = mount["target"] if isinstance(mount, dict) else str(mount).split(":")[1]
+                source = mount["source"] if isinstance(mount, dict) else str(mount).split(":")[0]
+                assert "cert" not in target.lower() and "cert" not in source.lower(), (name, mount)
+                assert target != "/data" or source != "link-data", name     # not Link's key and certificate
+                if isinstance(mount, dict) and mount["source"] == "link-tokens":
+                    assert mount["volume"] == {"subpath": name}, name       # its own folder only
+            assert service["environment"]["SYNC_LINK_URL"] == "http://knovas-link:8460"
 
     def test_a_ticked_share_is_mounted_read_only_from_a_placeholder(self):
         compose = yaml.safe_load(sites.compose_file({"name": "Büro"}, ["share"]))
@@ -118,9 +140,11 @@ class TestTheRules:
         compose = yaml.safe_load(sites.compose_file({"name": "Büro"}, []))
         assert set(compose["services"]) == {"knovas-link"}
 
-    def test_the_env_file_holds_the_platform_address_and_the_token_only(self):
+    def test_the_env_files_split_link_s_token_from_the_sources_credentials(self):
         text = sites.env_file("https://p.example.test/api/connectors/v1", "kce_abc")
         assert _env(text) == {"LINK_PLATFORM_URL": "https://p.example.test/api/connectors/v1", "LINK_ENROL_TOKEN": "kce_abc"}
+        assert _env(sites.sources_env_file()) == {}
+        assert sites.COMMAND == "docker compose up -d"
 
     def test_the_credential_line_names_the_variable_the_sync_component_reads(self):
         import sys
@@ -145,12 +169,13 @@ class TestASite:
     def test_the_package_carries_a_token_link_enrols_with(self, world):
         made = _site(world)
         files = _package(world, made["id"])
-        assert set(files) == {"docker-compose.yml", "knovas-site.env"}
-        env = _env(files["knovas-site.env"])
+        assert set(files) == {"docker-compose.yml", "knovas-link.env", "knovas-sources.env"}
+        assert _env(files["knovas-sources.env"]) == {} and "LINK_" not in files["knovas-sources.env"].replace("knovas-link", "")
+        env = _env(files["knovas-link.env"])
         assert set(env) == {"LINK_PLATFORM_URL", "LINK_ENROL_TOKEN"}
         assert env["LINK_PLATFORM_URL"] == "https://platform.example.test/api/connectors/v1"
         # A second download replaces the token: the first package no longer enrols.
-        second = _env(_package(world, made["id"])["knovas-site.env"])["LINK_ENROL_TOKEN"]
+        second = _env(_package(world, made["id"])["knovas-link.env"])["LINK_ENROL_TOKEN"]
         assert second != env["LINK_ENROL_TOKEN"]
         assert ProtocolClient(world["http"]).enrol(env["LINK_ENROL_TOKEN"]).status_code == 401
         link = ProtocolClient(world["http"])
@@ -159,20 +184,21 @@ class TestASite:
         assert stored["kind"] == "knovas_link" and stored["state"] == "enrolled"
         # Downloaded again once Link runs: the files, without a token, and Link keeps running.
         again = _package(world, made["id"])
-        assert _env(again["knovas-site.env"])["LINK_ENROL_TOKEN"] == ""
+        assert _env(again["knovas-link.env"])["LINK_ENROL_TOKEN"] == ""
         assert link.heartbeat().status_code == 200
 
     def test_renewing_the_token(self, world):
         made, link = _online_link(world)
         assert world["http"].post(f"/builder/api/sites/{made['id']}/rotate").status_code == 200
         assert link.heartbeat().status_code == 401
-        token = _env(_package(world, made["id"])["knovas-site.env"])["LINK_ENROL_TOKEN"]
+        token = _env(_package(world, made["id"])["knovas-link.env"])["LINK_ENROL_TOKEN"]
         assert ProtocolClient(world["http"]).enrol(token).status_code == 201
 
     def test_the_site_page(self, world):
         made = _site(world)
         page = world["http"].get(made["url"]).get_data(as_text=True)
-        assert "docker compose --env-file knovas-site.env up -d" in page
+        assert "docker compose up -d" in page and "knovas-link.env" in page and "knovas-sources.env" in page
+        assert "knovas-egress" in page
         assert "wie in DEC-0056 entschieden; bis dahin wartet Knovas Link (waiting_for_certificate)" in page
         assert "Installationspaket herunterladen" in page and "Token erneuern" in page
         assert "Platzhalter" in page and "Registry" in page
@@ -408,6 +434,8 @@ class TestSubComponents:
         assert direct.report_run(kind="dry_run", status="ok").status_code == 201
 
 
+@pytest.mark.skipif(not __import__("conftest").platform_db_reachable(),
+                    reason="No PostgreSQL for the migration test (PLATFORM_DB_TEST_DSN)")
 def test_the_migration_and_the_store(platform_db):
     """0022 on PostgreSQL: the site, Link's kind, the children and their telemetry through the real store."""
     from builder.store import WorkspaceStore

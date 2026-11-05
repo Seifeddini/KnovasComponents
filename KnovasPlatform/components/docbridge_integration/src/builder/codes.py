@@ -80,7 +80,7 @@ CODES: Mapping[str, Mapping[str, str]] = {
         "title": "Token darf nicht schreiben",
         "explanation": "Das Token der Quelle darf keine Änderungen vorschlagen.",
         "fix": "Bei GitHub ein Token mit «Contents: write» und «Pull requests: write» erstellen, die Zeile "
-               "SYNC_CREDENTIAL_… in knovas-site.env ersetzen und neu starten.",
+               "SYNC_CREDENTIAL_… in knovas-sources.env ersetzen und neu starten.",
     },
     "fetch_disabled": {
         "title": "Abruf ausgeschaltet",

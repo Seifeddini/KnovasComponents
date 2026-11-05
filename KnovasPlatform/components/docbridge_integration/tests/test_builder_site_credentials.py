@@ -1,7 +1,7 @@
 """Credentials as an env line (connection layer MVP-24, KC-7b).
 
 A source read through a component on a site takes no credential in the Platform: its credential field becomes the
-exact line for knovas-site.env (``SYNC_CREDENTIAL_<KEY>=``) with a copy button, and a value sent anyway is refused.
+exact line for knovas-sources.env (``SYNC_CREDENTIAL_<KEY>=``) with a copy button, and a value sent anyway is refused.
 A source read through a component without a site keeps the credential field it had.
 """
 import datetime as dt
@@ -31,7 +31,7 @@ def world():
     import io
     import zipfile
 
-    env = zipfile.ZipFile(io.BytesIO(package_zip)).read("knovas-site.env").decode()
+    env = zipfile.ZipFile(io.BytesIO(package_zip)).read("knovas-link.env").decode()
     token = next(line.split("=", 1)[1] for line in env.splitlines() if line.startswith("LINK_ENROL_TOKEN="))
     link = ProtocolClient(http)
     link.enrol(token)
@@ -73,7 +73,7 @@ def test_a_source_on_a_site_shows_the_line_for_the_env_file(world):
 def test_no_value_is_typed_into_the_platform_for_it(world):
     url = f"/builder/api/w/{world['workspace']}/sources/akten-repo/credential"
     refused = world["http"].post(url, json={"value": "ghp_secret"})
-    assert refused.status_code == 409 and "knovas-site.env" in refused.get_json()["error"]
+    assert refused.status_code == 409 and "knovas-sources.env" in refused.get_json()["error"]
     assert world["secrets"].values == {}
     assert not world["store"].model(world["workspace"])["sources"][0]["credential_set"]
     # A source without a site keeps its credential field.

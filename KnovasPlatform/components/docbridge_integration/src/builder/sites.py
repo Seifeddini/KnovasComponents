@@ -5,15 +5,19 @@ ticked for the site run beside it, on an internal Docker network, and talk only 
 its install package and Link's one-time enrolment token:
 
 - ``docker-compose.yml``: Link and the ticked components, each image by digest; the internal network
-  ``knovas-site`` (``internal: true``), with Link alone also on the outbound network; the token volume, where Link
-  writes ``/link/<component>/token`` and each component mounts only its own folder; a read-only share mount when a
-  file share is ticked.
-- ``knovas-site.env``: the Platform's address and Link's one-time enrolment token, nothing else. A source's credential
-  is a line the person adds there themselves (``SYNC_CREDENTIAL_<KEY>=``, MVP-24); no credential passes through the
-  Platform.
+  ``knovas-site`` (``internal: true``) where the components reach Link, and the egress network every service also
+  joins to reach its own sources (GitHub, Microsoft 365, …); the token volume, where Link writes
+  ``/link/<component>/token`` and each component mounts only its own folder; a read-only share mount when a file
+  share is ticked.
+- ``knovas-link.env``: the Platform's address and Link's one-time enrolment token, nothing else, read by the
+  knovas-link service only.
+- ``knovas-sources.env``: the sources' credentials, lines the person adds there themselves
+  (``SYNC_CREDENTIAL_<KEY>=``, MVP-24), read by the source components only. No credential passes through the Platform.
 
-The one command at the company is ``docker compose --env-file knovas-site.env up -d``, then the certificate step
-DEC-0056 decides. The site page ticks off what is done and says, in German, how to fix what is not; the «Verbindung»
+**One door per site** is held by credentials, not by blocking egress: only Link holds a Knovas certificate and
+token; a component holds neither, knows only Link's local address, and so can reach Knovas only through Link.
+
+The one command at the company is ``docker compose up -d``, then the certificate step DEC-0056 decides. The site page ticks off what is done and says, in German, how to fix what is not; the «Verbindung»
 card (MVP-28) shows the running site.
 
 What is not decided here and is marked so:
@@ -25,8 +29,6 @@ What is not decided here and is marked so:
 - **Link's local address** (``LINK_LOCAL_URL``: service ``knovas-link``, port 8460) and the token files
   (``/link/<component>/token``, each component mounting ``/link/<component>`` at ``/link``) are Knovas Link's (MVP-16);
   they are constants here so that both sides change in one place.
-- **Egress of the source components.** Only Link is on the outbound network, as the plan decides; a component that
-  reads a source outside the machine (GitHub) then reaches it only once that is decided (see the report of MVP-23).
 
 Nothing here knows a company: names, options and addresses come from the request.
 """
@@ -54,11 +56,14 @@ CONTAINERS: dict[str, dict] = {
                        "label": "Sync-Komponente"},
 }
 INTERNAL_NETWORK = "knovas-site"
-OUTBOUND_NETWORK = "knovas-outbound"
+EGRESS_NETWORK = "knovas-egress"
 TOKEN_VOLUME = "link-tokens"
-ENV_FILE = "knovas-site.env"
+#: Link's address of the Platform and its one-time token: the knovas-link service alone reads it.
+LINK_ENV_FILE = "knovas-link.env"
+#: The sources' credentials: the source components alone read it.
+SOURCES_ENV_FILE = "knovas-sources.env"
 COMPOSE_FILE = "docker-compose.yml"
-COMMAND = f"docker compose --env-file {ENV_FILE} up -d"
+COMMAND = "docker compose up -d"
 #: Where the components reach Link's local API (MVP-16): service knovas-link, port 8460, on the internal network
 #: only, no published port. The sync component reads it from SYNC_LINK_URL (the Knovas Connector later from RC_LINK_URL).
 LINK_LOCAL_URL = "http://knovas-link:8460"
@@ -103,7 +108,7 @@ def credential_env(source_key: str) -> str:
 
 
 def credential_line(source_key: str) -> str:
-    """The line for knovas-site.env, the value left for the person to type at the company."""
+    """The line for knovas-sources.env, the value left for the person to type at the company."""
     return credential_env(source_key) + "="
 
 
@@ -127,11 +132,12 @@ def compose_file(site: Mapping[str, Any], options: Iterable[str]) -> str:
         "knovas-link": {
             "image": _image("knovas-link"),
             "restart": "unless-stopped",
-            # LINK_PLATFORM_URL and LINK_ENROL_TOKEN; its key and certificate stay in its data volume.
-            "env_file": [ENV_FILE],
+            # LINK_PLATFORM_URL and LINK_ENROL_TOKEN, for this service only; its key and certificate stay in its data
+            # volume. Link alone holds what reaches Knovas.
+            "env_file": [LINK_ENV_FILE],
             # Link writes /link/<component>/token for every component it serves.
             "volumes": ["link-data:/data", {"type": "volume", "source": TOKEN_VOLUME, "target": "/link"}],
-            "networks": [INTERNAL_NETWORK, OUTBOUND_NETWORK],
+            "networks": [INTERNAL_NETWORK, EGRESS_NETWORK],
         },
     }
     volumes: dict[str, dict] = {"link-data": {}, TOKEN_VOLUME: {}}
@@ -147,44 +153,57 @@ def compose_file(site: Mapping[str, Any], options: Iterable[str]) -> str:
         services[container] = {
             "image": _image(container),
             "restart": "unless-stopped",
-            # A source's credential is a line SYNC_CREDENTIAL_<KEY>= the person adds to knovas-site.env.
-            "env_file": [ENV_FILE],
+            # A source's credential is a line SYNC_CREDENTIAL_<KEY>= the person adds to knovas-sources.env. No Knovas
+            # certificate and no Knovas token: Knovas is reached through Link's local address only.
+            "env_file": [SOURCES_ENV_FILE],
             "environment": environment,
             "volumes": mounts,
-            "networks": [INTERNAL_NETWORK],
+            # The egress network reaches the component's own sources (GitHub, Microsoft 365, …).
+            "networks": [INTERNAL_NETWORK, EGRESS_NETWORK],
             "depends_on": ["knovas-link"],
         }
         volumes[f"{container}-data"] = {}
     head = ("# Knovas: install package of a site, made by the Brain Builder.\n"
             f"# Start: {COMMAND}\n"
             "# Images by digest: there is no image registry yet. The digest variables are placeholders until Knovas\n"
-            "# publishes images with digests; the site's page in the Builder says what to do meanwhile.\n")
+            "# publishes images with digests; the site's page in the Builder says what to do meanwhile.\n"
+            f"# Networks: {INTERNAL_NETWORK} (internal) is where the components reach Knovas Link; every service is\n"
+            f"# also on {EGRESS_NETWORK} to reach its own sources. One door per site is held by credentials, not by\n"
+            f"# blocking egress: only knovas-link holds a Knovas certificate and token ({LINK_ENV_FILE}); a component\n"
+            "# holds neither and knows only Link's local address.\n")
     return head + _yaml({
         "name": "knovas-site",
         "services": services,
-        "networks": {INTERNAL_NETWORK: {"internal": True}, OUTBOUND_NETWORK: {}},
+        "networks": {INTERNAL_NETWORK: {"internal": True}, EGRESS_NETWORK: {}},
         "volumes": volumes,
     })
 
 
 def env_file(platform_url: str, token: Optional[str]) -> str:
-    """knovas-site.env: the Platform's address and Link's one-time token, nothing else."""
+    """knovas-link.env: the Platform's address and Link's one-time token, nothing else; for the knovas-link service."""
     lines = ["# Knovas Link: where it enrols and with which one-time token (24 hours, used once).",
-             "# Credentials of sources go below as SYNC_CREDENTIAL_<KEY>=… lines; the Builder shows each one."]
+             "# Read by the knovas-link service only. Credentials of sources go into knovas-sources.env."]
     if not token:
         lines.append("# Knovas Link is already enrolled; a new token comes with «Token erneuern» in the Builder.")
     lines += [f"LINK_PLATFORM_URL={platform_url}", f"LINK_ENROL_TOKEN={token or ''}"]
     return "\n".join(lines) + "\n"
 
 
+def sources_env_file() -> str:
+    """knovas-sources.env: empty but for how to fill it; the person adds each source's line at the company."""
+    return ("# Credentials of the sources, one line each: SYNC_CREDENTIAL_<KEY>=<value>.\n"
+            "# The Builder shows the exact line for every source on this site. Read by the source components only.\n")
+
+
 def package_zip(site: Mapping[str, Any], *, platform_url: str, token: Optional[str]) -> bytes:
-    """The install package: docker-compose.yml and knovas-site.env, as one zip."""
+    """The install package: docker-compose.yml, knovas-link.env and knovas-sources.env, as one zip."""
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for name, text in ((COMPOSE_FILE, compose_file(site, site.get("options") or [])),
-                           (ENV_FILE, env_file(platform_url, token))):
+                           (LINK_ENV_FILE, env_file(platform_url, token)),
+                           (SOURCES_ENV_FILE, sources_env_file())):
             info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
-            info.external_attr = 0o600 << 16           # the token is a secret: readable by its owner only
+            info.external_attr = 0o600 << 16           # tokens and credentials: readable by their owner only
             z.writestr(info, text)
     return out.getvalue()
 
@@ -210,7 +229,7 @@ def checklist(site: Mapping[str, Any], link: Optional[Mapping[str, Any]], childr
          "fix": CERTIFICATE_STEP[0].upper() + CERTIFICATE_STEP[1:] + "."},
         {"key": "link_online", "label": "Knovas Link online", "ok": enrolled and _fresh(seen, now, minutes),
          "fix": "Am Standort «docker compose ps»: läuft knovas-link? Erreicht der Rechner die Plattform unter "
-                "LINK_PLATFORM_URL? «docker compose logs knovas-link» nennt den Grund."},
+                f"LINK_PLATFORM_URL ({LINK_ENV_FILE})? «docker compose logs knovas-link» nennt den Grund."},
     ]
     reported = {c.get("kind") for c in children if C.state_of(c, now, limits) in ("online", "degraded")}
     for container in containers_of(site.get("options") or [])[1:]:

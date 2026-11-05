@@ -141,7 +141,7 @@
         }
         if (kind === 'knovas_link') {
             /* Knovas Link is never enrolled from this wizard: it comes with its site's install package (MVP-23). */
-            return { lines: ['docker compose --env-file knovas-site.env up -d'],
+            return { lines: ['docker compose up -d'],
                      hint: 'Knovas Link wird mit dem Installationspaket seines Standorts eingerichtet: «Standort anlegen», dann «Installationspaket herunterladen».' };
         }
         return null;
