@@ -380,6 +380,16 @@ class TestLinkMode:
         assert not any("--previous" in c for c in world.runner.calls)
         assert not list((world.root / "sources").rglob("stream-acknowledged.json"))
 
+    def test_link_calls_use_no_proxy_and_a_session_per_thread(self, link_world):
+        import threading
+
+        client = LinkClient(link_world.url, LW.COMPONENT, LW.TOKEN)
+        seen = [client.session]
+        thread = threading.Thread(target=lambda: seen.append(client.session))
+        thread.start()
+        thread.join(5)
+        assert all(s.trust_env is False for s in seen) and seen[0] is not seen[1] and client.session is seen[0]
+
     def test_only_link_mode_reads_a_read_write_source(self, world, link_world):
         github = {"workspace": "w", "key": "k", "kind": "github", "access": "read_write"}
         assert link_world.agent._readable(github) and not world.agent._readable(github)

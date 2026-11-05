@@ -12,6 +12,7 @@ events, report_checks), so the loop is the same in both modes.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Optional
 
 import requests
@@ -33,9 +34,19 @@ class LinkClient:
         self.url = url.rstrip("/") + PREFIX
         self.name = name
         self.timeout = timeout
-        self.session = session or requests.Session()
-        self.session.trust_env = False              # Link is on the site's own network: no proxy sees the token
+        self._given = session
+        self._local = threading.local()             # the heartbeat and the job threads each have their own session
         self.headers = {"Authorization": f"Bearer {token}", "X-Component": name}
+
+    @property
+    def session(self) -> Any:
+        if self._given is not None:
+            return self._given
+        found = getattr(self._local, "session", None)
+        if found is None:
+            found = self._local.session = requests.Session()
+            found.trust_env = False                 # Link is on the site's own network: no proxy sees the token
+        return found
 
     def _call(self, method: str, path: str, body: Optional[dict] = None, *, data: Optional[bytes] = None,
               params: Optional[dict] = None, timeout: Optional[float] = None) -> Optional[dict]:
