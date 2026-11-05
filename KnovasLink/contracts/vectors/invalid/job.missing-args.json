@@ -1,0 +1,22 @@
+{
+  "schema": "job.schema.json",
+  "description": "A job has args, {} for a probe.",
+  "breaks": [
+    "args"
+  ],
+  "instance": {
+    "id": "1b4e28ba-2fa1-4d2b-883f-0016d3cca427",
+    "kind": "fetch",
+    "source": "handbook",
+    "target_serial": null,
+    "deadline": "2026-11-05T10:15:20Z",
+    "actor": {
+      "kind": "agent",
+      "id": "agent-research-assistant",
+      "on_behalf_of": {
+        "kind": "user",
+        "id": "user-0042"
+      }
+    }
+  }
+}

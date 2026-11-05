@@ -1,0 +1,9 @@
+{
+  "schema": "job-result.schema.json",
+  "description": "No answer before the deadline.",
+  "instance": {
+    "status": "unreachable",
+    "code": "unreachable",
+    "duration_ms": 20000
+  }
+}

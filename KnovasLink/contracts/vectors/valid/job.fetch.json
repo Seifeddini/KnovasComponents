@@ -1,0 +1,24 @@
+{
+  "schema": "job.schema.json",
+  "description": "Fetch an original at the version the Brain recorded, at most 25 MiB.",
+  "instance": {
+    "id": "1b4e28ba-2fa1-4d2b-883f-0016d3cca427",
+    "kind": "fetch",
+    "source": "handbook",
+    "target_serial": null,
+    "deadline": "2026-11-05T10:15:20Z",
+    "actor": {
+      "kind": "agent",
+      "id": "agent-research-assistant",
+      "on_behalf_of": {
+        "kind": "user",
+        "id": "user-0042"
+      }
+    },
+    "args": {
+      "external_id": "policies/travel.md",
+      "version": "ff7b4c62979180d16e75356492b21cc64a58c830",
+      "max_bytes": 26214400
+    }
+  }
+}

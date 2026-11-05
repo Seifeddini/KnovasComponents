@@ -1,0 +1,11 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "A tombstone names its source.",
+  "breaks": [
+    "source"
+  ],
+  "instance": {
+    "type": "tombstone",
+    "external_id": "policies/old-expenses.md"
+  }
+}

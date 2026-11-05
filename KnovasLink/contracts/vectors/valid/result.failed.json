@@ -1,0 +1,9 @@
+{
+  "schema": "job-result.schema.json",
+  "description": "Something else went wrong.",
+  "instance": {
+    "status": "failed",
+    "code": null,
+    "duration_ms": 950
+  }
+}

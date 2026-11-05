@@ -1,0 +1,9 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "A file removed from the source.",
+  "instance": {
+    "type": "tombstone",
+    "source": "handbook",
+    "external_id": "policies/old-expenses.md"
+  }
+}

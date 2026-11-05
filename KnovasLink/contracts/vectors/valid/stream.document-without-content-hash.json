@@ -1,0 +1,15 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "content_hash is optional.",
+  "instance": {
+    "type": "document",
+    "source": "handbook",
+    "external_id": "policies/travel.md",
+    "version": "ff7b4c62979180d16e75356492b21cc64a58c830",
+    "payload": {
+      "title": "Travel policy",
+      "path": "policies/travel.md",
+      "text": "# Travel policy\n\nBook trains for trips under six hours.\n"
+    }
+  }
+}

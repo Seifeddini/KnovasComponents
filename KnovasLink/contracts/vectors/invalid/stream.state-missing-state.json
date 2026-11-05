@@ -1,0 +1,11 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "A state message carries the state.",
+  "breaks": [
+    "state"
+  ],
+  "instance": {
+    "type": "state",
+    "source": "handbook"
+  }
+}

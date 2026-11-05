@@ -1,0 +1,10 @@
+{
+  "schema": "job-result.schema.json",
+  "description": "The file changed since the expected version; version is the one found.",
+  "instance": {
+    "status": "conflict",
+    "code": "conflict",
+    "version": "8c3f0b7e2d41a95c6e7f1028b3d4a5c6e7f8091a",
+    "duration_ms": 380
+  }
+}

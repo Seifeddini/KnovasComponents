@@ -1,0 +1,18 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "A document carries the source's version.",
+  "breaks": [
+    "version"
+  ],
+  "instance": {
+    "type": "document",
+    "source": "handbook",
+    "external_id": "policies/travel.md",
+    "content_hash": "1448f89881ca845b2c1b5909045dde0c4d35345dd5085150f647c29dbf827a75",
+    "payload": {
+      "title": "Travel policy",
+      "path": "policies/travel.md",
+      "text": "# Travel policy\n\nBook trains for trips under six hours.\n"
+    }
+  }
+}
