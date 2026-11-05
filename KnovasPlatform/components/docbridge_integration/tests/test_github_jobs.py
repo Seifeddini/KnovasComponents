@@ -204,3 +204,9 @@ class TestWhatTheComponentDoesNotServe:
     def test_every_call_carries_the_token_and_the_name(self, world):
         run_job(world, fetch_job("policies/travel.md"))
         assert world.link.calls and all(path.startswith("/local/v1/") for _, path in world.link.calls)
+
+
+def test_it_registers_and_beats_as_version_0_2_0(world):
+    assert world.link.registered[COMPONENT]["version"] == "0.2.0"
+    world.agent.tick()
+    assert world.link.beats[-1]["version"] == "0.2.0"
