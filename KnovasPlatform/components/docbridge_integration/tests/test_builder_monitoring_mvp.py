@@ -23,7 +23,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 LISTED = ("unsupported_type", "unsupported", "unreachable", "lease_lost", "source_unreachable", "source_refused",
           "no_source_ref", "not_found", "conflict", "mode_unsupported", "token_cannot_write", "fetch_disabled",
           "write_disabled", "not_writable", "computed_attribute", "value_not_allowed", "not_invertible",
-          "unknown_mapping", "previously_rejected", "waiting_for_certificate", "not_relayed")
+          "unknown_mapping", "previously_rejected", "source_ref_missing", "waiting_for_certificate", "not_relayed")
 
 
 class TestTheCodes:

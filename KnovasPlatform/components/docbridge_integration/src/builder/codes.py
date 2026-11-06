@@ -125,6 +125,12 @@ CODES: Mapping[str, Mapping[str, str]] = {
         "explanation": "Genau diese Änderung wurde für diesen Knoten schon einmal abgelehnt; sie wird nicht erneut gestellt.",
         "fix": "Nichts zu tun. Soll sie doch gelten, die Änderung in der Quelle selbst machen.",
     },
+    "source_ref_missing": {
+        "title": "Dokument nicht mehr vorhanden",
+        "explanation": "Kein Dokument des Knotens nennt die Datei des Vorschlags noch, etwa nach einer Löschung im "
+                       "Brain; der Vorschlag wurde nicht angenommen und nichts geschrieben.",
+        "fix": "Den Vorschlag ablehnen. Ist die Datei nach der nächsten Synchronisation wieder da, einen neuen stellen.",
+    },
     # Fetching and writing at the component (MVP-21, MVP-22)
     "too_large": {
         "title": "Zu gross",
