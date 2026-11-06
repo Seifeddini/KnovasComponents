@@ -8,9 +8,12 @@ on:
   # carried no checks at all. Every pull request is built, whatever it targets.
   pull_request:
 
+# Runners: trusted runs (pushes, and same-repository pull requests not opened by a bot) go to the self-hosted
+# AWS box when the repository variable CI_RUNNER names its label (knovas-ci); forks and bots, or an unset
+# CI_RUNNER, run on GitHub's runners. No job here holds a secret. Since 2026-11-06: GitHub-hosted minutes are used up.
 jobs:
   knovas-platform:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
     services:
       # The DSN, port, user, password and database name match what
       # tests/conftest.py already expects (PLATFORM_DB_TEST_DSN). The
@@ -162,7 +165,7 @@ jobs:
   # Its isolation is only real in the image with compose's settings, so this
   # job builds the image and runs code in it, not just the unit tests.
   experiments-runner:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: KnovasPlatform/components/experiments_runner
@@ -281,7 +284,7 @@ jobs:
           "${DC[@]}" down -v
 
   knovas-connector:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: KnovasConnector
