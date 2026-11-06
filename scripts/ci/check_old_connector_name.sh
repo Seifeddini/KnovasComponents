@@ -9,7 +9,10 @@
 #   - applied Platform migrations: their checksums are recorded in every
 #     database, so a changed comment stops the Platform from starting;
 #   - POST /remote_controller/verify_operator, an endpoint of the Knovas
-#     server, not ours to rename.
+#     server, not ours to rename;
+#   - a verbatim snapshot of files generated in KnowledgeBase
+#     (`tests/fixtures/knovas-bundle/`): KnowledgeBase's names and paths are
+#     not ours to rename here.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -24,6 +27,7 @@ ALLOWED=(
   ':!KnovasConnector/src/sync/sync_config.py'
   ':!KnovasConnector/tests/unit/test_sync_config.py'
   ':!KnovasPlatform/components/docbridge_integration/src/identity/migrations/*.sql'
+  ':!KnovasPlatform/components/docbridge_integration/tests/fixtures/knovas-bundle/*'
 )
 
 hits="$(git grep -n -I -i -E 'remote[ _-]?controller' -- . "${ALLOWED[@]}" \
