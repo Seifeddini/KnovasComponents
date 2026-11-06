@@ -107,7 +107,7 @@ class TestTheRoundTrip:
         exported = package.write_package(result.model)
         assert set(exported) == _listed(files)
         assert _semantic_differences(files, exported) == []
-        assert result.summary["types"] == 71
+        assert result.summary["types"] == 79                # the package as of 2026-11-06 (D-6: Symbol and GlossaryTerm placed)
         # And through a zip of the whole folder, as the import dialog takes it.
         again = package.read_package(package.files_from_zip(package.zip_files(exported)))
         assert package.content_hash(again.model) == package.content_hash(result.model)
