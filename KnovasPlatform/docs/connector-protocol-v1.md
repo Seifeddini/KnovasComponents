@@ -1,6 +1,6 @@
 # Connector protocol v1: the contract
 
-**Status: draft (KC-7a, BET-2026-11-sources-and-access).** The control plane and the records path are built and tested. The decisions marked *proposed* wait for DEC-0056; a change to them before the first company runs a component is cheap, and after that it is not.
+**Status: draft (KC-7a, BET-2026-11-sources-and-access).** The control plane and the records path are built and tested. DEC-0056 is decided: option A, with A1 (one certificate per site, held by Knovas Link). What is still marked *proposed* is not decided yet; a change to it before the first company runs a component is cheap, and after that it is not.
 
 **Version 1.1** (MVP-2, KC-7a): additions to 1.0 only. It adds sites and Knovas Link, streams, jobs on a work channel, probes, write proposals and fetching originals, in the sections from "Sites and Knovas Link" on. None of them is built yet. The paths stay `/api/connectors/v1`, and a component that knows only 1.0 keeps working unchanged. The contracts are files in `KnovasComponents/KnovasLink/contracts/`, pinned by `contracts.lock`.
 
@@ -19,7 +19,7 @@ A connector is a separately deployed sync component, registered for one company 
 
 `POST /api/connectors/v1/enrol` with `{token, csr, version, capabilities}`, using the one-time token (24 hours). The answer is `{component, control_token, certificate, certificate_chain, config, brain_url, brain_ca}`; `brain_ca` is the public CA the Brain's TLS certificate is checked against, so nothing has to be copied to the company by hand. The private key is made by the component and never leaves it. The Brain signs the request for this Platform's tenant. The control token is shown this once and kept as a hash.
 
-**Where signing is not available.** Production's Secure API cannot sign today: it does not hold the client CA key, and D-GNB-28 moves that key to an HSM that only a two-person job can use. So automatic signing at enrolment conflicts with that decision; how a component gets its certificate is open in DEC-0056. For a test on one's own machine, `BUILDER_CONNECTOR_ISSUE_CERTIFICATES=false` skips signing: the answer has no certificate, and the component is given the tenant's files (`SYNC_BRAIN_CERT`, `SYNC_BRAIN_KEY`, or the connector's `SEMANTIX_CLIENT_*_PATH`). Its page says so. This is an exception to DEC-0040, not for a company: a leak exposes the tenant, and one component cannot be revoked.
+**Where signing is not available.** Production's Secure API cannot sign today: it does not hold the client CA key, and D-GNB-28 moves that key to an HSM that only the issuance job can use. So automatic signing at enrolment conflicts with that decision (`/secured/sign_certificate` answers 503). DEC-0056 decided (option A, A1) that every site's Knovas Link gets its own certificate from Knovas's client CA: one Knovas admin confirms and signs the site's request today, with today's CA, through internal-api's `POST /sign_certificate`, which stores the certificate record; later the issuance job signs with the HSM-held key (DEC-0062). The certificate is revocable by its serial (`POST /revoke_certificate`). Such a deployment sets `BUILDER_CONNECTOR_ISSUE_CERTIFICATES=false`: the answer has no certificate, and Knovas Link waits for it (`waiting_for_certificate`) until the site installs it (`certificate-request`, `install-certificate`: `KnovasComponents/KnovasLink/README.md`). A component enrolled directly is then given the tenant's files (`SYNC_BRAIN_CERT`, `SYNC_BRAIN_KEY`, or the connector's `SEMANTIX_CLIENT_*_PATH`), only for a test on one's own machine. Its page says so. This is an exception to DEC-0040, not for a company: a leak exposes the tenant, and one component cannot be revoked.
 
 ## Every other call
 
@@ -41,9 +41,9 @@ A connector is a separately deployed sync component, registered for one company 
 
 ## The data path
 
-*Proposed (DEC-0056, option A).* **A component writes to the Brain directly, with its own certificate; the Platform is the control plane only.** No customer data passes through the Platform.
+*Decided (DEC-0056, option A).* **A component writes to the Brain directly, with its own certificate; the Platform is the control plane only.** No customer data passes through the Platform.
 
-Version 1.1 proposes that a site's Knovas Link makes these calls for the components on its machine, with one certificate per site (see "Sites and Knovas Link"). That is an input to DEC-0056, not a decision.
+In version 1.1 a site's Knovas Link makes these calls for the components on its machine, with one certificate per site (see "Sites and Knovas Link"); DEC-0056 decided that too (A1).
 
 ### Records: built
 
@@ -105,7 +105,7 @@ A function that reads the source, or tells the runner where to read: `sync_compo
 A **site** is one machine at the company, with one Docker network. **Knovas Link** (`KnovasComponents/KnovasLink/`, container `knovas-link`) is one component per site and the only process there that talks to Knovas: enrolment, the control plane, the Brain calls and the work channel. The site's other components talk only to Link, through its local API: `KnovasLink/contracts/local-api.md`. They hold no Knovas certificate and open no port. A new kind of source is a new local component, never a change to Link.
 
 - **Enrolment.** Link enrols as described above, as kind `knovas_link`, with the site's one-time token. Its key is made on site and never leaves it. Its components register with Link, not with the Platform; Link's heartbeat reports them, and the Platform shows them under the site.
-- **Certificates and the data path are DEC-0056's (proposed).** This version proposes one certificate per site, held by Link, as an input to that decision: a site then needs one certificate instead of one per component. Until a certificate comes by the route DEC-0056 decides, Link enrols and runs the control plane, but claims no job and writes nothing to the tenant (`waiting_for_certificate`).
+- **One certificate per site, held by Link (DEC-0056, option A with A1).** A site needs one certificate instead of one per component. Until it has one, Link enrols and runs the control plane, but claims no job and writes nothing to the tenant (`waiting_for_certificate`). Where the Platform issues none at enrolment, the site prints its request (`certificate-request`), a Knovas admin confirms and signs it (DEC-0062), and the site installs the certificate (`install-certificate`); Link picks it up at its next heartbeat (`KnovasComponents/KnovasLink/README.md`).
 - **Direct enrolment keeps working.** A component enrolled directly, as described above, keeps calling the Platform and the Brain itself. A component in link mode never calls the Platform: it does not enrol and holds no certificate, and its heartbeat, commands, configuration, package, reports, jobs and Brain calls go through Link.
 - **Which component serves a source.** `GET /config` names for each source the component on the site that serves it, as `"component": "<name>"`. A component registers with Link under its name and gets the sources assigned to that name.
 - **Commands fan out.** In the Platform's heartbeat answer to Link, a command meant for one of its components carries `"component": "<name>"`; Link delivers it on that component's next local heartbeat. Link reports the outcome with `POST /commands/<id>/done`, adding the same `"component": "<name>"`. A command without `component` is Link's own.

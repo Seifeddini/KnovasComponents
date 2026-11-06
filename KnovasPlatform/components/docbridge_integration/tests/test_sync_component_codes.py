@@ -1,5 +1,6 @@
 """Every result code the sync component can answer is in the shared contract and has a German text in the Builder
-(connection layer MVP-1, MVP-21, MVP-22, MVP-28).
+(connection layer MVP-1, MVP-21, MVP-22, MVP-28), and so has every code of the contract, Knovas Link's
+``install-certificate`` refusals among them (DEC-0056, MVP-23).
 
 The codes are read from the component's source: the second argument of every ``Outcome(...)`` and ``result(...)`` call
 that is a string literal. A code added to the component without the contract (``KnovasLink/contracts/codes.json``) or
@@ -47,3 +48,13 @@ def test_every_code_the_component_answers_is_in_the_contract():
 def test_every_code_the_component_answers_has_a_german_text():
     unknown = sorted(c for c in emitted_codes() if codes.describe(c)["title"] == "Unbekannter Code")
     assert unknown == [], f"add these to builder/codes.py: {unknown}"
+
+
+def test_every_code_of_the_contract_has_a_german_text():
+    listed = [c["code"] for c in json.loads(CONTRACT.read_text(encoding="utf-8"))["codes"]]
+    assert {"waiting_for_certificate", "certificate.wrong_key", "certificate.not_client_auth"} <= set(listed)
+    unknown = [c for c in listed if codes.describe(c)["title"] == "Unbekannter Code"]
+    assert unknown == [], f"add these to builder/codes.py: {unknown}"
+    for c in listed:
+        found = codes.describe(c)
+        assert found["explanation"].strip() and found["fix"].strip(), c
