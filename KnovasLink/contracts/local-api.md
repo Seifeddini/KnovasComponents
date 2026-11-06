@@ -105,7 +105,9 @@ sources assigned to this component's name and their workspaces. 503 `unreachable
 ```
 
 `certificate` is `present` or `waiting`; `work_channel` is `connected` or `down`. Ping never calls Knovas. A container
-health check and the components use it to see that Link is up and what it is waiting for.
+health check and the components use it to see that Link is up and what it is waiting for. `waiting` ends when the site
+installs the certificate Knovas signed for it (DEC-0056: `certificate-request`, then `install-certificate`, in Link's
+README); Link picks it up at its next heartbeat.
 
 ### `GET /local/v1/jobs?wait=25`
 
@@ -244,6 +246,11 @@ anything else with 400 `bad_field`. 503 `unreachable`: the Platform did not answ
 | `not_relayed` | Link | 403 on `/local/v1/brain/…` for a route outside the allow-list |
 | `invalid_job` | Link | job result `failed`: the job does not validate against `job.schema.json` and is never handed out |
 | `part_not_accepted` | Link | job result `failed`: Knovas did not take a part of the fetch; the relay of that job ends |
+| `certificate.not_enrolled` | Link | `certificate-request` or `install-certificate` exits 1: Link has not enrolled, so it has no key |
+| `certificate.unreadable` | Link | `install-certificate` exits 1: no PEM certificate was given; nothing is written |
+| `certificate.wrong_key` | Link | `install-certificate` exits 1: the certificate is not for Link's stored key; nothing is written |
+| `certificate.not_valid_now` | Link | `install-certificate` exits 1: the certificate has expired or is not valid yet; nothing is written |
+| `certificate.not_client_auth` | Link | `install-certificate` exits 1: the certificate lacks the extended key usage clientAuth; nothing is written |
 | `too_large` | component | job result `refused`: the original is larger than the fetch's `max_bytes` |
 | `version_mismatch` | component | job result `failed`: the fetched bytes' git blob hash is not the requested version |
 | `edit_unsupported` | component | job result `refused`: a write into a file kind or key the component cannot edit |

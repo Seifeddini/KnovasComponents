@@ -1,10 +1,14 @@
 """Knovas Link's state and loops: enrolment, the certificate, the control plane with the Platform, and the site's
 telemetry (MVP-15, MVP-19). The local API (``local_api.py``) and the work channel (``jobs.py``) work on this object.
 
-**The certificate (DEC-0056, open).** If the Platform's enrolment answer carries a certificate, Link uses it for
-secure-api. Otherwise Link runs its control plane (heartbeat, configuration, package, commands, reports) but is in
-the state ``waiting_for_certificate``: it claims no job, relays no Brain call, and says so in its heartbeat
-(``site.certificate: "waiting"``) and in ``GET /local/v1/ping``. No other signing path is built here.
+**The certificate (DEC-0056, option A with A1).** Every site's Link has its own certificate from Knovas's client CA.
+If the Platform's enrolment answer carries one, Link uses it for secure-api. Otherwise (production's secure-api cannot
+sign) Link runs its control plane (heartbeat, configuration, package, commands, reports) but is in the state
+``waiting_for_certificate``: it claims no job, relays no Brain call, and says so in its heartbeat
+(``site.certificate: "waiting"``) and in ``GET /local/v1/ping``. The site then asks for its certificate with
+``certificate-request``, a Knovas admin confirms and signs it, and ``install-certificate`` writes it
+(``knovas_link.certificate``); Link picks it up at its next heartbeat (``pick_up_certificate``), no restart needed. A
+certificate that replaces one Link already uses is taken at the next start.
 
 **Only to test on one's own machine, never for a company.** With ``LINK_TEST_ONLY_SHARED_CERTIFICATE=true``, and
 only while the Platform issued no certificate, Link uses the tenant's own certificate from ``LINK_BRAIN_CERT`` and
@@ -123,6 +127,7 @@ class Link:
         self._tasks: list = []
         self._brain_ready: Optional[asyncio.Event] = None
         self._prepared = False
+        self._certificate_seen: Optional[int] = None         # the installed file last tried, by its change time
         if self.config:
             self.brain_url = self.config.get("brain_url") or None
             self.paused = bool(self.config.get("paused"))
@@ -184,6 +189,35 @@ class Link:
             self.brain = BrainClient(self.brain_url, ssl_context=tls.context(ca, cert, key))
         if self._brain_ready is not None:
             self._brain_ready.set()
+
+    async def pick_up_certificate(self) -> bool:
+        """While Link has no certificate of its own (waiting, or the test-only shared one): the one
+        ``install-certificate`` wrote since, used from now on for secure-api and the Platform. True when picked up.
+        A file Link cannot use is logged by its error type and tried again only once it changes."""
+        if not self._prepared or self.credentials is None or self.certificate_mode == "issued":
+            return False
+        try:
+            seen = self.store.certificate.stat().st_mtime_ns
+        except OSError:
+            return False
+        if seen == self._certificate_seen:
+            return False
+        self._certificate_seen = seen
+        previous = self.credentials
+        try:
+            found = self.store.load()
+            if found is None or found.certificate is None or found.component != previous.component:
+                return False
+            self.credentials = found
+            await self._setup_brain()
+        except (OSError, ValueError, KeyError) as exc:          # ssl.SSLError is an OSError
+            self.credentials = previous
+            await self._setup_brain()
+            log.error("certificate.not_usable (%s): run install-certificate again", type(exc).__name__)
+            return False
+        await self.platform.use(found)
+        log.info("certificate.picked_up: Link uses its own certificate from now on")
+        return True
 
     async def wait_for_brain(self, seconds: float) -> None:
         if self._brain_ready is None:
@@ -385,6 +419,7 @@ class Link:
         return body
 
     async def beat(self) -> bool:
+        await self.pick_up_certificate()
         body = self.heartbeat_body()
         try:
             answer = await self.platform.heartbeat(body)
