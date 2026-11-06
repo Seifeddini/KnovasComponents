@@ -50,7 +50,8 @@ def _uuid(value) -> Optional[str]:
 
 def served_source(workspace, source: dict, published: Optional[dict]) -> dict:
     """One source as a component's configuration names it (served_by). Its switches come from the published version
-    only: a source published before them neither fetches nor writes (MVP-25)."""
+    only: a source published before them neither fetches nor writes (MVP-25). served_by passes the published source
+    as both: a component never sees a draft (BB-07, B2)."""
     from builder.sources import fetch_of, write_of
 
     return {"workspace": workspace.id, "workspace_name": workspace.name, "key": source.get("key"),
@@ -627,15 +628,16 @@ class WorkspaceStore:
     def served_by(self, component_id: str) -> dict:
         """The sources served through the component, in every workspace, and the mappings that read them.
 
-        ``fetch`` and ``write`` are the source's switches as last published (MVP-25): switched on in a draft, they
-        reach the component only once reviewed and published."""
+        All of it comes from each workspace's newest **published** version (BB-07, B2): a source's settings (its
+        address, its repository), its switches (MVP-25), which component serves it and the mappings that read it.
+        A draft reaches a component -- a site's included -- only by being reviewed, approved and published; an edit
+        that is not cannot steer a site's credential to another address."""
         sources, mappings = [], []
         for w in self.list():
-            model = self.model(w.id) or {}
+            model = self.published_model(w.id) or {}
             mine = [s for s in model.get("sources") or [] if s.get("component") == component_id]
             keys = {s.get("key") for s in mine}
-            published = {s.get("key"): s for s in (self.published_model(w.id) or {}).get("sources") or []} if mine else {}
-            sources += [served_source(w, s, published.get(s.get("key"))) for s in mine]
+            sources += [served_source(w, s, s) for s in mine]
             mappings += [{"workspace": w.id, "id": (m.get("definition") or {}).get("id"),
                           "source": (m.get("builder") or {}).get("source")}
                          for m in model.get("mappings") or [] if (m.get("builder") or {}).get("source") in keys]

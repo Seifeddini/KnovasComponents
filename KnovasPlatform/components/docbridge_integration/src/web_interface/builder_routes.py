@@ -687,6 +687,10 @@ def create_builder_blueprint(
         if refusal:
             return refusal
         result, data = uploaded
+        bound = _site_bound(store, {}, {str(s.get("key")): s for s in result.model.get("sources") or []})
+        if bound and not g.builder_access.may(SITE_BINDING_PERMISSION):
+            # An import binds its sources as an edit does (BB-07, B2): to a site's component only for who manages sites.
+            return jsonify({"success": False, "error": SITE_BINDING_REFUSED, "details": bound}), 403
         workspace_id = store.create_from_import(
             name=name, model=result.model, actor_id=gate.current_user().id,
             source={"kind": "zip", "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
@@ -800,7 +804,7 @@ def create_builder_blueprint(
             _check_switch_op(store, current, op)
             _check_role_op(op)
             model, changes, batch = store.edit(current.id, gate.current_user().id,
-                                               lambda m: editing.apply(m, op))
+                                               _guard_site_bindings(store, lambda m: editing.apply(m, op)))
         except editing.EditError as exc:
             return _refused(exc)
         if batch:
@@ -820,7 +824,8 @@ def create_builder_blueprint(
         batch = history[take][-1]
         recorded = store.batch(current.id, batch)
         try:
-            model, changes, _ = store.edit(current.id, gate.current_user().id, lambda m: step(m, recorded))
+            model, changes, _ = store.edit(current.id, gate.current_user().id,
+                                           _guard_site_bindings(store, lambda m: step(m, recorded)))
         except editing.EditError as exc:
             # The draft moved on under this edit (another session): it cannot be taken back as recorded.
             history[take].pop()
@@ -1317,11 +1322,19 @@ def create_builder_blueprint(
         if component.get("state") not in ("pending", "revoked"):
             return jsonify({"success": False, "error": "Diese Komponente läuft noch: zuerst widerrufen, dann löschen."}), 409
         store = _store()
-        sources = list(store.served_by(component_id)["sources"])
+
+        def bound(cid: str) -> list:
+            # What it serves (published), and what a draft binds to it: neither may be left pointing at nothing.
+            found = list(store.served_by(cid)["sources"])
+            for w in store.list():
+                found += [s for s in (store.model(w.id) or {}).get("sources") or [] if s.get("component") == cid]
+            return found
+
+        sources = bound(component_id)
         if component_rules.is_link(component) and hasattr(store, "children"):
             # Knovas Link's components go with it (their rows cascade): a source read through one of them must go first.
             for child in store.children(component_id):
-                sources += store.served_by(child["id"])["sources"]
+                sources += bound(child["id"])
         if sources:
             names = ", ".join(sorted({str(s.get("name")) for s in sources}))
             return jsonify({"success": False, "error": f"Diese Quellen lesen noch über sie; zuerst entfernen: {names}."}), 409
@@ -1742,7 +1755,8 @@ def create_builder_blueprint(
             served = store.served_by(child["id"])
             for s in served["sources"]:
                 ws = s["workspace"]
-                model = models.setdefault(ws, store.model(ws) or {})
+                # What the site runs: the published version, as served_by reads it (BB-07, B2).
+                model = models.setdefault(ws, store.published_model(ws) or {})
                 ids = {m["id"] for m in served["mappings"] if m["workspace"] == ws and m["source"] == s["key"]}
                 windows = [((m.get("definition") or {}).get("freshness") or {}).get("window")
                            for m in model.get("mappings") or [] if (m.get("definition") or {}).get("id") in ids]
@@ -2364,6 +2378,40 @@ def create_builder_blueprint(
             wanted = kind.get("component")
             if wanted and component["kind"] not in (wanted, *kind.get("also_on", ())):
                 raise editing.EditError(f"Eine Quelle dieser Art liest nur ein {source_kinds.COMPONENT_KINDS[wanted]['label']}.")
+
+    #: Who may bind a source to a component at a site: whoever manages the tenant's sites (BB-07, B2). A grant on one
+    #: workspace never gives it (grants hold builder roles only), so a consultant cannot point a site at a source.
+    SITE_BINDING_PERMISSION = "manage"
+    SITE_BINDING_REFUSED = ("Eine Quelle an eine Komponente eines Standorts binden darf nur, wer die Standorte des "
+                            "Mandanten verwaltet (Berechtigung «Zugänge verwalten»).")
+
+    def _site_bound(store, sources_before: Mapping[str, Any], sources_after: Mapping[str, Any]) -> list:
+        """The keys of sources that ``sources_after`` binds to a component at a site ({key: source}) and
+        ``sources_before`` did not bind to that component."""
+        tenant = _platform_tenant()
+        out = []
+        for key, after in sources_after.items():
+            target = (after or {}).get("component")
+            if not target or target == ((sources_before.get(key) or {}).get("component")):
+                continue
+            component = store.component(tenant, str(target), any_state=True) if tenant else None
+            if component is not None and component_rules.on_site(component):
+                out.append(key)
+        return sorted(out)
+
+    def _guard_site_bindings(store, mutate):
+        """``mutate`` for store.edit, refused (403, nothing written) when its changes bind a source to a component
+        at a site and the person may not manage the tenant's sites."""
+        def run(model):
+            changes = mutate(model)
+            before = {str((c.get("before") or {}).get("key")): c.get("before") for c in changes
+                      if str(c.get("path", "")).startswith("sources/") and c.get("before")}
+            after = {str((c.get("after") or {}).get("key")): c.get("after") for c in changes
+                     if str(c.get("path", "")).startswith("sources/") and c.get("after")}
+            if _site_bound(store, before, after) and not g.builder_access.may(SITE_BINDING_PERMISSION):
+                raise editing.EditError(SITE_BINDING_REFUSED, 403)
+            return changes
+        return run
 
     def _check_switch_op(store, current, op) -> None:
         """Writing back is switched on only where the component serving the source can write to its kind (MVP-25)."""

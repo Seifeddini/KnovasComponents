@@ -35,7 +35,8 @@ from platform_link.identity import Store as LinkStore  # noqa: E402
 
 from builder import components as C  # noqa: E402
 from builder import editing, package, sources as S  # noqa: E402
-from builder_harness import SAMPLE_PACKAGE, FakeEngine, MemorySecrets, MemoryWorkspaceStore, StandInUser, make_app  # noqa: E402
+from builder_harness import (SAMPLE_PACKAGE, FakeEngine, MemorySecrets, MemoryWorkspaceStore, StandInUser, make_app,  # noqa: E402
+                             publish_as_reviewed)
 
 TENANT = "tenant-a"
 TOKEN = "ghp_secret-token"
@@ -110,7 +111,11 @@ def _enrol(world, kind, name="Verbindung"):
 def _workspace(world, *ops):
     for op in ops:
         editing.apply(world.model, op)
-    return world.store.create(name="Firma", model=world.model, actor_id=world.admin.id, source={"kind": "blank"}, tenant=TENANT)
+    workspace = world.store.create(name="Firma", model=world.model, actor_id=world.admin.id, source={"kind": "blank"},
+                                   tenant=TENANT)
+    # A component is served the published version only (BB-07, B2): the workspace as review and publish leave it.
+    publish_as_reviewed(world.store, workspace, world.admin.id)
+    return workspace
 
 
 def _sync(world, made, tmp_path, *, fetchers=None, checks=None, environ=None):
@@ -796,6 +801,9 @@ class TestDeletingAComponent:
         assert answer.status_code == 409 and "Daten" in answer.get_json()["error"]
         removed = platform.http.post(f"/builder/api/w/{workspace}/ontology", json={"op": "source.remove", "key": "daten"})
         assert removed.status_code == 200, removed.get_json()
+        # Removed in the draft only, the published version still reads through it (BB-07, B2): not yet.
+        assert self.delete(platform, made["id"]).status_code == 409
+        publish_as_reviewed(platform.store, workspace, platform.admin.id)
         assert self.delete(platform, made["id"]).status_code == 200
 
     def test_only_who_manages_may(self):
@@ -828,6 +836,9 @@ class TestRemovingASource:
         edit = f"/builder/api/w/{workspace}/ontology"
         assert platform.http.post(edit, json={"op": "mapping.remove", "id": "kunden-mandate"}).status_code == 200
         assert platform.http.post(edit, json={"op": "source.remove", "key": "kunden"}).status_code == 200
+        assert [s["key"] for s in platform.store.served_by(made["id"])["sources"]] == ["kunden"], \
+            "the component runs the published version until the removal is published (BB-07, B2)"
+        publish_as_reviewed(platform.store, workspace, platform.admin.id)
         assert platform.store.served_by(made["id"])["sources"] == []
 
     def test_the_pages_offer_both(self):
@@ -855,6 +866,8 @@ class TestAccess:
         assert refused.status_code != 200 and "Nur lesen" in refused.get_json()["error"]
         made_ok = self.op(platform, workspace, op="source.create", kind=kind, name="Q", component=made["id"], settings=settings)
         assert made_ok.status_code == 200
+        assert platform.store.served_by(made["id"])["sources"] == [], "a draft is not served (BB-07, B2)"
+        publish_as_reviewed(platform.store, workspace, platform.admin.id)
         assert platform.store.served_by(made["id"])["sources"][0]["access"] == "read"
 
     def test_a_kind_that_allows_writing_lets_a_person_choose_and_defaults_to_reading(self, platform, tmp_path, monkeypatch):
@@ -864,6 +877,7 @@ class TestAccess:
         common = dict(op="source.create", kind="http_json", component=made["id"], settings={"url": "https://x.example.test/"})
         assert self.op(platform, workspace, name="Lesen", **common).status_code == 200
         assert self.op(platform, workspace, name="Beides", access="read_write", **common).status_code == 200
+        publish_as_reviewed(platform.store, workspace, platform.admin.id)     # served once published (BB-07, B2)
         found = {s["key"]: s["access"] for s in platform.store.served_by(made["id"])["sources"]}
         assert found == {"lesen": "read", "beides": "read_write"}
 

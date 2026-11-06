@@ -30,6 +30,8 @@ A connector is a separately deployed sync component, registered for one company 
 | `POST /heartbeat` | `{state: online\|degraded, version, lag_seconds, open_errors, capabilities}` | `{paused, schedule, commands: [{id, command, args}]}`; a command is delivered once |
 | `GET /config` | | `{component, paused, schedule, brain_url, sources: [{workspace, key, kind, access, settings}], mappings: [{workspace, id, source}]}` |
 | `GET /package` | | `{workspaces: [{workspace, files: {path: base64}}]}`: the compiled configuration of the workspaces it serves; definitions and source settings, no credential and no data |
+
+Both answers come from each workspace's newest **published** version, never from a draft (BB-07, B2): a source's settings, its switches, which component serves it and the mappings that read it reach a component only once they were reviewed, approved and published. An apply on a component applies that published version.
 | `POST /runs` | `{kind: dry_run\|apply, status: ok\|held\|failed, started_at, finished_at, duration_ms, added, changed, retired, errors, held: [{mapping, retire: {type: n}, share}], command}` | `{id}` |
 | `POST /commands/<id>/done` | `{result: ok\|failed\|refused}` | |
 | `POST /events` | `{events: [{code, counts}]}`, up to 100 | |

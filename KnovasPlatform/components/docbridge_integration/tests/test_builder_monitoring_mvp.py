@@ -14,7 +14,7 @@ import pytest
 
 from builder import codes, components as C, connection_api, editing, package
 from builder_harness import (SAMPLE_PACKAGE, FakeEngine, MemorySecrets, MemoryWorkspaceStore, ProtocolClient, StandInUser,
-                             make_app)
+                             make_app, publish_as_reviewed)
 
 TENANT = "t-monitoring"
 NOW = dt.datetime.now(dt.timezone.utc)
@@ -125,6 +125,7 @@ def _world(tenant):
         editing.apply(model, op)
     workspace = store.create(name="Muster & Partner", model=model, actor_id=admin.id, source={"kind": "blank"},
                              tenant=TENANT)
+    publish_as_reviewed(store, workspace, admin.id)         # the site runs the published version (BB-07, B2)
     return {"http": http, "store": store, "link": link, "child": child, "site": made, "workspace": workspace,
             "gate": app.extensions["builder_gate"], "tenant": tenant}
 

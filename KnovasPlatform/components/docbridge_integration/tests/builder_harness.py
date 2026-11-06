@@ -507,15 +507,22 @@ class MemoryWorkspaceStore:
 
         sources, mappings = [], []
         for w in self.list():
-            model = self.model(w.id) or {}
+            # As the real store: the published version only, never a draft (BB-07, B2).
+            model = self.published_model(w.id) or {}
             mine = [s for s in model.get("sources") or [] if s.get("component") == component_id]
             keys = {s.get("key") for s in mine}
-            published = {s.get("key"): s for s in (self.published_model(w.id) or {}).get("sources") or []}
-            sources += [served_source(w, s, published.get(s.get("key"))) for s in mine]
+            sources += [served_source(w, s, s) for s in mine]
             mappings += [{"workspace": w.id, "id": (m.get("definition") or {}).get("id"),
                           "source": (m.get("builder") or {}).get("source")}
                          for m in model.get("mappings") or [] if (m.get("builder") or {}).get("source") in keys]
         return {"sources": sources, "mappings": mappings}
+
+
+def publish_as_reviewed(store, workspace_id, actor_id=None):
+    """The workspace's draft made its published version, as review, approval and publish leave it: what a sync
+    component (a site's included) is served (BB-07, B2). Returns the version's number."""
+    draft = store.draft(workspace_id)
+    return store.publish(workspace_id, actor_id, draft["content_hash"], {"sections": {}}, "0" * 64)
 
 
 class FakeEngine:

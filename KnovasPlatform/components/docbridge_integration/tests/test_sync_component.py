@@ -26,7 +26,8 @@ from sync_component.engine import RunnerEngine, _safe_path, EngineError  # noqa:
 from sync_component.fetchers import FetchError, credential_for, fetch_http_json  # noqa: E402
 
 from builder import editing, package, protocol  # noqa: E402
-from builder_harness import SAMPLE_PACKAGE, FakeEngine, MemorySecrets, MemoryWorkspaceStore, StandInUser, make_app  # noqa: E402
+from builder_harness import (SAMPLE_PACKAGE, FakeEngine, MemorySecrets, MemoryWorkspaceStore, StandInUser, make_app,  # noqa: E402
+                             publish_as_reviewed)
 
 TENANT = "tenant-a"
 URL = "https://intern.example.test/kunden.json"
@@ -79,6 +80,7 @@ def world(tmp_path):
                {"op": "mapping.create", "id": "kunden-mandate", "source": "kunden", "collection": "$.kunden", "type": "Mandate"}):
         editing.apply(model, op)
     workspace = store.create(name="Firma", model=model, actor_id=admin.id, source={"kind": "blank"}, tenant=TENANT)
+    publish_as_reviewed(store, workspace, admin.id)         # a component runs the published version (BB-07, B2)
     client = PlatformClient(f"http://127.0.0.1:{server.server_port}/api/connectors/v1")
     keys = Store(tmp_path / "identity")
     client.use(keys.save(client.enrol(made["token"], keys.request("kundendaten"), ["dry_run", "apply"])))

@@ -16,7 +16,8 @@ import yaml
 
 from builder import components as C
 from builder import codes, protocol, sites
-from builder_harness import (FakeEngine, MemorySecrets, MemoryWorkspaceStore, ProtocolClient, StandInUser, make_app)
+from builder_harness import (FakeEngine, MemorySecrets, MemoryWorkspaceStore, ProtocolClient, StandInUser, make_app,
+                             publish_as_reviewed)
 
 TENANT = "t-site"
 
@@ -426,8 +427,9 @@ class TestSubComponents:
         model = package.read_package(package.files_from_directory(SAMPLE_PACKAGE)).model
         editing.apply(model, {"op": "source.create", "kind": "github", "name": "Akten", "component": child["id"],
                               "settings": {"repository": "muster-partner/akten", "ref": "main"}})
-        world["store"].create(name="Muster & Partner", model=model, actor_id=world["admin"].id, source={"kind": "blank"},
-                              tenant=TENANT)
+        workspace = world["store"].create(name="Muster & Partner", model=model, actor_id=world["admin"].id,
+                                          source={"kind": "blank"}, tenant=TENANT)
+        publish_as_reviewed(world["store"], workspace, world["admin"].id)   # Link runs the published version (B2)
         [source] = link.config().get_json()["sources"]
         assert source["component"] == "sync-component" and source["key"] == "akten"
         assert source["fetch"] is False and source["write"] is False

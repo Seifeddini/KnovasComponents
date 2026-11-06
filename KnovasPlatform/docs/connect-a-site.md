@@ -48,7 +48,9 @@ Die Seite des Standorts hakt ab: **Paket installiert · Zertifikat · Knovas Lin
 
 ## 3. Quelle anlegen (Builder › Quellen & Zuordnung)
 
-Die Quelle auf die Komponente des Standorts legen. Ihr Zugang wird **nicht** in die Plattform eingegeben: Der Builder zeigt die genaue Zeile für `knovas-sources.env`, etwa `SYNC_CREDENTIAL_AKTEN=`, mit «Kopieren». Den Wert am Standort dahinter eintragen, neu starten und «Verbindung prüfen».
+Die Quelle auf die Komponente des Standorts legen. Das darf nur, wer die Standorte des Mandanten verwaltet (Berechtigung «Zugänge verwalten»): eine Beraterin mit einem Zugang zu nur einem Arbeitsbereich oder eine Autorin ohne diese Berechtigung kann keine Quelle an die Komponente eines Standorts binden, auch nicht über einen Import oder «Wiederherstellen» (BB-07, B2). Ihr Zugang wird **nicht** in die Plattform eingegeben: Der Builder zeigt die genaue Zeile für `knovas-sources.env`, etwa `SYNC_CREDENTIAL_AKTEN=`, mit «Kopieren». Den Wert am Standort dahinter eintragen, neu starten und «Verbindung prüfen».
+
+**Der Standort läuft mit dem veröffentlichten Stand, nie mit dem Entwurf** (BB-07, B2). Knovas Link und seine Komponenten erhalten Quellen, ihre Einstellungen (Adresse, Repository), ihre Schalter und die Zuordnungen nur aus der zuletzt veröffentlichten Fassung. Eine Änderung im Entwurf, etwa eine neue Adresse einer HTTP/JSON-Quelle, erreicht den Standort erst nach Probelauf, Freigabe und Veröffentlichen; vorher geht der Zugang des Standorts nie an eine Adresse, die niemand geprüft hat. Auch «Anwenden» auf einer Komponente wendet den veröffentlichten Stand an. Eine neue Quelle wird darum zuerst veröffentlicht; erst dann prüft die Komponente sie, und erst dann lässt sich ihre Zuordnung an der Form der Dateien entwerfen.
 
 Zwei Schalter je Quelle, beide aus, bis jemand sie einschaltet:
 

@@ -31,9 +31,10 @@ contract as the Platform implements it, until KC-7a writes it down in full:
     -> {component, paused, schedule, brain_url, sources: [{workspace, key, kind, access, settings, fetch, write}],
         mappings: [{workspace, id, source}]}
        For Knovas Link: the sources and mappings of every component behind it, each with ``component`` (its name on
-       the site). ``fetch`` and ``write`` are the source's switches as last published (MVP-25).
+       the site). Everything is as last published (BB-07, B2): settings, switches (MVP-25) and mappings; a draft never
+       reaches a component.
   GET  /api/connectors/v1/package
-    -> {workspaces: [{workspace, files: {path: base64}}]}    the configuration of the workspaces it serves, compiled
+    -> {workspaces: [{workspace, files: {path: base64}}]}    the published configuration of the workspaces it serves
   POST /api/connectors/v1/runs
        {kind: dry_run|apply, status: ok|held|failed, started_at, finished_at, duration_ms,
         added, changed, retired, errors, held: [{mapping, retire: {type: n}, share}], command}
@@ -443,7 +444,8 @@ def package_of(store: Any, c: Mapping[str, Any], write: Optional[Callable[[Mappi
     """The configuration package of each workspace this component serves: the workspace model stays the only record,
     so a component is never configured by hand. It holds definitions and source settings, no credential and no data;
     not the workspace's own parts either (package.WORKSPACE_FILE: every source, the access design, the role mapping):
-    a component learns the sources it serves from config_of."""
+    a component learns the sources it serves from config_of. It is compiled from the newest published version, never
+    from a draft (BB-07, B2): what a site runs has been reviewed, approved and published."""
     import base64
 
     if write is None:
@@ -453,7 +455,7 @@ def package_of(store: Any, c: Mapping[str, Any], write: Optional[Callable[[Mappi
     out = []
     served = _served(store, c)
     for workspace in dict.fromkeys(s["workspace"] for s in served["sources"]):
-        model = store.model(workspace)
+        model = store.published_model(workspace)
         if model is None:
             continue
         try:
