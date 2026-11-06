@@ -82,6 +82,8 @@ ENDPOINT_PERMISSIONS = {
 #: Endpoints about the workspace chosen in the session rather than one in the address.
 SESSION_ENDPOINTS = frozenset({"stage", "mapping_page", "access_page", "access_preview", "access_apply",
                                "access_rules_add", "access_rule_remove"})
+#: Reads that hand out a whole workspace: logged in the access log for everyone, a role holder too (BB-07, B7).
+AUDITED_READS = frozenset({"export"})
 #: Endpoints that need no workspace: a global role, or any running grant, opens them for reading.
 GLOBAL_ENDPOINTS = frozenset({"home", "stage", "styleguide"})
 #: The Platform's own roles when the app does not say which it has (identity's built-in four).
@@ -346,12 +348,14 @@ def create_builder_blueprint(
 
     @bp.after_request
     def _log_access(response):
-        """Every request of a grant's holder, and every write of anyone: who, when, which action, the status."""
+        """Every request of a grant's holder, every write of anyone, and every export: who, when, which action, the
+        status."""
         found = g.get("builder_access")
         user = gate.current_user() if found is not None else None
         # A refused try on an access that has run out counts as a grant holder's request too.
         expired_try = found is not None and found.expired is not None and response.status_code == 403
-        if user is None or (found.via != "grant" and request.method == "GET" and not expired_try):
+        audited_read = (request.endpoint or "").rpartition(".")[2] in AUDITED_READS
+        if user is None or (found.via != "grant" and request.method == "GET" and not expired_try and not audited_read):
             return response
         store = _store()
         if store is None or not hasattr(store, "log_access"):

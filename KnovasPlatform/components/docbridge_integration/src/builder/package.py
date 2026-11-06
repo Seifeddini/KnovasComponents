@@ -81,6 +81,10 @@ _LEVEL_LABELS = {"core": "euo", "pack": "pack"}
 MAX_ZIP_ENTRIES = 20_000
 MAX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
 MAX_YAML_BYTES = 8 * 1024 * 1024
+#: Nodes one YAML file may hold with every alias written out (BB-07, B6). Aliases are resolved by reference, so a few
+#: kilobytes of nested aliases ("billion laughs") load small and grow exponentially once the model is serialised;
+#: packages do use aliases (a rule's condition named once and reused), so they are counted, not refused.
+MAX_EXPANDED_NODES = 2_000_000
 
 # A fixed timestamp for every zip entry, so an export is byte-stable.
 _ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
@@ -140,11 +144,46 @@ class _Dumper(yaml.SafeDumper):
 
 def load_yaml(data: bytes | str, name: str = "") -> Any:
     try:
-        return yaml.load(data, Loader=_Loader)  # noqa: S506 - SafeLoader subclass
+        loaded = yaml.load(data, Loader=_Loader)  # noqa: S506 - SafeLoader subclass
     except yaml.YAMLError as exc:
         mark = getattr(exc, "problem_mark", None)
         where = f" (Zeile {mark.line + 1})" if mark is not None else ""
         raise PackageError(f"{name or 'Eine Datei'} ist kein gültiges YAML{where}.") from exc
+    except RecursionError:
+        raise PackageError(f"{name or 'Eine Datei'} ist zu tief verschachtelt.") from None
+    try:
+        expanded_size(loaded, name)
+    except RecursionError:
+        raise PackageError(f"{name or 'Eine Datei'} ist zu tief verschachtelt.") from None
+    return loaded
+
+
+def expanded_size(data: Any, name: str = "", limit: int = MAX_EXPANDED_NODES) -> int:
+    """How many nodes ``data`` holds with every YAML alias written out, as json.dumps would write it; a PackageError
+    when that exceeds ``limit`` or an alias refers to a node that contains it (BB-07, B6). Counted without writing
+    anything out: each shared node is sized once."""
+    sizes: dict[int, int] = {}
+    open_: set[int] = set()
+
+    def size(node: Any) -> int:
+        if not isinstance(node, (dict, list)):
+            return 1
+        key = id(node)
+        if key in sizes:
+            return sizes[key]
+        if key in open_:
+            raise PackageError(f"{name or 'Eine Datei'} verweist mit einem YAML-Alias auf sich selbst.")
+        open_.add(key)
+        total = 1 + (sum(size(k) + size(v) for k, v in node.items()) if isinstance(node, dict)
+                     else sum(size(item) for item in node))
+        open_.discard(key)
+        if total > limit:
+            raise PackageError(f"{name or 'Eine Datei'} wird mit ihren YAML-Aliasen zu groß "
+                               f"(mehr als {limit} Einträge).")
+        sizes[key] = total
+        return total
+
+    return size(data)
 
 
 def dump_yaml(data: Any) -> bytes:
