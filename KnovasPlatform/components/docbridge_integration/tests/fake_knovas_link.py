@@ -225,8 +225,10 @@ class FakeLink:
                                      "client_certificate": request.environ.get("SSL_CLIENT_CERT")})
             if path is None:
                 return error(403, "not_relayed")
+            # brain-runner 0.3 also reads the document list (with source references) and the folder rules
             empty = {"secured/graph/node-types": {"node_types": []}, "secured/graph/nodes": {"nodes": []},
-                     "secured/graph/edges": {"edges": []}}
+                     "secured/graph/edges": {"edges": []}, "secured/documents": {"documents": [], "next_after": None},
+                     "secured/folder_rules": {"rules": []}}
             if request.method == "GET" and path in empty:
                 return jsonify(empty[path])
             return jsonify({"error_code": "not_in_this_fake"}), 404
