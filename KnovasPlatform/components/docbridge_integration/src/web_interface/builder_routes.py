@@ -987,8 +987,13 @@ def create_builder_blueprint(
                 if isinstance(found, str):
                     import json as _json
 
-                    found = _json.loads(found) if found.strip() else {}
-                current = dict(found or {}) if isinstance(found, Mapping) or not found else current
+                    found = _json.loads(found) if found.strip() else None
+                if isinstance(found, Mapping):
+                    current = dict(found)
+                elif not found:
+                    current = {}            # the setting is empty: every role sees every profile today
+                else:
+                    unknown = True
             except Exception as exc:  # noqa: BLE001 - compared with the published version, and said so
                 logger.warning("Builder: views.profile_roles not readable for the plan (%s)", type(exc).__name__)
                 unknown = True

@@ -130,6 +130,29 @@ class TestTheReproduction:
         assert body["result"]["audit"]["approved_by_importer"] is False
 
 
+class TestTheRoleMappingComparedWith:
+    def _rows(self, world):
+        workspace = _import(world, _package_zip(roles=ROLES))
+        dry = _post(world, workspace, "dry-run").get_json()
+        return [r for r in dry["effects"]["rows"] if r["part"] == "roles"], dry["effects"]["roles"]
+
+    def test_the_setting_as_stored_text(self, world):
+        world["current_roles"]["value"] = '{"member": ["leser"]}'
+        rows, _ = self._rows(world)
+        assert rows == [], "the Platform already holds this mapping: publish changes nothing there"
+
+    def test_another_mapping_on_the_platform_shows_what_publish_replaces(self, world):
+        world["current_roles"]["value"] = {"member": ["alles"], "approver": ["leser"]}
+        rows, _ = self._rows(world)
+        assert {(r["element"], r["status"]) for r in rows} == {("Rolle member", "update"), ("Rolle approver", "update")}
+        assert any("bisher: alles" in r["detail"] for r in rows)
+
+    def test_an_unreadable_setting_is_compared_with_the_published_version_and_said(self, world):
+        world["current_roles"]["value"] = ["kein", "Mapping"]
+        rows, plan = self._rows(world)
+        assert plan["current_unknown"] is True and [r["status"] for r in rows] == ["create"]
+
+
 class TestTheApprovalBindsToTheDiff:
     def _approved(self, world, **kw):
         workspace = _import(world, **kw)
