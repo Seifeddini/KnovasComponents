@@ -11,9 +11,18 @@ on:
 # Runners: trusted runs (pushes, and same-repository pull requests not opened by a bot) go to the self-hosted
 # AWS box when the repository variable CI_RUNNER names its label (knovas-ci); forks and bots, or an unset
 # CI_RUNNER, run on GitHub's runners. No job here holds a secret. Since 2026-11-06: GitHub-hosted minutes are used up.
+# A push to main or master goes to [self-hosted, knovas-ci-ephemeral] instead while the repository variable
+# CI_EPHEMERAL_RUNNER is set: one fresh AWS instance per job, destroyed after it, never the shared box (K-D3;
+# KnowledgeBase runbook docs/Docs/08_RUNBOOKS/Semantix_Runbooks/Ops/CI_Ephemeral_Runners.md). With it unset, the
+# routing above applies unchanged. Forks and bots reach neither self-hosted label.
+#
+# Read-only token: nothing here pushes, comments or releases.
+permissions:
+  contents: read
+
 jobs:
   knovas-platform:
-    runs-on: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && vars.CI_EPHEMERAL_RUNNER && fromJSON('["self-hosted","knovas-ci-ephemeral"]') || (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
     services:
       # The DSN, port, user, password and database name match what
       # tests/conftest.py already expects (PLATFORM_DB_TEST_DSN). The
@@ -165,7 +174,7 @@ jobs:
   # Its isolation is only real in the image with compose's settings, so this
   # job builds the image and runs code in it, not just the unit tests.
   experiments-runner:
-    runs-on: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && vars.CI_EPHEMERAL_RUNNER && fromJSON('["self-hosted","knovas-ci-ephemeral"]') || (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: KnovasPlatform/components/experiments_runner
@@ -284,7 +293,7 @@ jobs:
           "${DC[@]}" down -v
 
   knovas-connector:
-    runs-on: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && vars.CI_EPHEMERAL_RUNNER && fromJSON('["self-hosted","knovas-ci-ephemeral"]') || (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: KnovasConnector
