@@ -252,11 +252,14 @@ class TestThePackage:
         component = next(p for p in written["pages"] if p["key"] == "PAGE-component")
         assert component["sections"][0]["id"] == "calls"
 
-    def test_the_role_mapping_is_not_a_package_file(self, model):
+    def test_the_role_mapping_is_the_builder_s_own_part_of_the_package(self, model):
+        """Not in brain-runner's files (the manifest, the profiles): in the Builder's own file beside them, so the
+        export keeps it (KB-10). The package brain-runner reads leaves it out."""
         _apply(model, op="roles.set", role="member", profiles=["partner"])
         files = package.write_package(model)
-        assert not any(b"profile_roles" in data for data in files.values())
-        assert package.content_hash(model) != package.content_hash(package.read_package(files).model)
+        assert [path for path, data in files.items() if b"profile_roles" in data] == [package.WORKSPACE_FILE]
+        assert package.content_hash(model) == package.content_hash(package.read_package(files).model)
+        assert package.WORKSPACE_FILE not in package.write_package(model, workspace_parts=False)
 
 
 class TestTheRoutes:

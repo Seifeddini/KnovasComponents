@@ -11,7 +11,10 @@ brain-runner reads it from there, so the bundle is brain-runner's own:
            brain_runner.bundle.dumps.
   plan     brain_runner.ontology.plan(cfg, api): what the tenant's ontology
            needs -- types and attributes to create or update, parents to set,
-           and what the engine cannot hold yet (not_configured).
+           and what the engine cannot hold yet (not_configured). Planned from
+           the model as it stands; only an alias type brain-runner cannot
+           place on the tenant is planned under another parent, and its
+           description stays the stated one (alias_parents).
   apply    brain_runner.ontology.apply(api, plan): written, refused, skipped.
 
 The API client is brain_runner.api.BrainApi on the Platform's certificate,
@@ -27,7 +30,7 @@ import hashlib
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping, Optional, Protocol
+from typing import Any, Callable, Iterable, Mapping, Optional, Protocol
 
 from builder import package
 from builder import packs as shipped_packs
@@ -49,24 +52,40 @@ def without_engine_types(model: Mapping[str, Any]) -> Mapping[str, Any]:
     return out
 
 
-def alias_parents(model: Mapping[str, Any]) -> Mapping[str, Any]:
-    """The model with every alias type under its class's ancestor.
+def _is_alias(t: Any) -> bool:
+    return isinstance(t, Mapping) and bool(t.get("parent")) and t.get("parent") == t.get("iri")
+
+
+def alias_parents(model: Mapping[str, Any], unresolved: Iterable[str] = (),
+                  core: Optional[Mapping[str, bool]] = None) -> Mapping[str, Any]:
+    """The model with the alias types brain-runner cannot place on the tenant under their class's ancestor.
 
     An alias stands for a catalog class and names that same class as its parent (parent == its own iri: a
-    glossary term that *is* the core's Designation, a code symbol that *is* a CodeArtifact). brain-runner looks for
-    another configured type that stands for the parent, finds only the type itself and leaves the type without a
-    parent ("unresolved parent"). Such a type takes the class's place: its parent becomes the class's nearest
-    ancestor in the catalogs (builder/packs) that another configured type stands for (that type) or that the core
-    has (the class itself)."""
+    glossary term that *is* the core's Designation, a code symbol that *is* a CodeArtifact). brain-runner places
+    such a type under the class when the tenant's store lets tenant types specialise it, or under another
+    configured type that stands for the class; otherwise it leaves the type without a parent ("unresolved
+    parent"). Such a type takes the class's place: its parent becomes the class's nearest ancestor in the catalogs
+    (builder/packs) that another configured type stands for (that type) or that the store lets a tenant type
+    specialise (the class itself).
+
+    ``unresolved`` names the types brain-runner leaves without a parent on the tenant (BrainRunnerEngine.plan asks
+    brain-runner, over the tenant's core types); only the aliases among them move, every other type keeps the
+    parent the model states. ``core`` is the tenant's core types, {CURIE: specializable}, as
+    ``GET node-types?include=core`` lists them: the parents a moved alias may take; None: the core catalog's
+    classes.
+
+    Only the parent changes. A type's description is planned from the model as it stands (``stated_descriptions``):
+    where the type sits must not rewrite what it says."""
+    names = set(unresolved)
     types = [t for t in ((model.get("ontology") or {}).get("types") or []) if isinstance(t, Mapping)]
-    aliases = [t for t in types if t.get("parent") and t.get("parent") == t.get("iri")]
-    if not aliases:
+    if not any(_is_alias(t) and t.get("key") in names for t in types):
         return model
     catalog = {c["id"]: c for p in shipped_packs.load() for c in p.get("types") or []}
-    core = {c["id"] for p in shipped_packs.load() if p.get("pack") == "core" for c in p.get("types") or []}
+    if core is None:
+        core = {c["id"]: True for p in shipped_packs.load() if p.get("pack") == "core" for c in p.get("types") or []}
     out = copy.deepcopy(dict(model))
     for t in out["ontology"]["types"]:
-        if not isinstance(t, dict) or not t.get("parent") or t.get("parent") != t.get("iri"):
+        if not _is_alias(t) or t.get("key") not in names:
             continue
         others = {o.get("iri"): o.get("key") for o in out["ontology"]["types"]
                   if isinstance(o, Mapping) and o.get("iri") and o.get("key") != t.get("key")}
@@ -78,7 +97,7 @@ def alias_parents(model: Mapping[str, Any]) -> Mapping[str, Any]:
             seen.add(at)
             if at in others:
                 parent = others[at]
-            elif at in core:
+            elif core.get(at):
                 parent = at
             else:
                 queue += list((catalog.get(at) or {}).get("parents") or [])
@@ -89,9 +108,50 @@ def alias_parents(model: Mapping[str, Any]) -> Mapping[str, Any]:
     return out
 
 
-def for_engine(model: Mapping[str, Any]) -> Mapping[str, Any]:
-    """The model as the tenant's ontology is planned from (without_engine_types, alias_parents)."""
-    return alias_parents(without_engine_types(model))
+def for_engine(model: Mapping[str, Any], unresolved: Iterable[str] = (),
+               core: Optional[Mapping[str, bool]] = None) -> Mapping[str, Any]:
+    """The model as the tenant's ontology is planned from (without_engine_types, alias_parents). Without
+    ``unresolved`` no type moves: which alias brain-runner cannot place is the tenant's answer, and
+    BrainRunnerEngine.plan asks for it."""
+    return alias_parents(without_engine_types(model), unresolved, core)
+
+
+def tenant_listing(api: Any) -> Optional[tuple[dict[str, bool], dict[str, dict]]]:
+    """({core CURIE: specializable}, {name: the tenant's own type}) from ``GET node-types?include=core``, read the
+    way brain-runner reads it; None on a store without a type hierarchy (409), where brain-runner sends no parents."""
+    try:
+        rows = api.get("secured/graph/node-types?include=core")["node_types"]
+    except Exception as exc:  # noqa: BLE001 - only a 409 means "no hierarchy"; anything else is the plan's failure
+        if getattr(exc, "status", None) == 409:
+            return None
+        raise
+    core = {str(t["id"]): bool(t.get("specializable", True)) for t in rows if t.get("managed_by") == "bundle:core"}
+    return core, {str(t["name"]): t for t in rows if t.get("managed_by") != "bundle:core"}
+
+
+def stated_descriptions(plan: Mapping[str, Any], descriptions: Mapping[str, str],
+                        tenant_types: Mapping[str, Mapping[str, Any]]) -> dict:
+    """``plan`` with the descriptions of the moved types (``descriptions``: type -> the description brain-runner
+    plans from the model as it stands) in place of the ones it planned from their new parent.
+
+    brain-runner prints a type's parent into its description (brain-config.yaml
+    ``runner.ontology.type_description``), so a plan over the moved model would rewrite what a moved type says.
+    A new type is created with the stated description; a type the tenant has is updated only when its description
+    differs from the stated one, brain-runner's own rule. Reparents stay last, as brain-runner orders them."""
+    items, reparents = [], []
+    for item in plan.get("items") or []:
+        name, op = item.get("type"), item.get("op")
+        if name in descriptions and op == "update_type":
+            continue
+        if name in descriptions and op == "create_type":
+            item = {**item, "description": descriptions[name]}
+        (reparents if op == "reparent_type" else items).append(item)
+    for name, text in descriptions.items():
+        held = tenant_types.get(name)
+        if held is not None and (held.get("description") or "") != text:
+            items.append({"op": "update_type", "type": name, "type_id": held["id"],
+                          "from": held.get("description") or "", "to": text})
+    return {**plan, "items": items + reparents}
 
 
 class EngineUnavailable(RuntimeError):
@@ -194,7 +254,8 @@ class BrainRunnerEngine:
         return None
 
     def _write(self, model: Mapping[str, Any], root: Path) -> tuple[dict[str, bytes], Path]:
-        files = package.write_package(model)
+        # The configuration brain-runner reads: the workspace's own parts (package.WORKSPACE_FILE) stay out.
+        files = package.write_package(model, workspace_parts=False)
         for path, data in files.items():
             target = root / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -213,15 +274,55 @@ class BrainRunnerEngine:
                         content_hash=str(built.get("header", {}).get("content_hash", "")))
 
     def plan(self, model: Mapping[str, Any], tenant: str) -> dict:
+        """brain-runner's plan of the model as it stands. An alias type brain-runner cannot place on the tenant
+        (``alias_parents``) is planned under its class's ancestor; its description stays the one the model states."""
         config, ontology = self._module("config"), self._module("ontology")
+        api = self._api_factory()
+        stated = without_engine_types(model)
         with tempfile.TemporaryDirectory(prefix="builder-") as tmp:
-            _, manifest = self._write(for_engine(model), Path(tmp))
-            plan = ontology.plan(config.load(manifest), self._api_factory())
+            _, manifest = self._write(stated, Path(tmp) / "stated")
+            cfg = config.load(manifest)
+            moved = self._placement(stated, cfg, ontology, api)
+            if moved is None:
+                plan = ontology.plan(cfg, api)
+            else:
+                placed, descriptions, tenant_types = moved
+                _, manifest = self._write(placed, Path(tmp) / "placed")
+                plan = stated_descriptions(ontology.plan(config.load(manifest), api), descriptions, tenant_types)
         # The tenant's engine types are not the configuration's to name: not "kann das Brain nicht halten".
         engine = shipped_packs.engine_types()
         plan["not_configured"] = [i for i in plan.get("not_configured") or []
                                   if not (i.get("type") in engine and not i.get("attribute"))]
         return plan
+
+    @staticmethod
+    def _placement(stated: Mapping[str, Any], cfg: Any, ontology: Any, api: Any):
+        """(the model with the aliases brain-runner cannot resolve moved, the stated descriptions of the moved
+        types, the tenant's own types by name), or None when nothing moves: no alias, a brain-runner without type
+        parents, a store without a hierarchy, or every alias resolved as the model states it.
+
+        Which parent brain-runner resolves is brain-runner's own answer (``ontology.resolve_parents``) over the
+        tenant's core types (``tenant_listing``): a configured type's name, a core type tenant types may
+        specialise, or another configured type carrying the CURIE as its iri."""
+        types = (stated.get("ontology") or {}).get("types") or []
+        if not any(_is_alias(t) for t in types):
+            return None
+        resolve, wanted = getattr(ontology, "resolve_parents", None), getattr(ontology, "wanted", None)
+        if resolve is None or wanted is None:
+            return None
+        listing = tenant_listing(api)
+        if listing is None:
+            return None
+        core, tenant_types = listing
+        want = wanted(cfg)
+        unresolved = {name for name, (kind, _) in resolve(want, core).items() if kind == "unresolved"}
+        placed = alias_parents(stated, unresolved, core)
+        before = {t.get("key"): t.get("parent") for t in types if isinstance(t, Mapping)}
+        moved = sorted(str(t["key"]) for t in placed["ontology"]["types"]
+                       if isinstance(t, Mapping) and before.get(t.get("key")) != t.get("parent"))
+        if not moved:
+            return None
+        return placed, {k: want[k]["description"] for k in moved if k in want}, tenant_types
 
     def apply(self, model: Mapping[str, Any], tenant: str, plan: dict) -> dict:
         ontology = self._module("ontology")

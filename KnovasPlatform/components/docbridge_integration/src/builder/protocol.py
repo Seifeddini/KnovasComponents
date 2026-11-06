@@ -441,13 +441,15 @@ def config_of(store: Any, c: Mapping[str, Any]) -> dict:
 
 def package_of(store: Any, c: Mapping[str, Any], write: Optional[Callable[[Mapping[str, Any]], Mapping[str, bytes]]] = None) -> dict:
     """The configuration package of each workspace this component serves: the workspace model stays the only record,
-    so a component is never configured by hand. It holds definitions and source settings, no credential and no data."""
+    so a component is never configured by hand. It holds definitions and source settings, no credential and no data;
+    not the workspace's own parts either (package.WORKSPACE_FILE: every source, the access design, the role mapping):
+    a component learns the sources it serves from config_of."""
     import base64
 
     if write is None:
         from builder import package, publisher
 
-        write = lambda model: package.write_package(publisher.for_engine(model))  # noqa: E731
+        write = lambda model: package.write_package(publisher.for_engine(model), workspace_parts=False)  # noqa: E731
     out = []
     served = _served(store, c)
     for workspace in dict.fromkeys(s["workspace"] for s in served["sources"]):

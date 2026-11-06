@@ -239,6 +239,23 @@ class TestTheRoutes:
         assert TOKEN not in caplog.text
         assert "sources/kb" in [c["path"] for c in world["store"].draft_changes(world["id"])]
 
+    def test_the_export_holds_the_sources_and_an_import_reads_them_back(self, world):
+        runner = _register(world, "github_runner", "GitHub-Runner").get_json()["id"]
+        _edit(world, op="source.create", kind="github", name="KB", component=runner, settings={"repository": "acme/kb"})
+        world["client"].post(f"/builder/api/w/{world['id']}/sources/kb/credential", json={"value": TOKEN})
+        data = world["client"].get(f"/builder/w/{world['id']}/export").data
+        files = package.files_from_zip(data)
+        [held] = package.load_yaml(files[package.WORKSPACE_FILE])["sources"]
+        assert (held["key"], held["component"], held["credential_set"]) == ("kb", runner, True)
+        assert TOKEN.encode() not in data
+        made = world["client"].post("/builder/api/import", data={"package": (io.BytesIO(data), "p.zip"), "name": "Kopie"},
+                                    content_type="multipart/form-data")
+        assert made.status_code == 201
+        imported = next(w for w in world["store"].list() if w.name == "Kopie")
+        [source] = world["store"].model(imported.id)["sources"]
+        # The credential is the first workspace's: the copy has none and says so.
+        assert {**source, "credential_set": True} == held and source["credential_set"] is False
+
     def test_a_source_that_moves_loses_its_credential(self, world):
         runner = _register(world, "github_runner", "GitHub-Runner").get_json()["id"]
         _edit(world, op="source.create", kind="github", name="KB", component=runner, settings={"repository": "acme/kb"})
