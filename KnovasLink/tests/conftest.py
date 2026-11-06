@@ -39,6 +39,8 @@ SITE_TOKEN = "kce_" + "s" * 40
 LINK_ID = "11111111-2222-4333-8444-555555555555"
 CONTROL = "kcc_" + "c" * 40
 SERIAL = "4F2A"
+#: The site's tenant as the Platform's enrolment answer names it (a made-up client id).
+TENANT = "00000000-0000-4000-8000-000000000000"
 MAX_PART = 4 * 1024 * 1024
 
 
@@ -119,6 +121,8 @@ class FakePlatform:
     def __init__(self):
         self.lock = threading.Lock()
         self.issue_certificate = True
+        #: Changes to the enrolment answer, for a Platform that names no tenant or client CA.
+        self.enrol_answer: dict = {}
         self.tokens = {SITE_TOKEN}
         self.enrolments: list[dict] = []
         self.heartbeats: list[dict] = []
@@ -169,9 +173,11 @@ class FakePlatform:
                 return JSONResponse({"error": "bad_token", "message": "x"}, status_code=401)
             self.tokens.discard(body["token"])
         certificate = CA.sign(body["csr"]) if self.issue_certificate else None
+        # As builder/protocol.py answers: the Platform's tenant and Knovas's client CA (S-4 M2).
         return JSONResponse({"component": LINK_ID, "control_token": CONTROL, "certificate": certificate,
                              "certificate_chain": [CA.pem] if certificate else None, "config": {},
-                             "brain_url": BRAIN_URL, "brain_ca": CA.pem}, status_code=201)
+                             "brain_url": BRAIN_URL, "brain_ca": CA.pem, "tenant": TENANT, "client_ca": CA.pem,
+                             **self.enrol_answer}, status_code=201)
 
     async def heartbeat(self, request: Request):
         if (refused := self._auth(request)) is not None:

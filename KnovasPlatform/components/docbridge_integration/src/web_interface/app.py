@@ -1994,6 +1994,18 @@ def create_app(config_path: Optional[str] = None):
         # Only with per-user identity: the builder is gated on a role, and the
         # legacy shared login has no roles to check. The store is built per
         # request, on the request's connection, as the grant store below is.
+        def _builder_client_ca():
+            """Knovas's client CA (PEM, public; builder.components.client_ca): a site's Knovas Link learns it at enrolment
+            and installs only a certificate it signed; a site certificate recorded in the Builder must be signed by it
+            (BB-07 B3, S-4 M2)."""
+            path = str(config.get('builder.components.client_ca', '') or '').strip()
+            try:
+                text = open(path, encoding='utf-8').read() if path else ''
+            except OSError:
+                logger.warning("builder.components.client_ca is set but not readable")
+                return None
+            return text if 'BEGIN CERTIFICATE' in text else None
+
         app.register_blueprint(create_builder_blueprint(
             identity_gate,
             page_context=lambda: {
@@ -2027,6 +2039,8 @@ def create_app(config_path: Optional[str] = None):
             roles_sink=_builder_roles_sink,
             # What views.profile_roles holds now: the dry run shows what publish replaces (BB-07, B1).
             roles_source=lambda: app.extensions['platform_settings'].value('views.profile_roles'),
+            # A site certificate recorded on the site page must be signed by Knovas's client CA (BB-07 B3).
+            client_ca=_builder_client_ca,
             # Betrieb (B10): the sync's mapping state, runs and evaluation.
             sync_status=_builder_sync_status,
             # Sync components (B13): token hashes in the settings registry, adapters over what they report today.
@@ -2074,6 +2088,7 @@ def create_app(config_path: Optional[str] = None):
             brain_url=lambda: api_client.base_url,
             brain_ca=_builder_brain_ca,
             issue_certificates=_builder_issue_certificates,
+            client_ca=_builder_client_ca,
         ))
         identity_gate.allow_bearer_endpoints(_PROTOCOL_ENDPOINTS)
 

@@ -63,6 +63,20 @@
         });
     }
 
+    /* «Zertifikat erfassen» (BB-07 B3): the certificate the client CA signed; the server takes it only for this site's
+       request and tenant, and says why otherwise. */
+    var record = document.querySelector('[data-site-certificate-record]');
+    if (root && record) {
+        record.addEventListener('click', function () {
+            var pem = document.querySelector('[data-site-certificate-pem]').value;
+            record.disabled = true;
+            send(root.dataset.certificateUrl, { certificate: pem }).then(json).then(function (b) {
+                if (b.success) window.location.reload();
+                else { record.disabled = false; fail(document.querySelector('[data-site-error]'), b.error || 'Nicht möglich.'); }
+            });
+        });
+    }
+
     var dialog = document.getElementById('b-site-new');
     var opener = document.querySelector('[data-site-new]');
     if (dialog && opener) {

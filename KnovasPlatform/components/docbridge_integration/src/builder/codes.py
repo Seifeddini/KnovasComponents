@@ -222,7 +222,9 @@ CODES: Mapping[str, Mapping[str, str]] = {
                "certificate-request > site.csr»; Knovas signiert den Antrag (ein Knovas-Admin bestätigt; später "
                "signiert der Ausstellungsjob mit dem Schlüssel im HSM); dann «docker compose exec -T knovas-link python -m knovas_link "
                "install-certificate < site.crt». Knovas Link übernimmt das Zertifikat beim nächsten Heartbeat, ohne "
-               "Neustart (DEC-0056, DEC-0062).",
+               "Neustart (DEC-0056, DEC-0062). Vor dem Signieren den Fingerabdruck des Antrags mit dem auf der Seite "
+               "des Standorts vergleichen und das signierte Zertifikat dort mit «Zertifikat erfassen» eintragen: erst "
+               "dann nimmt die Plattform Knovas Link mit ihm an.",
     },
     # install-certificate on the site's machine (DEC-0056, A1): it writes nothing and names one of these
     "certificate.not_enrolled": {
@@ -256,6 +258,31 @@ CODES: Mapping[str, Mapping[str, str]] = {
         "explanation": "Das Zertifikat ist nicht für die Anmeldung als Client ausgestellt (erweiterte "
                        "Schlüsselverwendung clientAuth fehlt); es wurde nichts geschrieben.",
         "fix": "Den Antrag von der Client-CA von Knovas signieren lassen (internal-api, «/sign_certificate»).",
+    },
+    "certificate.wrong_issuer": {
+        "title": "Zertifikat einer anderen Stelle",
+        "explanation": "Das Zertifikat ist nicht von der Client-CA von Knovas signiert, die Knovas Link kennt; es wurde "
+                       "nichts geschrieben.",
+        "fix": "Den Antrag von der Client-CA von Knovas signieren lassen (internal-api, «/sign_certificate»).",
+    },
+    "certificate.wrong_tenant": {
+        "title": "Zertifikat für einen anderen Mandanten",
+        "explanation": "Das Zertifikat nennt einen anderen Mandanten (OU Semantix-Customer-…) als den dieses Standorts; "
+                       "es wurde nichts geschrieben.",
+        "fix": "Das Zertifikat bei Knovas sperren lassen und den Antrag für den Mandanten dieses Standorts neu "
+               "signieren lassen.",
+    },
+    "certificate.no_client_ca": {
+        "title": "Client-CA unbekannt",
+        "explanation": "Knovas Link kennt die Client-CA von Knovas nicht und installiert darum kein Zertifikat.",
+        "fix": "Knovas bittet, BUILDER_CONNECTOR_CLIENT_CA zu setzen, dann «Token erneuern»; oder am Standort "
+               "LINK_CLIENT_CA auf die Datei der Client-CA setzen.",
+    },
+    "certificate.no_tenant": {
+        "title": "Mandant unbekannt",
+        "explanation": "Knovas Link kennt den Mandanten seines Standorts nicht und installiert darum kein Zertifikat.",
+        "fix": "«Token erneuern», damit sich Knovas Link neu anmeldet und den Mandanten erfährt; oder am Standort "
+               "LINK_TENANT setzen.",
     },
     "invalid_job": {
         "title": "Auftrag ungültig",

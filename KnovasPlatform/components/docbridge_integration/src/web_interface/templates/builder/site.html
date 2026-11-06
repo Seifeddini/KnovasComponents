@@ -1,6 +1,6 @@
 {# A site (connection layer MVP-23): Knovas Link and the components beside it on one machine at the company.
    Expects site, link, link_state, children, checklist, containers, options, command, env_file, sources_env_file,
-   certificate_step,
+   certificate_step, certificate_check, certificate_fingerprint_command,
    protocol_path, compose_preview, states (builder_routes.site_page). static/js/builder/site.js downloads the package,
    renews the token and asks for a probe. #}
 {% extends 'builder/_base.html' %}
@@ -17,6 +17,7 @@
          data-package-url="{{ url_for('builder.site_package', site_id=site.id) }}"
          data-rotate-url="{{ url_for('builder.site_rotate', site_id=site.id) }}"
          data-probe-url="{{ url_for('builder.site_probe', site_id=site.id) }}"
+         data-certificate-url="{{ url_for('builder.site_certificate', site_id=site.id) }}"
          data-protocol-path="{{ protocol_path }}">
         <button type="button" class="b-button b-button--quiet" data-site-rotate {% if not link or link.state != 'enrolled' %}disabled{% endif %}>Token erneuern</button>
         <button type="button" class="b-button b-button--secondary" data-site-probe {% if not link or link.state != 'enrolled' %}disabled{% endif %}>Jetzt prüfen</button>
@@ -31,6 +32,7 @@
         <li><strong>Auf dem Rechner des Standorts starten:</strong><br><code class="b-mono" data-site-command>{{ command }}</code></li>
         {% set certificate_head, _, certificate_rest = certificate_step.partition(': ') %}
         <li data-site-certificate-step><strong>{{ certificate_head }}:</strong> {{ certificate_rest }}.</li>
+        <li data-site-certificate-check><strong>Antrag prüfen und Zertifikat erfassen:</strong> {{ certificate_check }}.</li>
     </ol>
     <div class="b-callout" role="note" data-site-digests>
         <p class="b-callout-title">Abbilder per Digest: noch Platzhalter</p>
@@ -55,6 +57,24 @@
     </ul>
     {% if link and link.telemetry and link.telemetry.certificate == 'waiting' %}
     <p class="b-small b-muted" data-site-waiting>Knovas Link meldet <span class="b-mono">waiting_for_certificate</span>: angemeldet, aber ohne Zertifikat für das Brain; es nimmt keine Aufträge an und schreibt nichts in den Mandanten.</p>
+    {% endif %}
+</section>
+
+<section class="b-comp-section" aria-labelledby="b-site-cert-title" data-site-certificate>
+    <h2 class="b-h3" id="b-site-cert-title">Zertifikat des Standorts</h2>
+    <dl class="b-small">
+        <dt>Fingerabdruck des Antrags (SHA-256 des öffentlichen Schlüssels)</dt>
+        <dd class="b-mono" data-site-request-fingerprint>{{ (link.request_fingerprint if link else None) or 'noch keiner: Knovas Link hat sich noch nicht angemeldet' }}</dd>
+        <dt>Erfasstes Zertifikat (SHA-256)</dt>
+        <dd class="b-mono" data-site-certificate-fingerprint>{{ (link.certificate_fingerprint if link else None) or 'noch keines' }}</dd>
+    </dl>
+    <p class="b-small b-muted">Den Fingerabdruck von <span class="b-mono">site.csr</span> zeigt <code class="b-mono">{{ certificate_fingerprint_command }}</code>; am Standort auch <code class="b-mono">docker compose exec -T knovas-link python -m knovas_link certificate-fingerprint</code>. Nur einen Antrag signieren, dessen Fingerabdruck dieser hier ist.</p>
+    {% if link and link.state == 'enrolled' and link.request_fingerprint %}
+    <div class="b-field">
+        <label class="b-label" for="b-site-cert-pem">Signiertes Zertifikat (PEM, das <span class="b-mono">certificate</span> der Antwort von <span class="b-mono">/sign_certificate</span>)</label>
+        <textarea class="b-textarea b-mono" id="b-site-cert-pem" rows="4" data-site-certificate-pem placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+    </div>
+    <button type="button" class="b-button b-button--secondary" data-site-certificate-record>Zertifikat erfassen</button>
     {% endif %}
 </section>
 

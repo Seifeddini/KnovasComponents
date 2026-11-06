@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from conftest import CA, eventually
+from conftest import CA, TENANT, eventually
 from knovas_link import certificate, contracts
 from knovas_link.__main__ import main
 from knovas_link.identity import Store
@@ -28,12 +28,13 @@ SPKI = serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyIn
 
 
 def sign(csr_pem: str, *, usages=CLIENT_AUTH, starts: float = -1, ends: float = 30, serial: int = 0x5A17E) -> str:
-    """The test CA signs as the client CA does: the request's key and common name, the tenant added as an OU."""
+    """The test CA signs as the client CA does: the request's key and common name, the tenant added as its one OU
+    Semantix-Customer-<client id> (KnowledgeBase's client_certificate_issuer)."""
     csr = x509.load_pem_x509_csr(csr_pem.encode())
     assert csr.is_signature_valid
     now = dt.datetime.now(dt.timezone.utc)
     subject = x509.Name(list(csr.subject) + [x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME,
-                                                                "Customer-00000000-0000-4000-8000-000000000000")])
+                                                                f"Semantix-Customer-{TENANT}")])
     builder = (x509.CertificateBuilder().subject_name(subject).issuer_name(CA.cert.subject).public_key(csr.public_key())
                .serial_number(serial).not_valid_before(now + dt.timedelta(days=starts))
                .not_valid_after(now + dt.timedelta(days=ends))

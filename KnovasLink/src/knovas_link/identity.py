@@ -75,6 +75,8 @@ class Store:
         self.certificate = self.folder / "component.crt"
         self.chain = self.folder / "chain.pem"
         self.identity = self.folder / "identity.json"
+        #: Knovas's client CA as the Platform named it at enrolment: install-certificate takes only what it signed.
+        self.client_ca_file = self.folder / "client-ca.pem"
 
     def load(self) -> Optional[Credentials]:
         """The credentials of an earlier enrolment, or None."""
@@ -108,6 +110,17 @@ class Store:
         key = self.private_key()
         return None if key is None else _csr(key, name)
 
+    def tenant(self) -> Optional[str]:
+        """The site's tenant as the Platform named it at enrolment, or None."""
+        if not self.identity.exists():
+            return None
+        found = json.loads(self.identity.read_text(encoding="utf-8")).get("tenant")
+        return str(found) if found else None
+
+    def client_ca(self) -> Optional[bytes]:
+        """Knovas's client CA (PEM) as the Platform named it at enrolment, or None."""
+        return self.client_ca_file.read_bytes() if self.client_ca_file.exists() else None
+
     def install_certificate(self, pem: bytes) -> None:
         """Write a certificate Knovas signed from ``certificate_request``, checked by the caller, as Link's own
         (``knovas_link.certificate.install``)."""
@@ -136,9 +149,17 @@ class Store:
             _private(self.chain, ("\n".join(chain) if isinstance(chain, list) else str(chain)).encode("utf-8"))
         else:
             self.chain.unlink(missing_ok=True)
+        # The site's tenant and Knovas's client CA, as the Platform named them: install-certificate takes only a
+        # certificate that CA signed for that tenant (S-4 M2). An answer without them leaves Link unable to install one.
+        client_ca = answer.get("client_ca")
+        if isinstance(client_ca, str) and "BEGIN CERTIFICATE" in client_ca:
+            _private(self.client_ca_file, client_ca.encode("utf-8"))
+        else:
+            self.client_ca_file.unlink(missing_ok=True)
+        tenant = answer.get("tenant") if isinstance(answer.get("tenant"), str) and answer.get("tenant") else None
         _private(self.identity, json.dumps({"component": component, "control_token": control,
                                             "enrolled_with": hashlib.sha256(token.encode("utf-8")).hexdigest()
-                                            if token else None}).encode("utf-8"))
+                                            if token else None, "tenant": tenant}).encode("utf-8"))
         loaded = self.load()
         assert loaded is not None
         return loaded

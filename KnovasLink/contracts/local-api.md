@@ -251,6 +251,10 @@ anything else with 400 `bad_field`. 503 `unreachable`: the Platform did not answ
 | `certificate.wrong_key` | Link | `install-certificate` exits 1: the certificate is not for Link's stored key; nothing is written |
 | `certificate.not_valid_now` | Link | `install-certificate` exits 1: the certificate has expired or is not valid yet; nothing is written |
 | `certificate.not_client_auth` | Link | `install-certificate` exits 1: the certificate lacks the extended key usage clientAuth; nothing is written |
+| `certificate.wrong_issuer` | Link | `install-certificate` exits 1: the certificate is not signed by Knovas's client CA Link knows; nothing is written |
+| `certificate.wrong_tenant` | Link | `install-certificate` exits 1: the certificate's OU `Semantix-Customer-<id>` is not the site's tenant; nothing is written |
+| `certificate.no_client_ca` | Link | `install-certificate` exits 1: Link knows no client CA (enrolment answer or `LINK_CLIENT_CA`); nothing is written |
+| `certificate.no_tenant` | Link | `install-certificate` exits 1: Link knows no tenant (enrolment answer or `LINK_TENANT`); nothing is written |
 | `too_large` | component | job result `refused`: the original is larger than the fetch's `max_bytes` |
 | `version_mismatch` | component | job result `failed`: the fetched bytes' git blob hash is not the requested version |
 | `edit_unsupported` | component | job result `refused`: a write into a file kind or key the component cannot edit |

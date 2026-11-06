@@ -334,7 +334,8 @@ class MemoryWorkspaceStore:
                            "capabilities": [], "enrol_expires_at": None, "enrolled_at": None,
                            "certificate_fingerprint": None, "last_heartbeat_at": None, "reported_state": None,
                            "lag_seconds": None, "open_errors": 0, "revoked_at": None, "source_checks": {},
-                           "site_id": None, "parent_id": None, "local_name": None, "telemetry": {}}
+                           "site_id": None, "parent_id": None, "local_name": None, "telemetry": {},
+                           "request_fingerprint": None}
 
     def components(self, tenant, *, every=False):
         states = ("registered", "enrolled", "pending", "revoked") if every else ("registered", "enrolled")
@@ -834,7 +835,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
              component_secrets=None, adapters=None, limits=None, signer=None, require_certificate=True,
              access=None, assistant=None, graph=None, brain_url=None, brain_ca=None,
              issue_certificates=True, views_source=None, tenant_bundle=None, tenant_client=None,
-             roles_source=None) -> Flask:
+             roles_source=None, client_ca=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -879,6 +880,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         platform_roles=(lambda: roles) if roles is not None else None,
         roles_sink=roles_sink,
         roles_source=roles_source,
+        client_ca=(lambda: client_ca) if client_ca is not None else None,
         sync_status=(lambda: sync) if sync is not None else None,
         user_directory=(lambda: directory) if directory is not None else None,
         component_secrets=(lambda: component_secrets) if component_secrets is not None else None,
@@ -897,7 +899,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
             store_factory=lambda: store, secrets=lambda: component_secrets, tenant_provider=lambda: tenant,
             signer=signer or fake_signer, require_client_certificate=require_certificate,
             brain_url=(lambda: brain_url) if brain_url else None, brain_ca=(lambda: brain_ca) if brain_ca else None,
-            issue_certificates=issue_certificates))
+            issue_certificates=issue_certificates, client_ca=(lambda: client_ca) if client_ca is not None else None))
     return app
 
 
@@ -933,8 +935,8 @@ class ProtocolClient:
                 headers["X-Client-Cert-Fingerprint"] = certificate_fingerprint(self.certificate)
         return self.http.open(self.base + path, method=method, json=body, headers=headers)
 
-    def enrol(self, token, version="2.4.0", capabilities=("dry_run", "apply", "held_plans")):
-        answer = self._send("POST", "/enrol", {"token": token, "csr": FAKE_CSR, "version": version,
+    def enrol(self, token, version="2.4.0", capabilities=("dry_run", "apply", "held_plans"), csr=None):
+        answer = self._send("POST", "/enrol", {"token": token, "csr": csr or FAKE_CSR, "version": version,
                                                "capabilities": list(capabilities)}, auth=False)
         if answer.status_code == 201:
             body = answer.get_json()

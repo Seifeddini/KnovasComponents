@@ -37,14 +37,17 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
                                         require_client_certificate: bool = True,
                                         brain_url: Optional[Callable[[], Optional[str]]] = None,
                                         brain_ca: Optional[Callable[[], Optional[str]]] = None,
-                                        issue_certificates: bool = True) -> Blueprint:
+                                        issue_certificates: bool = True,
+                                        client_ca: Optional[Callable[[], Optional[str]]] = None) -> Blueprint:
     """``secrets()`` is the settings registry's store of the components' token hashes (sealed);
     ``signer(csr, name)`` has the Brain sign a component's certificate for this Platform's tenant.
     ``require_client_certificate``: refuse a call without the certificate fingerprint the TLS terminator sets
     (the default); False only for a deployment where no terminator checks client certificates.
     ``brain_url()`` is the Brain API a component writes to with its own certificate; ``brain_ca()`` the CA (PEM, public)
     its TLS certificate is checked against, so that nobody has to copy it to the company by hand.
-    ``issue_certificates``: False where the Brain does not sign at enrolment; see builder.protocol.enrol."""
+    ``issue_certificates``: False where the Brain does not sign at enrolment; see builder.protocol.enrol.
+    ``client_ca()``: Knovas's client CA (PEM, public), which the enrolment answer names beside the Platform's tenant, so
+    that Knovas Link installs only a certificate of that CA for that tenant (S-4 M2)."""
     bp = Blueprint("connector_protocol", __name__, url_prefix="/api/connectors/v1")
 
     def _now() -> dt.datetime:
@@ -67,12 +70,12 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
             raise protocol.ProtocolError(400, "not_json", "a JSON body")
         return body if isinstance(body, dict) else {}
 
-    def _component():
+    def _component(waiting_ok: bool = False):
         auth = request.headers.get("Authorization", "")
         bearer = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
         return protocol.authenticate(store_factory(), secrets(), _tenant(), request.headers.get("X-Component", ""),
                                      bearer, request.headers.get("X-Client-Cert-Fingerprint"),
-                                     require_certificate=require_client_certificate)
+                                     require_certificate=require_client_certificate, waiting_ok=waiting_ok)
 
     def _reporter(body: Optional[dict] = None, c=None):
         """The component a report is about: the caller, or the one behind Knovas Link it names (MVP-23)."""
@@ -92,12 +95,13 @@ def create_connector_protocol_blueprint(*, store_factory: Callable[[], Any], sec
             logger.info("Connector enrolment refused: %s", exc.code)
             return _error(exc)
         logger.info("Connector enrolled: component %s", result["component"])
-        return jsonify({**result, "brain_url": brain_url() if brain_url else None, "brain_ca": brain_ca() if brain_ca else None}), 201
+        return jsonify({**result, "brain_url": brain_url() if brain_url else None, "brain_ca": brain_ca() if brain_ca else None,
+                        "tenant": _tenant(), "client_ca": client_ca() if client_ca else None}), 201
 
     @bp.route("/heartbeat", methods=["POST"])
     def heartbeat():
         try:
-            c = _component()
+            c = _component(waiting_ok=True)       # a Link waiting for its recorded certificate may beat (BB-07 B3)
             return jsonify(protocol.heartbeat(store_factory(), c, _body(), _now(), tenant=_tenant()))
         except protocol.ProtocolError as exc:
             return _error(exc)

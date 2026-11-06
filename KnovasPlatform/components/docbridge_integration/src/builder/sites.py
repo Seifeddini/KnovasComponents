@@ -80,6 +80,14 @@ CERTIFICATE_INSTALL = "docker compose exec -T knovas-link python -m knovas_link 
 CERTIFICATE_SIGNING = "(ein Knovas-Admin bestätigt; später signiert der Ausstellungsjob mit dem Schlüssel im HSM)"
 CERTIFICATE_STEP = (f"Zertifikat beantragen: auf dem Rechner «{CERTIFICATE_REQUEST}»; Knovas signiert den Antrag "
                     f"{CERTIFICATE_SIGNING}; dann «{CERTIFICATE_INSTALL}»")
+#: What ties the request to this site (BB-07 B3/B4, S-4 M2): enrolment recorded the fingerprint of Link's request; the
+#: admin compares it before signing, and records the signed certificate here, which the Builder takes only for that key
+#: and this tenant. Link's own check refuses another issuer or tenant.
+CERTIFICATE_FINGERPRINT = ("openssl req -in site.csr -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum")
+CERTIFICATE_CHECK = ("Vor dem Signieren vergleicht der Knovas-Admin den Fingerabdruck des Antrags "
+                     f"(«{CERTIFICATE_FINGERPRINT}») mit dem auf dieser Seite und signiert nur bei Gleichheit; danach "
+                     "trägt er das signierte Zertifikat hier mit «Zertifikat erfassen» ein. Erst dann nimmt die Plattform "
+                     "Knovas Link mit diesem Zertifikat an")
 #: Where a ticked share is mounted in the component, read only; the person names the folder on the machine.
 SHARE_TARGET = "/sources"
 SHARE_PLACEHOLDER = "${KNOVAS_SHARE_FOLDER:?Ordner der Dateiablage auf diesem Rechner eintragen}"
@@ -236,8 +244,10 @@ def checklist(site: Mapping[str, Any], link: Optional[Mapping[str, Any]], childr
         {"key": "installed", "label": "Paket installiert", "ok": enrolled,
          "fix": f"«Installationspaket herunterladen», auf dem Rechner des Standorts entpacken und «{COMMAND}» "
                 f"ausführen. Das Token im Paket gilt 24 Stunden und nur einmal."},
-        {"key": "certificate", "label": "Zertifikat", "ok": enrolled and telemetry.get("certificate") == "present",
-         "fix": CERTIFICATE_STEP[0].upper() + CERTIFICATE_STEP[1:] + "."},
+        # Present at the site, and recorded here (its fingerprint is what the Platform takes, BB-07 B3).
+        {"key": "certificate", "label": "Zertifikat",
+         "ok": enrolled and telemetry.get("certificate") == "present" and bool((link or {}).get("certificate_fingerprint")),
+         "fix": CERTIFICATE_STEP[0].upper() + CERTIFICATE_STEP[1:] + ". " + CERTIFICATE_CHECK + "."},
         {"key": "link_online", "label": "Knovas Link online", "ok": enrolled and _fresh(seen, now, minutes),
          "fix": "Am Standort «docker compose ps»: läuft knovas-link? Erreicht der Rechner die Plattform unter "
                 f"LINK_PLATFORM_URL ({LINK_ENV_FILE})? «docker compose logs knovas-link» nennt den Grund."},

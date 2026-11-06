@@ -369,7 +369,7 @@ class WorkspaceStore:
                            c.transport, c.paused, c.schedule, c.version, c.capabilities, c.enrol_expires_at,
                            c.enrolled_at, c.certificate_fingerprint, c.last_heartbeat_at, c.reported_state,
                            c.lag_seconds, c.open_errors, c.revoked_at, c.source_checks,
-                           c.site_id, c.parent_id, c.local_name, c.telemetry
+                           c.site_id, c.parent_id, c.local_name, c.telemetry, c.request_fingerprint
                       FROM builder_component c LEFT JOIN users u ON u.id = c.registered_by"""
     #: The states a source may be read through (B7) or a component may run in.
     _USABLE = "('registered', 'enrolled')"
@@ -385,7 +385,9 @@ class WorkspaceStore:
                 "revoked_at": _iso(row[21]), "source_checks": row[22] or {},
                 # Sites (migration 0022): the site a component runs at, and for one behind Knovas Link its parent and
                 # its name on the site; Link's own row keeps what its heartbeat reports of the site.
-                "site_id": _uuid(row[23]), "parent_id": _uuid(row[24]), "local_name": row[25], "telemetry": row[26] or {}}
+                "site_id": _uuid(row[23]), "parent_id": _uuid(row[24]), "local_name": row[25], "telemetry": row[26] or {},
+                # The SHA-256 of the public key of the request it enrolled with (migration 0024, BB-07 B3/B4).
+                "request_fingerprint": row[27]}
 
     def components(self, tenant: str, *, every: bool = False) -> list[dict]:
         """The tenant's sync components a source can use, by name; ``every``: pending and revoked ones too."""
@@ -421,7 +423,7 @@ class WorkspaceStore:
 
     _UPDATABLE = {"state", "paused", "schedule", "version", "capabilities", "enrol_expires_at", "enrolled_at",
                   "certificate_fingerprint", "last_heartbeat_at", "reported_state", "lag_seconds", "open_errors",
-                  "revoked_at", "name", "site", "owner", "settings", "source_checks", "telemetry"}
+                  "revoked_at", "name", "site", "owner", "settings", "source_checks", "telemetry", "request_fingerprint"}
 
     def update_component(self, component_id: str, **fields) -> None:
         unknown = set(fields) - self._UPDATABLE

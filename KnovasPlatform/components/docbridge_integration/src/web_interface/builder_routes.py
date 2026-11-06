@@ -75,7 +75,7 @@ ENDPOINT_PERMISSIONS = {
     # The connection layer (MVP-23..28): sites and their packages are managed; the connection card and «Freigaben» are
     # read with a Platform role; accepting or rejecting a write proposal needs publish (decision CL-4).
     "site_page": "manage", "create_site": "manage", "site_package": "manage", "site_rotate": "manage",
-    "site_probe": "manage",
+    "site_probe": "manage", "site_certificate": "manage",
     "connection_page": "view", "approvals_page": "view", "approvals_count": "view",
     "approval_accept": "publish", "approval_reject": "publish",
 }
@@ -217,6 +217,7 @@ def create_builder_blueprint(
     platform_roles: Optional[Callable[[], list]] = None,
     roles_sink: Optional[Callable[..., Any]] = None,
     roles_source: Optional[Callable[[], Any]] = None,
+    client_ca: Optional[Callable[[], Optional[str]]] = None,
     sync_status: Optional[Callable[[], Mapping[str, Any]]] = None,
     assistant_client: Optional[Callable[[], Optional[tuple]]] = None,
     tenant_graph: Optional[Callable[[], tuple]] = None,
@@ -280,6 +281,9 @@ def create_builder_blueprint(
     ``sync_status()`` returns the Platform's sync as the Betrieb stage reads
     it (step B10): ``state`` (brain-runner's state of the mappings), ``runs``
     (the sync's run history) and ``evaluation``; None where nothing syncs.
+
+    ``client_ca()`` returns Knovas's client CA (PEM, public), when configured: a site certificate recorded on the
+    site page must be signed by it (BB-07 B3, S-4 M2).
 
     ``tenant_client()`` returns the Builder's line to the tenant's connection routes (builder.connection_api.
     BrainConnection on the Platform's certificate): write proposals for «Freigaben» and the job counts of the
@@ -1572,7 +1576,8 @@ def create_builder_blueprint(
                        containers=[{"name": c, **site_rules.CONTAINERS[c]} for c in site_rules.containers_of(site["options"])],
                        options=site_rules.OPTIONS, command=site_rules.COMMAND, env_file=site_rules.LINK_ENV_FILE,
                        sources_env_file=site_rules.SOURCES_ENV_FILE,
-                       certificate_step=site_rules.CERTIFICATE_STEP, protocol_path=PROTOCOL_PATH,
+                       certificate_step=site_rules.CERTIFICATE_STEP, certificate_check=site_rules.CERTIFICATE_CHECK,
+                       certificate_fingerprint_command=site_rules.CERTIFICATE_FINGERPRINT, protocol_path=PROTOCOL_PATH,
                        compose_preview=site_rules.compose_file(site, site["options"]),
                        states=component_rules.STATES)
 
@@ -1653,6 +1658,33 @@ def create_builder_blueprint(
             return _protocol_refused(exc)
         logger.info("Builder: the token of a site's Knovas Link renewed, site %s", site["id"])
         return jsonify({"success": True})
+
+    @bp.route("/api/sites/<site_id>/certificate", methods=["POST"])
+    def site_certificate(site_id: str):
+        """«Zertifikat erfassen» (DEC-0056 A1; BB-07 B3, S-4 M2): the certificate Knovas's client CA signed from this
+        site's request. Taken only for the key of the request Link enrolled with, for this tenant, for client
+        authentication, valid now and signed by the client CA where it is configured; its fingerprint is then what
+        BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT makes every call of this Link carry."""
+        from datetime import timezone
+
+        site = _site_or_404(site_id)
+        link = site_rules.site_link(_store(), _platform_tenant(), site["id"])
+        pem = str((request.get_json(silent=True) or {}).get("certificate") or "")
+        if len(pem) > 64 * 1024:
+            return jsonify({"success": False, "error": "Ein Zertifikat ist wenige Kilobyte gross."}), 413
+        try:
+            ca = client_ca() if client_ca is not None else None
+        except Exception as exc:  # noqa: BLE001 - checked without it; Link still checks the issuer
+            logger.warning("Builder: the client CA is not readable (%s)", type(exc).__name__)
+            ca = None
+        try:
+            found = connector_protocol.record_certificate(_store(), _platform_tenant(), link, pem,
+                                                          datetime.now(timezone.utc), client_ca=ca)
+        except connector_protocol.ProtocolError as exc:
+            logger.info("Builder: a site certificate was refused (%s), site %s", exc.code, site["id"])
+            return jsonify({"success": False, "error": exc.message, "code": exc.code}), exc.status
+        logger.info("Builder: the certificate of a site's Knovas Link recorded, site %s", site["id"])
+        return jsonify({"success": True, **found})
 
     @bp.route("/api/sites/<site_id>/probe", methods=["POST"])
     def site_probe(site_id: str):

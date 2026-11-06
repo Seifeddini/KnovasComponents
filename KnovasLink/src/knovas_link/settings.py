@@ -13,6 +13,10 @@ Optional, with defaults that the install package keeps:
     LINK_HEARTBEAT_SECONDS between heartbeats to the Platform (default 30)
     LINK_PROBE_SECONDS  between probes of the work channel (default 300)
     LINK_BRAIN_CA       the CA of the Brain's TLS certificate, when the Platform's enrolment answer has none
+    LINK_TENANT         the site's tenant (its client id), when the Platform's enrolment answer has none: install-certificate
+                        takes only a certificate whose OU Semantix-Customer-<id> names it
+    LINK_CLIENT_CA      a file with Knovas's client CA (PEM), when the Platform's enrolment answer has none:
+                        install-certificate takes only a certificate it signed
 
 Only to test on one's own machine, never for a company (DEC-0056; see README):
 

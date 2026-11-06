@@ -6,6 +6,7 @@ With a command, run it in the running container instead and exit (``knovas_link.
 
     docker compose exec -T knovas-link python -m knovas_link certificate-request > site.csr
     docker compose exec -T knovas-link python -m knovas_link install-certificate < site.crt
+    docker compose exec -T knovas-link python -m knovas_link certificate-fingerprint
 """
 from __future__ import annotations
 

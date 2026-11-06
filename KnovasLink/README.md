@@ -36,6 +36,8 @@ Settings come from the environment only; the install package's `knovas-site.env`
 | `LINK_ENROL_TOKEN` | the site's one-time token: for the first start, and again after «Token erneuern» |
 | `LINK_PLATFORM_CA` | the CA of the Platform's TLS certificate, when it is not a public one |
 | `LINK_BRAIN_CA` | the CA of the Brain's TLS certificate, when the enrolment answer brings none |
+| `LINK_TENANT` | the site's tenant (client id), when the enrolment answer names none; `install-certificate` takes only a certificate for it |
+| `LINK_CLIENT_CA` | a file with Knovas's client CA (PEM), when the enrolment answer brings none; `install-certificate` takes only a certificate it signed |
 | `LINK_DATA_DIR`, `LINK_TOKENS_DIR` | `/data` and `/link` (the two volumes) |
 | `LINK_PORT` | `8460` |
 | `LINK_HEARTBEAT_SECONDS`, `LINK_PROBE_SECONDS` | `30` and `300` |
@@ -85,22 +87,43 @@ and issues none at enrolment. **Link is then in the state `waiting_for_certifica
 (503 `waiting_for_certificate`). Its heartbeat says `site.certificate: "waiting"` and `GET /local/v1/ping` says
 `certificate: "waiting"`.
 
-The certificate comes this way:
+At enrolment the Platform records the **fingerprint of Link's request** (SHA-256 of the public key Link made) for the
+site, and its answer names the site's **tenant** and **Knovas's client CA** (`BUILDER_CONNECTOR_CLIENT_CA`), which Link
+keeps beside its key (S-4 M2; BB-07 B3/B4). The certificate comes this way:
 
 1. **At the site:** the request, from the key enrolment made (the key never leaves the volume; only the request is
-   printed). Its subject is `CN=knovas-link` (`LINK_NAME`) and nothing else.
+   printed). Its subject is `CN=knovas-link` (`LINK_NAME`) and nothing else. `certificate-fingerprint` prints the
+   fingerprint the Builder's site page shows.
 
    ```bash
    docker compose exec -T knovas-link python -m knovas_link certificate-request > site.csr
+   docker compose exec -T knovas-link python -m knovas_link certificate-fingerprint
    ```
 
 2. **At Knovas:** one Knovas admin confirms and signs today through internal-api's `/sign_certificate`; later the
-   issuance job signs with the HSM-held key (DEC-0062). The admin first checks that the request's subject is the
-   common name only (`openssl req -in site.csr -noout -subject`), then signs it with today's client CA:
-   `POST /sign_certificate` (JWT; body `{"csr": …, "customer_id": "<the tenant's client id>"}`). The CA sets the
-   tenant from `customer_id`, stores the certificate record and answers `certificate`, `certificate_chain` and
-   `serial_number`; the `certificate` (optionally followed by the chain) goes back to the site as `site.crt`. The
-   site's two commands stay the same once the issuance job signs.
+   issuance job signs with the HSM-held key (DEC-0062).
+   - **Compare first.** The request's subject is the common name only (`openssl req -in site.csr -noout -subject`), and
+     its fingerprint is the one on the site page:
+     `openssl req -in site.csr -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum`. If it differs, the
+     request is not this site's: do not sign it.
+   - **Sign in-cluster only.** With an admin JWT, `/sign_certificate` answers only through a port-forward to
+     internal-api or `kubectl exec`, never on the public host (404 there, ADR-0005):
+
+     ```bash
+     kubectl port-forward deployment/internal-api 5000:5000 -n knovas-prod   # knovas-dev for dev
+     curl -s -X POST http://localhost:5000/sign_certificate \
+       -H "Authorization: Bearer $ADMIN_JWT" -H 'Content-Type: application/json' \
+       -d '{"csr": "<site.csr>", "customer_id": "<the tenant client id>", "organisation": "<company name>", "validity_days": 365}'
+     ```
+
+     The CA sets the tenant from `customer_id` (its one OU `Semantix-Customer-<id>`), stores the certificate record and
+     answers `certificate`, `certificate_chain`, `serial_number`, `expires_at`. Reference: the Knovas
+     Employee Kit, `api/Certificate_Management.md`.
+   - **Record it in the Builder:** the `certificate` on the site page, «Zertifikat erfassen». The Builder takes it only
+     for the recorded request's key and the Platform's tenant (and the client CA, where configured); from then on the
+     Platform requires that certificate's fingerprint on every call of this Link.
+   - The `certificate` (optionally followed by the chain) goes back to the site as `site.crt`. The site's commands stay
+     the same once the issuance job signs.
 
 3. **At the site:** the certificate, installed.
 
@@ -109,10 +132,18 @@ The certificate comes this way:
    ```
 
    `install-certificate [FILE|-]` (standard input by default) writes `component.crt`, readable by Link's user only,
-   only when the certificate is for Link's stored key, valid now, and issued for client authentication (extended key
-   usage `clientAuth`). Otherwise it writes nothing and exits 1 with a code from `codes.json`, in English and German:
-   `certificate.wrong_key`, `certificate.not_valid_now`, `certificate.not_client_auth`, `certificate.unreadable`, or
-   `certificate.not_enrolled` (no key yet: start Link with its token first). On success it prints the serial.
+   only when the certificate is for Link's stored key, valid now, issued for client authentication (extended key
+   usage `clientAuth`), signed by Knovas's client CA and for the site's tenant. Otherwise it writes nothing and exits 1
+   with a code from `codes.json`, in English and German: `certificate.wrong_key`, `certificate.not_valid_now`,
+   `certificate.not_client_auth`, `certificate.wrong_issuer`, `certificate.wrong_tenant`, `certificate.unreadable`, or
+   `certificate.not_enrolled` (no key yet: start Link with its token first). The client CA and the tenant are those the
+   Platform named at enrolment; `LINK_CLIENT_CA` (a file) and `LINK_TENANT` name them where it did not, and win. Knowing
+   neither, Link installs nothing (`certificate.no_client_ca`, `certificate.no_tenant`): a Link that enrolled before the
+   Platform named them enrols again after «Token erneuern». On success it prints the serial.
+
+**Until the certificate is recorded in the Builder** (with `BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT=true`, the default),
+the Platform takes Link's heartbeat only and gives it no command; configuration, package, commands and reports are
+refused (`certificate_not_recorded`). Link keeps beating and keeps its last configuration.
 
 **No restart is needed:** a Link waiting for its certificate picks it up at its next heartbeat
 (`LINK_HEARTBEAT_SECONDS`, 30 s by default), logs `certificate.picked_up`, and from then on claims jobs, probes and

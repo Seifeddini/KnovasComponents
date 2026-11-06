@@ -1,10 +1,10 @@
 {
   "version": "1.1.0",
   "files": {
-    "codes.json": "8d91df4a7c3e38dbd8f6d6bf1a50bc988d78526695e9c6e1dcaf8e2d978e32fc",
+    "codes.json": "b5576e0f7f79758e398d4d011f6003889396650e2457e58d5dc33b201246720f",
     "job-result.schema.json": "1824be17c609a6fee5c57962bac3bac52c0b5b452ab912dbe7e945011f95274c",
     "job.schema.json": "b0b53daac40ad7b5e13a176a530e8aea8a74f070dc6c1599abcfe3ef1b20fb4b",
-    "local-api.md": "516961190801ca00d4959358ad48d6bb42244ccae8ea01d5edcb14de4432c219",
+    "local-api.md": "aaecd07ae6a4256f427509eecb0edaa8afba2748931a3e736d881c3a84a084d0",
     "stream-message.schema.json": "94c02690dd4a649b83c54bb0c5deb31241481c8f350485800946c02fca1fa35c"
   }
 }

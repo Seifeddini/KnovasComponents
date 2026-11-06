@@ -414,6 +414,10 @@ builder:
     # certificate, given to it when it is installed. Only to test on your own machine: a leak then exposes the tenant, and
     # one component cannot be revoked (DEC-0040, DEC-0056). Production's Secure API does not sign today.
     issue_certificates: "${BUILDER_CONNECTOR_ISSUE_CERTIFICATES:-true}"
+    # Knovas's client CA (a PEM file, public): a site's Knovas Link learns it at enrolment and installs only a certificate
+    # it signed for this tenant; a site certificate recorded in the Builder must be signed by it (BB-07 B3, S-4 M2).
+    # Needed where issue_certificates is false: without it, Link refuses every certificate (certificate.no_client_ca).
+    client_ca: "${BUILDER_CONNECTOR_CLIENT_CA:-}"
   # Views by description: the model the assistant uses (settings registry builder.assistant.model). Its API key is
   # a secret of the registry (ANTHROPIC_API_KEY pins it), never a value here.
   assistant:

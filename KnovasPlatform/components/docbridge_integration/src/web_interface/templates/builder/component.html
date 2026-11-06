@@ -47,7 +47,10 @@
     <div class="b-callout" data-cp-result role="status" hidden></div>
 </header>
 
-{% if v1 and c.state == 'enrolled' and not c.certificate_fingerprint %}
+{% if v1 and c.state == 'enrolled' and not c.certificate_fingerprint and c.kind == 'knovas_link' %}
+{# Knovas Link under DEC-0056 A1: its own certificate, not the tenant's; until it is recorded only its heartbeat is taken (BB-07 B3). #}
+<div class="b-callout b-callout--warning" role="status" data-cp-link-certificate><p class="b-callout-title">Zertifikat noch nicht erfasst</p><p>Knovas Link wartet auf sein eigenes Zertifikat. Bis ein Knovas-Admin es auf der Seite des Standorts erfasst, nimmt die Plattform von ihm nur den Herzschlag an.{% if c.site_id %} <a href="{{ url_for('builder.site_page', site_id=c.site_id) }}">Zum Standort</a>{% endif %}</p></div>
+{% elif v1 and c.state == 'enrolled' and not c.certificate_fingerprint %}
 <div class="b-callout b-callout--warning" role="status" data-cp-shared-certificate><p class="b-callout-title">Nutzt das Zertifikat des Mandanten</p><p>Nur zum Testen. Ein Leck legt den ganzen Mandanten offen, und Widerrufen trifft jede Komponente, die es nutzt.</p></div>
 {% endif %}
 {% if row.state == 'pending' %}

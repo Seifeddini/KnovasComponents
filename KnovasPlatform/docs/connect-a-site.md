@@ -24,21 +24,45 @@ Bei einer Dateiablage den Ordner auf dem Rechner als `KNOVAS_SHARE_FOLDER` angeb
 
 Jeder Standort hat sein **eigenes Zertifikat**, von der Client-CA von Knovas für den Schlüssel, den Knovas Link bei der Anmeldung erzeugt hat; der Schlüssel verlässt den Rechner nie. Das Secure API der Produktion kann nicht signieren (`/secured/sign_certificate` antwortet 503). Darum setzt die Plattform dort `BUILDER_CONNECTOR_ISSUE_CERTIFICATES=false` (`builder.components.issue_certificates`) und stellt bei der Anmeldung kein Zertifikat aus. Knovas Link meldet sich trotzdem an, wartet aber (`waiting_for_certificate`): Es nimmt keine Aufträge an, sendet keine Probe und leitet nichts an das Brain weiter.
 
+Bei der Anmeldung hält der Builder den **Fingerabdruck des Antrags** fest: SHA-256 des öffentlichen Schlüssels, den Knovas Link erzeugt hat. Die Seite des Standorts zeigt ihn unter «Zertifikat des Standorts». Damit ist der Antrag an diesen Standort gebunden (BB-07, B4; S-4 M2).
+
 1. **Antrag am Standort:**
 
    ```bash
    docker compose exec -T knovas-link python -m knovas_link certificate-request > site.csr
+   docker compose exec -T knovas-link python -m knovas_link certificate-fingerprint
    ```
 
-   Die Datei `site.csr` enthält nur den Zertifikatsantrag, nie den Schlüssel. Sie geht an Knovas.
-2. **Knovas signiert den Antrag.** Heute bestätigt und signiert ein Knovas-Admin über `/sign_certificate` des internal-api; später signiert der Ausstellungsjob mit dem Schlüssel im HSM (DEC-0062). Der Admin prüft zuerst, dass der Antrag nur den Namen trägt (`openssl req -in site.csr -noout -subject` zeigt `CN=knovas-link`), und signiert ihn dann über `POST /sign_certificate` (JWT, mit der `customer_id` des Mandanten; die CA setzt den Mandanten daraus). Das Zertifikat wird mit seiner Seriennummer gespeichert. Das `certificate` der Antwort geht als `site.crt` an den Standort zurück. Signiert später der Ausstellungsjob, ändert sich am Standort nichts.
+   Die Datei `site.csr` enthält nur den Zertifikatsantrag, nie den Schlüssel. Sie geht an Knovas. `certificate-fingerprint` zeigt denselben Fingerabdruck wie die Seite des Standorts.
+2. **Knovas prüft und signiert den Antrag.** Heute bestätigt und signiert ein Knovas-Admin über `/sign_certificate` des internal-api; später signiert der Ausstellungsjob mit dem Schlüssel im HSM (DEC-0062).
+   - **Zuerst vergleichen:** Der Admin prüft, dass der Antrag nur den Namen trägt (`openssl req -in site.csr -noout -subject` zeigt `CN=knovas-link`), und dass sein Fingerabdruck der auf der Seite des Standorts ist:
+
+     ```bash
+     openssl req -in site.csr -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum
+     ```
+
+     Weicht er ab, wird nicht signiert: Der Antrag kommt nicht von diesem Standort.
+   - **Dann signieren, nur im Cluster.** Mit dem Admin-JWT antwortet `/sign_certificate` nur über einen Port-Forward zum internal-api oder `kubectl exec`, nie über die öffentliche Adresse (dort 404, ADR-0005):
+
+     ```bash
+     kubectl port-forward deployment/internal-api 5000:5000 -n knovas-prod   # knovas-dev für dev
+     curl -s -X POST http://localhost:5000/sign_certificate \
+       -H "Authorization: Bearer $ADMIN_JWT" -H 'Content-Type: application/json' \
+       -d '{"csr": "<Inhalt von site.csr>", "customer_id": "<Client-Id des Mandanten>", "organisation": "<Name der Firma>", "validity_days": 365}'
+     ```
+
+     Der Antrag steht in `csr`. Die CA setzt den Mandanten aus `customer_id` (OU `Semantix-Customer-<id>`) und speichert das Zertifikat mit seiner Seriennummer. Die Antwort trägt `certificate`, `certificate_chain`, `serial_number`, `expires_at`. Referenz: im Knovas Employee Kit `api/Certificate_Management.md`.
+   - **Im Builder erfassen:** Das `certificate` der Antwort auf der Seite des Standorts unter «Zertifikat erfassen» eintragen (Berechtigung «Zugänge verwalten»). Der Builder nimmt es nur, wenn es zum festgehaltenen Antrag gehört, den Mandanten dieser Plattform nennt, für die Anmeldung als Client ausgestellt und jetzt gültig ist und, wo die Client-CA eingestellt ist (`BUILDER_CONNECTOR_CLIENT_CA`), von ihr signiert ist. Sonst nennt er den Grund und hält nichts fest. Erfasst, ist sein Fingerabdruck der, den die Plattform von Knovas Link verlangt.
+   - Das `certificate` (optional mit der Kette) geht als `site.crt` an den Standort zurück. Signiert später der Ausstellungsjob, ändert sich am Standort nichts.
 3. **Installieren am Standort:**
 
    ```bash
    docker compose exec -T knovas-link python -m knovas_link install-certificate < site.crt
    ```
 
-   Knovas Link nimmt das Zertifikat nur, wenn es zu seinem Schlüssel gehört, jetzt gültig ist und für die Anmeldung als Client ausgestellt ist (`clientAuth`); sonst schreibt es nichts und nennt den Grund als Code (`certificate.wrong_key`, `certificate.not_valid_now`, `certificate.not_client_auth`, `certificate.unreadable`, `certificate.not_enrolled`), auf Deutsch und Englisch. Bei Erfolg nennt es die Seriennummer.
+   Knovas Link nimmt das Zertifikat nur, wenn es zu seinem Schlüssel gehört, jetzt gültig ist, für die Anmeldung als Client ausgestellt ist (`clientAuth`), von der Client-CA von Knovas signiert ist und den Mandanten des Standorts nennt; sonst schreibt es nichts und nennt den Grund als Code (`certificate.wrong_key`, `certificate.not_valid_now`, `certificate.not_client_auth`, `certificate.wrong_issuer`, `certificate.wrong_tenant`, `certificate.unreadable`, `certificate.not_enrolled`), auf Deutsch und Englisch. Client-CA und Mandant nennt die Plattform bei der Anmeldung; wo sie es nicht tut, setzt man `LINK_CLIENT_CA` (Datei) und `LINK_TENANT` in `knovas-link.env`. Kennt Knovas Link eines von beiden nicht, installiert es nichts (`certificate.no_client_ca`, `certificate.no_tenant`). Bei Erfolg nennt es die Seriennummer.
+
+**Bis das Zertifikat erfasst ist** (mit `BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT=true`, dem Standard), nimmt die Plattform von Knovas Link nur den Herzschlag an, ohne ihm Befehle zu geben; Konfiguration, Paket, Befehle und Berichte verweigert sie (`certificate_not_recorded`). Danach verlangt sie bei jedem Aufruf den Fingerabdruck des erfassten Zertifikats, den der TLS-Terminator vor der Plattform setzt (BB-07, B3).
 
 **Kein Neustart nötig:** Knovas Link übernimmt das Zertifikat beim nächsten Heartbeat (standardmässig nach höchstens 30 Sekunden); die Zeile «Zertifikat» wird grün, danach «Jetzt prüfen». Ersetzt ein neues Zertifikat eines, das Knovas Link schon verwendet (Erneuerung vor dem Ablauf), gilt es erst nach `docker compose restart knovas-link`; der Befehl sagt das. `-T` gehört dazu: Ohne es öffnet docker compose ein Terminal, das die Zeilenenden des Antrags verändert und die Eingabe aus `site.crt` ablehnt.
 
@@ -78,7 +102,7 @@ Dann wie immer: **Prüfen & Veröffentlichen** (Probelauf, Freigabe, Veröffentl
 |---|---|
 | Knovas Link nicht erreichbar | Am Standort `docker compose ps`; erreicht der Rechner Knovas ausgehend? Danach «Jetzt prüfen». |
 | Arbeitskanal unterbrochen | Ausgehende Verbindung zu Knovas prüfen (Firewall, Proxy). |
-| Wartet auf das Zertifikat | Den Zertifikatsschritt ausführen (Abschnitt 2): Antrag mit `certificate-request`, von Knovas signieren lassen, mit `install-certificate` installieren. |
+| Wartet auf das Zertifikat | Den Zertifikatsschritt ausführen (Abschnitt 2): Antrag mit `certificate-request`, Fingerabdruck vergleichen, von Knovas signieren lassen, im Builder erfassen, mit `install-certificate` installieren. |
 | Quelle nicht lesbar | Die Seite der Komponente nennt je Quelle den Grund; Zeile in `knovas-sources.env` prüfen, neu starten, «Verbindung prüfen». |
 | Vorschlag wartet | Betrieb › Freigaben. |
 

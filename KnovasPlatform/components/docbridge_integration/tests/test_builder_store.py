@@ -202,6 +202,16 @@ def test_a_component_is_served_the_published_version_only(store, consultant):
     assert [s["settings"]["url"] for s in store.served_by(cid)["sources"]] == ["https://a.example/k"]
 
 
+def test_a_component_keeps_the_fingerprint_of_its_request(store, consultant):
+    """BB-07 B3/B4 (migration 0024): the request's public-key fingerprint, beside the certificate's."""
+    cid = store.create_component("tenant-b3", kind="knovas_link", name="Link", site="Bern", owner="", actor_id=consultant.id,
+                                 enrol_expires_at="2099-01-01T00:00:00+00:00")
+    assert store.component("tenant-b3", cid, any_state=True)["request_fingerprint"] is None
+    store.update_component(cid, request_fingerprint="c" * 64, certificate_fingerprint="d" * 64)
+    found = store.component("tenant-b3", cid, any_state=True)
+    assert (found["request_fingerprint"], found["certificate_fingerprint"]) == ("c" * 64, "d" * 64)
+
+
 def test_health_reviews_keep_the_latest_per_type(store, consultant):
     blank = package.read_package(package.blank_package("Muster AG")).model
     workspace_id = store.create(name="Muster AG", model=blank, actor_id=consultant.id, source={"kind": "blank"})

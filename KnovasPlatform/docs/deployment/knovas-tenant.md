@@ -308,10 +308,16 @@ strip any value the client sends, never pass one on.
 The Platform refuses calls without the header once a certificate was issued. A deployment with no TLS terminator that
 checks client certificates must say so explicitly; the control token alone then authenticates a component.
 
+A site's Knovas Link under DEC-0056 A1 gets no certificate at enrolment. The Platform records its request's fingerprint;
+a Knovas admin compares it, signs the request in-cluster and records the signed certificate on the site page
+(`connect-a-site.md`). Until then, with the header required, Link's heartbeat is taken but nothing else (403
+`certificate_not_recorded`); afterwards every call must carry the recorded certificate's fingerprint (BB-07 B3).
+
 | Setting | config key | env | default |
 |---|---|---|---|
 | Require the client certificate | `builder.components.require_client_certificate` | `BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT` | `true` |
 | The Brain signs a component's own certificate at enrolment. `false` where secure-api cannot sign (production today): a site's Knovas Link then waits for the certificate a Knovas admin confirms and signs (DEC-0056, A1; DEC-0062; `connect-a-site.md`), and a component enrolled directly uses the tenant's certificate, only to test on your own machine | `builder.components.issue_certificates` | `BUILDER_CONNECTOR_ISSUE_CERTIFICATES` | `true` |
+| Knovas's client CA (a PEM file, public). Needed where the Brain does not sign at enrolment: a site's Knovas Link learns it at enrolment and installs only a certificate it signed for this tenant, and a site certificate recorded in the Builder must be signed by it. Without it Link installs no certificate (`certificate.no_client_ca`) | `builder.components.client_ca` | `BUILDER_CONNECTOR_CLIENT_CA` | (empty) |
 | A component is offline after (minutes) | `builder.components.offline_after_minutes` | `BUILDER_COMPONENT_OFFLINE_MINUTES` | `30` |
 | Warn when a component lags behind its source (hours) | `builder.components.lag_hours` | `BUILDER_COMPONENT_LAG_HOURS` | `24` |
 

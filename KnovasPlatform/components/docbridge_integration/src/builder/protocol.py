@@ -11,9 +11,17 @@ contract as the Platform implements it, until KC-7a writes it down in full:
 
   Every other call: Authorization: Bearer <control token>, X-Component: <component id>, and
   X-Client-Cert-Fingerprint (sha256 of the client certificate, hex), which the TLS terminator sets from the
-  certificate it verified -- never passing on one the client sent. It must be the one issued at enrolment;
+  certificate it verified -- never passing on one the client sent. It must be the one issued at enrolment, or
+  for Knovas Link under DEC-0056 A1 the one a Knovas admin recorded on the site page (record_certificate);
   without it the call is refused, unless the deployment says explicitly that no terminator checks client
-  certificates (builder.components.require_client_certificate: false).
+  certificates (builder.components.require_client_certificate: false). While that is required and no certificate
+  of a Knovas Link is recorded yet, its control token opens its heartbeat only, which delivers no command; every
+  other call is refused (403 certificate_not_recorded) (BB-07 B3).
+
+  Enrolment records the SHA-256 of the request's SubjectPublicKeyInfo (``request_fingerprint``) for the component,
+  also when no certificate is issued; Knovas Link cannot enrol without a valid request then. The answer names the
+  Platform's ``tenant`` and the Knovas client CA (``client_ca``, PEM, when configured): Link's install-certificate
+  refuses a certificate of another issuer or tenant (S-4 M2).
 
   POST /api/connectors/v1/heartbeat
        {state: online|degraded, version, lag_seconds, open_errors, capabilities, site?}
@@ -123,7 +131,7 @@ def rotate_enrolment(store: Any, secrets: Any, tenant: str, component_id: str, a
     token, digest = C.new_token("kce")
     secrets.put(secret_key(component_id, "enrol"), digest, actor)
     secrets.clear(secret_key(component_id, "control"), actor)
-    store.update_component(component_id, state="pending", certificate_fingerprint=None,
+    store.update_component(component_id, state="pending", certificate_fingerprint=None, request_fingerprint=None,
                            enrol_expires_at=(now + dt.timedelta(hours=C.ENROL_HOURS)).isoformat())
     store.add_event(component_id, "token.rotated", {})
     return token
@@ -135,7 +143,8 @@ def revoke(store: Any, secrets: Any, tenant: str, component_id: str, actor: Any,
         raise ProtocolError(404, "unknown", "Diese Komponente gibt es nicht.")
     secrets.clear(secret_key(component_id, "enrol"), actor)
     secrets.clear(secret_key(component_id, "control"), actor)
-    store.update_component(component_id, state="revoked", revoked_at=now.isoformat(), certificate_fingerprint=None)
+    store.update_component(component_id, state="revoked", revoked_at=now.isoformat(), certificate_fingerprint=None,
+                           request_fingerprint=None)
     store.add_event(component_id, "revoked", {})
 
 
@@ -172,6 +181,10 @@ def enrol(store: Any, secrets: Any, signer: Optional[Callable[[str, str], Mappin
     expires = C._moment(found.get("enrol_expires_at"))
     if expires is None or expires < now:
         raise ProtocolError(401, "token_expired", "the enrolment token has expired; ask for a new one")
+    requested = request_fingerprint(csr)
+    if not issue_certificate and C.is_link(found) and requested is None:
+        # Under DEC-0056 A1 this request is what a Knovas admin signs later: it is recorded for this site (BB-07 B4).
+        raise ProtocolError(400, "csr", "a PEM certificate signing request, signed by its own key")
     certificate, chain, fingerprint = None, None, None
     if issue_certificate:
         if "BEGIN CERTIFICATE REQUEST" not in csr:
@@ -194,12 +207,129 @@ def enrol(store: Any, secrets: Any, signer: Optional[Callable[[str, str], Mappin
     secrets.put(secret_key(found["id"], "control"), digest, None)
     secrets.clear(secret_key(found["id"], "enrol"), None)           # one time only
     store.update_component(found["id"], state="enrolled", enrolled_at=now.isoformat(), certificate_fingerprint=fingerprint,
+                           request_fingerprint=requested,
                            version=str(body.get("version") or "")[:60],
                            capabilities=[str(x)[:60] for x in (body.get("capabilities") or [])][:30],
                            last_heartbeat_at=now.isoformat(), reported_state="online")
     store.add_event(found["id"], "enrolled", {})
     return {"component": found["id"], "control_token": control, "certificate": certificate,
             "certificate_chain": chain, "config": config_of(store, found)}
+
+
+def _spki(public_key) -> bytes:
+    from cryptography.hazmat.primitives import serialization
+
+    return public_key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+
+
+def request_fingerprint(csr_pem: str) -> Optional[str]:
+    """SHA-256 (hex) of a certificate request's SubjectPublicKeyInfo, when it is a PEM request signed by its own key;
+    else None. ``openssl req -in site.csr -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum`` gives the
+    same, and so does Knovas Link's ``certificate-fingerprint``."""
+    from cryptography import x509
+    from cryptography.exceptions import UnsupportedAlgorithm
+
+    try:
+        csr = x509.load_pem_x509_csr(str(csr_pem or "").encode("utf-8"))
+        if not csr.is_signature_valid:
+            return None
+        return hashlib.sha256(_spki(csr.public_key())).hexdigest()
+    except (ValueError, TypeError, UnsupportedAlgorithm):
+        return None
+
+
+#: The tenant in a Knovas client certificate: its one OU ``Semantix-Customer-<client uuid>`` (as secure-api reads it).
+TENANT_OU = re.compile(r"Semantix-Customer-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", re.I)
+
+
+def certificate_tenant(certificate) -> Optional[str]:
+    """The tenant a certificate names: exactly one OU ``Semantix-Customer-<uuid>``, else None (fail closed)."""
+    from cryptography.x509.oid import NameOID
+
+    found = [str(a.value).strip() for a in certificate.subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)
+             if str(a.value).strip().lower().startswith("semantix-customer-")]
+    if len(found) != 1:
+        return None
+    m = TENANT_OU.fullmatch(found[0])
+    return str(uuid.UUID(m.group(1))) if m else None
+
+
+def _tenant_id(value: Any) -> str:
+    try:
+        return str(uuid.UUID(str(value).strip()))
+    except ValueError:
+        return str(value or "").strip().lower()
+
+
+def _pem_certificates(text: str) -> list:
+    from cryptography import x509
+
+    blocks = re.findall(r"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", str(text or ""), re.S)
+    out = []
+    for block in blocks:
+        try:
+            out.append(x509.load_pem_x509_certificate(block.encode("ascii")))
+        except ValueError:
+            raise ProtocolError(400, "unreadable", "Das ist kein Zertifikat im PEM-Format.") from None
+    return out
+
+
+def issued_by(certificate, client_ca_pem: Optional[str]) -> bool:
+    """Whether ``certificate`` is signed directly by one of the CA certificates in ``client_ca_pem``."""
+    for ca in _pem_certificates(client_ca_pem or ""):
+        if ca.subject != certificate.issuer:
+            continue
+        try:
+            certificate.verify_directly_issued_by(ca)
+        except Exception:  # noqa: BLE001 - another key, algorithm or a broken signature: not this CA
+            continue
+        return True
+    return False
+
+
+def record_certificate(store: Any, tenant: str, link: Optional[Mapping[str, Any]], pem: str, now: dt.datetime,
+                       client_ca: Optional[str] = None) -> dict:
+    """A Knovas admin records the certificate the client CA signed from a site's request (DEC-0056 A1; BB-07 B3, S-4
+    M2). Taken only when it is for the key of the request this site's Knovas Link enrolled with, names the Platform's
+    tenant, is for client authentication, valid now and -- where the client CA is configured -- signed by it. Its
+    fingerprint is then what the terminator's header must match. German messages: they are shown on the site page."""
+    from cryptography import x509
+    from cryptography.x509.oid import ExtendedKeyUsageOID
+
+    if link is None or link.get("state") != "enrolled":
+        raise ProtocolError(409, "not_enrolled", "Knovas Link dieses Standorts ist nicht angemeldet.")
+    wanted = link.get("request_fingerprint")
+    if not wanted:
+        raise ProtocolError(409, "no_request", "Für diesen Standort ist kein Zertifikatsantrag erfasst: «Token "
+                                               "erneuern»; Knovas Link meldet sich mit seinem Antrag neu an.")
+    found = _pem_certificates(pem)
+    if not found:
+        raise ProtocolError(400, "unreadable", "Das ist kein Zertifikat im PEM-Format.")
+    leaf = found[0]
+    if hashlib.sha256(_spki(leaf.public_key())).hexdigest() != wanted:
+        raise ProtocolError(409, "wrong_key", "Das Zertifikat gehört nicht zum Antrag dieses Standorts: sein Schlüssel "
+                                              "ist ein anderer. Nicht verwenden; nur den Antrag mit dem angezeigten "
+                                              "Fingerabdruck signieren.")
+    if certificate_tenant(leaf) != _tenant_id(tenant):
+        raise ProtocolError(409, "wrong_tenant", "Das Zertifikat ist für einen anderen Mandanten ausgestellt "
+                                                 "(OU Semantix-Customer-…). Sperren und für diesen Mandanten neu signieren.")
+    try:
+        usages = leaf.extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
+    except x509.ExtensionNotFound:
+        usages = []
+    if ExtendedKeyUsageOID.CLIENT_AUTH not in usages:
+        raise ProtocolError(409, "not_client_auth", "Das Zertifikat ist nicht für die Anmeldung als Client ausgestellt.")
+    if not leaf.not_valid_before_utc <= now <= leaf.not_valid_after_utc:
+        raise ProtocolError(409, "not_valid_now", "Das Zertifikat ist abgelaufen oder noch nicht gültig.")
+    if client_ca and not issued_by(leaf, client_ca):
+        raise ProtocolError(409, "wrong_issuer", "Das Zertifikat ist nicht von der Client-CA von Knovas signiert.")
+    from cryptography.hazmat.primitives import serialization
+
+    fingerprint = hashlib.sha256(leaf.public_bytes(serialization.Encoding.DER)).hexdigest()
+    store.update_component(link["id"], certificate_fingerprint=fingerprint)
+    store.add_event(link["id"], "certificate.recorded", {})
+    return {"fingerprint": fingerprint, "serial": format(leaf.serial_number, "X"),
+            "not_after": leaf.not_valid_after_utc.isoformat()}
 
 
 def certificate_fingerprint(pem: str) -> str:
@@ -215,7 +345,9 @@ def certificate_fingerprint(pem: str) -> str:
 # ------------------------------------------------------------------ authenticated calls
 
 def authenticate(store: Any, secrets: Any, tenant: str, component_id: str, bearer: str,
-                 fingerprint: Optional[str], *, require_certificate: bool = True) -> dict:
+                 fingerprint: Optional[str], *, require_certificate: bool = True, waiting_ok: bool = False) -> dict:
+    """The enrolled component a call comes from. ``waiting_ok``: the call is Knovas Link's heartbeat, which a Link
+    whose certificate is not recorded yet may send (its answer then carries no command)."""
     _secrets_usable(secrets)
     c = store.component(tenant, component_id, any_state=True) if component_id else None
     if c is None or c.get("transport") != "v1" or c.get("state") != "enrolled":
@@ -223,6 +355,13 @@ def authenticate(store: Any, secrets: Any, tenant: str, component_id: str, beare
     if not C.token_matches(bearer, secrets.get(secret_key(c["id"], "control"))):
         raise ProtocolError(401, "bad_token", "control token refused")
     issued = c.get("certificate_fingerprint")
+    if not issued and require_certificate and C.is_link(c):
+        # DEC-0056 A1: no certificate is issued at enrolment, and until a Knovas admin records the one signed from this
+        # site's request, the control token alone opens nothing but the heartbeat (BB-07 B3).
+        if not waiting_ok:
+            raise ProtocolError(403, "certificate_not_recorded", "the site's certificate is not recorded yet: until a "
+                                                                 "Knovas admin records it, only heartbeats are taken")
+        return {**c, "certificate_waiting": True}
     if issued and not fingerprint and require_certificate:
         raise ProtocolError(401, "certificate_required", "the client certificate's fingerprint is missing")
     if issued and fingerprint and fingerprint.replace(":", "").lower() != issued:
@@ -250,6 +389,10 @@ def heartbeat(store: Any, c: Mapping[str, Any], body: Mapping[str, Any], now: dt
         store.add_event(c["id"], f"state.{state}", {})
     if site is not None:
         _keep_site(store, c, site, now, tenant)
+    if c.get("certificate_waiting"):
+        # A Link whose certificate is not recorded: its commands wait until it is (BB-07 B3).
+        return {"paused": bool(c.get("paused")), "schedule": c.get("schedule") or {"mode": "manual"}, "commands": [],
+                "certificate": "not_recorded"}
     commands = store.deliver_commands(c["id"], now.isoformat())
     for cmd in commands:
         store.add_event(c["id"], "command.delivered", {})
