@@ -5,7 +5,8 @@ components on the site (the sync component, the Knovas Connector, any later read
 through its local API; they hold no Knovas certificate and open no port. A new kind of source is a new local component,
 never a change to Link.
 
-**Status: built ahead of its bet's approval, not deployed.** Certificates wait for DEC-0056 (see "The certificate").
+**Status: built ahead of its bet's approval, not deployed.** The site's certificate follows DEC-0056 (option A, A1; see
+"The certificate").
 The contracts it is built against are in [`contracts/`](contracts/): the local API
 ([`local-api.md`](contracts/local-api.md)), the job, result and stream schemas, `codes.json`, pinned by
 `contracts.lock`; Link refuses to start when a file it uses does not match its lock. Outside, Link speaks
@@ -74,13 +75,54 @@ At start Link enrols if it has not, or if `LINK_ENROL_TOKEN` is a token it did n
 kind `knovas_link`. A refused or expired token stops it with `enrol.<code>` in the log; nothing is kept then, and an
 earlier key stays with its certificate.
 
-## The certificate (DEC-0056, open)
+## The certificate (DEC-0056, option A with A1)
 
-If the Platform's enrolment answer carries a certificate, Link uses it for secure-api. **Otherwise Link is in the
-state `waiting_for_certificate`:** it runs its control plane (heartbeat, configuration, package, commands, reports),
-but claims no job, sends no probe, and relays no Brain call (503 `waiting_for_certificate`). Its heartbeat says
-`site.certificate: "waiting"` and `GET /local/v1/ping` says `certificate: "waiting"`. No other signing path is built:
-how a site gets its certificate is DEC-0056's to decide.
+Every site's Link has **its own certificate from Knovas's client CA**, for its own key. If the Platform's enrolment
+answer carries a certificate, Link uses it for secure-api. Production's secure-api cannot sign
+(`/secured/sign_certificate` answers 503), so the Platform's deployment sets `BUILDER_CONNECTOR_ISSUE_CERTIFICATES=false`
+and issues none at enrolment. **Link is then in the state `waiting_for_certificate`:** it runs its control plane
+(heartbeat, configuration, package, commands, reports), but claims no job, sends no probe, and relays no Brain call
+(503 `waiting_for_certificate`). Its heartbeat says `site.certificate: "waiting"` and `GET /local/v1/ping` says
+`certificate: "waiting"`.
+
+The certificate comes this way:
+
+1. **At the site:** the request, from the key enrolment made (the key never leaves the volume; only the request is
+   printed). Its subject is `CN=knovas-link` (`LINK_NAME`) and nothing else.
+
+   ```bash
+   docker compose exec -T knovas-link python -m knovas_link certificate-request > site.csr
+   ```
+
+2. **At Knovas:** one Knovas admin confirms and signs today through internal-api's `/sign_certificate`; later the
+   issuance job signs with the HSM-held key (DEC-0062). The admin first checks that the request's subject is the
+   common name only (`openssl req -in site.csr -noout -subject`), then signs it with today's client CA:
+   `POST /sign_certificate` (JWT; body `{"csr": …, "customer_id": "<the tenant's client id>"}`). The CA sets the
+   tenant from `customer_id`, stores the certificate record and answers `certificate`, `certificate_chain` and
+   `serial_number`; the `certificate` (optionally followed by the chain) goes back to the site as `site.crt`. The
+   site's two commands stay the same once the issuance job signs.
+
+3. **At the site:** the certificate, installed.
+
+   ```bash
+   docker compose exec -T knovas-link python -m knovas_link install-certificate < site.crt
+   ```
+
+   `install-certificate [FILE|-]` (standard input by default) writes `component.crt`, readable by Link's user only,
+   only when the certificate is for Link's stored key, valid now, and issued for client authentication (extended key
+   usage `clientAuth`). Otherwise it writes nothing and exits 1 with a code from `codes.json`, in English and German:
+   `certificate.wrong_key`, `certificate.not_valid_now`, `certificate.not_client_auth`, `certificate.unreadable`, or
+   `certificate.not_enrolled` (no key yet: start Link with its token first). On success it prints the serial.
+
+**No restart is needed:** a Link waiting for its certificate picks it up at its next heartbeat
+(`LINK_HEARTBEAT_SECONDS`, 30 s by default), logs `certificate.picked_up`, and from then on claims jobs, probes and
+relays. A certificate that **replaces** one Link already uses (a renewal) is taken at the next start:
+`docker compose restart knovas-link`; the command says so. `-T` keeps docker compose from adding a terminal, which
+would turn the request's line ends into CRLF and refuse the redirected standard input.
+
+**Revocation:** an admin revokes the site's certificate by its serial through internal-api's
+`POST /revoke_certificate`; secure-api then refuses the site, and only this site stops. «Token erneuern» makes Link
+enrol again with a new key, so the certificate step is repeated after it.
 
 **Only to test on one's own machine, never for a company.** Like the sync component's `SYNC_BRAIN_CERT` and
 `SYNC_BRAIN_KEY`, Link takes the tenant's own certificate from `LINK_BRAIN_CERT` and `LINK_BRAIN_KEY`, but only with
@@ -133,6 +175,7 @@ or type in Link's code, image or this page.
 
 ## Not built yet
 
-- Any signing path for the site's certificate (DEC-0056).
+- The issuance job that signs with the HSM-held client CA key (DEC-0062); until then one Knovas admin confirms and
+  signs (above).
 - The install package and the Builder's site page (MVP-23, MVP-28); the sync component's link mode (MVP-20).
 - Credentials sealed to Link's key (CL-1, I2).

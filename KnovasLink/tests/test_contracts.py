@@ -38,7 +38,8 @@ CODES = ["unsupported_type", "unsupported", "unreachable", "lease_lost", "source
          "no_source_ref", "not_found", "conflict", "mode_unsupported", "token_cannot_write", "fetch_disabled",
          "write_disabled", "not_writable", "computed_attribute", "value_not_allowed", "not_invertible", "unknown_mapping",
          "previously_rejected", "waiting_for_certificate", "not_relayed", "invalid_job", "part_not_accepted",
-         "too_large", "version_mismatch", "edit_unsupported", "front_matter_missing", "no_change", "github.rate_limited",
+         "certificate.not_enrolled", "certificate.unreadable", "certificate.wrong_key", "certificate.not_valid_now",
+         "certificate.not_client_auth", "too_large", "version_mismatch", "edit_unsupported", "front_matter_missing", "no_change", "github.rate_limited",
          "github.branch_left", "github.branch_exists", "github.unreachable", "github.bad_repository", "github.bad_answer",
          "github.base_not_a_branch", "runner.bad_change", "bad_field", "internal"]
 

@@ -7,6 +7,10 @@ erneuern» with a token that is refused) does not leave a certificate next to a 
 The key is made here and never leaves; the Platform has the certificate signed from a request. Every file is readable
 by Link's own user only, and the folder is closed to everyone else. The enrolment token is used once and not kept; of
 it only its hash is stored, to see whether a token in the environment is a new one.
+
+Where the Platform issues no certificate (DEC-0056, A1: production's secure-api cannot sign), the request is made again
+from the same stored key (``certificate-request``) and the certificate Knovas signed from it is written next to the key
+(``install-certificate``, ``knovas_link.certificate``).
 """
 from __future__ import annotations
 
@@ -39,6 +43,25 @@ def _private(path: Path, data: bytes) -> None:
     os.chmod(path, 0o600)
 
 
+def _private_replace(path: Path, data: bytes) -> None:
+    """``_private``, but a reader sees the old file or the new one, never half of it: the running Link may read it.
+    Written by root (``docker compose exec -u root``), the file is given to the folder's owner, Link's user."""
+    tmp = path.with_name(path.name + ".tmp")
+    _private(tmp, data)
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        owner = path.parent.stat()
+        os.chown(tmp, owner.st_uid, owner.st_gid)
+    os.replace(tmp, path)
+
+
+def _csr(key: rsa.RSAPrivateKey, name: str) -> str:
+    """The certificate request (PEM) for this key. Its subject is the common name only: the CA adds the tenant from
+    the ``customer_id`` it signs for, so a request that named one itself would only be suspect."""
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name[:64])])
+    csr = x509.CertificateSigningRequestBuilder().subject_name(subject).sign(key, hashes.SHA256())
+    return csr.public_bytes(serialization.Encoding.PEM).decode("ascii")
+
+
 class Store:
     def __init__(self, folder: Path, *, key_size: int = 3072):
         self.folder = Path(folder)
@@ -68,9 +91,27 @@ class Store:
         key = rsa.generate_private_key(public_exponent=65537, key_size=self.key_size)
         pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                                 serialization.NoEncryption())
-        csr = x509.CertificateSigningRequestBuilder().subject_name(
-            x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name[:64])])).sign(key, hashes.SHA256())
-        return csr.public_bytes(serialization.Encoding.PEM).decode("ascii"), pem
+        return _csr(key, name), pem
+
+    def private_key(self) -> Optional[rsa.RSAPrivateKey]:
+        """The key enrolment made and kept, or None before the first enrolment. It stays in this process."""
+        if not (self.identity.exists() and self.key.exists()):
+            return None
+        key = serialization.load_pem_private_key(self.key.read_bytes(), password=None)
+        if not isinstance(key, rsa.RSAPrivateKey):
+            raise ValueError("component.key")
+        return key
+
+    def certificate_request(self, name: str) -> Optional[str]:
+        """The certificate request (PEM) from the stored key, for Knovas to sign (DEC-0056, A1); None before the first
+        enrolment. Asking again makes the same key's request again; the key does not change."""
+        key = self.private_key()
+        return None if key is None else _csr(key, name)
+
+    def install_certificate(self, pem: bytes) -> None:
+        """Write a certificate Knovas signed from ``certificate_request``, checked by the caller, as Link's own
+        (``knovas_link.certificate.install``)."""
+        _private_replace(self.certificate, pem)
 
     def used(self, token: str) -> bool:
         """Whether this one-time token is the one these credentials came from. A different one is the Platform's

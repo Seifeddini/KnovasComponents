@@ -17,8 +17,11 @@ its install package and Link's one-time enrolment token:
 **One door per site** is held by credentials, not by blocking egress: only Link holds a Knovas certificate and
 token; a component holds neither, knows only Link's local address, and so can reach Knovas only through Link.
 
-The one command at the company is ``docker compose up -d``, then the certificate step DEC-0056 decides. The site page ticks off what is done and says, in German, how to fix what is not; the «Verbindung»
-card (MVP-28) shows the running site.
+The one command at the company is ``docker compose up -d``, then the certificate step DEC-0056 decided (option A, A1):
+Link prints its certificate request, Knovas's client CA signs it (one Knovas admin confirms and signs today, through
+internal-api's ``/sign_certificate``; later the issuance job signs with the HSM-held key, DEC-0062), and Link installs
+the certificate. The site page ticks off what is done and says, in German, how to fix what is not; the «Verbindung» card
+(MVP-28) shows the running site.
 
 What is not decided here and is marked so:
 
@@ -67,8 +70,16 @@ COMMAND = "docker compose up -d"
 #: Where the components reach Link's local API (MVP-16): service knovas-link, port 8460, on the internal network
 #: only, no published port. The sync component reads it from SYNC_LINK_URL (the Knovas Connector later from RC_LINK_URL).
 LINK_LOCAL_URL = "http://knovas-link:8460"
-#: The certificate step, as long as DEC-0056 is open.
-CERTIFICATE_STEP = "wie in DEC-0056 entschieden; bis dahin wartet Knovas Link (waiting_for_certificate)"
+#: Knovas Link's two certificate commands, run on the site's machine (DEC-0056, A1; ``knovas_link.certificate``). ``-T``:
+#: no terminal, so the request keeps its line ends and the certificate can come from standard input.
+CERTIFICATE_REQUEST = "docker compose exec -T knovas-link python -m knovas_link certificate-request > site.csr"
+CERTIFICATE_INSTALL = "docker compose exec -T knovas-link python -m knovas_link install-certificate < site.crt"
+#: The certificate step (DEC-0056, option A with A1): the site's own certificate from Knovas's client CA. The Platform
+#: issues none at enrolment while secure-api cannot sign; Link waits (waiting_for_certificate) until it is installed.
+#: Who signs (DEC-0062: one confirmation, not two people).
+CERTIFICATE_SIGNING = "(ein Knovas-Admin bestätigt; später signiert der Ausstellungsjob mit dem Schlüssel im HSM)"
+CERTIFICATE_STEP = (f"Zertifikat beantragen: auf dem Rechner «{CERTIFICATE_REQUEST}»; Knovas signiert den Antrag "
+                    f"{CERTIFICATE_SIGNING}; dann «{CERTIFICATE_INSTALL}»")
 #: Where a ticked share is mounted in the component, read only; the person names the folder on the machine.
 SHARE_TARGET = "/sources"
 SHARE_PLACEHOLDER = "${KNOVAS_SHARE_FOLDER:?Ordner der Dateiablage auf diesem Rechner eintragen}"

@@ -7,6 +7,7 @@ Platform keeps as telemetry on Link's row and turns into child rows for the comp
 components' reports with the component named as a sub-component (``X-Sub-Component``).
 """
 import datetime as dt
+import html
 import io
 import zipfile
 
@@ -14,7 +15,7 @@ import pytest
 import yaml
 
 from builder import components as C
-from builder import protocol, sites
+from builder import codes, protocol, sites
 from builder_harness import (FakeEngine, MemorySecrets, MemoryWorkspaceStore, ProtocolClient, StandInUser, make_app)
 
 TENANT = "t-site"
@@ -199,7 +200,9 @@ class TestASite:
         page = world["http"].get(made["url"]).get_data(as_text=True)
         assert "docker compose up -d" in page and "knovas-link.env" in page and "knovas-sources.env" in page
         assert "knovas-egress" in page
-        assert "wie in DEC-0056 entschieden; bis dahin wartet Knovas Link (waiting_for_certificate)" in page
+        text = html.unescape(page)
+        assert "<strong>Zertifikat beantragen:</strong> auf dem Rechner «" + sites.CERTIFICATE_REQUEST + "»" in text
+        assert sites.CERTIFICATE_STEP.partition(": ")[2] + "." in text
         assert "Installationspaket herunterladen" in page and "Token erneuern" in page
         assert "Platzhalter" in page and "Registry" in page
         for line in ("Paket installiert", "Zertifikat", "Knovas Link online", "GitHub-Komponente gemeldet",
@@ -216,6 +219,21 @@ class TestASite:
         assert link.heartbeat(site=_telemetry(certificate="waiting")).status_code == 200
         page = world["http"].get(made["url"]).get_data(as_text=True)
         assert 'data-check="certificate" data-ok="false"' in page and "waiting_for_certificate" in page
+        assert sites.CERTIFICATE_STEP + "." in html.unescape(page), "the open line says how to get the certificate"
+
+    def test_the_certificate_step_is_the_one_dec_0056_decided(self):
+        """Option A with A1: the site's own certificate from Knovas's client CA. One Knovas admin confirms and signs
+        today; later the issuance job signs with the HSM-held key (DEC-0062). The step names both commands and no
+        tenant."""
+        step = sites.CERTIFICATE_STEP
+        assert step.startswith("Zertifikat beantragen: auf dem Rechner «docker compose exec -T knovas-link python -m "
+                               "knovas_link certificate-request > site.csr»; Knovas signiert den Antrag (ein "
+                               "Knovas-Admin bestätigt; später signiert der Ausstellungsjob mit dem Schlüssel im HSM); "
+                               "dann «")
+        assert "zwei" not in step and "Person" not in step, "one confirmation, not two people (DEC-0062)"
+        assert step.endswith("«docker compose exec -T knovas-link python -m knovas_link install-certificate < site.crt»")
+        assert "waiting_for_certificate" not in step and "bis dahin" not in step
+        assert sites.CERTIFICATE_STEP + "." in codes.describe("waiting_for_certificate")["fix"]
 
     def test_the_components_page_lists_sites(self, world):
         made = _site(world)

@@ -212,8 +212,44 @@ CODES: Mapping[str, Mapping[str, str]] = {
         "title": "Wartet auf das Zertifikat",
         "explanation": "Knovas Link ist angemeldet, hat aber noch kein Zertifikat für das Brain. Bis dahin nimmt es "
                        "keine Aufträge an und schreibt nichts in den Mandanten.",
-        "fix": "Den Zertifikatsschritt ausführen, wie in DEC-0056 entschieden; bis dahin wartet Knovas Link "
-               "(waiting_for_certificate).",
+        "fix": "Zertifikat beantragen: auf dem Rechner «docker compose exec -T knovas-link python -m knovas_link "
+               "certificate-request > site.csr»; Knovas signiert den Antrag (ein Knovas-Admin bestätigt; später "
+               "signiert der Ausstellungsjob mit dem Schlüssel im HSM); dann «docker compose exec -T knovas-link python -m knovas_link "
+               "install-certificate < site.crt». Knovas Link übernimmt das Zertifikat beim nächsten Heartbeat, ohne "
+               "Neustart (DEC-0056, DEC-0062).",
+    },
+    # install-certificate on the site's machine (DEC-0056, A1): it writes nothing and names one of these
+    "certificate.not_enrolled": {
+        "title": "Knovas Link nicht angemeldet",
+        "explanation": "Knovas Link hat sich noch nicht bei der Plattform angemeldet und hat darum keinen Schlüssel, für "
+                       "den ein Zertifikat beantragt oder installiert werden könnte.",
+        "fix": "Knovas Link mit dem Einmal-Token aus dem Installationspaket starten («docker compose up -d»), dann das "
+               "Zertifikat beantragen.",
+    },
+    "certificate.unreadable": {
+        "title": "Kein Zertifikat erhalten",
+        "explanation": "«install-certificate» hat kein Zertifikat im PEM-Format erhalten; es wurde nichts geschrieben.",
+        "fix": "Das von Knovas signierte Zertifikat (-----BEGIN CERTIFICATE-----) als site.crt übergeben: "
+               "«docker compose exec -T knovas-link python -m knovas_link install-certificate < site.crt».",
+    },
+    "certificate.wrong_key": {
+        "title": "Zertifikat für einen anderen Schlüssel",
+        "explanation": "Das Zertifikat gehört nicht zum Schlüssel dieses Knovas Link, etwa weil es aus einem anderen "
+                       "Antrag oder vor «Token erneuern» signiert wurde; es wurde nichts geschrieben.",
+        "fix": "Den Antrag dieses Knovas Link neu erstellen («… certificate-request > site.csr») und von Knovas "
+               "signieren lassen.",
+    },
+    "certificate.not_valid_now": {
+        "title": "Zertifikat nicht gültig",
+        "explanation": "Das Zertifikat ist abgelaufen oder nach der Uhr des Rechners noch nicht gültig; es wurde nichts "
+                       "geschrieben.",
+        "fix": "Die Uhr des Rechners prüfen; sonst den Antrag neu von Knovas signieren lassen.",
+    },
+    "certificate.not_client_auth": {
+        "title": "Zertifikat nicht für Clients",
+        "explanation": "Das Zertifikat ist nicht für die Anmeldung als Client ausgestellt (erweiterte "
+                       "Schlüsselverwendung clientAuth fehlt); es wurde nichts geschrieben.",
+        "fix": "Den Antrag von der Client-CA von Knovas signieren lassen (internal-api, «/sign_certificate»).",
     },
     "invalid_job": {
         "title": "Auftrag ungültig",
