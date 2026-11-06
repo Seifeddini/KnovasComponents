@@ -20,12 +20,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-from graph_views import edit_map, plan_file
+from graph_views import edit_map, plan_file, repo_layout
 from graph_views.keys import key_type
-
-MODERNDOCS = "docs/ModernDocs"
-PLAN_LINKS = f"{MODERNDOCS}/client-zero/ontology/plan-links.yaml"
-SAMPLE = f"{MODERNDOCS}/client-zero/ontology/sample.yaml"
 
 
 class WriteError(Exception):
@@ -208,13 +204,38 @@ EDGE_RE = re.compile(r"^(\s*)-\s*\{\s*from:\s*([^,}]+?)\s*,\s*relation:\s*([a-z_
 
 
 class YamlEdges(Writer):
-    """``edges: - {from: A, relation: r, to: B}``; the instance is the ``from`` or the ``to`` end."""
+    """``edges: - {from: A, relation: r, to: B}``; the instance is the ``from`` or the ``to`` end.
 
-    def __init__(self, edit_id: str, path: str, relation: str, target_types: Tuple[str, ...], *,
-                 instance_is: str, source: str, key_path: str, label: str):
-        self.edit_id, self.path, self.relation = edit_id, path, relation
+    The file is the tenant's (``repo_layout``: ``plan_links_path`` or ``sample_edges_path``), never a product
+    default. The edit map's ``source`` for the id must name that file: the configured repository path itself, or
+    its tail (edit maps write sources relative to a documentation folder). Not configured: the writer refuses.
+    """
+
+    def __init__(self, edit_id: str, layout_field: str, relation: str, target_types: Tuple[str, ...], *,
+                 instance_is: str, key_path: str, label: str):
+        self.edit_id, self.layout_field, self.relation = edit_id, layout_field, relation
         self.target_types, self.instance_is = target_types, instance_is
-        self.source, self.key_path, self.label = source, key_path, label
+        self.key_path, self.label = key_path, label
+
+    @property
+    def path(self) -> str:
+        return getattr(repo_layout.current(), self.layout_field)
+
+    @property
+    def source(self) -> str:                                  # the edit map's source this writer accepts
+        return self.path
+
+    def routing_problem(self) -> Optional[str]:
+        if not self.path:
+            return f"„{self.edit_id}“: " + repo_layout.not_configured(self.layout_field)
+        e = edit_map.entry(self.edit_id)
+        if e is None or not e.get("editable"):
+            return super().routing_problem()
+        named = str(e.get("source") or "")
+        if not repo_layout.names_file(named, self.path) or e.get("key_path") != self.key_path:
+            return (f"Die Edit-Map nennt für „{self.edit_id}“ jetzt {named} · {e.get('key_path')}; "
+                    f"die Plattform schreibt {self.path} · {self.key_path}.")
+        return None
 
     def files(self, plan: Plan) -> List[str]:
         return [self.path]
@@ -618,17 +639,16 @@ class RiskRows(Writer):
 
 
 WRITERS: Dict[str, Writer] = {w.edit_id: w for w in [
-    YamlEdges("FeaturePlan serves Capability", PLAN_LINKS, "serves", ("Capability",), instance_is="from",
-              source="client-zero/ontology/plan-links.yaml", key_path="edges[relation=serves]", label="Fähigkeit"),
-    YamlEdges("FeaturePlan motivated_by Goal", PLAN_LINKS, "motivated_by", ("Goal",), instance_is="from",
-              source="client-zero/ontology/plan-links.yaml", key_path="edges[relation=motivated_by]", label="Ziel"),
-    YamlEdges("FeaturePlan justified_by Hypothesis", PLAN_LINKS, "justified_by", ("Hypothesis",), instance_is="from",
-              source="client-zero/ontology/plan-links.yaml", key_path="edges[relation=justified_by]", label="Hypothese"),
-    YamlEdges("PreMortem examines FeaturePlan", SAMPLE, "examines", ("PreMortem",), instance_is="to",
-              source="client-zero/ontology/sample.yaml", key_path="edges[relation=examines]", label="Pre-Mortem"),
-    YamlEdges("Risk mitigated_by FeaturePlan", SAMPLE, "mitigated_by", ("Risk",), instance_is="to",
-              source="client-zero/ontology/sample.yaml", key_path="edges[relation=mitigated_by]",
-              label="Risiko (gemindert durch)"),
+    YamlEdges("FeaturePlan serves Capability", "plan_links_path", "serves", ("Capability",), instance_is="from",
+              key_path="edges[relation=serves]", label="Fähigkeit"),
+    YamlEdges("FeaturePlan motivated_by Goal", "plan_links_path", "motivated_by", ("Goal",), instance_is="from",
+              key_path="edges[relation=motivated_by]", label="Ziel"),
+    YamlEdges("FeaturePlan justified_by Hypothesis", "plan_links_path", "justified_by", ("Hypothesis",),
+              instance_is="from", key_path="edges[relation=justified_by]", label="Hypothese"),
+    YamlEdges("PreMortem examines FeaturePlan", "sample_edges_path", "examines", ("PreMortem",), instance_is="to",
+              key_path="edges[relation=examines]", label="Pre-Mortem"),
+    YamlEdges("Risk mitigated_by FeaturePlan", "sample_edges_path", "mitigated_by", ("Risk",), instance_is="to",
+              key_path="edges[relation=mitigated_by]", label="Risiko (gemindert durch)"),
     AffectedRow(), GoldenInvariants(), ContractDeltas(), AlloySection(), RiskRows(),
 ]}
 

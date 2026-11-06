@@ -2,7 +2,7 @@
 
 A change set is a list of operations (graph_views.change_set) at one base commit of KnowledgeBase,
 plus the user's reasons for decision records. On submit it becomes one pull request; afterwards the
-row remembers which, so every view can say "Änderung ausstehend: PR #n" until the client-zero loader
+row remembers which, so every view can say "Änderung ausstehend: PR #n" until the tenant's loader
 has carried the merge into the tenant. Rows are tuples, mapped by position, like the rest of identity/.
 """
 from __future__ import annotations

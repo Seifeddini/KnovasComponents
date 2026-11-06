@@ -2,13 +2,12 @@
 
 The field list and layout follow KnowledgeBase's templates
 (docs/ModernDocs/_templates/feature-plan.template.md and feature-plan.ai.yaml)
-and what its client-zero loader reads (scripts/client_zero/providers/
-moderndocs.py): the H1 title, the front-matter ``status``, the header-table
+and what the tenant's loader reads (its providers/moderndocs.py): the H1 title, the front-matter ``status``, the header-table
 rows **Author**, **Status** and **Affected L2**, the ``## Problem`` and
 ``## References`` sections, the ``## Component contract deltas`` section and
 ``| RISK-nn |`` rows. Capability and goal are not in the plan file at all:
-they are ``serves`` / ``motivated_by`` / ``justified_by`` edges in
-ontology/plan-links.yaml, and are changed there.
+they are ``serves`` / ``motivated_by`` / ``justified_by`` edges in the
+tenant's plan-links edge list (``repo_layout.plan_links_path``), and are changed there.
 
 Edits are line edits on the original text, never a re-serialisation: the
 file keeps its comments, order and wording outside the changed field. A field
@@ -20,8 +19,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
-
-PLAN_LINKS_PATH = "docs/ModernDocs/client-zero/ontology/plan-links.yaml"
 
 H1_RE = re.compile(r"^# (?:Feature(?: Plan)?:\s*)?(.+?)\s*$", re.M)
 H1_PREFIX_RE = re.compile(r"^(# (?:Feature(?: Plan)?:\s*)?)(.+?)\s*$", re.M)

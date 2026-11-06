@@ -3274,6 +3274,12 @@ def create_app(config_path: Optional[str] = None):
     from identity.node_grants import NodeGrantStore as _ViewsGrantStore
     from identity.saved_views import SavedViewStore
 
+    # Where the tenant's knowledge base keeps decision records and edge lists (V1-G4): the deployment's
+    # values, empty when it sets none (the change that needs one is then refused, never guessed).
+    from graph_views import repo_layout as _repo_layout
+
+    _repo_layout.configure(_repo_layout.RepoLayout.from_config(config))
+
     def _change_repo():
         """KnowledgeBase for change requests: GitHub with a least-privilege token
         (contents + pull requests on KnowledgeBase only), else a read-only local

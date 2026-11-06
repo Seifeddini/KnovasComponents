@@ -2,7 +2,7 @@
 
 One JSON file holds everything the views read of a company's configuration: its types, relations,
 descriptions, processes, spines, pages, edit map, owners, profiles and health
-(KnowledgeBase ``docs/ModernDocs/client-zero/generated/README.md``). The computed reports
+(KnowledgeBase's ``generated/README.md`` beside the bundle). The computed reports
 (``header.reports``) are separate files, read from the same source relative to the bundle's folder.
 
 The source has two forms:
