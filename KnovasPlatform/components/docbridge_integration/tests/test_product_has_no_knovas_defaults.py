@@ -59,6 +59,10 @@ ALLOWED: Tuple[Allowed, ...] = (
             r'\s*"brain-runner @ git\+https://github\.com/[\w.-]+/[\w.-]+\.git@\$\{BRAIN_RUNNER_GIT_REF\}'
             r'#subdirectory=scripts/brain_runner" \\',
             "The same runner install as the Platform's image."),
+    Allowed(".github/workflows/ci.yml",
+            r'\s*pip install --no-cache-dir --no-deps "brain-runner @ git\+https://x-access-token:\$\{KB_READ_TOKEN\}'
+            r'@github\.com/[\w.-]+/[\w.-]+\.git@\$\{BRAIN_RUNNER_SHA\}#subdirectory=scripts/brain_runner"',
+            "CI installs the same runner for the Platform's tests, from the repository it is released in (V1-G11)."),
     Allowed("knovas.env.example", r"# built\. A fine-grained GitHub token, repository \S+ only,",
             "KB_READ_TOKEN: the build token that reads the runner's source repository (above), not a tenant value."),
     Allowed("scripts/start.sh", r'.*(https://api\.github\.com/repos/\S+ \|\| true\)"'
