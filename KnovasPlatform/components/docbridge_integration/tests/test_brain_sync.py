@@ -254,6 +254,30 @@ class TestSync:
         assert TOKEN not in json.dumps(svc.history(), default=str)
 
 
+# -- the audit entry of a finished run ---------------------------------------------------------------------------------
+
+
+@needs_db
+class TestAuditOutcome:
+    """A run ends ok, failed or refused (0010_brain_sync); audit_log.outcome takes ok, denied or error (0001_identity).
+    A finished run is audited under the outcome its status means, and the detail keeps the status itself."""
+
+    @pytest.mark.parametrize("kind,status,outcome", [("probe", "ok", "ok"), ("probe", "failed", "error"),
+                                                     ("apply", "failed", "error"), ("apply", "refused", "denied")])
+    def test_a_finished_run_leaves_one_audit_row_with_its_outcome(self, platform_db, admin, caplog, kind, status,
+                                                                  outcome):
+        from identity import audit
+
+        store = SyncStore(platform_db)
+        run_id = store.start("tenant-a", kind, admin)
+        assert store.finish(run_id, status, user=admin, result="Grund")["status"] == status
+        rows = [r for r in audit.recent(platform_db) if r["target_id"] == run_id]
+        assert [(r["action"], r["outcome"], r["detail"]["status"]) for r in rows] == [(f"brain_sync.{kind}", outcome,
+                                                                                       status)]
+        assert rows[0]["actor_email"] == "chef@kanzlei.ch" and rows[0]["target_type"] == "brain_sync_run"
+        assert "AUDIT WRITE FAILED" not in caplog.text
+
+
 # -- the page ------------------------------------------------------------------------------------------------------------
 
 

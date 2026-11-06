@@ -241,7 +241,8 @@ sync) once one exists; a value on the page or in `VIEWS_CONFIG_SOURCE` still win
 
 **History** (the page, and `brain_sync_runs`): commit, who, when, files fetched, counts per mapping, result,
 duration, the plan's sha256. Counts and hashes only, no file names or values. Every run is audited
-(`brain_sync.probe`, `brain_sync.apply`). The token appears in no response, log or history.
+(`brain_sync.probe`, `brain_sync.apply`) with the outcome `ok`, `denied` (refused) or `error` (failed); the run's
+own status is in the entry's detail. The token appears in no response, log or history.
 
 ### Brain Builder: sync components and access (steps B13, B14)
 
