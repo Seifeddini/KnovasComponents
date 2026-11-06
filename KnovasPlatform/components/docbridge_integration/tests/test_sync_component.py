@@ -123,6 +123,9 @@ class TestTheConfiguration:
         assert [w["workspace"] for w in found] == [world.workspace]
         files = {p: base64.b64decode(d) for p, d in found[0]["files"].items()}
         assert "brain-config.yaml" in files and any("kunden-mandate" in p for p in files)
+        # The configuration brain-runner reads, not the workspace's own parts: every source, the access design.
+        assert package.WORKSPACE_FILE not in files
+        assert package.WORKSPACE_FILE in package.write_package(world.store.model(world.workspace))
 
     def test_another_components_token_gets_nothing(self, world):
         world.client.credentials = type(world.client.credentials)(world.component, "kcc-wrong", *[None] * 3)

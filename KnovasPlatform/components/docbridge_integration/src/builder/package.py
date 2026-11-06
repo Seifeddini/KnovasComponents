@@ -19,6 +19,20 @@ descriptions file. Every key the model does not name is kept beside the item
 other parts are kept as the documents they are; the steps that build their
 editors normalise them.
 
+What a workspace holds that brain-runner's configuration has no place for --
+its sources, access design, role mapping and each mapping's ``builder``
+block (the source it reads, collection, priority, steps) -- is the Builder's
+own file beside brain-config.yaml, ``WORKSPACE_FILE``. brain-config.yaml and
+the mapping files take no keys beyond brain-runner's, and brain-runner reads
+only the files the manifest lists, so the file changes nothing for it. The
+export writes it when the workspace holds any of these parts; the package
+brain-runner plans from and the one a component runs leave it out
+(``write_package(..., workspace_parts=False)``). What belongs to one
+workspace and not to its configuration is not carried by an import: a
+source's credential (``credential_set``: the registry holds it per workspace)
+and its two switches, fetching originals and writing back, which only a
+reviewed edit switches on (MVP-25). The import says so in its warnings.
+
 Nothing here knows a company: level names, paths and keys all come from the
 package itself.
 """
@@ -49,6 +63,13 @@ ONTOLOGY_PARTS = ("terms", "relations", "descriptions", "node_descriptions")
 DOCUMENT_PARTS = ("processes", "spines", "pages", "owners", "edit_sources", "health")
 #: Top-level parts that are a glob of YAML files, one definition each.
 COLLECTION_PARTS = ("mappings", "profiles")
+
+#: The Builder's own file, beside brain-config.yaml: the workspace's parts brain-runner's configuration has no
+#: place for. Its keys: ``version``, ``sources``, ``access``, ``profile_roles`` and ``mappings`` (mapping file ->
+#: the mapping's ``builder`` block).
+WORKSPACE_FILE = "brain-builder.yaml"
+WORKSPACE_VERSION = 1
+WORKSPACE_KEYS = ("version", "sources", "access", "profile_roles", "mappings")
 
 #: Level names in the package -> the builder's three levels. Any other name is
 #: the company's own level (the package names it after the company).
@@ -286,6 +307,9 @@ def read_package(files: Mapping[str, bytes]) -> ImportResult:
     used = {PACKAGE_FILE, *kept, *(p for p in ontology_paths.values())}
     used |= {manifest[p] for p in DOCUMENT_PARTS if p in manifest}
     used |= {item["file"] for part in COLLECTION_PARTS for item in model[part]}
+    if WORKSPACE_FILE in files and WORKSPACE_FILE not in used:
+        _read_workspace(load_yaml(files[WORKSPACE_FILE], WORKSPACE_FILE), model, warnings)
+        used.add(WORKSPACE_FILE)
     ignored = sorted(set(files) - used)
 
     from builder import schema  # late: schema loads a file
@@ -450,6 +474,85 @@ def _drop_empty(node: dict) -> None:
                 del node[key]
 
 
+# ---------------------------------------------------------------- the workspace's own parts
+
+
+def _read_workspace(doc: Any, model: dict, warnings: list[str]) -> None:
+    """Move WORKSPACE_FILE onto the model: sources, access design, role mapping and each mapping's ``builder``.
+
+    A source starts without its credential (the registry holds it per workspace) and with both switches off
+    (fetching originals, writing back): an import is not the reviewed edit that switches them on (MVP-25)."""
+    if not isinstance(doc, dict):
+        raise PackageError(f"{WORKSPACE_FILE} ist keine Zuordnung von Schlüsseln.")
+    if doc.get("version") != WORKSPACE_VERSION:
+        raise PackageError(f"{WORKSPACE_FILE} hat die Version {doc.get('version')}; "
+                           f"dieser Builder liest Version {WORKSPACE_VERSION}.")
+    unknown = sorted(str(k) for k in set(doc) - set(WORKSPACE_KEYS))
+    if unknown:
+        raise PackageError(f"{WORKSPACE_FILE} enthält Teile, die dieser Builder nicht kennt.", unknown)
+
+    sources = doc.get("sources") or []
+    if not isinstance(sources, list) or not all(
+            isinstance(s, dict) and isinstance(s.get("key"), str) and s["key"] for s in sources):
+        raise PackageError(f"{WORKSPACE_FILE}: «sources» ist keine Liste von Quellen mit Schlüssel.")
+    keys = [s["key"] for s in sources]
+    twice = sorted({k for k in keys if keys.count(k) > 1})
+    if twice:
+        raise PackageError(f"{WORKSPACE_FILE}: Mehrere Quellen haben denselben Schlüssel.", twice)
+    credentials = switched = 0
+    for raw in sources:
+        source = copy.deepcopy(raw)
+        if source.get("credential_set") is True:
+            credentials += 1
+            source["credential_set"] = False
+        if source.get("fetch") is True or source.get("access") == "read_write":
+            switched += 1
+            if source.get("fetch") is True:
+                source["fetch"] = False
+            if source.get("access") == "read_write":
+                source["access"] = "read"
+        model["sources"].append(source)
+    if credentials:
+        warnings.append(f"{credentials} Quellen hatten Zugangsdaten; ein Paket trägt keine: in «Quellen» neu setzen.")
+    if switched:
+        warnings.append(f"Bei {switched} Quellen sind das Abrufen der Originale und das Zurückschreiben nach dem "
+                        "Import aus; eingeschaltet werden sie mit einer geprüften und freigegebenen Änderung.")
+
+    if "access" in doc:
+        if not isinstance(doc["access"], dict):
+            raise PackageError(f"{WORKSPACE_FILE}: «access» ist keine Zuordnung.")
+        model["access"] = copy.deepcopy(doc["access"])
+    if "profile_roles" in doc:
+        model["profile_roles"] = copy.deepcopy(doc["profile_roles"])  # its shape is the schema's to check
+
+    bindings = doc.get("mappings") or {}
+    if not isinstance(bindings, dict) or not all(isinstance(b, dict) for b in bindings.values()):
+        raise PackageError(f"{WORKSPACE_FILE}: «mappings» ordnet nicht jeder Zuordnungsdatei ihre Angaben zu.")
+    entries = {item["file"]: item for item in model["mappings"]}
+    for path, block in bindings.items():
+        if path in entries:
+            entries[path]["builder"] = copy.deepcopy(block)
+    stray = [path for path in bindings if path not in entries]
+    if stray:
+        warnings.append(f"{WORKSPACE_FILE}: Die Angaben zu {len(stray)} Zuordnungen, die das Paket nicht enthält, "
+                        "bleiben weg.")
+
+
+def _write_workspace(model: Mapping[str, Any]) -> dict | None:
+    """WORKSPACE_FILE's document, or None when the workspace holds none of its parts."""
+    doc: dict[str, Any] = {}
+    if model.get("sources"):
+        doc["sources"] = copy.deepcopy(list(model["sources"]))
+    for part in ("access", "profile_roles"):
+        if part in model:
+            doc[part] = copy.deepcopy(model[part])
+    bindings = {item["file"]: copy.deepcopy(item["builder"])
+                for item in model.get("mappings") or [] if "builder" in item}
+    if bindings:
+        doc["mappings"] = bindings
+    return {"version": WORKSPACE_VERSION, **doc} if doc else None
+
+
 # ---------------------------------------------------------------- writing
 
 
@@ -562,8 +665,9 @@ def _write_ontology(ontology: Mapping[str, Any], company: Mapping[str, Any]) -> 
     return docs
 
 
-def write_package(model: Mapping[str, Any]) -> dict[str, bytes]:
-    """The package's files from the model, as bytes keyed by relative path."""
+def write_package(model: Mapping[str, Any], *, workspace_parts: bool = True) -> dict[str, bytes]:
+    """The package's files from the model, as bytes keyed by relative path: the whole workspace, its own parts
+    in WORKSPACE_FILE. ``workspace_parts=False`` leaves that file out: the configuration as brain-runner reads it."""
     manifest = copy.deepcopy(model["package"]["manifest"])
     if model.get("company"):
         manifest["company"] = copy.deepcopy(model["company"])
@@ -583,6 +687,11 @@ def write_package(model: Mapping[str, Any]) -> dict[str, bytes]:
             files[item["file"]] = dump_yaml(item["definition"])
     for path, text in (model["package"].get("files") or {}).items():
         files[path] = text.encode("utf-8")
+    workspace = _write_workspace(model) if workspace_parts else None
+    if workspace is not None:
+        if WORKSPACE_FILE in files:
+            raise PackageError(f"{WORKSPACE_FILE} ist in diesem Paket schon ein anderer Teil.")
+        files[WORKSPACE_FILE] = dump_yaml(workspace)
     _regenerate_processes(model, manifest, files)
     _regenerate_definitions(model, manifest, files)
     return files

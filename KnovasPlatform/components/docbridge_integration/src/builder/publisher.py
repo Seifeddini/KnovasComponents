@@ -254,7 +254,8 @@ class BrainRunnerEngine:
         return None
 
     def _write(self, model: Mapping[str, Any], root: Path) -> tuple[dict[str, bytes], Path]:
-        files = package.write_package(model)
+        # The configuration brain-runner reads: the workspace's own parts (package.WORKSPACE_FILE) stay out.
+        files = package.write_package(model, workspace_parts=False)
         for path, data in files.items():
             target = root / path
             target.parent.mkdir(parents=True, exist_ok=True)
