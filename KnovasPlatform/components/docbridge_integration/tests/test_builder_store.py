@@ -169,6 +169,39 @@ def test_review_and_publish(store, consultant):
     assert store.get(workspace_id).tenant == "other"
 
 
+def test_an_approval_keeps_the_digest_it_approved_and_who_approved_their_own_import(store, consultant):
+    """BB-07, B1 (migration 0023): the approval holds the review digest and says when the approver imported."""
+    blank = package.read_package(package.blank_package("Muster AG")).model
+    workspace_id = store.create_from_import(name="Muster AG", model=blank, actor_id=consultant.id, source=_source())
+    digest = "b" * 64
+    assert store.approve(workspace_id, consultant.id, store.draft(workspace_id)["content_hash"], review_hash=digest,
+                         own_import=True)
+    [approval] = store.approvals(workspace_id)
+    assert approval["review_hash"] == digest and approval["own_import"] is True and approval["own_changes"] is False
+    assert store.approve(workspace_id, consultant.id, store.draft(workspace_id)["content_hash"])
+    assert [(a["review_hash"], a["own_import"]) for a in store.approval_history(workspace_id)] == \
+        [(digest, True), (None, False)]
+
+
+def test_a_component_is_served_the_published_version_only(store, consultant):
+    """BB-07, B2: served_by reads the newest published version, never the draft."""
+    from builder import editing
+
+    cid = store.register_component("tenant-b2", kind="http_json", name="Leser", site="", owner="", settings={},
+                                   actor_id=consultant.id)
+    model = package.read_package(package.blank_package("Muster AG")).model
+    editing.apply(model, {"op": "source.create", "kind": "http_json", "name": "Kunden", "component": cid,
+                          "settings": {"url": "https://a.example/k"}})
+    workspace_id = store.create(name="Muster AG", model=model, actor_id=consultant.id, source={"kind": "blank"},
+                                tenant="tenant-b2")
+    assert store.served_by(cid)["sources"] == [], "a draft is not served"
+    store.publish(workspace_id, consultant.id, store.draft(workspace_id)["content_hash"], {"sections": {}}, "a" * 64)
+    assert [s["settings"]["url"] for s in store.served_by(cid)["sources"]] == ["https://a.example/k"]
+    store.edit(workspace_id, consultant.id, lambda m: editing.apply(
+        m, {"op": "source.update", "key": "kunden", "fields": {"settings": {"url": "https://b.example/k"}}}))
+    assert [s["settings"]["url"] for s in store.served_by(cid)["sources"]] == ["https://a.example/k"]
+
+
 def test_health_reviews_keep_the_latest_per_type(store, consultant):
     blank = package.read_package(package.blank_package("Muster AG")).model
     workspace_id = store.create(name="Muster AG", model=blank, actor_id=consultant.id, source={"kind": "blank"})

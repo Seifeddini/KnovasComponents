@@ -35,7 +35,9 @@ _FIELDS = {"label": "Namen", "description": "Beschreibung", "example": "Beispiel
            "not_to_confuse": "Nicht verwechseln mit", "parent": "Elterntyp", "domain": "Von", "range": "Nach",
            "family": "Familie", "inverse": "Umkehrung", "sentence": "Lesart", "iri": "IRI", "reason": "Begründung",
            "version": "Version", "name": "Name", "owner": "Verantwortlich", "component": "Komponente",
-           "settings": "Einstellungen", "credential_set": "Zugangsdaten"}
+           "settings": "Einstellungen", "credential_set": "Zugangsdaten",
+           # A source's switches and an access rule (BB-07, B1): named, not «Kleine Änderungen».
+           "access": "Zugriff", "fetch": "Originale abrufen", "prefix": "Ordner", "groups": "Gruppen"}
 
 
 def state_of(before: Optional[Mapping[str, Any]], after: Optional[Mapping[str, Any]]) -> str:
@@ -73,7 +75,12 @@ def describe(item: Mapping[str, Any]) -> str:
     if "check" in item:
         return f"{item.get('name') or item.get('id')} ({item['id']})"
     if "sync_mode" in item:
-        return f"{item.get('name')} · {item.get('kind')}"
+        # A source: where it reads and through which component, so that a reviewer sees an address before a site
+        # reads it (BB-07, B1/B2).
+        settings = item.get("settings") if isinstance(item.get("settings"), Mapping) else {}
+        where = ", ".join(f"{k}: {v}" for k, v in sorted(settings.items()))
+        return (f"{item.get('name')} · {item.get('kind')}" + (f" · {where}" if where else "")
+                + (f" · Komponente {item['component']}" if item.get("component") else ""))
     parts = [(item.get("label") or {}).get("de") or str(item.get("key"))]
     if "version" in item and "key" in item and len(item) == 2:
         return f"Version {item['version']}"
@@ -104,6 +111,13 @@ def field_lines(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[dic
     for field, label in _FIELDS.items():
         old, new = before.get(field), after.get(field)
         if old == new:
+            continue
+        if field == "settings" and isinstance(new, Mapping) and isinstance(old, Mapping):
+            # Each setting with its new value: an address a site's credential goes to is read, not guessed.
+            for name in sorted(set(old) | set(new)):
+                if old.get(name) != new.get(name):
+                    lines.append({"sign": "changed" if name in old and name in new else ("added" if name in new else "removed"),
+                                  "text": f"{label}: {name} {old.get(name) or '–'} → {new.get(name) or '–'}"})
             continue
         if isinstance(new, list) and isinstance(old, list):
             added = [v for v in new if v not in old]
@@ -297,3 +311,284 @@ def change_set(rows: Iterable[Mapping[str, Any]], author: Optional[str] = None) 
 def destructive(change_set_: Mapping[str, Any]) -> list[dict]:
     """The elements a publish would retire or remove: they need a second, explicit confirmation."""
     return [g for s in change_set_["sections"] for g in s["elements"] if g["state"] == "removed"]
+
+
+# ------------------------------------------------------------------ the whole diff against the published state (BB-07, B1)
+#
+# change_set folds the draft's change log, and an import or a creation is one origin row with no content: a reviewer
+# of an imported workspace saw "Paket importiert" and nothing else, while publish wrote everything the package
+# brought -- the ontology, processes, mappings, access groups, folder rules and the role mapping. model_diff compares
+# the draft with the newest published version (an empty model before the first publish) element by element, in every
+# section and in every other part of the model, so the review shows all a publish hands on. Who brought an element is
+# kept as before: the authors of its change rows, else the person whose import or creation the draft started from.
+
+#: Every other part of the model, one element each: what an import brings beside the sections above.
+PARTS = "parts"
+SECTIONS[PARTS] = "Weitere Teile des Pakets"
+KINDS[PARTS] = "Teil"
+_LIST_SECTIONS = ("packs", "sources", "mappings", "profiles", "profile_roles")
+_DOCUMENT_SECTIONS = ("spines", "pages")
+_PROCESS_SECTIONS = {"processes": "processes", "processes.rules": "rules", "processes.report_rules": "report_rules"}
+
+
+def _items(model: Optional[Mapping[str, Any]], section: str) -> list:
+    """The section's elements, read without changing the model (builder.editing._items adds what is missing)."""
+    model = model or {}
+    if section in _LIST_SECTIONS:
+        found = model.get(section)
+    elif section in ("access.groups", "access.rules"):
+        found = (model.get("access") or {}).get(section.split(".", 1)[1]) if isinstance(model.get("access"), Mapping) else None
+    elif section in _DOCUMENT_SECTIONS:
+        doc = model.get(section)
+        found = doc.get(section) if isinstance(doc, Mapping) else None
+    elif section in _PROCESS_SECTIONS:
+        doc = model.get("processes")
+        found = doc.get(_PROCESS_SECTIONS[section]) if isinstance(doc, Mapping) else None
+    else:
+        ontology = model.get("ontology")
+        found = ontology.get(section.split(".", 1)[1]) if isinstance(ontology, Mapping) else None
+    return [x for x in found or [] if isinstance(x, Mapping)]
+
+
+def _keyed(model: Optional[Mapping[str, Any]], section: str) -> dict[str, Mapping[str, Any]]:
+    from builder.editing import key_of
+
+    return {str(key_of(section, item)): item for item in _items(model, section)}
+
+
+def _residual(model: Optional[Mapping[str, Any]]) -> dict:
+    """The model without the elements of the sections: its other parts (company, package files, ontology headers,
+    owners, health, the documents' own fields, …). A part that is None counts as absent."""
+    import copy
+
+    rest = copy.deepcopy(dict(model or {}))
+    for name in _LIST_SECTIONS:
+        rest.pop(name, None)
+    if isinstance(rest.get("ontology"), dict):
+        for name in ("types", "relations"):
+            rest["ontology"].pop(name, None)
+    if isinstance(rest.get("processes"), dict):
+        for name in _PROCESS_SECTIONS.values():
+            rest["processes"].pop(name, None)
+    for name in _DOCUMENT_SECTIONS:
+        if isinstance(rest.get(name), dict):
+            rest[name].pop(name, None)
+    if isinstance(rest.get("access"), dict):
+        for name in ("groups", "rules"):
+            rest["access"].pop(name, None)
+    return {k: v for k, v in rest.items() if v not in (None, {}, [])}
+
+
+def _part_diff(name: str, before: Any, after: Any) -> Optional[dict]:
+    if before == after:
+        return None
+    if before is None:
+        state, lines = "added", [{"sign": "added", "text": _part_text(name, after)}]
+    elif after is None:
+        state, lines = "removed", [{"sign": "removed", "text": "Entfernt"}]
+    else:
+        state = "changed"
+        if isinstance(before, Mapping) and isinstance(after, Mapping):
+            lines = [{"sign": "added", "text": f"{k}"} for k in sorted(set(after) - set(before), key=str)]
+            lines += [{"sign": "removed", "text": f"{k}"} for k in sorted(set(before) - set(after), key=str)]
+            lines += [{"sign": "changed", "text": f"{k} geändert"} for k in sorted(set(before) & set(after), key=str)
+                      if before[k] != after[k]]
+        else:
+            lines = [{"sign": "changed", "text": "Geändert"}]
+    return {"section": PARTS, "kind": KINDS[PARTS], "key": name, "path": f"{PARTS}/{name}", "state": state,
+            "lines": lines}
+
+
+def _part_text(name: str, value: Any) -> str:
+    if isinstance(value, Mapping):
+        return f"{name}: " + ", ".join(sorted(str(k) for k in value)) if value else name
+    return f"{name}: {value}" if isinstance(value, (str, int, float)) else name
+
+
+def model_diff(base: Optional[Mapping[str, Any]], draft: Optional[Mapping[str, Any]],
+               rows: Iterable[Mapping[str, Any]] = (), author: Optional[str] = None) -> dict:
+    """Everything a publish of ``draft`` changes against ``base`` (the newest published model, None before the
+    first publish), grouped by section as change_set groups it, with the same keys.
+
+    ``rows``: the draft's change rows (store.draft_changes), oldest first, for who changed each element; an element
+    with none came with the draft's origin (an import, a creation) and is that person's (``from_origin``).
+    ``author``: keep only that person's elements."""
+    rows = list(rows)
+    origin, origin_actor = None, None
+    folded: dict[str, dict] = {}
+    authors: dict[str, str] = {}
+    for row in rows:
+        actor = str(row["actor"]) if row.get("actor") else ""
+        if actor:
+            authors[actor] = row.get("actor_name") or actor
+        if row["path"] in ORIGINS:
+            origin = {"label": ORIGINS[row["path"]], "at": row.get("at"), "actor_name": row.get("actor_name"),
+                      "actor": actor or None, "kind": row["path"]}
+            origin_actor = actor or None
+            continue
+        entry = folded.setdefault(row["path"], {"first_before": row["before"], "authors": {}, "count": 0,
+                                                "last_at": row.get("at")})
+        entry["count"] += 1
+        entry["last_at"] = row.get("at")
+        if actor:
+            entry["authors"][actor] = row.get("actor_name") or actor
+    groups: list[dict] = []
+    from builder.editing import SECTIONS as EDIT_SECTIONS
+
+    for section in EDIT_SECTIONS:
+        old, new = _keyed(base, section), _keyed(draft, section)
+        for key in list(new) + [k for k in old if k not in new]:
+            before, after = old.get(key), new.get(key)
+            if before == after:
+                continue
+            group = element_diff(f"{section}/{key}", before, after)
+            if group["state"] == "unchanged":
+                continue
+            if group["state"] == "added" and (after or {}).get("retired"):
+                group["lines"].append({"sign": "removed", "text": "Als stillgelegt markiert"})
+            groups.append(group)
+    old_rest, new_rest = _residual(base), _residual(draft)
+    for name in sorted(set(old_rest) | set(new_rest)):
+        group = _part_diff(name, old_rest.get(name), new_rest.get(name))
+        if group is not None:
+            groups.append(group)
+    sections: dict[str, list] = {}
+    for group in groups:
+        entry = folded.get(group["path"])
+        who = dict(entry["authors"]) if entry else {}
+        # The origin brought the element when it already differed from the published state at the origin: with no
+        # change row since, or as it was before its first edit. Its importer is then one of its authors.
+        if origin is not None:
+            at_origin = entry["first_before"] if entry else _element(draft, group["path"])
+            if at_origin != _element(base, group["path"]) and origin_actor:
+                who = {origin_actor: origin["actor_name"] or origin_actor, **who}
+        group.update(authors=list(who.values()), author_ids=list(who), count=entry["count"] if entry else 0,
+                     last_at=(entry or {}).get("last_at") or (origin or {}).get("at"),
+                     from_origin=entry is None and origin is not None)
+        if author and author not in who:
+            continue
+        sections.setdefault(group["section"], []).append(group)
+    ordered = [{"section": s, "label": SECTIONS.get(s, s),
+                "elements": sorted(sections[s], key=lambda g: str(g["key"]).lower())}
+               for s in SECTIONS if s in sections]
+    counts = {state: sum(1 for s in ordered for g in s["elements"] if g["state"] == state)
+              for state in ("added", "changed", "removed", "restored")}
+    return {"origin": origin, "sections": ordered, "counts": counts, "authors": authors,
+            "total": sum(counts.values()), "against": "published" if base is not None else "empty"}
+
+
+def _element(model: Optional[Mapping[str, Any]], path: str) -> Optional[Mapping[str, Any]]:
+    section, _, key = path.partition("/")
+    if section == PARTS:
+        return _residual(model).get(key)
+    return _keyed(model, section).get(key)
+
+
+def diff_summary(diff: Mapping[str, Any]) -> list[dict]:
+    """Per section, how many elements a publish adds, changes and removes: for the dry run's table."""
+    out = []
+    for s in diff["sections"]:
+        counts = {state: sum(1 for g in s["elements"] if g["state"] == state)
+                  for state in ("added", "changed", "removed", "restored")}
+        out.append({"section": s["section"], "label": s["label"], **counts})
+    return out
+
+
+# ------------------------------------------------------------------ what publish writes beside the ontology (BB-07, B1)
+
+def access_plan(design: Optional[Mapping[str, Any]], tree: Any, live_prefixes: Iterable[str]) -> dict:
+    """What publish writes of the draft's access design onto the live tenant, without writing it: the groups it
+    makes (by name, under their parent; one of that name already there is used, not made), then the folder rules
+    whose prefix the tenant has no rule for. Never deletes or moves anything live. ``tree``: builder.access.Tree."""
+    design = design or {}
+    admin = next((k for k in tree.roots() if tree.is_admin(k)), None)
+    planned: dict[str, str] = {}               # design key -> the group's name
+    made: set[str] = set()                     # names this publish makes, lower case
+    groups = []
+    pending = [g for g in design.get("groups") or [] if isinstance(g, Mapping)]
+    while pending:
+        progress = False
+        for gr in list(pending):
+            parent = gr.get("parent")
+            if parent and parent not in planned:
+                continue
+            name = str(gr.get("name") or "")
+            exists = tree.by_name(name) is not None or name.strip().lower() in made
+            if not exists:
+                made.add(name.strip().lower())
+            planned[str(gr.get("key"))] = name
+            groups.append({"key": str(gr.get("key")), "name": name, "exists": exists,
+                           "parent": planned[parent] if parent else tree.name(admin)})
+            pending.remove(gr)
+            progress = True
+        if not progress:
+            break
+    have = {str(p) for p in live_prefixes}
+    rules = []
+    for r in design.get("rules") or []:
+        if not isinstance(r, Mapping):
+            continue
+        rules.append({"prefix": str(r.get("prefix")), "exists": str(r.get("prefix")) in have,
+                      "groups": [planned[g] for g in r.get("groups") or [] if g in planned],
+                      "missing": [str(g) for g in r.get("groups") or [] if g not in planned]})
+    return {"groups": groups, "rules": rules, "unplaced": [str(g.get("key")) for g in pending]}
+
+
+def roles_plan(current: Optional[Mapping[str, Any]], mapping: Mapping[str, list]) -> dict:
+    """What publish writes as the role mapping (views.profile_roles, replaced whole): per role, the profiles it saw
+    and will see, for every role whose line changes."""
+    current = {str(k): [str(p) for p in (v or [])] for k, v in (current or {}).items()} if isinstance(current, Mapping) else {}
+    rows = []
+    for role in sorted(set(current) | set(mapping)):
+        before, after = current.get(role), mapping.get(role)
+        if before != after:
+            rows.append({"role": role, "before": before, "after": after})
+    return {"rows": rows, "mapping": dict(mapping)}
+
+
+def effect_rows(effects: Mapping[str, Any]) -> list[dict]:
+    """The dry run's table rows for what publish writes beside the ontology: access groups and folder rules on the
+    tenant, the role mapping on the Platform. Status as the ontology's rows: create, update, refused, not_configured."""
+    rows = []
+    access = effects.get("access") or {}
+    if access.get("error"):
+        rows.append({"part": "access", "element": "Zugriffsentwurf", "status": "not_configured",
+                     "detail": f"Wird nicht geschrieben: {access['error']}"})
+    for g in access.get("groups") or []:
+        if not g["exists"]:
+            rows.append({"part": "access", "element": f"Zugriffsgruppe {g['name']}", "status": "create",
+                         "detail": f"Gruppe anlegen, unter {g['parent']}"})
+    for key in access.get("unplaced") or []:
+        rows.append({"part": "access", "element": f"Zugriffsgruppe {key}", "status": "refused",
+                     "detail": "Ihre Elterngruppe fehlt im Entwurf: wird nicht angelegt"})
+    for r in access.get("rules") or []:
+        if not r["exists"]:
+            rows.append({"part": "access", "element": f"Ordnerregel {r['prefix']}", "status": "create",
+                         "detail": "Nur lesbar für " + (", ".join(r["groups"]) or "niemanden außer den Administratoren")
+                                   + (f" (fehlt im Entwurf: {', '.join(r['missing'])})" if r["missing"] else "")})
+    roles = effects.get("roles") or {}
+    if roles.get("error"):
+        rows.append({"part": "roles", "element": "Rollen und Profile", "status": "not_configured",
+                     "detail": f"Wird nicht geschrieben: {roles['error']}"})
+    for r in roles.get("rows") or []:
+        detail = ("sieht " + ", ".join(r["after"]) if r["after"] else "sieht kein Profil mehr") if r["after"] is not None \
+            else "fällt aus der Zuordnung"
+        rows.append({"part": "roles", "element": f"Rolle {r['role']}",
+                     "status": "create" if r["before"] is None else "update",
+                     "detail": detail + (f" (bisher: {', '.join(r['before']) or 'keines'})" if r["before"] is not None else "")})
+    return rows
+
+
+def review_hash(*, base_hash: Optional[str], content_hash: str, plan_rows: list, effects: Mapping[str, Any]) -> str:
+    """The digest of everything a publish changes: the published state it starts from, the draft (both together fix
+    the model diff), the ontology plan against the tenant and what it writes beside it. An approval holds it; a
+    publish whose fresh digest differs is not the approved one (BB-07, B1)."""
+    import hashlib
+    import json
+
+    # The plan's rows in a fixed order: the same plan listed in another order is the same publish.
+    rows = sorted((dict(r) for r in plan_rows), key=lambda r: json.dumps(r, sort_keys=True, ensure_ascii=False))
+    body = {"base": base_hash, "draft": content_hash, "plan": rows,
+            "access": effects.get("access"), "roles": effects.get("roles")}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+                          .encode("utf-8")).hexdigest()

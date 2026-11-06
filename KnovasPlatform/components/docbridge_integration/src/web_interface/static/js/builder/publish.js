@@ -53,7 +53,9 @@
 
     on('[data-publish-link]', function (b) { act(b, root.dataset.tenantUrl); });
     on('[data-publish-dry-run]', function (b) { act(b, root.dataset.dryRunUrl); });
-    on('[data-publish-approve]', function (b) { act(b, root.dataset.approveUrl, { content_hash: hash }); });
+    /* The approval holds the digest of the dry run this page shows; the server refuses one it no longer matches. */
+    var reviewed = root.dataset.reviewHash || undefined;
+    on('[data-publish-approve]', function (b) { act(b, root.dataset.approveUrl, { content_hash: hash, review_hash: reviewed }); });
 
     /* An administrator approving their own changes: a reason and a tick first; the server checks both again. */
     var self = root.querySelector('[data-publish-self]');
@@ -65,7 +67,7 @@
         reason.addEventListener('input', ready);
         tick.addEventListener('change', ready);
         go.addEventListener('click', function () {
-            act(go, root.dataset.approveUrl, { content_hash: hash, self_approve: true, reason: reason.value.trim() });
+            act(go, root.dataset.approveUrl, { content_hash: hash, review_hash: reviewed, self_approve: true, reason: reason.value.trim() });
         });
     }
 

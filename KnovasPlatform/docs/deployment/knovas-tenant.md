@@ -273,6 +273,31 @@ duration, the plan's sha256. Counts and hashes only, no file names or values. Ev
 (`brain_sync.probe`, `brain_sync.apply`) with the outcome `ok`, `denied` (refused) or `error` (failed); the run's
 own status is in the entry's detail. The token appears in no response, log or history.
 
+### Brain Builder: review and publish (BB-07, B1)
+
+**Prüfen & Veröffentlichen** compares the draft with the newest published version (an empty model before the first
+publish), element by element: types, relations, processes and their rules, sources (with their addresses), mappings,
+hierarchies, pages, profiles, the role mapping, access groups, folder rules, and every other part of the package
+("Weitere Teile des Pakets"). An imported workspace therefore shows everything the package brought, each element
+marked "Paket importiert von …"; the change log's origin row is no longer the whole story.
+
+The **dry run** adds what publish writes beside the ontology: the access groups it creates and the folder rules it
+adds on the live tenant (read from the Brain now, never written), and the role mapping it writes into
+`views.profile_roles` (against what the setting holds now). It records a digest of all of it, with the published
+state it starts from and the ontology plan. An **approval holds that digest** (migration 0023). Publish plans again
+and refuses (409) when the fresh digest is not one an approval holds: the draft, the published version, the
+tenant's types, groups or rules, or the role mapping changed since. Then run a new dry run and approve again.
+Publish writes access groups and folder rules exactly as the approved plan names them.
+
+Self-approval stays allowed (decision of 2026-11-06). The person who imported (or created) the draft may approve it;
+the approval is recorded with `own_import` and shown as "Vom Importeur selbst freigegeben", in the activity feed too.
+Each publish run keeps an `audit` block: the draft's origin, who imported it, who approved (and whether that was the
+importer), who published, and the digest.
+
+For KB-10: before approving an import, read the review page's sections "Zugriffsgruppen", "Ordnerregeln" and
+"Rollen und Profile" and the dry run's table "Was das Veröffentlichen außerdem schreibt"; the hand comparison of
+`views.profile_roles` the pre-review asked for is what this table shows.
+
 ### Brain Builder: sync components and access (steps B13, B14)
 
 **Connector protocol v1** (`/api/connectors/v1`). Sync components enrolled in the builder call out to the Platform

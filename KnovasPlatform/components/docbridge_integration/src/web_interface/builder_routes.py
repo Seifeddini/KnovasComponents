@@ -216,6 +216,7 @@ def create_builder_blueprint(
     access_backend: Optional[Callable[[], Any]] = None,
     platform_roles: Optional[Callable[[], list]] = None,
     roles_sink: Optional[Callable[..., Any]] = None,
+    roles_source: Optional[Callable[[], Any]] = None,
     sync_status: Optional[Callable[[], Mapping[str, Any]]] = None,
     assistant_client: Optional[Callable[[], Optional[tuple]]] = None,
     tenant_graph: Optional[Callable[[], tuple]] = None,
@@ -271,7 +272,10 @@ def create_builder_blueprint(
 
     ``platform_roles`` returns the Platform's role keys (its role table);
     ``roles_sink(mapping, user)`` writes the published role-to-profile
-    mapping to the setting ``views.profile_roles`` (step B9).
+    mapping to the setting ``views.profile_roles`` (step B9); ``roles_source()``
+    reads what that setting holds now, so the dry run shows what publish
+    replaces (BB-07, B1). Without it, the published version's mapping is the
+    state compared with.
 
     ``sync_status()`` returns the Platform's sync as the Betrieb stage reads
     it (step B10): ``state`` (brain-runner's state of the mappings), ``runs``
@@ -960,6 +964,31 @@ def create_builder_blueprint(
             return jsonify({"success": False, "error": "Dieses Profil gibt es nicht."}), 404
         return jsonify({"success": True, "preview": result})
 
+    def _roles_effect(model, base) -> Optional[dict]:
+        """What publish would write as the role mapping (views.profile_roles, replaced whole) against what the
+        Platform holds now (``roles_source``), else against the published version's mapping; None when the draft
+        sets no roles."""
+        if "profile_roles" not in model:
+            return None
+        if roles_sink is None:
+            return {"error": "Diese Plattform schreibt keine Einstellungen."}
+        current, unknown = brain_views.profile_roles(base or {}), False
+        if roles_source is not None:
+            try:
+                found = roles_source()
+                if isinstance(found, str):
+                    import json as _json
+
+                    found = _json.loads(found) if found.strip() else {}
+                current = dict(found or {}) if isinstance(found, Mapping) or not found else current
+            except Exception as exc:  # noqa: BLE001 - compared with the published version, and said so
+                logger.warning("Builder: views.profile_roles not readable for the plan (%s)", type(exc).__name__)
+                unknown = True
+        plan = review.roles_plan(current, brain_views.profile_roles(model))
+        if unknown:
+            plan["current_unknown"] = True
+        return plan
+
     def _publish_roles(model) -> dict:
         """The published role mapping becomes views.profile_roles; its failure is reported, the publish stands."""
         if "profile_roles" not in model:
@@ -1113,7 +1142,8 @@ def create_builder_blueprint(
                 for c in store.changes(current.id, limit=200)]
         feed += [{"at": r["at"], "who": r.get("actor_name") or "–", "kind": r["kind"], "status": r["status"],
                   "summary": r.get("summary") or {}} for r in store.runs(current.id, limit=60)]
-        feed += [{"at": a["at"], "who": a.get("reviewer_name") or "–", "kind": "approval", "own_changes": a.get("own_changes")}
+        feed += [{"at": a["at"], "who": a.get("reviewer_name") or "–", "kind": "approval", "own_changes": a.get("own_changes"),
+                  "own_import": a.get("own_import")}
                  for a in store.approval_history(current.id)]
         for c in store.comments(current.id):
             feed.append({"at": c["at"], "who": c.get("author_name") or "–", "kind": "comment", "path": c["target"]})
@@ -2182,40 +2212,50 @@ def create_builder_blueprint(
         logger.info("Access window: enforcement switch approved")
         return jsonify({"success": True, "outcome": outcome})
 
-    def _publish_access(model) -> dict:
-        """The draft's access design onto the tenant: missing groups by name under their parent, then the folder
-        rules not there yet. Never deletes or moves anything live."""
+    def _access_effect(model) -> Optional[dict]:
+        """What publish would write of the draft's access design onto the live tenant (builder.review.access_plan),
+        read now and written nowhere; None when the draft designs no access. An unreadable tenant is the plan's
+        ``error``: the dry run shows it, and the approval holds it like everything else."""
+        design = model.get("access") or {}
+        if not design.get("groups") and not design.get("rules"):
+            return None
+        if access_backend is None:
+            return {"error": "Diese Plattform liest die Zugriffsgruppen des Brains nicht."}
+        try:
+            backend = access_backend()
+            return review.access_plan(design, backend.tree(), [str(r.get("pointer_prefix")) for r in backend.rules()])
+        except Exception as exc:  # noqa: BLE001 - the dry run says so
+            logger.warning("Builder: the tenant's access groups were not read for the plan (%s)", type(exc).__name__)
+            return {"error": getattr(exc, "message", type(exc).__name__)}
+
+    def _publish_access(model, plan: Optional[Mapping[str, Any]]) -> dict:
+        """The access design onto the tenant as the approved plan says (``plan``, _access_effect): the groups it
+        makes, by name under their parent, then the folder rules not there yet. Never deletes or moves anything
+        live, and writes nothing the plan does not name."""
         design = model.get("access") or {}
         if not design.get("groups") and not design.get("rules"):
             return {"written": False, "why": "Der Entwurf entwirft keine Zugriffsgruppen."}
-        if access_backend is None:
-            return {"written": False, "why": "Diese Plattform liest die Zugriffsgruppen des Brains nicht."}
+        if access_backend is None or not plan or plan.get("error"):
+            return {"written": False, "why": (plan or {}).get("error")
+                    or "Diese Plattform liest die Zugriffsgruppen des Brains nicht."}
+        groups = {str(gr.get("key")): gr for gr in design.get("groups") or [] if isinstance(gr, Mapping)}
         try:
             backend = access_backend()
             tree = backend.tree()
             admin = next((k for k in tree.roots() if tree.is_admin(k)), None)
             ids, made = {}, 0
-            pending = list(design.get("groups") or [])
-            while pending:
-                progress = False
-                for gr in list(pending):
-                    parent = admin if not gr.get("parent") else ids.get(gr["parent"])
-                    if gr.get("parent") and parent is None:
-                        continue
-                    existing = tree.by_name(gr["name"])
-                    ids[gr["key"]] = existing or backend.create(gr["name"], parent, ())
-                    made += 0 if existing else 1
-                    if not existing:
-                        tree = backend.tree()
-                    pending.remove(gr)
-                    progress = True
-                if not progress:
-                    break
-            have = {str(r.get("pointer_prefix")) for r in backend.rules()}
+            for planned in plan.get("groups") or []:          # parents before their children
+                parent_key = groups.get(planned["key"], {}).get("parent")
+                parent = ids.get(parent_key) if parent_key else admin
+                existing = tree.by_name(planned["name"])
+                ids[planned["key"]] = existing or backend.create(planned["name"], parent, ())
+                if not existing:
+                    made += 1
+                    tree = backend.tree()
             rules = 0
-            for r in design.get("rules") or []:
-                if r["prefix"] not in have:
-                    backend.create_rule(r["prefix"], [ids[g] for g in r.get("groups") or [] if g in ids], ())
+            for planned, r in zip(plan.get("rules") or [], [r for r in design.get("rules") or [] if isinstance(r, Mapping)]):
+                if not planned["exists"]:
+                    backend.create_rule(r["prefix"], [ids[gid] for gid in r.get("groups") or [] if gid in ids], ())
                     rules += 1
         except Exception as exc:  # noqa: BLE001 - reported, the publish stands
             logger.warning("Builder: the access design was not written (%s)", type(exc).__name__)
@@ -2770,23 +2810,63 @@ def create_builder_blueprint(
         """Who made the draft's changes: its import or creation does not count."""
         return {str(r["actor"]) for r in rows if r.get("actor") and r["path"] not in review.ORIGINS}
 
+    def _origin(rows) -> Optional[dict]:
+        """The row the draft started from (an import or a creation), or None (a later draft starts from a publish)."""
+        return next(({"kind": r["path"], "actor": str(r["actor"]) if r.get("actor") else None,
+                      "actor_name": r.get("actor_name"), "at": r.get("at")}
+                     for r in rows if r["path"] in review.ORIGINS), None)
+
+    def _base(store, workspace_id: str) -> tuple[Optional[dict], Optional[str]]:
+        """The newest published model and its content hash: what the draft is compared with (None, None before the
+        first publish)."""
+        base = store.published_model(workspace_id) if hasattr(store, "published_model") else None
+        return base, (package.content_hash(base) if base is not None else None)
+
+    def _effects(model, base) -> dict:
+        """What publish writes beside the ontology, planned now: the access design on the tenant, the role mapping
+        on the Platform (BB-07, B1)."""
+        effects = {"access": _access_effect(model), "roles": _roles_effect(model, base)}
+        rows = review.effect_rows(effects)
+        counts = {s: sum(1 for r in rows if r["status"] == s) for s in ("create", "update", "refused", "not_configured")}
+        return {**effects, "rows": rows, "counts": counts}
+
+    def _destructive(rows, diff) -> list[dict]:
+        """Retirements and removals: those of the change log (since the draft's start) and those against the published
+        version. Each needs its own confirmation."""
+        found = {g["path"]: g for g in review.destructive(review.change_set(rows))}
+        for g in review.destructive(diff):
+            found.setdefault(g["path"], g)
+        return [found[p] for p in sorted(found)]
+
+    def _latest_dry_run(runs, content_hash) -> Optional[dict]:
+        """The newest dry run of this draft (not a mapping's: B8 plans one mapping, not the publish)."""
+        return next((r for r in runs if r["kind"] == "dry_run" and r["content_hash"] == content_hash
+                     and not (r.get("summary") or {}).get("mapping")), None)
+
     def _review_context(store, workspace) -> dict:
         draft = store.draft(workspace.id)
         rows = store.draft_changes(workspace.id) if draft else []
         author = request.args.get("autor") or None
-        changes = review.change_set(rows, author=author)
-        everything = review.change_set(rows) if author else changes
+        base, _ = _base(store, workspace.id)
+        model = store.model(workspace.id) if draft else None
+        # Everything a publish changes, against the published version (BB-07, B1): an import's whole content too.
+        everything = review.model_diff(base, model, rows) if draft else review.change_set([])
+        changes = review.model_diff(base, model, rows, author=author) if draft and author else everything
         runs = store.runs(workspace.id)
         content = draft["content_hash"] if draft else None
-        # A mapping's dry run (B8) is not the draft's: it planned one mapping's items, not the publish.
-        dry_run = next((r for r in runs if r["kind"] == "dry_run" and r["content_hash"] == content
-                        and not (r.get("summary") or {}).get("mapping")), None)
-        approvals = [a for a in store.approvals(workspace.id) if a["content_hash"] == content]
+        dry_run = _latest_dry_run(runs, content) if draft else None
+        reviewed = (dry_run or {}).get("summary", {}).get("review_hash") if dry_run else None
+        mine = [a for a in store.approvals(workspace.id) if a["content_hash"] == content]
+        approvals = [a for a in mine if reviewed and a.get("review_hash") == reviewed]
         me = str(gate.current_user().id)
+        origin = _origin(rows)
         engine = _engine()
         return {
             "draft": draft, "changes": changes, "author": author, "authors": everything["authors"],
-            "destructive": review.destructive(everything), "dry_run": dry_run, "approvals": approvals,
+            "destructive": _destructive(rows, everything) if draft else [], "dry_run": dry_run, "approvals": approvals,
+            "stale_approvals": [a for a in mine if a not in approvals], "review_hash": reviewed,
+            "origin": origin, "is_origin_author": bool(origin and origin["actor"] == me),
+            "base_number": (store.published_bundle(workspace.id) or {}).get("number") if base is not None else None,
             "runs": runs[:10], "is_author": me in _authors(rows),
             "may_self_approve": me in _authors(rows) and "admin" in set(gate.current_user().roles or ()),
             "engine_missing": engine.missing() if engine is not None else "Keine Veröffentlichung in dieser Umgebung.",
@@ -2856,13 +2936,24 @@ def create_builder_blueprint(
             return jsonify({"success": False, "error": "Der Probelauf ist fehlgeschlagen.",
                             "details": [str(exc)[:500]]}), 502
         table = publisher.summarise_plan(plan)
-        status = "refused" if table["counts"]["refused"] else "ok"
+        # Beside the ontology: everything else a publish changes (BB-07, B1) -- the model's diff against the published
+        # version, the access design it writes on the tenant, the role mapping it writes on the Platform -- and the
+        # digest of all of it, which an approval holds.
+        base, base_hash = _base(store, current.id)
+        diff = review.model_diff(base, model, store.draft_changes(current.id))
+        effects = _effects(model, base)
+        digest = review.review_hash(base_hash=base_hash, content_hash=draft["content_hash"], plan_rows=table["rows"],
+                                    effects=effects)
+        status = "refused" if table["counts"]["refused"] or effects["counts"]["refused"] else "ok"
+        extra = {"effects": effects, "diff": review.diff_summary(diff), "diff_total": diff["total"],
+                 "review_hash": digest, "base_hash": base_hash}
         store.record_run(current.id, kind="dry_run", actor_id=gate.current_user().id, tenant=tenant,
                          content_hash=draft["content_hash"], bundle_hash=compiled.bundle_hash, status=status,
                          summary={**table, "bundle_content_hash": compiled.content_hash,
-                                  "engine": engine.version()})
-        logger.info("Builder dry run: workspace %s, %s", current.id, table["counts"])
-        return jsonify({"success": True, "status": status, **table})
+                                  "engine": engine.version(), **extra})
+        logger.info("Builder dry run: workspace %s, %s, beside the ontology %s", current.id, table["counts"],
+                    effects["counts"])
+        return jsonify({"success": True, "status": status, **table, **extra})
 
     @bp.route("/api/w/<workspace_id>/approve", methods=["POST"])
     def approve(workspace_id: str):
@@ -2889,13 +2980,25 @@ def create_builder_blueprint(
         still_open = [c for c in store.comments(current.id) if not c["resolved_at"]]
         if still_open:
             return jsonify({"success": False, "error": f"Erst die offenen Kommentare klären ({len(still_open)})."}), 409
-        if not any(r["kind"] == "dry_run" and r["content_hash"] == draft["content_hash"] and r["status"] != "failed"
-                   for r in store.runs(current.id)):
+        # The approval holds the digest of what the newest dry run of this draft showed (BB-07, B1): the whole diff and
+        # what publish writes beside the ontology. A page that sends the digest it showed must show the newest.
+        dry = _latest_dry_run(store.runs(current.id), draft["content_hash"])
+        digest = ((dry or {}).get("summary") or {}).get("review_hash") if dry and dry["status"] != "failed" else None
+        if not digest:
             return jsonify({"success": False, "error": "Erst nach einem Probelauf dieses Stands."}), 409
-        if not store.approve(current.id, user.id, draft["content_hash"], own_changes=own_changes, reason=reason):
+        if body.get("review_hash") not in (None, "", digest):
+            return jsonify({"success": False, "error": "Seit dem Laden lief ein neuer Probelauf mit anderem Ergebnis; "
+                                                      "die Seite neu laden und ihn prüfen."}), 409
+        # Self-approval of an import stays allowed (decision of 2026-11-06); it is recorded and shown as such.
+        origin = _origin(store.draft_changes(current.id))
+        own_import = bool(origin and origin["actor"] == str(user.id))
+        if not store.approve(current.id, user.id, draft["content_hash"], own_changes=own_changes, reason=reason,
+                             review_hash=digest, own_import=own_import):
             return jsonify({"success": False, "error": "Der Entwurf hat sich seit dem Laden geändert."}), 409
-        logger.info("Builder approval: workspace %s%s", current.id, ", own changes (administrator)" if own_changes else "")
-        return jsonify({"success": True})
+        logger.info("Builder approval: workspace %s%s%s", current.id,
+                    ", own changes (administrator)" if own_changes else "",
+                    ", by the person whose import or creation the draft started from" if own_import else "")
+        return jsonify({"success": True, "review_hash": digest, "own_import": own_import})
 
     @bp.route("/api/w/<workspace_id>/publish", methods=["POST"])
     def publish(workspace_id: str):
@@ -2909,17 +3012,39 @@ def create_builder_blueprint(
         content = draft["content_hash"]
         if _hash_of(body) != content:
             return jsonify({"success": False, "error": "Der Entwurf hat sich seit dem Laden geändert."}), 409
-        if not any(a["content_hash"] == content for a in store.approvals(current.id)):
+        approved = [a for a in store.approvals(current.id) if a["content_hash"] == content]
+        if not approved:
             return jsonify({"success": False, "error": "Dieser Stand ist nicht freigegeben."}), 409
-        destructive = sorted(g["path"] for g in review.destructive(review.change_set(store.draft_changes(current.id))))
+        rows = store.draft_changes(current.id)
+        model = store.model(current.id)
+        base, base_hash = _base(store, current.id)
+        destructive = sorted(g["path"] for g in _destructive(rows, review.model_diff(base, model, rows)))
         confirmed = sorted(str(p) for p in body.get("confirm_destructive") or [])
         if destructive and confirmed != destructive:
             return jsonify({"success": False, "error": "Stilllegungen brauchen eine eigene Bestätigung.",
                             "details": destructive}), 409
-        model = store.model(current.id)
         try:
             compiled = engine.compile(model)
             plan = engine.plan(model, tenant)
+        except Exception as exc:  # noqa: BLE001 - the engine's failure is the run's result
+            logger.warning("Builder apply failed: workspace %s, %s", current.id, type(exc).__name__)
+            store.record_run(current.id, kind="apply", actor_id=gate.current_user().id, tenant=tenant,
+                             content_hash=content, bundle_hash=None, status="failed",
+                             summary={"error": type(exc).__name__})
+            return jsonify({"success": False, "error": "Das Veröffentlichen ist fehlgeschlagen.",
+                            "details": [str(exc)[:500]]}), 502
+        # The approval binds to exactly what the dry run showed (BB-07, B1): planned again now, the whole of what this
+        # publish changes must have the digest an approval holds. A changed published state, tenant (its types, access
+        # groups, folder rules) or role mapping makes it another publish, which nobody approved.
+        effects = _effects(model, base)
+        digest = review.review_hash(base_hash=base_hash, content_hash=content,
+                                    plan_rows=publisher.summarise_plan(plan)["rows"], effects=effects)
+        approved = [a for a in approved if a.get("review_hash") == digest]
+        if not approved:
+            return jsonify({"success": False, "error": "Was das Veröffentlichen jetzt ändert, ist nicht mehr das, was "
+                            "freigegeben wurde (der Mandant, seine Zugriffsgruppen, die Rollen oder der veröffentlichte "
+                            "Stand haben sich geändert). Erst einen neuen Probelauf prüfen und freigeben."}), 409
+        try:
             result = engine.apply(model, tenant, plan)
         except Exception as exc:  # noqa: BLE001 - the engine's failure is the run's result
             logger.warning("Builder apply failed: workspace %s, %s", current.id, type(exc).__name__)
@@ -2938,11 +3063,21 @@ def create_builder_blueprint(
         if status != "failed":
             number = store.publish(current.id, gate.current_user().id, content, compiled.bundle, compiled.bundle_hash)
             summary["published_number"] = number
+        # Who imported (or created) the draft's start and who approved it, for the audit (BB-07, B1).
+        origin = _origin(rows)
+        summary["audit"] = {
+            "origin": origin["kind"] if origin else None, "imported_by": origin["actor"] if origin else None,
+            "imported_by_name": origin["actor_name"] if origin else None,
+            "approved_by": [{"id": a["reviewer"], "name": a.get("reviewer_name"), "own_import": a.get("own_import"),
+                             "own_changes": a.get("own_changes")} for a in approved],
+            "approved_by_importer": bool(origin and origin["actor"]
+                                         and any(a["reviewer"] == origin["actor"] for a in approved)),
+            "published_by": str(gate.current_user().id), "review_hash": digest}
         if number is not None:
             summary["run_event"] = _run_event(engine, model, number, status, summary)
             summary["views"] = _hand_to_views(compiled, number)
             summary["roles"] = _publish_roles(model)
-            summary["access"] = _publish_access(model)
+            summary["access"] = _publish_access(model, effects.get("access"))
         store.record_run(current.id, kind="apply", actor_id=gate.current_user().id, tenant=tenant,
                          content_hash=content, bundle_hash=compiled.bundle_hash, status=status, summary=summary)
         logger.info("Builder publish: workspace %s, status %s, %d written, %d refused, version %s",

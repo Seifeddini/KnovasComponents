@@ -2025,6 +2025,8 @@ def create_app(config_path: Optional[str] = None):
             # Views (B9): the role table, and the published role mapping as the setting views.profile_roles.
             platform_roles=_builder_platform_roles,
             roles_sink=_builder_roles_sink,
+            # What views.profile_roles holds now: the dry run shows what publish replaces (BB-07, B1).
+            roles_source=lambda: app.extensions['platform_settings'].value('views.profile_roles'),
             # Betrieb (B10): the sync's mapping state, runs and evaluation.
             sync_status=_builder_sync_status,
             # Sync components (B13): token hashes in the settings registry, adapters over what they report today.

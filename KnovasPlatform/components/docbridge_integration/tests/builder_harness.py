@@ -203,16 +203,18 @@ class MemoryWorkspaceStore:
         return [{k: copy.deepcopy(c.get(k)) for k in ("path", "before", "after", "actor", "actor_name", "at")}
                 for c in reversed(row["changes"]) if c.get("version") == version]
 
-    _APPROVAL = ("reviewer", "reviewer_name", "at", "content_hash", "own_changes", "reason")
+    _APPROVAL = ("reviewer", "reviewer_name", "at", "content_hash", "own_changes", "reason", "review_hash", "own_import")
 
-    def approve(self, workspace_id, reviewer_id, content_hash_, *, own_changes=False, reason=None):
+    def approve(self, workspace_id, reviewer_id, content_hash_, *, own_changes=False, reason=None, review_hash=None,
+                own_import=False):
         draft = self.draft(workspace_id)
         if draft is None or draft["content_hash"] != content_hash_:
             return False
         actor, name = self._actor(reviewer_id)
         self.rows[workspace_id]["approvals"].append({"reviewer": actor, "reviewer_name": name, "at": self._now(),
                                                      "content_hash": content_hash_, "version": draft["id"],
-                                                     "own_changes": bool(own_changes), "reason": reason})
+                                                     "own_changes": bool(own_changes), "reason": reason,
+                                                     "review_hash": review_hash, "own_import": bool(own_import)})
         return True
 
     def approvals(self, workspace_id):
@@ -831,7 +833,8 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
              secrets=None, readers=None, roles=None, roles_sink=None, sync=None, directory=None,
              component_secrets=None, adapters=None, limits=None, signer=None, require_certificate=True,
              access=None, assistant=None, graph=None, brain_url=None, brain_ca=None,
-             issue_certificates=True, views_source=None, tenant_bundle=None, tenant_client=None) -> Flask:
+             issue_certificates=True, views_source=None, tenant_bundle=None, tenant_client=None,
+             roles_source=None) -> Flask:
     """The builder on a bare app. ``store``: a MemoryWorkspaceStore, or None for none.
 
     ``app.extensions["builder_gate"]`` is the stand-in gate: set its ``user``
@@ -875,6 +878,7 @@ def make_app(user=None, store=None, tenant=None, engine=None, tenant_types=None,
         reader_factory=readers,
         platform_roles=(lambda: roles) if roles is not None else None,
         roles_sink=roles_sink,
+        roles_source=roles_source,
         sync_status=(lambda: sync) if sync is not None else None,
         user_directory=(lambda: directory) if directory is not None else None,
         component_secrets=(lambda: component_secrets) if component_secrets is not None else None,
