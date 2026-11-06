@@ -52,6 +52,8 @@ A new kind of source answers jobs with one function and one entry in `HANDLERS` 
 
 **Release coupling.** Link mode needs a brain-runner that takes `BRAIN_LOCAL_TOKEN` (MVP-20) and `compile-write` (MVP-13); the image's pinned runner (`BRAIN_RUNNER_GIT_REF`) moves to that release together with the Platform's.
 
+**kustomize in the image.** The runner renders a Kubernetes kustomization (`kustomize_build`) with `kustomize build`; without it the folder is read as files, patches and components are not applied, and the mapping is stopped. The image carries kustomize v5.4.3, downloaded in a build stage of its own and checked against the SHA-256 its release publishes before it is unpacked (`Dockerfile`, `KUSTOMIZE_VERSION` and one checksum per architecture, amd64 and arm64; `tests/test_sync_component_image.py` pins that).
+
 ## Getting the image to a company
 
 There is no image registry yet. Build it once, then copy it:
@@ -78,7 +80,7 @@ One function and one entry in `src/sync_component/fetchers.py`: it reads the sou
 
 ## Tests
 
-`docbridge_integration/tests/test_sync_component.py`: the real component over real HTTP against the Platform's protocol (direct mode), and against an in-process Knovas Link (`tests/fake_knovas_link.py`) with the real brain-runner (link mode). `test_github_jobs.py` (fetch, probe) and `test_github_write.py` (write) run the jobs against an in-process GitHub (`tests/fake_github_rest.py`), `test_front_matter_edit.py` the editor's round trip, and `test_sync_component_generic.py` fails on any client's tenant, name, repository, mapping or type in the component, its image, this page or the link-mode tests; the companies there are made up (`tests/sync_link_world.py`).
+`docbridge_integration/tests/test_sync_component.py`: the real component over real HTTP against the Platform's protocol (direct mode), and against an in-process Knovas Link (`tests/fake_knovas_link.py`) with the real brain-runner (link mode). `test_github_jobs.py` (fetch, probe) and `test_github_write.py` (write) run the jobs against an in-process GitHub (`tests/fake_github_rest.py`), `test_front_matter_edit.py` the editor's round trip, `test_sync_component_image.py` that the image pins kustomize and checks its checksum, and `test_sync_component_generic.py` fails on any client's tenant, name, repository, mapping or type in the component, its image, this page or the link-mode tests; the companies there are made up (`tests/sync_link_world.py`).
 
 ```bash
 cd KnovasPlatform/components/docbridge_integration

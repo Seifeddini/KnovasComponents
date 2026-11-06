@@ -68,11 +68,40 @@ ONTOLOGY_SOURCE=graph
 #   Who sees which profile views (component README, "Profile views"):
 # VIEWS_PROFILE_ROLES=admin=CTO; member=Engineer
 
+# Knovas's knowledge base (V1-G4): the product ships no default for these, so the Knovas
+# tenant sets them here. Without them, change requests, source links and the sync say
+# "nicht konfiguriert" ("The tenant's knowledge base" below).
+VIEWS_KB_GITHUB_REPO=Seifeddini/KnowledgeBase
+VIEWS_KB_DECISIONS_DIR=docs/ModernDocs/client-zero/ontology/decisions
+VIEWS_KB_PLAN_LINKS_PATH=docs/ModernDocs/client-zero/ontology/plan-links.yaml
+VIEWS_KB_SAMPLE_EDGES_PATH=docs/ModernDocs/client-zero/ontology/sample.yaml
+BRAIN_SYNC_REPOSITORY=Seifeddini/KnowledgeBase
+BRAIN_SYNC_CONFIG_PATH=docs/ModernDocs/client-zero/brain-config.yaml
+
 # Plain HTTP on 127.0.0.1 only (no TLS in front): otherwise the session cookie is dropped.
 WEB_SESSION_COOKIE_SECURE=false
 ```
 
 `IDENTITY_ENABLED` stays unset (on): saved views, the remembered selection, change sets and their audit need accounts. Every key `setup.sh` does not consume (`ONTOLOGY_SOURCE`, `VIEWS_*`, `WEB_SESSION_COOKIE_SECURE`) is passed through to the Platform unchanged. The tunable view settings and their defaults are in `KnovasPlatform/components/docbridge_integration/config/config.yaml` under `views:`.
+
+### The tenant's knowledge base (Knovas values, not product defaults)
+
+The Platform ships no default that names a tenant (V1-G4; `tests/test_product_has_no_knovas_defaults.py` fails on
+one). An empty setting means "not configured": the feature that needs it refuses and names the setting, it never
+falls back to Knovas's repository. The Knovas tenant therefore sets these in `knovas.env` (above):
+
+| Setting | Key | Variable | Knovas | Without it |
+|---|---|---|---|---|
+| Repository for change requests and source links | `views.change_requests.github_repo` | `VIEWS_KB_GITHUB_REPO` | `Seifeddini/KnowledgeBase` | No change requests ("Kein Zugang … konfiguriert"); documentation pages link to no source |
+| Folder of decision records | `views.change_requests.decisions_dir` | `VIEWS_KB_DECISIONS_DIR` | `docs/ModernDocs/client-zero/ontology/decisions` | A substantive change is refused ("Nicht konfiguriert: views.change_requests.decisions_dir"); minor changes still go through |
+| Plan links (serves, motivated_by, justified_by) | `views.change_requests.plan_links_path` | `VIEWS_KB_PLAN_LINKS_PATH` | `docs/ModernDocs/client-zero/ontology/plan-links.yaml` | Capability, goal and hypothesis are locked in the plan form, with the reason |
+| Pre-mortems and risk mitigations (examines, mitigated_by) | `views.change_requests.sample_edges_path` | `VIEWS_KB_SAMPLE_EDGES_PATH` | `docs/ModernDocs/client-zero/ontology/sample.yaml` | Those links are locked, with the reason |
+| Sync: repository | `brain_sync.repository` | `BRAIN_SYNC_REPOSITORY` | `Seifeddini/KnowledgeBase` | "Sync nicht eingerichtet: repository fehlt" |
+| Sync: configuration | `brain_sync.config_path` | `BRAIN_SYNC_CONFIG_PATH` | `docs/ModernDocs/client-zero/brain-config.yaml` | "Sync nicht eingerichtet: config_path fehlt" |
+
+The two sync settings can also be set on the settings page ("Sync von GitHub" below). The edit map of the Knovas
+bundle names the edge lists relative to `docs/ModernDocs` (`client-zero/ontology/plan-links.yaml`); a writer
+accepts that because it is the tail of the configured path, and refuses when the edit map names another file.
 
 ### The definitions bundle (never a copy in the Platform)
 
@@ -191,9 +220,9 @@ The image installs a pinned release; the Platform never imports or runs code fro
 
    | Setting | Key | Pinned by | Knovas |
    |---|---|---|---|
-   | Repository der Wissensbasis | `brain_sync.repository` | `BRAIN_SYNC_REPOSITORY` | `Seifeddini/KnowledgeBase` (default) |
+   | Repository der Wissensbasis | `brain_sync.repository` | `BRAIN_SYNC_REPOSITORY` | `Seifeddini/KnowledgeBase` (no product default since V1-G4: set it) |
    | Branch | `brain_sync.branch` | `BRAIN_SYNC_BRANCH` | `master` (default) |
-   | Pfad zur brain-config.yaml | `brain_sync.config_path` | `BRAIN_SYNC_CONFIG_PATH` | `docs/ModernDocs/client-zero/brain-config.yaml` (default) |
+   | Pfad zur brain-config.yaml | `brain_sync.config_path` | `BRAIN_SYNC_CONFIG_PATH` | `docs/ModernDocs/client-zero/brain-config.yaml` (no product default since V1-G4: set it) |
    | Lese-Token für den Sync | `brain_sync.github_token` | `BRAIN_SYNC_GITHUB_TOKEN`, or the file `brain_sync.github_token_file` | a fine-grained token: **Contents (read) on that repository only** |
 
    - The token is write-only on the page and stored encrypted (needs `PLATFORM_SETTINGS_KEY`, above).
@@ -326,4 +355,4 @@ export IDENTITY_ENABLED=false COMPANY_LOGIN_ENABLED=false
 cd src && python -c "from web_interface.app import create_app; create_app().run(host='127.0.0.1', port=5077)"
 ```
 
-With accounts, change-set previews can read a local KnowledgeBase checkout: `VIEWS_KB_LOCAL_REPO=<path to the checkout>`. Creating pull requests needs `KB_GITHUB_TOKEN` (contents and pull requests on KnowledgeBase only).
+With accounts, change-set previews can read a local KnowledgeBase checkout: `VIEWS_KB_LOCAL_REPO=<path to the checkout>`, with the `VIEWS_KB_*` paths of "The tenant's knowledge base" above exported too. Creating pull requests needs `KB_GITHUB_TOKEN` (contents and pull requests on KnowledgeBase only).

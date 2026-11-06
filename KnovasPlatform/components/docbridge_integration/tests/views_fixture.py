@@ -22,6 +22,15 @@ KNOVAS_BUNDLE = FIXTURES / "knovas-bundle" / "bundle.json"
 LAWFIRM_BUNDLE = FIXTURES / "lawfirm-bundle" / "bundle.json"
 KNOVAS_SOURCE = f"file:{KNOVAS_BUNDLE}"
 
+#: Where KnowledgeBase keeps what a change set writes besides the plan: the Knovas tenant's deployment values
+#: (KnovasPlatform/docs/deployment/knovas-tenant.md), which its bundle's edit map names. The product's defaults
+#: are empty (graph_views/repo_layout.py); tests on the Knovas fixture set these (conftest ``knovas_repo_layout``).
+KNOVAS_REPO_LAYOUT = {
+    "decisions_dir": "docs/ModernDocs/client-zero/ontology/decisions",
+    "plan_links_path": "docs/ModernDocs/client-zero/ontology/plan-links.yaml",
+    "sample_edges_path": "docs/ModernDocs/client-zero/ontology/sample.yaml",
+}
+
 
 @functools.lru_cache(maxsize=1)
 def knovas_bundle():

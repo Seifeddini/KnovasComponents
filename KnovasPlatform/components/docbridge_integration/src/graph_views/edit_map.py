@@ -13,10 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from graph_views import bundle
-
-#: Edit-map sources are written relative to the repository or to docs/ModernDocs.
-_MODERNDOCS = "docs/ModernDocs/"
+from graph_views import bundle, repo_layout
 
 
 def _edit_map() -> Dict[str, Any]:
@@ -43,18 +40,19 @@ def relation_id(instance_type: str, hop: Dict[str, str]) -> str:
 
 
 def sources(edit_id: str) -> List[str]:
-    """The entry's source as repository paths (the edit map writes some under docs/ModernDocs)."""
+    """The entry's source as repository paths. An edit map may write a source relative to a documentation
+    folder; a source that is the tail of a configured file (``repo_layout``) becomes that file's path, any
+    other stays as written (the product guesses no folder)."""
     e = entry(edit_id)
     if not e:
         return []
+    known = list(repo_layout.current().paths().values())
     out = []
     for part in str(e.get("source") or "").split(";"):
-        part = part.strip()
+        part = part.strip().strip("/")
         if not part:
             continue
-        if not part.startswith("docs/") and part.startswith("client-zero/"):
-            part = _MODERNDOCS + part
-        out.append(part)
+        out.append(next((p for p in known if repo_layout.names_file(part, p)), part))
     return out
 
 

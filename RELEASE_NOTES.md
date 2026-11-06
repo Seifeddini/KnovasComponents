@@ -1,5 +1,17 @@
 # Unreleased
 
+## Keine Voreinstellung nennt mehr einen Mandanten (V1-G4)
+
+- **Repository und Pfade der Wissensbasis sind Einstellungen ohne Voreinstellung.**
+  `views.change_requests.github_repo` (`VIEWS_KB_GITHUB_REPO`), `brain_sync.repository`
+  (`BRAIN_SYNC_REPOSITORY`) und `brain_sync.config_path` (`BRAIN_SYNC_CONFIG_PATH`) sind leer, bis
+  die Installation sie setzt; neu sind `views.change_requests.decisions_dir`, `plan_links_path` und
+  `sample_edges_path` (`VIEWS_KB_DECISIONS_DIR`, `VIEWS_KB_PLAN_LINKS_PATH`,
+  `VIEWS_KB_SAMPLE_EDGES_PATH`). Leer heisst "nicht konfiguriert": die Funktion sagt es und nennt die
+  Einstellung, statt ein fremdes Repository zu raten. **Beim Update:** wer sich auf die alten
+  Voreinstellungen verlassen hat, setzt die Werte in `knovas.env`
+  (`KnovasPlatform/docs/deployment/knovas-tenant.md`, "The tenant's knowledge base").
+
 ## PDF-Vorschau: das PDF steht, wo vorher nur das Vorschaubild kam
 
 - **Lange PDFs oeffnen in der Vorschau in Sekunden statt gar nicht.** Das

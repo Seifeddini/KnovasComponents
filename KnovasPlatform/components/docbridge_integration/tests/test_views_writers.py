@@ -11,6 +11,12 @@ import pytest
 import yaml
 
 from graph_views import edit_map, writers as w
+from views_fixture import KNOVAS_REPO_LAYOUT
+
+# The Knovas bundle's edit map names KnowledgeBase's files; the product has no default for them (V1-G4).
+pytestmark = pytest.mark.usefixtures("knovas_repo_layout")
+LINKS_PATH = KNOVAS_REPO_LAYOUT["plan_links_path"]
+SAMPLE_PATH = KNOVAS_REPO_LAYOUT["sample_edges_path"]
 
 KEY = "FEAT-2026-10-05-graph-native-brain"
 PLAN = w.Plan(KEY, "docs/ModernDocs/plans/2026-10-05-graph-native-brain.md")
@@ -107,7 +113,7 @@ other: {a: 1}
 
 
 def texts(**over):
-    t = {PLAN.path: PLAN_MD, PLAN.sidecar: SIDECAR, w.PLAN_LINKS: LINKS, w.SAMPLE: SAMPLE}
+    t = {PLAN.path: PLAN_MD, PLAN.sidecar: SIDECAR, LINKS_PATH: LINKS, SAMPLE_PATH: SAMPLE}
     t.update(over)
     return t
 
@@ -176,21 +182,21 @@ class TestSuggestions:
 class TestYamlEdges:
     def test_add_appends_after_the_last_edge_with_a_note(self):
         out = w.apply(W("FeaturePlan serves Capability"), texts(), PLAN, "add", "CAP-02", "change set 2026-10-28")
-        new = out[w.PLAN_LINKS]
+        new = out[LINKS_PATH]
         assert "  # change set 2026-10-28\n  - {from: FEAT-2026-10-05-graph-native-brain, relation: serves, to: CAP-02}\n" in new
         assert {"from": KEY, "relation": "serves", "to": "CAP-02"} in yaml.safe_load(new)["edges"]
         assert new.startswith(LINKS.rstrip("\n").rsplit("\n", 0)[0][:40])       # the rest stays byte for byte
 
     def test_remove_drops_only_that_line(self):
         out = w.apply(W("FeaturePlan serves Capability"), texts(), PLAN, "remove", "CAP-11", "")
-        assert "to: CAP-11" not in out[w.PLAN_LINKS] and "to: CAP-03" in out[w.PLAN_LINKS]
+        assert "to: CAP-11" not in out[LINKS_PATH] and "to: CAP-03" in out[LINKS_PATH]
 
     def test_the_instance_can_be_the_to_end_and_spacing_is_kept(self):
         plan = w.Plan("FEAT-2026-07-30-company-brain-foundation", "docs/ModernDocs/plans/2026-07-30-company-brain-foundation.md")
         writer = W("PreMortem examines FeaturePlan")
         assert writer.present(texts(), plan) == ["PM-2026-10-01-brain"]
         out = w.apply(writer, texts(), plan, "remove", "PM-2026-10-01-brain", "")
-        assert "examines" not in out[w.SAMPLE] and yaml.safe_load(out[w.SAMPLE])["other"] == {"a": 1}
+        assert "examines" not in out[SAMPLE_PATH] and yaml.safe_load(out[SAMPLE_PATH])["other"] == {"a": 1}
 
     def test_an_edge_from_another_source_cannot_be_removed_here(self):
         with pytest.raises(w.WriteError, match="nicht eingetragen"):
