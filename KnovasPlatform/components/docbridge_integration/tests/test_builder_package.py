@@ -107,7 +107,7 @@ class TestTheRoundTrip:
         exported = package.write_package(result.model)
         assert set(exported) == _listed(files)
         assert _semantic_differences(files, exported) == []
-        assert result.summary["types"] == 71
+        assert result.summary["types"] == 79                # the package as of 2026-11-06 (D-6: Symbol and GlossaryTerm placed)
         # And through a zip of the whole folder, as the import dialog takes it.
         again = package.read_package(package.files_from_zip(package.zip_files(exported)))
         assert package.content_hash(again.model) == package.content_hash(result.model)
@@ -159,6 +159,113 @@ class TestTheModel:
         model["ontology"]["types"].append({"key": "Invoice", "level": "company", "attributes": []})
         terms = package.load_yaml(package.write_package(model)["ontology/terms.yaml"])
         assert terms["node_types"][-1] == {"name": "Invoice", "level": "beispiel", "attributes": []}
+
+
+def _workspace_model(sample):
+    """The sample's model with every part only a workspace holds: a source with its credential and both switches
+    on, an access design, a role mapping and a mapping read through the source."""
+    from builder import editing
+
+    model = package.load_yaml(package.canonical_json(sample.model))
+    editing.apply(model, {"op": "source.create", "kind": "github", "name": "Ablage", "component": "c1",
+                          "settings": {"repository": "muster/ablage", "ref": "main"}})
+    editing.apply(model, {"op": "source.credential", "key": "ablage", "set": True})
+    editing.apply(model, {"op": "source.switches", "key": "ablage", "fetch": True, "access": "read_write"})
+    editing.apply(model, {"op": "access.group.create", "name": "Partner"})
+    editing.apply(model, {"op": "access.rule.add", "prefix": "/Mandate", "groups": ["partner"]})
+    editing.apply(model, {"op": "roles.set", "role": "partner", "profiles": ["partner"]})
+    editing.apply(model, {"op": "mapping.source", "id": "dms-mandates", "source": "ablage"})
+    model["mappings"][0]["builder"].update(collection="yaml_file:mandate/*.yaml", priority=20,
+                                          steps={"0:name": {"field": "title", "steps": [{"op": "trim"}]}})
+    return model
+
+
+class TestTheWorkspaceFile:
+    """What a workspace holds beyond brain-runner's configuration goes into package.WORKSPACE_FILE, beside
+    brain-config.yaml, so the export is the whole workspace (KB-10, DEC-0041)."""
+
+    def test_the_export_holds_every_part_only_a_workspace_has(self, sample):
+        model = _workspace_model(sample)
+        exported = package.write_package(model)
+        doc = package.load_yaml(exported[package.WORKSPACE_FILE])
+        assert set(doc) == {"version", "sources", "access", "profile_roles", "mappings"}
+        assert doc["sources"] == model["sources"]
+        assert doc["access"] == model["access"] and doc["access"]["rules"][0]["prefix"] == "/Mandate"
+        assert doc["profile_roles"] == [{"key": "partner", "profiles": ["partner"]}]
+        assert doc["mappings"] == {"mappings/dms-mandates.yaml": model["mappings"][0]["builder"]}
+        # brain-runner's files stay brain-runner's: no key it does not take.
+        assert package.load_yaml(exported["mappings/dms-mandates.yaml"]) == model["mappings"][0]["definition"]
+        assert package.load_yaml(exported[package.PACKAGE_FILE]) == package.load_yaml(
+            package.write_package(sample.model)[package.PACKAGE_FILE])
+
+    def test_import_export_import_is_lossless(self, sample):
+        first = package.read_package(package.write_package(_workspace_model(sample)))
+        exported = package.write_package(first.model)
+        again = package.read_package(package.files_from_zip(package.zip_files(exported)))
+        assert package.content_hash(again.model) == package.content_hash(first.model)
+        assert package.write_package(again.model) == exported
+        assert again.model["access"]["groups"] == [{"key": "partner", "name": "Partner", "parent": None}]
+        assert again.model["mappings"][0]["builder"]["source"] == "ablage"
+        assert again.summary["sources"] == 1 and again.summary["ignored_files"] == 0
+        assert schema.problems(again.model) == []
+
+    def test_an_import_starts_a_source_without_its_credential_and_switches(self, sample):
+        model = _workspace_model(sample)
+        result = package.read_package(package.write_package(model))
+        [source] = result.model["sources"]
+        assert (source["credential_set"], source["fetch"], source["access"]) == (False, False, "read")
+        assert {k: v for k, v in source.items() if k not in ("credential_set", "fetch", "access")} == \
+               {k: v for k, v in model["sources"][0].items() if k not in ("credential_set", "fetch", "access")}
+        warnings = " ".join(result.warnings)
+        assert "1 Quellen hatten Zugangsdaten" in warnings and "Zurückschreiben" in warnings
+
+    def test_a_workspace_without_these_parts_writes_no_file(self, sample):
+        assert package.WORKSPACE_FILE not in package.write_package(sample.model)
+        assert package.WORKSPACE_FILE not in package.blank_package("Muster AG")
+
+    def test_brain_runner_s_package_leaves_it_out(self, sample):
+        files = package.write_package(_workspace_model(sample), workspace_parts=False)
+        assert package.WORKSPACE_FILE not in files
+        assert set(files) == set(package.write_package(sample.model))
+
+    def test_brain_runner_reads_a_package_with_the_file(self, tmp_path):
+        config = pytest.importorskip("brain_runner.config")
+        from builder import editing
+
+        model = package.read_package(package.blank_package("Muster AG")).model
+        editing.apply(model, {"op": "source.create", "kind": "github", "name": "Ablage", "component": "c1",
+                              "settings": {"repository": "muster/ablage"}})
+        editing.apply(model, {"op": "access.group.create", "name": "Partner"})
+        files = package.write_package(model)
+        assert package.WORKSPACE_FILE in files
+        for path, data in files.items():
+            (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / path).write_bytes(data)
+        config.load(tmp_path / package.PACKAGE_FILE)
+
+    @pytest.mark.parametrize("doc,message", [
+        ("version: 2\n", "Version 1"),
+        ("version: 1\nsites: []\n", "nicht kennt"),
+        ("version: 1\nsources: [{name: ohne Schlüssel}]\n", "Quellen mit Schlüssel"),
+        ("version: 1\nsources: [{key: a}, {key: a}]\n", "denselben Schlüssel"),
+        ("version: 1\naccess: [x]\n", "keine Zuordnung"),
+        ("version: 1\nmappings: {mappings/dms-mandates.yaml: x}\n", "ihre Angaben"),
+    ])
+    def test_a_file_the_builder_cannot_read_is_refused(self, sample_files, doc, message):
+        with pytest.raises(package.PackageError, match=message):
+            package.read_package({**sample_files, package.WORKSPACE_FILE: doc.encode("utf-8")})
+
+    def test_a_binding_for_a_mapping_the_package_lacks_is_left_out_with_a_warning(self, sample_files):
+        doc = b"version: 1\nmappings: {mappings/gone.yaml: {source: ablage}}\n"
+        result = package.read_package({**sample_files, package.WORKSPACE_FILE: doc})
+        assert all("builder" not in m for m in result.model["mappings"])
+        assert any("1 Zuordnungen" in w for w in result.warnings)
+
+    def test_a_part_the_manifest_keeps_there_is_not_overwritten(self, sample):
+        model = _workspace_model(sample)
+        model["package"]["manifest"]["health"] = package.WORKSPACE_FILE
+        with pytest.raises(package.PackageError, match="schon ein anderer Teil"):
+            package.write_package(model)
 
 
 class TestABlankPackage:

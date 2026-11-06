@@ -1,0 +1,18 @@
+{
+  "schema": "job-result.schema.json",
+  "description": "A fetch is at most 25 MiB.",
+  "breaks": [
+    "bytes"
+  ],
+  "instance": {
+    "status": "ok",
+    "code": null,
+    "version": "ff7b4c62979180d16e75356492b21cc64a58c830",
+    "bytes_sha256": "050a6fa01a96d4d876179f790470680f7c2ef2b2292dc7660122c8295baa1263",
+    "mime": "text/markdown",
+    "bytes": 26214401,
+    "parts": 1,
+    "source_ref": null,
+    "duration_ms": 412
+  }
+}

@@ -16,11 +16,22 @@ contract as the Platform implements it, until KC-7a writes it down in full:
   certificates (builder.components.require_client_certificate: false).
 
   POST /api/connectors/v1/heartbeat
-       {state: online|degraded, version, lag_seconds, open_errors, capabilities}
-    -> {paused, schedule, commands: [{id, command, args}]}   commands are delivered once
+       {state: online|degraded, version, lag_seconds, open_errors, capabilities, site?}
+    -> {paused, schedule, commands: [{id, command, args, component?}]}   commands are delivered once
+       ``site`` comes from Knovas Link only (connection layer MVP-19, MVP-23): {certificate: present|waiting,
+       work_channel: connected|down, probe: {last_at, ok, round_trip_ms}, components: [{name, kind, version, state,
+       capabilities, local_ping_ms}], sources: [{workspace, key, last_read_ok_at, last_run_status}],
+       jobs: {<kind>: {<status>: n}}} -- codes, counts, versions and times. It is kept as telemetry on Link's row, and
+       each component becomes a child row (transport ``link``). Link's answer also carries its components' commands,
+       each naming the component (``component``: its name on the site).
+
+  A report Link forwards for one of its components names it: header X-Sub-Component: <name on the site>, or the
+  body field ``sub_component``. Runs, events, checks, command results, config and package are then the component's.
   GET  /api/connectors/v1/config
-    -> {component, paused, schedule, brain_url, sources: [{workspace, key, kind, access, settings}],
+    -> {component, paused, schedule, brain_url, sources: [{workspace, key, kind, access, settings, fetch, write}],
         mappings: [{workspace, id, source}]}
+       For Knovas Link: the sources and mappings of every component behind it, each with ``component`` (its name on
+       the site). ``fetch`` and ``write`` are the source's switches as last published (MVP-25).
   GET  /api/connectors/v1/package
     -> {workspaces: [{workspace, files: {path: base64}}]}    the configuration of the workspaces it serves, compiled
   POST /api/connectors/v1/runs
@@ -32,7 +43,7 @@ contract as the Platform implements it, until KC-7a writes it down in full:
   POST /api/connectors/v1/checks               {checks: [{workspace, source, code, counts}]}    can it read each source?
 
 Commands: run {kind}, pause, resume, approve_plan {plan, mapping, reason}, reject_plan {plan, mapping},
-reload_config, check. Reports carry codes and counts, never document names or content (GI-DATA-02/04): what does
+reload_config, check, probe (Knovas Link: go round the work channel now). Reports carry codes and counts, never document names or content (GI-DATA-02/04): what does
 not fit that shape is refused, not stored.
 """
 from __future__ import annotations
@@ -40,6 +51,8 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import logging
+import re
+import uuid
 from typing import Any, Callable, Mapping, Optional
 
 from builder import components as C
@@ -81,13 +94,18 @@ def _when(value: Any, name: str) -> Optional[str]:
 # ------------------------------------------------------------------ enrolment
 
 def issue_enrolment(store: Any, secrets: Any, tenant: str, *, kind: str, name: str, site: str, owner: str,
-                    actor: Any, now: dt.datetime) -> tuple[str, str]:
-    """A pending v1 component and its one-time enrolment token (shown once); (component id, token)."""
-    if kind not in C.KINDS or C.KINDS[kind].get("planned") or C.KINDS[kind].get("adapter_only"):
-        raise ProtocolError(400, "kind", "Art: Sync-Komponente, Dateiablage/DMS oder GitHub; die Datenbank ist geplant.")
+                    actor: Any, now: dt.datetime, site_id: Optional[str] = None) -> tuple[str, str]:
+    """A pending v1 component and its one-time enrolment token (shown once); (component id, token). Knovas Link is
+    made with its site only (``site_id``, builder.sites)."""
+    known = C.KINDS.get(kind) or {}
+    if not known or known.get("planned") or known.get("adapter_only") or bool(known.get("site_only")) != bool(site_id):
+        raise ProtocolError(400, "kind", "Art: Sync-Komponente, Dateiablage/DMS oder GitHub; die Datenbank ist geplant. "
+                                         "Knovas Link entsteht mit seinem Standort.")
     token, digest = C.new_token("kce")
+    extra = {"site_id": site_id} if site_id else {}
     component_id = store.create_component(tenant, kind=kind, name=name, site=site, owner=owner, actor_id=actor.id,
-                                          enrol_expires_at=(now + dt.timedelta(hours=C.ENROL_HOURS)).isoformat())
+                                          enrol_expires_at=(now + dt.timedelta(hours=C.ENROL_HOURS)).isoformat(),
+                                          **extra)
     if component_id is None:
         raise ProtocolError(409, "name_taken", f"Eine Komponente «{name}» gibt es schon.")
     secrets.put(secret_key(component_id, "enrol"), digest, actor)
@@ -211,10 +229,16 @@ def authenticate(store: Any, secrets: Any, tenant: str, component_id: str, beare
     return c
 
 
-def heartbeat(store: Any, c: Mapping[str, Any], body: Mapping[str, Any], now: dt.datetime) -> dict:
+def heartbeat(store: Any, c: Mapping[str, Any], body: Mapping[str, Any], now: dt.datetime,
+              tenant: Optional[str] = None) -> dict:
     state = body.get("state") or "online"
     if state not in ("online", "degraded"):
         raise ProtocolError(400, "bad_field", "state: online or degraded")
+    site = None
+    if body.get("site") is not None:
+        if not C.is_link(c):
+            raise ProtocolError(400, "bad_field", "site: only Knovas Link reports a site")
+        site = check_site(body["site"])          # all of it checked before anything is stored
     was = c.get("reported_state")
     store.update_component(c["id"], last_heartbeat_at=now.isoformat(), reported_state=state,
                            version=str(body.get("version") or c.get("version") or "")[:60],
@@ -223,31 +247,211 @@ def heartbeat(store: Any, c: Mapping[str, Any], body: Mapping[str, Any], now: dt
                            capabilities=[str(x)[:60] for x in (body.get("capabilities") or c.get("capabilities") or [])][:30])
     if was != state:
         store.add_event(c["id"], f"state.{state}", {})
+    if site is not None:
+        _keep_site(store, c, site, now, tenant)
     commands = store.deliver_commands(c["id"], now.isoformat())
     for cmd in commands:
         store.add_event(c["id"], "command.delivered", {})
-    return {"paused": bool(c.get("paused")), "schedule": c.get("schedule") or {"mode": "manual"},
-            "commands": [{"id": cmd["id"], "command": cmd["command"], "args": cmd.get("args") or {}} for cmd in commands]}
+    out = [{"id": cmd["id"], "command": cmd["command"], "args": cmd.get("args") or {}} for cmd in commands]
+    if C.is_link(c) and hasattr(store, "children"):
+        # The commands of the components behind Link travel with Link's answer, each naming its component.
+        for child in store.children(c["id"]):
+            for cmd in store.deliver_commands(child["id"], now.isoformat()):
+                store.add_event(child["id"], "command.delivered", {})
+                out.append({"id": cmd["id"], "command": cmd["command"], "args": cmd.get("args") or {},
+                            "component": child["local_name"]})
+    return {"paused": bool(c.get("paused")), "schedule": c.get("schedule") or {"mode": "manual"}, "commands": out}
+
+
+# ------------------------------------------------------------------ Knovas Link's site (MVP-19, MVP-23)
+
+#: A component's name on its site: a container's name, never a person's or a document's.
+LOCAL_NAME = re.compile(r"^[a-z][a-z0-9_.-]{0,59}$")
+VERSION_TEXT = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$")
+CAPABILITY = re.compile(r"^[a-z][a-z0-9_.-]{0,40}(:[a-z][a-z0-9_.-]{0,40})?$")
+SOURCE_KEY = re.compile(r"^[a-z][a-z0-9-]{0,59}$")
+#: A component's state as Link sees it on the site.
+CHILD_STATES = ("online", "degraded", "offline")
+RUN_STATUSES = ("ok", "held", "failed")
+MAX_CHILDREN = 30
+MAX_SITE_SOURCES = 200
+
+
+def _bad(field: str, what: str) -> ProtocolError:
+    return ProtocolError(400, "bad_field", f"site.{field}: {what}")
+
+
+def _site_int(value: Any, field: str) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 10**9:
+        raise _bad(field, "a whole number")
+    return value
+
+
+def _site_when(value: Any, field: str) -> Optional[str]:
+    try:
+        return _when(value, field)
+    except ProtocolError:
+        raise _bad(field, "an ISO 8601 time") from None
+
+
+def check_site(raw: Any) -> dict:
+    """Link's ``site`` object as the Platform keeps it: codes, counts, versions and times only. Anything shaped like a
+    name or free text is refused (400); a field this Platform does not know is dropped, so a newer Link still beats."""
+    if not isinstance(raw, Mapping):
+        raise _bad("", "an object")
+    out: dict = {}
+    if raw.get("certificate") is not None:
+        if raw["certificate"] not in ("present", "waiting"):
+            raise _bad("certificate", "present or waiting")
+        out["certificate"] = raw["certificate"]
+    if raw.get("work_channel") is not None:
+        if raw["work_channel"] not in ("connected", "down"):
+            raise _bad("work_channel", "connected or down")
+        out["work_channel"] = raw["work_channel"]
+    if raw.get("probe") is not None:
+        probe = raw["probe"]
+        if not isinstance(probe, Mapping):
+            raise _bad("probe", "an object")
+        ok = probe.get("ok")
+        if ok is not None and not isinstance(ok, bool):
+            raise _bad("probe.ok", "true or false")
+        out["probe"] = {"last_at": _site_when(probe.get("last_at"), "probe.last_at"), "ok": ok,
+                        "round_trip_ms": _site_int(probe.get("round_trip_ms"), "probe.round_trip_ms")}
+    components = raw.get("components") or []
+    if not isinstance(components, list) or len(components) > MAX_CHILDREN:
+        raise _bad("components", f"a list of up to {MAX_CHILDREN}")
+    out["components"] = []
+    for item in components:
+        if not isinstance(item, Mapping):
+            raise _bad("components", "objects")
+        name, kind = str(item.get("name") or ""), str(item.get("kind") or "")
+        if not LOCAL_NAME.match(name):
+            raise _bad("components.name", "the component's name on the site: lower case, digits, - . _")
+        if not C.EVENT_CODE.match(kind):
+            raise _bad("components.kind", "a kind")
+        version = str(item.get("version") or "")
+        if version and not VERSION_TEXT.match(version):
+            raise _bad("components.version", "a version")
+        if item.get("state") not in CHILD_STATES:
+            raise _bad("components.state", "online, degraded or offline")
+        caps = item.get("capabilities") or []
+        if not isinstance(caps, list) or len(caps) > 30 or not all(isinstance(x, str) and CAPABILITY.match(x) for x in caps):
+            raise _bad("components.capabilities", "up to 30 codes such as write:github")
+        out["components"].append({"name": name, "kind": kind, "version": version, "state": item["state"],
+                                  "capabilities": list(caps),
+                                  "local_ping_ms": _site_int(item.get("local_ping_ms"), "components.local_ping_ms")})
+    sources = raw.get("sources") or []
+    if not isinstance(sources, list) or len(sources) > MAX_SITE_SOURCES:
+        raise _bad("sources", f"a list of up to {MAX_SITE_SOURCES}")
+    out["sources"] = []
+    for item in sources:
+        if not isinstance(item, Mapping):
+            raise _bad("sources", "objects")
+        workspace, key = str(item.get("workspace") or ""), str(item.get("key") or "")
+        try:
+            uuid.UUID(workspace)
+        except ValueError:
+            raise _bad("sources.workspace", "a workspace id") from None
+        if not SOURCE_KEY.match(key):
+            raise _bad("sources.key", "a source key")
+        status = item.get("last_run_status")
+        if status is not None and status not in RUN_STATUSES:
+            raise _bad("sources.last_run_status", "ok, held or failed")
+        out["sources"].append({"workspace": workspace, "key": key, "last_run_status": status,
+                               "last_read_ok_at": _site_when(item.get("last_read_ok_at"), "sources.last_read_ok_at")})
+    jobs = raw.get("jobs") or {}
+    if not isinstance(jobs, Mapping) or len(jobs) > 20:
+        raise _bad("jobs", "an object of job kinds")
+    out["jobs"] = {}
+    for kind, outcomes in jobs.items():
+        if not isinstance(kind, str) or not C.EVENT_CODE.match(kind) or not isinstance(outcomes, Mapping) or len(outcomes) > 20:
+            raise _bad("jobs", "{kind: {outcome: n}}")
+        out["jobs"][kind] = {}
+        for outcome, n in outcomes.items():
+            if not isinstance(outcome, str) or not C.EVENT_CODE.match(outcome):
+                raise _bad("jobs", "outcomes are codes")
+            out["jobs"][kind][outcome] = _site_int(n, "jobs") or 0
+    return out
+
+
+def _keep_site(store: Any, link: Mapping[str, Any], site: Mapping[str, Any], now: dt.datetime,
+               tenant: Optional[str]) -> None:
+    """Link's telemetry on its row; its components as child rows, made the first time Link reports them."""
+    store.update_component(link["id"], telemetry={**{k: v for k, v in site.items() if k != "components"},
+                                                  "components": [c["name"] for c in site["components"]],
+                                                  "at": now.isoformat()})
+    unknown = 0
+    for item in site["components"]:
+        known = C.KINDS.get(item["kind"]) or {}
+        if not known or known.get("site_only") or known.get("adapter_only"):
+            unknown += 1              # a kind this Platform does not know: not stored, counted
+            continue
+        child_id = store.upsert_child(tenant or "", parent_id=link["id"], site_id=link.get("site_id"),
+                                      local_name=item["name"], kind=item["kind"],
+                                      name=f"{link.get('name')} · {item['name']}"[:120])
+        fields = {"version": item["version"], "capabilities": item["capabilities"],
+                  "reported_state": "degraded" if item["state"] == "degraded" else "online",
+                  "telemetry": {"state": item["state"], "local_ping_ms": item["local_ping_ms"], "at": now.isoformat()}}
+        if item["state"] != "offline":
+            fields["last_heartbeat_at"] = now.isoformat()   # seen by Link on the site just now
+        store.update_component(child_id, **fields)
+    if unknown:
+        store.add_event(link["id"], "site.component_unknown_kind", {"components": unknown})
+
+
+def resolve_reporter(store: Any, tenant: str, c: Mapping[str, Any], name: Optional[str]) -> Mapping[str, Any]:
+    """The component a call is about: the caller, or -- Knovas Link forwarding for one of its components -- the
+    child it names (X-Sub-Component or ``sub_component``)."""
+    if not name:
+        return c
+    if not C.is_link(c):
+        raise ProtocolError(400, "bad_field", "sub_component: only Knovas Link forwards for a component")
+    if not LOCAL_NAME.match(str(name)):
+        raise ProtocolError(400, "bad_field", "sub_component: the component's name on the site")
+    child = next((x for x in store.children(c["id"]) if x.get("local_name") == name), None)
+    if child is None:
+        raise ProtocolError(409, "unknown_sub_component", "no component of that name behind this Knovas Link: "
+                                                          "report it in a heartbeat first")
+    return child
+
+
+def _served(store: Any, c: Mapping[str, Any]) -> dict:
+    """The sources and mappings a component serves. Knovas Link serves those of the components behind it, each
+    named by its component (``component``: its name on the site), so Link knows which of them serves which source."""
+    if not hasattr(store, "served_by"):
+        return {"sources": [], "mappings": []}
+    if not C.is_link(c) or not hasattr(store, "children"):
+        return store.served_by(c["id"])
+    sources, mappings = [], []
+    for child in store.children(c["id"]):
+        found = store.served_by(child["id"])
+        sources += [{**s, "component": child["local_name"]} for s in found["sources"]]
+        mappings += [{**m, "component": child["local_name"]} for m in found["mappings"]]
+    return {"sources": sources, "mappings": mappings}
 
 
 def config_of(store: Any, c: Mapping[str, Any]) -> dict:
     """What the component runs: the sources served through it and their mappings, in every workspace."""
-    served = store.served_by(c["id"]) if hasattr(store, "served_by") else {"sources": [], "mappings": []}
+    served = _served(store, c)
     return {"component": c["id"], "paused": bool(c.get("paused")), "schedule": c.get("schedule") or {"mode": "manual"},
             "sources": served["sources"], "mappings": served["mappings"]}
 
 
 def package_of(store: Any, c: Mapping[str, Any], write: Optional[Callable[[Mapping[str, Any]], Mapping[str, bytes]]] = None) -> dict:
     """The configuration package of each workspace this component serves: the workspace model stays the only record,
-    so a component is never configured by hand. It holds definitions and source settings, no credential and no data."""
+    so a component is never configured by hand. It holds definitions and source settings, no credential and no data;
+    not the workspace's own parts either (package.WORKSPACE_FILE: every source, the access design, the role mapping):
+    a component learns the sources it serves from config_of."""
     import base64
 
     if write is None:
         from builder import package, publisher
 
-        write = lambda model: package.write_package(publisher.for_engine(model))  # noqa: E731
+        write = lambda model: package.write_package(publisher.for_engine(model), workspace_parts=False)  # noqa: E731
     out = []
-    served = store.served_by(c["id"]) if hasattr(store, "served_by") else {"sources": []}
+    served = _served(store, c)
     for workspace in dict.fromkeys(s["workspace"] for s in served["sources"]):
         model = store.model(workspace)
         if model is None:

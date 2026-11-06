@@ -1,0 +1,11 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "The commit read, acknowledged once everything before it is held.",
+  "instance": {
+    "type": "state",
+    "source": "handbook",
+    "state": {
+      "commit": "9fceb02d0ae598e95dc970b74767f19372d61af8"
+    }
+  }
+}

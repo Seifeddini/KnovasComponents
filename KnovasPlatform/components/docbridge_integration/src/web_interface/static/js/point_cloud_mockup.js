@@ -560,6 +560,7 @@
         systems.push(system);
         stars.push(...system.orbit);
         });
+        placeDocumentsBesideEntities();
         rebuildSunTargets();
         if (focusedSystem && !systems.includes(focusedSystem)) {
             focusedSystem = null;
@@ -571,9 +572,16 @@
         }
     }
 
-    const documents = searchVersion === 1 || !searchApi
-        ? []
-        : searchApi.placeDocuments(systems, searchApi.DOCUMENTS);
+    // The systems are mounted only after the page has asked for the live
+    // galaxy, so a document is placed again each time they are: placed
+    // before, it found no entity and lay in the unfiled cluster. The array
+    // stays the same one, window.cortexGalaxy.documents is this array.
+    const documents = [];
+
+    function placeDocumentsBesideEntities() {
+        if (searchVersion === 1 || !searchApi) return;
+        documents.splice(0, documents.length, ...searchApi.placeDocuments(systems, searchApi.DOCUMENTS));
+    }
 
     function normalizeSearchValue(value) {
         return String(value || '')

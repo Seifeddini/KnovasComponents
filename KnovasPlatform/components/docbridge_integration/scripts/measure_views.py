@@ -6,8 +6,8 @@ Read-only: GET requests only. Prints wall-clock time per view (cold = after a
 refresh that bypasses the per-subject cache, warm = straight after), the
 server's own timing and call count, and checks the board's missing items
 against KnowledgeBase's process-completeness.json (--report: the file the
-tenant's definitions bundle names, e.g. a KnowledgeBase checkout's
-docs/ModernDocs/client-zero/ontology/generated/process-completeness.json). Used for the times recorded in each PR of
+tenant's definitions bundle names, e.g. <checkout>/<ontology folder>/generated/process-completeness.json
+in a checkout of the tenant's knowledge base). Used for the times recorded in each PR of
 docs/superpowers/plans/2026-10-27-process-and-spine-views.md.
 """
 from __future__ import annotations

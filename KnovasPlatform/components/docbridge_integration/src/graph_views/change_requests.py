@@ -11,14 +11,13 @@ import re
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 
-from graph_views import plan_file
+from graph_views import plan_file, repo_layout
 from graph_views.facts import fact_values, read_facts
 from graph_views.keys import key_type
 from graph_views.process_views import current_step
 from graph_views.traverse import follow
 
 PLANS_DIR = "docs/ModernDocs/plans/"
-DECISIONS_DIR = "docs/ModernDocs/client-zero/ontology/decisions"
 
 
 class ChangeError(Exception):
@@ -171,7 +170,10 @@ def read_plan(repo: Any, commit: str, plan: Dict[str, Any]) -> Tuple[Dict[str, A
     md = repo.get_file(plan["path"], commit)
     if md is None:
         raise ChangeError(f"Plan-Datei {plan['path']} gibt es auf dem Basisstand nicht.")
-    links = repo.get_file(plan_file.PLAN_LINKS_PATH, commit)
+    # Capability, goal and hypothesis links live in the tenant's edge list; not configured: none are read
+    # (their form fields are locked with the reason, writers.YamlEdges.routing_problem).
+    links_path = repo_layout.current().plan_links_path
+    links = repo.get_file(links_path, commit) if links_path else None
     side = repo.get_file(plan["path"][:-3] + ".ai.yaml", commit)
     fields = plan_file.read(md[0], plan["key"], links[0] if links else "").as_dict()
     fields["goal"] = (fields.get("goal") or []) + (fields.get("hypothesis") or [])

@@ -1,7 +1,8 @@
 """The sync history (migration 0010_brain_sync): one row per Probelauf or Anwenden, counts and hashes only.
 
 At most one running row per tenant (a partial unique index), so a second start answers Busy. Every finished run is
-also an audit entry (``brain_sync.probe`` / ``brain_sync.apply``) with the commit, the result and the counts.
+also an audit entry (``brain_sync.probe`` / ``brain_sync.apply``) with the commit, the result and the counts, under
+the outcome ``ok``, ``denied`` (refused) or ``error`` (failed); the run's own status is in the detail.
 """
 from __future__ import annotations
 
@@ -13,6 +14,15 @@ logger = logging.getLogger(__name__)
 
 #: A running row older than this is a sync that died with its worker; it no longer blocks the tenant.
 STALE_RUNNING_MINUTES = 120
+
+
+def audit_outcome(status: str) -> str:
+    """The audit_log outcome of a finished run's status: audit_log takes only ok, denied and error (0001_identity),
+    a run ends ok, failed or refused. The status itself goes into the entry's detail."""
+    if status == "ok":
+        return "ok"
+    return "denied" if status == "refused" else "error"
+
 
 _COLUMNS = ("r.id, r.tenant, r.kind, r.branch, r.commit_sha, u.email, r.started_at, r.finished_at, r.status, "
             "r.progress, r.files_fetched, r.counts, r.result, r.duration_ms, r.plan_sha256, r.tenant_ref, r.probe_id")
@@ -81,7 +91,7 @@ class SyncStore:
             from identity import audit as audit_log
 
             audit_log.record(self._conn, action=f"brain_sync.{row['kind']}", actor=user, target_type="brain_sync_run",
-                             target_id=run_id, outcome="ok" if status == "ok" else status,
+                             target_id=run_id, outcome=audit_outcome(status),
                              detail={"tenant": row["tenant"], "commit": row["commit"], "status": status,
                                      "files_fetched": row["files_fetched"], "counts": row["counts"],
                                      "plan_sha256": row["plan_sha256"], "result": row["result"]})

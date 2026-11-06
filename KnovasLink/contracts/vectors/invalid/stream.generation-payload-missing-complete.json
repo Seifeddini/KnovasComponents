@@ -1,0 +1,18 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "payload.complete is required.",
+  "breaks": [
+    "payload",
+    "complete"
+  ],
+  "instance": {
+    "type": "generation",
+    "source": "handbook",
+    "payload": {
+      "id": "7f1c2d9e-5b4a-4c3e-9a8b-1d2e3f4a5b6c",
+      "counts": {
+        "documents": 32
+      }
+    }
+  }
+}

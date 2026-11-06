@@ -1,0 +1,22 @@
+{
+  "schema": "job.schema.json",
+  "description": "A probe takes no args.",
+  "breaks": [
+    "args",
+    "external_id"
+  ],
+  "instance": {
+    "id": "9c5b94b1-35ad-49bb-b118-8e8fc24abf80",
+    "kind": "probe",
+    "source": null,
+    "target_serial": "4096",
+    "deadline": "2026-11-05T10:00:30Z",
+    "actor": {
+      "kind": "component",
+      "id": "knovas-link"
+    },
+    "args": {
+      "external_id": "policies/travel.md"
+    }
+  }
+}

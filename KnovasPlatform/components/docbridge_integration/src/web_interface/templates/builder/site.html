@@ -1,0 +1,97 @@
+{# A site (connection layer MVP-23): Knovas Link and the components beside it on one machine at the company.
+   Expects site, link, link_state, children, checklist, containers, options, command, env_file, sources_env_file,
+   certificate_step,
+   protocol_path, compose_preview, states (builder_routes.site_page). static/js/builder/site.js downloads the package,
+   renews the token and asks for a probe. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% block title %}Standort {{ site.name }}{% endblock %}
+{% block main %}
+<header class="b-onto-head">
+    <div class="b-page-head" style="margin-bottom: 0">
+        <p class="b-step-count b-small"><a href="{{ url_for('builder.stage', slug='verbinden') }}">Verbinden</a> · Standort</p>
+        <h1 class="b-h1">{{ site.name }}</h1>
+        <p class="b-muted">Ein Rechner bei der Firma: Knovas Link{% for c in containers[1:] %} und {{ c.label }}{% endfor %}. Nur Knovas Link spricht mit Knovas; die Komponenten sprechen nur mit Knovas Link.</p>
+    </div>
+    <div class="b-onto-edit-bar" data-site-root
+         data-package-url="{{ url_for('builder.site_package', site_id=site.id) }}"
+         data-rotate-url="{{ url_for('builder.site_rotate', site_id=site.id) }}"
+         data-probe-url="{{ url_for('builder.site_probe', site_id=site.id) }}"
+         data-protocol-path="{{ protocol_path }}">
+        <button type="button" class="b-button b-button--quiet" data-site-rotate {% if not link or link.state != 'enrolled' %}disabled{% endif %}>Token erneuern</button>
+        <button type="button" class="b-button b-button--secondary" data-site-probe {% if not link or link.state != 'enrolled' %}disabled{% endif %}>Jetzt prüfen</button>
+        <button type="button" class="b-button b-button--primary" data-site-package>Installationspaket herunterladen</button>
+    </div>
+</header>
+
+<section class="b-comp-section" aria-labelledby="b-site-steps-title">
+    <h2 class="b-h3" id="b-site-steps-title">Einrichten</h2>
+    <ol class="b-site-steps">
+        <li><strong>Installationspaket herunterladen.</strong> Es enthält <span class="b-mono">docker-compose.yml</span>, <span class="b-mono">{{ env_file }}</span> mit der Adresse der Plattform und einem Einmal-Token für Knovas Link (24 Stunden, nur einmal; nur Knovas Link liest diese Datei) und <span class="b-mono">{{ sources_env_file }}</span> für die Zugänge der Quellen (nur die Komponenten lesen sie). Jedes Herunterladen erzeugt ein neues Token; das vorige gilt dann nicht mehr.</li>
+        <li><strong>Auf dem Rechner des Standorts starten:</strong><br><code class="b-mono" data-site-command>{{ command }}</code></li>
+        {% set certificate_head, _, certificate_rest = certificate_step.partition(': ') %}
+        <li data-site-certificate-step><strong>{{ certificate_head }}:</strong> {{ certificate_rest }}.</li>
+    </ol>
+    <div class="b-callout" role="note" data-site-digests>
+        <p class="b-callout-title">Abbilder per Digest: noch Platzhalter</p>
+        <p>Es gibt noch keine Registry. Die Abbilder ({% for c in containers %}<span class="b-mono">{{ c.image }}</span>{% if not loop.last %}, {% endif %}{% endfor %}) werden aus dem Repository gebaut und auf den Rechner kopiert (<span class="b-mono">docker save</span> / <span class="b-mono">docker load</span>). Die Variablen {% for c in containers %}<span class="b-mono">{{ c.digest }}</span>{% if not loop.last %}, {% endif %}{% endfor %} sind Platzhalter, bis Knovas Abbilder mit Digest veröffentlicht; bis dahin setzt sie, wer installiert.</p>
+    </div>
+    <p class="b-small b-muted">Netze: Die Komponenten erreichen Knovas Link nur über das interne Netz <span class="b-mono">knovas-site</span>; ihre eigenen Quellen (GitHub, Microsoft 365, …) über das Netz <span class="b-mono">knovas-egress</span>. Die eine Tür je Standort sichern die Zugänge, nicht ein gesperrtes Netz: Nur Knovas Link hat ein Zertifikat und ein Token von Knovas; eine Komponente hat keines und kennt nur die lokale Adresse von Knovas Link.</p>
+    {% if 'share' in site.options %}
+    <p class="b-small b-muted">Dateiablage: den Ordner auf diesem Rechner beim Start als <span class="b-mono">KNOVAS_SHARE_FOLDER</span> angeben; er wird nur lesend eingehängt.</p>
+    {% endif %}
+</section>
+
+<section class="b-comp-section" aria-labelledby="b-site-check-title">
+    <h2 class="b-h3" id="b-site-check-title">Stand der Einrichtung</h2>
+    <ul class="b-site-checklist">
+        {% for line in checklist %}
+        <li data-check="{{ line.key }}" data-ok="{{ 'true' if line.ok else 'false' }}" class="{{ 'is-ok' if line.ok else 'is-open' }}">
+            <span class="b-tag {{ 'b-tag--good' if line.ok else 'b-tag--warning' }}"><span class="b-tag-dot"></span>{{ '✓' if line.ok else 'offen' }}</span>
+            <strong>{{ line.label }}</strong>
+            {% if not line.ok %}<br><span class="b-small">{{ line.fix }}</span>{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% if link and link.telemetry and link.telemetry.certificate == 'waiting' %}
+    <p class="b-small b-muted" data-site-waiting>Knovas Link meldet <span class="b-mono">waiting_for_certificate</span>: angemeldet, aber ohne Zertifikat für das Brain; es nimmt keine Aufträge an und schreibt nichts in den Mandanten.</p>
+    {% endif %}
+</section>
+
+<section class="b-comp-section" aria-labelledby="b-site-comp-title">
+    <h2 class="b-h3" id="b-site-comp-title">Komponenten am Standort</h2>
+    <div class="b-table-wrap">
+        <table class="b-table b-table--compact">
+            <thead><tr><th scope="col">Name</th><th scope="col">Art</th><th scope="col">Version</th><th scope="col">Zustand</th><th scope="col">Kann</th></tr></thead>
+            <tbody>
+            {% if link %}
+            <tr data-site-link data-component-state="{{ link_state }}">
+                <th scope="row"><a class="b-link-strong" href="{{ url_for('builder.component_page', component_id=link.id) }}">Knovas Link</a></th>
+                <td>Knovas Link</td><td class="b-mono">{{ link.version or '–' }}</td>
+                <td><span class="b-tag b-reg-state is-{{ link_state }}"><span class="b-tag-dot"></span>{{ states[link_state] }}</span></td>
+                <td class="b-small">{{ (link.capabilities or []) | join(', ') or '–' }}</td>
+            </tr>
+            {% endif %}
+            {% for c in children %}
+            <tr data-site-child="{{ c.kind }}" data-component-state="{{ c.state }}">
+                <th scope="row"><a class="b-link-strong" href="{{ url_for('builder.component_page', component_id=c.id) }}">{{ c.name }}</a></th>
+                <td>{{ c.kind_label }}</td><td class="b-mono">{{ c.version or '–' }}</td>
+                <td><span class="b-tag b-reg-state is-{{ c.state }}"><span class="b-tag-dot"></span>{{ c.state_label }}</span></td>
+                <td class="b-small">–</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="b-small b-muted">Die Komponenten erscheinen hier, sobald Knovas Link sie meldet. Quellen legen Sie danach unter «Quellen &amp; Zuordnung» auf eine dieser Komponenten.</p>
+</section>
+
+<details class="b-comp-section">
+    <summary>docker-compose.yml ansehen</summary>
+    <pre class="b-mono b-small">{{ compose_preview }}</pre>
+</details>
+<div class="b-callout b-callout--critical" data-site-error role="alert" hidden></div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/site.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

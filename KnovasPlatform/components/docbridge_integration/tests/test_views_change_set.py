@@ -17,7 +17,7 @@ from flask import Flask
 
 from graph_views import change_requests as cr, change_set as cs, fixes, plan_file, service as views
 from graph_views.settings import ViewSettings
-from views_fixture import FakeViewsClient, KNOVAS_SOURCE, client_zero_graph
+from views_fixture import FakeViewsClient, KNOVAS_REPO_LAYOUT, KNOVAS_SOURCE, client_zero_graph
 from web_interface.views_routes import create_views_blueprint
 
 TODAY = dt.date(2026, 10, 28)
@@ -107,7 +107,10 @@ edges:
   - {{from: FEAT-other, relation: serves, to: CAP-01}}
 """
 
-DECS = "docs/ModernDocs/client-zero/ontology/decisions"
+# The Knovas tenant's layout (the product's defaults are empty, V1-G4).
+pytestmark = pytest.mark.usefixtures("knovas_repo_layout")
+DECS = KNOVAS_REPO_LAYOUT["decisions_dir"]
+LINKS_PATH = KNOVAS_REPO_LAYOUT["plan_links_path"]
 
 
 def _sha(text):
@@ -158,7 +161,7 @@ class FakeRepo:
 
 def _repo():
     return FakeRepo({PLAN_PATH: PLAN_MD, PLAN_PATH[:-3] + ".ai.yaml": PLAN_AI, ROADMAP_PATH: ROADMAP_MD,
-                     plan_file.PLAN_LINKS_PATH: LINKS,
+                     LINKS_PATH: LINKS,
                      f"{DECS}/DEC-0016-definitions-on-the-tenant.md": "x",
                      f"{DECS}/DEC-0017-definition-validation-rules.md": "y"})
 
@@ -409,9 +412,33 @@ class TestReview:
         plan = next(f for f in r["files"] if f["path"] == PLAN_PATH)
         assert "+status: draft" in plan["diff"] and "-| `data_plane/rate_limits.als`" in plan["diff"]
         assert f"rollback:{KEY}" in plan["ops"] and ops[1]["id"] in plan["ops"]
-        links = next(f for f in r["files"] if f["path"] == plan_file.PLAN_LINKS_PATH)
+        links = next(f for f in r["files"] if f["path"] == LINKS_PATH)
         assert links["ops"] == [ops[0]["id"]]
         assert inst["impact"]["components"] and isinstance(inst["rules"], list)
+
+    def test_without_a_decisions_folder_a_substantive_change_is_refused_and_says_so(self, graph):
+        from graph_views import repo_layout
+
+        repo_layout.configure(repo_layout.RepoLayout(**{**KNOVAS_REPO_LAYOUT, "decisions_dir": ""}))
+        ctx, d, _ = _ctx(graph)
+        repo = _repo()
+        ops = [_op(graph, ctx, d, kind="add", edit_id="FeaturePlan serves Capability", target="CAP-02")]
+        with pytest.raises(cr.ChangeNotConfigured, match="views.change_requests.decisions_dir"):
+            cs.build(ctx, d, repo, _set(repo, ops), actor="Siran", today=TODAY,
+                     reasons={KEY: "Search scoping depends on the graph store as well."})
+        minor = _op(graph, ctx, d, kind="field", field="owner", value="PERS-siran")    # needs no decision record
+        r = cs.build(ctx, d, repo, _set(repo, [minor]), actor="Siran", today=TODAY)
+        assert r["ready"] and not any(f["path"].startswith(DECS) for f in r["files"])
+
+    def test_without_the_plan_links_file_a_link_is_refused_and_never_guessed(self, graph):
+        from graph_views import repo_layout
+
+        repo_layout.configure(repo_layout.RepoLayout(**{**KNOVAS_REPO_LAYOUT, "plan_links_path": ""}))
+        ctx, d, _ = _ctx(graph)
+        with pytest.raises(cr.ChangeError, match="views.change_requests.plan_links_path"):
+            _op(graph, ctx, d, kind="add", edit_id="FeaturePlan serves Capability", target="CAP-02")
+        fields, _ = cr.read_plan(_repo(), _repo().head, {"path": PLAN_PATH, "key": KEY})
+        assert fields["capability"] == [] and fields["owner"] == "Platform"     # the plan itself is still read
 
     def test_substantive_before_the_rework_point_needs_no_decision(self, graph):
         ctx, d, _ = _ctx(graph)
@@ -426,7 +453,7 @@ class TestReview:
         ctx, d, _ = _ctx(graph)
         repo = _repo()
         op = _op(graph, ctx, d, kind="add", edit_id="FeaturePlan serves Capability", target="CAP-02")
-        repo.advance(plan_file.PLAN_LINKS_PATH, LINKS + f"  - {{from: {KEY}, relation: serves, to: CAP-02}}\n")
+        repo.advance(LINKS_PATH, LINKS + f"  - {{from: {KEY}, relation: serves, to: CAP-02}}\n")
         r = cs.build(ctx, d, repo, cs.rebase(repo, _set(repo, [op])), actor="x", today=TODAY,
                      reasons={KEY: "x" * 30})
         assert r["ops"][0]["ok"] is False and "bereits" in r["ops"][0]["error"] and not r["ready"]
@@ -451,7 +478,7 @@ class TestConflicts:
         ctx, d, _ = _ctx(graph)
         repo = _repo()
         change_set = _set(repo, [_op(graph, ctx, d, kind="field", field="owner", value="PERS-siran")])
-        repo.advance(plan_file.PLAN_LINKS_PATH, LINKS + "  - {from: FEAT-z, relation: serves, to: CAP-01}\n")
+        repo.advance(LINKS_PATH, LINKS + "  - {from: FEAT-z, relation: serves, to: CAP-01}\n")
         r = cs.build(ctx, d, repo, change_set, actor="x", today=TODAY)
         assert r["behind"] and not r["conflicts"] and r["ready"]
 

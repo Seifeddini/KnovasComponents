@@ -1,0 +1,8 @@
+{
+  "schema": "job-result.schema.json",
+  "description": "A probe answered.",
+  "instance": {
+    "status": "ok",
+    "duration_ms": 3
+  }
+}

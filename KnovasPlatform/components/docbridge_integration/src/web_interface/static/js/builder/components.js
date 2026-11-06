@@ -139,6 +139,11 @@
                              '  knovas-connector:0.1.1']),
                      hint: '/PFAD/ZUR/ABLAGE durch den Ordner bei der Firma ersetzen. Kein Port wird geöffnet: Der Connector ruft nur hinaus. Danach die Quelle «Dateiablage / DMS» hier auf dieser Komponente anlegen und die Zugriffsgruppen wählen.' + certificateHint };
         }
+        if (kind === 'knovas_link') {
+            /* Knovas Link is never enrolled from this wizard: it comes with its site's install package (MVP-23). */
+            return { lines: ['docker compose up -d'],
+                     hint: 'Knovas Link wird mit dem Installationspaket seines Standorts eingerichtet: «Standort anlegen», dann «Installationspaket herunterladen».' };
+        }
         return null;
     }
 

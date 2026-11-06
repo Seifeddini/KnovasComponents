@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://knovas.ch/schema/builder/workspace.schema.json",
   "title": "Brain Builder workspace model",
-  "description": "A company's whole configuration as one record: the workspace model the builder's editors write and every output is compiled from. Shaped after the configuration package (brain-config.yaml, ontology/*.yaml, mappings/*.yaml, profiles/*.yaml) so import and export are lossless. Keys the model does not name are kept beside each item in `extra` (from the terms or relations file) and `description_extra` (from the descriptions file).",
+  "description": "A company's whole configuration as one record: the workspace model the builder's editors write and every output is compiled from. Shaped after the configuration package (brain-config.yaml, ontology/*.yaml, mappings/*.yaml, profiles/*.yaml, and the Builder's own brain-builder.yaml) so import and export are lossless. Keys the model does not name are kept beside each item in `extra` (from the terms or relations file) and `description_extra` (from the descriptions file).",
   "type": "object",
   "required": ["model_version", "company", "package", "ontology", "processes", "spines", "pages", "sources", "mappings", "profiles", "health"],
   "additionalProperties": false,
@@ -52,14 +52,14 @@
     "edit_sources": {"description": "Where each type, relation and fact is edited.", "type": ["object", "null"]},
     "health": {"description": "Health per type.", "type": ["object", "null"]},
     "sources": {
-      "description": "Sync components and what they read (step B7). Not part of a configuration package yet.",
+      "description": "Sync components and what they read (step B7). In the package: brain-builder.yaml `sources` (without the credential, which the registry holds per workspace; an import starts each source without it and with both switches off).",
       "type": "array",
       "items": {"type": "object"}
     },
     "mappings": {"type": "array", "items": {"$ref": "#/$defs/fileDefinition"}},
     "profiles": {"type": "array", "items": {"$ref": "#/$defs/fileDefinition"}},
     "access": {
-      "description": "The draft's access design (step B14): the initial group tree and folder rules publishing creates on the tenant. Not part of a configuration package.",
+      "description": "The draft's access design (step B14): the initial group tree and folder rules publishing creates on the tenant. In the package: brain-builder.yaml `access`.",
       "type": "object",
       "properties": {
         "groups": {"type": "array", "items": {"type": "object", "required": ["key", "name"]}},
@@ -67,7 +67,7 @@
       }
     },
     "profile_roles": {
-      "description": "Which profiles each Platform role sees (step B9); published to the setting views.profile_roles. Not part of a configuration package.",
+      "description": "Which profiles each Platform role sees (step B9); published to the setting views.profile_roles. In the package: brain-builder.yaml `profile_roles`.",
       "type": "array",
       "items": {"type": "object", "required": ["key", "profiles"],
                 "properties": {"key": {"type": "string"}, "profiles": {"type": "array", "items": {"type": "string"}}}}
@@ -167,7 +167,7 @@
       "properties": {
         "file": {"description": "Path inside the package.", "type": "string"},
         "definition": {},
-        "builder": {"description": "What only the builder needs (step B8): the source a mapping reads, its collection, the steps behind each expression. Not written to the package.", "type": "object"}
+        "builder": {"description": "What only the builder needs (step B8): the source a mapping reads, its collection, the steps behind each expression. In the package: brain-builder.yaml `mappings`, by the mapping's file; never in the mapping file, which is brain-runner's.", "type": "object"}
       }
     }
   }

@@ -1,0 +1,33 @@
+{
+  "schema": "job.schema.json",
+  "description": "A write's source is not null.",
+  "breaks": [
+    "source"
+  ],
+  "instance": {
+    "id": "6fa459ea-ee8a-4ca4-894e-db77e160355e",
+    "kind": "write",
+    "source": null,
+    "target_serial": null,
+    "deadline": "2026-11-05T10:20:00.250000+00:00",
+    "actor": {
+      "kind": "user",
+      "id": "user-0007",
+      "on_behalf_of": {
+        "kind": "agent",
+        "id": "agent-research-assistant"
+      }
+    },
+    "args": {
+      "mapping": "policy-pages",
+      "node_key": "POLICY-travel",
+      "external_id": "policies/travel.md",
+      "expected_version": "ff7b4c62979180d16e75356492b21cc64a58c830",
+      "facts": {
+        "summary": "Book trains for trips under six hours.",
+        "reviewed_on": "2026-11-05"
+      },
+      "mode": "proposal"
+    }
+  }
+}

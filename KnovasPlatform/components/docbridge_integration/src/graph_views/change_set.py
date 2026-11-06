@@ -3,7 +3,7 @@
 KnowledgeBase stays the source of truth. Nothing here writes the brain: every operation is routed
 by the edit map (graph_views.writers) to the file that owns it, all operations of a change set are
 applied to the files at one base commit, and the result becomes one pull request. After the merge,
-the client-zero loader updates the tenant.
+the tenant's loader updates the Brain.
 
 An operation is semantic ("add CAP-02 to what FEAT-… serves"), not a text patch, so a change set
 survives a moved master: a rebase re-applies the operations on the new head and names any that
@@ -22,8 +22,8 @@ import re
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from graph_views import edit_map, writers
-from graph_views.change_requests import (DECISIONS_DIR, ChangeConflict, ChangeError, ChangeForbidden, impact,
+from graph_views import edit_map, repo_layout, writers
+from graph_views.change_requests import (ChangeConflict, ChangeError, ChangeForbidden, ChangeNotConfigured, impact,
                                          may_propose, next_decision_number, plan_of)
 from graph_views.process_views import current_step
 
@@ -236,7 +236,7 @@ def _slug(text: str) -> str:
 def decision_record(number: int, *, instance_key: str, instance_name: str, actor: str, why: str,
                     ops: List[Dict[str, Any]], rollback: Dict[str, str], rules: List[str],
                     components: List[str], today: dt.date) -> Tuple[str, str]:
-    """(file name, text) in the client-zero decision-record format (DEC-0014 … DEC-0025)."""
+    """(file name, text) in the tenant's decision-record format (KnowledgeBase DEC-0014 … DEC-0025)."""
     dec = f"DEC-{number:04d}"
     title = f"Substantive change to {instance_key}"
     changes = "\n".join(f"- {describe(o)}" + (f" — {o['reason']}" if o.get("reason") else "") for o in ops)
@@ -286,8 +286,8 @@ def build(ctx: Any, defs: Any, repo: Any, change_set: Dict[str, Any], *, actor: 
         if r["ok"]:
             inst["classes"].add(r["class"])
 
-    decisions_dir = repo.list_dir(DECISIONS_DIR, commit)
-    number = next_decision_number(decisions_dir)
+    # The decision records' folder is read only when a substantive change needs one (repo_layout).
+    decisions_dir, number = repo_layout.current().decisions_dir, None
     missing_reasons = []
     for node, inst in instances.items():
         ops = [r for r in results if r["instance"] == node and r["ok"]]
@@ -308,11 +308,16 @@ def build(ctx: Any, defs: Any, repo: Any, change_set: Dict[str, Any], *, actor: 
             why = reasons.get(inst["key"], "")
             if len(why) < 20:
                 missing_reasons.append(inst["key"])
+            if not decisions_dir:
+                raise ChangeNotConfigured("Eine substanzielle Änderung braucht ein Entscheidungsprotokoll. "
+                                          + repo_layout.not_configured("decisions_dir"))
+            if number is None:
+                number = next_decision_number(repo.list_dir(decisions_dir, commit))
             name, text = decision_record(number, instance_key=inst["key"], instance_name=inst["name"], actor=actor,
                                          why=why or "(Begründung fehlt)", ops=ops, rollback=rollback,
                                          rules=inst["rules"], components=current, today=today)
             number += 1
-            path = f"{DECISIONS_DIR}/{name}"
+            path = f"{decisions_dir}/{name}"
             files.base[path], files.blob[path], files.now[path] = None, None, text
             inst["decision"] = path
             routed.setdefault(plan.path, []).append(f"rollback:{inst['key']}")
@@ -322,7 +327,7 @@ def build(ctx: Any, defs: Any, repo: Any, change_set: Dict[str, Any], *, actor: 
     conflicts = []
     if head != commit:
         for path in sorted(changed):
-            if files.base.get(path) is None and path.startswith(DECISIONS_DIR):
+            if files.base.get(path) is None and decisions_dir and path.startswith(decisions_dir + "/"):
                 continue
             now = repo.get_file(path, head)
             if (now[1] if now else None) != files.blob.get(path):
@@ -354,7 +359,7 @@ def pr_title(review: Dict[str, Any]) -> str:
 
 def pr_body(review: Dict[str, Any], *, actor: str, reasons: Dict[str, str]) -> str:
     lines = [f"Change set proposed by {actor} through the Knovas Platform (Ansichten). The Platform never writes "
-             "the brain: after the merge the client-zero loader updates the tenant.", "",
+             "the brain: after the merge the tenant's loader updates the Brain.", "",
              f"Base: `{review['base']['branch']}` at `{review['base']['commit'][:12]}`. Change classes and the "
              "rework rule come from the process definitions (DEC-0024); routing from the edit map (DEC-0022).", ""]
     for inst in review["instances"]:
@@ -387,8 +392,6 @@ def submit(review: Dict[str, Any], repo: Any, *, actor: str, reasons: Dict[str, 
            now: Optional[dt.datetime] = None) -> Dict[str, Any]:
     """Branch at the base, one commit per file, one pull request. Only a GitHubRepo can write."""
     if not hasattr(repo, "create_pull"):
-        from graph_views.change_requests import ChangeNotConfigured
-
         raise ChangeNotConfigured("Kein GitHub-Zugang konfiguriert: nur Vorschau möglich.")
     if review["conflicts"]:
         raise ChangeConflict("Dateien haben sich auf master geändert; erst neu aufsetzen (Rebase).",

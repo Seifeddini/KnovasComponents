@@ -1,0 +1,9 @@
+{
+  "schema": "job-result.schema.json",
+  "description": "Fetching is switched off for the source.",
+  "instance": {
+    "status": "refused",
+    "code": "fetch_disabled",
+    "duration_ms": 1
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "A complete listing ended; what it did not list may be retired under the deletion guard.",
+  "instance": {
+    "type": "generation",
+    "source": "handbook",
+    "payload": {
+      "id": "7f1c2d9e-5b4a-4c3e-9a8b-1d2e3f4a5b6c",
+      "complete": true,
+      "counts": {
+        "documents": 32
+      }
+    }
+  }
+}

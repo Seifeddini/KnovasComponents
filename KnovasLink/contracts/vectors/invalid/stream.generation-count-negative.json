@@ -1,0 +1,20 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "Counts are whole numbers of at least 0.",
+  "breaks": [
+    "payload",
+    "counts",
+    "documents"
+  ],
+  "instance": {
+    "type": "generation",
+    "source": "handbook",
+    "payload": {
+      "id": "7f1c2d9e-5b4a-4c3e-9a8b-1d2e3f4a5b6c",
+      "complete": true,
+      "counts": {
+        "documents": -1
+      }
+    }
+  }
+}

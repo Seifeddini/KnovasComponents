@@ -8,9 +8,25 @@ on:
   # carried no checks at all. Every pull request is built, whatever it targets.
   pull_request:
 
+# Runners: trusted runs (pushes, and same-repository pull requests not opened by a bot) go to the self-hosted
+# AWS box when the repository variable CI_RUNNER names its label (knovas-ci); forks and bots, or an unset
+# CI_RUNNER, run on GitHub's runners. Since 2026-11-06: GitHub-hosted minutes are used up.
+# One secret, read-only: KB_READ_TOKEN (Contents: read on the knowledge-base repository), given to the one step of
+# knovas-platform that installs brain-runner and to nothing else. A fork's pull request has no secrets, and that
+# step then fails with a message instead of skipping the runner's tests. Until the single-use runners are live, a
+# same-repository pull request's knovas-platform job holds that read-only token on the shared box.
+# A push to main or master goes to [self-hosted, knovas-ci-ephemeral] instead while the repository variable
+# CI_EPHEMERAL_RUNNER is set: one fresh AWS instance per job, destroyed after it, never the shared box (K-D3;
+# KnowledgeBase runbook docs/Docs/08_RUNBOOKS/Semantix_Runbooks/Ops/CI_Ephemeral_Runners.md). With it unset, the
+# routing above applies unchanged. Forks and bots reach neither self-hosted label.
+#
+# Read-only token: nothing here pushes, comments or releases.
+permissions:
+  contents: read
+
 jobs:
   knovas-platform:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && vars.CI_EPHEMERAL_RUNNER && fromJSON('["self-hosted","knovas-ci-ephemeral"]') || (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
     services:
       # The DSN, port, user, password and database name match what
       # tests/conftest.py already expects (PLATFORM_DB_TEST_DSN). The
@@ -63,6 +79,30 @@ jobs:
           fi
           pip install -r components/docbridge_integration/requirements.txt
           python ../scripts/ci/assert_knovas_extract_pin.py
+
+      # brain-runner, the product's mapping runner (V1-G1, V1-G11): the tests of the Brain sync, the Builder's
+      # mappings, sources and publish and the sync component import it and skip without it, so CI installs it.
+      # From KnowledgeBase at a pinned commit: the repository variable BRAIN_RUNNER_SHA (a full SHA), else
+      # c2948465f, the merge of the 0.3.0 port both paths need. The token is the read-only secret KB_READ_TOKEN;
+      # it is only in this step's environment and never printed (no set -x; pip redacts it from URLs and GitHub
+      # masks it). Without it (a fork's pull request) the step fails and says why: a green run without the
+      # runner's tests would be a lie.
+      - name: brain-runner (pinned, from KnowledgeBase)
+        env:
+          KB_READ_TOKEN: ${{ secrets.KB_READ_TOKEN }}
+          BRAIN_RUNNER_SHA: ${{ vars.BRAIN_RUNNER_SHA || 'c29484656d455e376897e1e806e5a5edbf66db44' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KB_READ_TOKEN:-}" ]; then
+            echo "::error title=KB_READ_TOKEN is not set::brain-runner cannot be installed, so its tests cannot run. Set the repository secret KB_READ_TOKEN (a fine-grained token, Contents: read on the KnowledgeBase repository only). A pull request from a fork gets no secrets: push the branch to this repository instead."
+            exit 1
+          fi
+          if ! [[ "$BRAIN_RUNNER_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=BRAIN_RUNNER_SHA::BRAIN_RUNNER_SHA must be a full 40-character commit SHA."
+            exit 1
+          fi
+          pip install --no-cache-dir --no-deps "brain-runner @ git+https://x-access-token:${KB_READ_TOKEN}@github.com/Seifeddini/KnowledgeBase.git@${BRAIN_RUNNER_SHA}#subdirectory=scripts/brain_runner"
+          python -c "import brain_runner; print('brain-runner', brain_runner.__version__, 'at', '${BRAIN_RUNNER_SHA}')"
 
       - name: Pytest
         working-directory: KnovasPlatform/components/docbridge_integration
@@ -158,11 +198,34 @@ jobs:
             echo "compose started with no document source"; exit 1
           fi
 
+  # Knovas Link's own suite (V1-G11): the one component per site that talks to Knovas. Standard library, its
+  # pinned requirements and pytest; no secret, no database, no Docker. Python 3.11 is pinned here (the box's
+  # system Python is 3.10, and Link requires 3.11).
+  knovas-link:
+    runs-on: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && vars.CI_EPHEMERAL_RUNNER && fromJSON('["self-hosted","knovas-ci-ephemeral"]') || (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: KnovasLink
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v4.9.1
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt "pytest>=7.4,<9"
+
+      - name: Pytest
+        run: python -m pytest -q tests
+
   # The sandbox for user-written Python and Julia evaluators (Experimente).
   # Its isolation is only real in the image with compose's settings, so this
   # job builds the image and runs code in it, not just the unit tests.
   experiments-runner:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && vars.CI_EPHEMERAL_RUNNER && fromJSON('["self-hosted","knovas-ci-ephemeral"]') || (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: KnovasPlatform/components/experiments_runner
@@ -281,7 +344,7 @@ jobs:
           "${DC[@]}" down -v
 
   knovas-connector:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && vars.CI_EPHEMERAL_RUNNER && fromJSON('["self-hosted","knovas-ci-ephemeral"]') || (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: KnovasConnector

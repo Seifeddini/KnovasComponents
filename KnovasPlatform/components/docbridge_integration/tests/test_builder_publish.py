@@ -206,8 +206,8 @@ def test_the_plan_leaves_out_the_types_the_engine_installs(monkeypatch):
 
 
 def test_an_alias_goes_under_its_class_s_ancestor():
-    """A type that names its own class as parent (Client Zero's GlossaryTerm under euo:Designation, Symbol under
-    eng:CodeArtifact) would stay unresolved in brain-runner; it goes where the class sits."""
+    """A type that names its own class as parent (a glossary term under euo:Designation, a code symbol under
+    eng:CodeArtifact) and that brain-runner leaves unresolved on the tenant goes where the class sits."""
     model = package.read_package(package.blank_package("Muster")).model
     model["ontology"]["types"] = [
         {"key": "GlossaryTerm", "level": "core", "iri": "euo:Designation", "parent": "euo:Designation", "attributes": []},
@@ -216,10 +216,156 @@ def test_an_alias_goes_under_its_class_s_ancestor():
         {"key": "Symbol", "level": "pack", "iri": "eng:CodeArtifact", "parent": "eng:CodeArtifact", "attributes": []},
         {"key": "Invoice", "level": "company", "parent": "euo:Transaction", "attributes": []},
     ]
-    parents = {t["key"]: t.get("parent") for t in publisher.for_engine(model)["ontology"]["types"]}
+    unresolved = {"GlossaryTerm", "Symbol"}
+    parents = {t["key"]: t.get("parent") for t in publisher.for_engine(model, unresolved)["ontology"]["types"]}
     assert parents == {"GlossaryTerm": "euo:InformationContentEntity", "SourceFile": "euo:InformationContentEntity",
                        "Symbol": "euo:Software", "Invoice": "euo:Transaction"}
     assert model["ontology"]["types"][0]["parent"] == "euo:Designation"   # the draft is untouched
+
+
+#: The aliases of the placement tests, in this order: by brain-runner's rule the last type carrying an iri stands
+#: for it, so Record (not Asset) stands for euo:Document.
+ALIASES = [
+    {"key": "Term", "level": "company", "iri": "euo:Designation", "parent": "euo:Designation", "attributes": []},
+    {"key": "Collection", "level": "company", "iri": "euo:Dataset", "parent": "euo:Dataset", "attributes": []},
+    {"key": "Asset", "level": "company", "iri": "euo:Document", "parent": "euo:Document", "attributes": []},
+    {"key": "Record", "level": "company", "iri": "euo:Document", "parent": "euo:InformationContentEntity",
+     "attributes": []},
+    {"key": "Invoice", "level": "company", "parent": "euo:Transaction", "attributes": []},
+]
+#: The tenant's core types and whether tenant types may specialise them: a designation and a document class are
+#: reserved, as the store reserves them.
+CORE = {"euo:Designation": False, "euo:Document": False, "euo:Dataset": True, "euo:InformationContentEntity": True,
+        "euo:Transaction": True, "euo:Entity": True}
+
+
+def _alias_model():
+    model = package.read_package(package.blank_package("Muster")).model
+    model["ontology"]["types"] = [dict(t) for t in ALIASES]
+    # The type description prints the parent, as a company's manifest may ask (runner.ontology.type_description).
+    model["package"]["manifest"]["runner"] = {"ontology": {"type_description": {"header": "[parent={parent}]",
+                                                                                "fallback": "{name}"}}}
+    return model
+
+
+class _Refused(RuntimeError):
+    def __init__(self, status):
+        super().__init__(f"GET {status}")
+        self.status = status
+
+
+class _Tenant:
+    """The node-type routes brain-runner's ontology plan reads, in memory."""
+
+    def __init__(self, types=(), hierarchy=True):
+        self.types = {t["name"]: dict(t) for t in types}
+        self.hierarchy = hierarchy
+
+    def get(self, path):
+        if path == "secured/graph/node-types?include=core":
+            if not self.hierarchy:
+                raise _Refused(409)
+            core = [{"id": c, "name": c.split(":")[1], "managed_by": "bundle:core", "specializable": s}
+                    for c, s in CORE.items()]
+            return {"node_types": [*self.types.values(), *core]}
+        if path == "secured/graph/node-types":
+            return {"node_types": list(self.types.values())}
+        if path.endswith("/schema"):
+            return {"attributes": []}
+        raise KeyError(path)
+
+
+def _stated(model):
+    """{type: the description brain-runner plans from the model as it stands} (what a loader wrote)."""
+    import tempfile
+
+    config, ontology = pytest.importorskip("brain_runner.config"), pytest.importorskip("brain_runner.ontology")
+    with tempfile.TemporaryDirectory() as tmp:
+        for path, data in package.write_package(model).items():
+            (Path(tmp) / path).parent.mkdir(parents=True, exist_ok=True)
+            (Path(tmp) / path).write_bytes(data)
+        return {n: w["description"] for n, w in ontology.wanted(config.load(Path(tmp) / package.PACKAGE_FILE)).items()}
+
+
+def _tenant_with(descriptions, **kw):
+    return _Tenant([{"id": f"t-{n}", "name": n, "description": d, "parent_type_id": None, "managed_by": "tenant"}
+                    for n, d in descriptions.items()], **kw)
+
+
+def test_only_an_unresolved_alias_moves_and_only_under_a_parent_the_tenant_takes():
+    model = _alias_model()
+    stated = {t["key"]: t.get("parent") for t in ALIASES}
+    # Without the tenant's answer nothing is known to be unresolved: nothing moves.
+    assert publisher.for_engine(model) is model
+    named = {t["key"]: t.get("parent") for t in publisher.for_engine(model, {"Term", "Invoice"}, CORE)["ontology"]["types"]}
+    assert named == {**stated, "Term": "euo:InformationContentEntity"}   # Invoice is no alias: it keeps its parent
+    # An ancestor the tenant reserves is passed over.
+    reserved = publisher.alias_parents(model, {"Term"}, {**CORE, "euo:InformationContentEntity": False})
+    assert next(t for t in reserved["ontology"]["types"] if t["key"] == "Term")["parent"] == "euo:Entity"
+
+
+def test_stated_descriptions_keep_what_a_moved_type_says():
+    plan = {"items": [{"op": "create_type", "type": "New", "description": "[parent=X] new", "parent": {"core": "X"}},
+                      {"op": "update_type", "type": "Moved", "type_id": "t1", "from": "[parent=A] m", "to": "[parent=X] m"},
+                      {"op": "update_type", "type": "Other", "type_id": "t2", "from": "o", "to": "o2"},
+                      {"op": "reparent_type", "type": "Moved", "type_id": "t1", "from": None, "to": {"core": "X"}}],
+            "not_configured": [], "unresolved_parents": []}
+    out = publisher.stated_descriptions(plan, {"New": "[parent=A] new", "Moved": "[parent=A] m", "Gone": "g"},
+                                        {"Moved": {"id": "t1", "description": "[parent=A] m"}})
+    assert [(i["op"], i["type"]) for i in out["items"]] == [("create_type", "New"), ("update_type", "Other"),
+                                                            ("reparent_type", "Moved")]
+    assert out["items"][0]["description"] == "[parent=A] new" and out["items"][0]["parent"] == {"core": "X"}
+    drifted = publisher.stated_descriptions(plan, {"Moved": "[parent=A] m"}, {"Moved": {"id": "t1", "description": "x"}})
+    assert {"op": "update_type", "type": "Moved", "type_id": "t1", "from": "x", "to": "[parent=A] m"} in drifted["items"]
+    assert drifted["items"][-1]["op"] == "reparent_type"
+
+
+class TestTheAliasesOnTheTenant:
+    """With brain-runner (0.1.1 or newer: type parents). Publishing the model as it stands changes nothing the
+    model states: only an alias brain-runner cannot place moves, and its description stays (KB-10)."""
+
+    @pytest.fixture(autouse=True)
+    def _runner(self):
+        ontology = pytest.importorskip("brain_runner.ontology")
+        if not hasattr(ontology, "resolve_parents"):
+            pytest.skip("brain-runner without type parents")
+
+    def test_a_tenant_that_holds_the_model_gets_parents_and_nothing_else(self):
+        model = _alias_model()
+        plan = publisher.BrainRunnerEngine(lambda: _tenant_with(_stated(model))).plan(model, TENANT)
+        assert [i for i in plan["items"] if i["op"] != "reparent_type"] == []
+        assert {i["type"]: i["to"] for i in plan["items"]} == {
+            "Term": {"core": "euo:InformationContentEntity"},   # euo:Designation is reserved: it moves
+            "Collection": {"core": "euo:Dataset"},               # the tenant takes euo:Dataset: it stays
+            "Asset": {"type": "Record"},                         # Record stands for euo:Document: it stays
+            "Record": {"core": "euo:InformationContentEntity"},
+            "Invoice": {"core": "euo:Transaction"}}
+        assert plan["unresolved_parents"] == []
+
+    def test_a_new_alias_is_created_with_the_stated_description(self):
+        model = _alias_model()
+        stated = _stated(model)
+        plan = publisher.BrainRunnerEngine(lambda: _Tenant()).plan(model, TENANT)
+        created = {i["type"]: i for i in plan["items"] if i["op"] == "create_type"}
+        assert {n: i["description"] for n, i in created.items()} == stated
+        assert stated["Term"].startswith("[parent=euo:Designation]")
+        assert created["Term"]["parent"] == {"core": "euo:InformationContentEntity"}
+        order = [i["type"] for i in plan["items"] if i["op"] == "create_type"]
+        assert order.index("Record") < order.index("Asset")
+
+    def test_a_description_written_from_the_moved_parent_goes_back_to_the_stated_one(self):
+        model = _alias_model()
+        stated = _stated(model)
+        tenant = _tenant_with({**stated, "Term": stated["Term"].replace("euo:Designation", "euo:InformationContentEntity")})
+        plan = publisher.BrainRunnerEngine(lambda: tenant).plan(model, TENANT)
+        [update] = [i for i in plan["items"] if i["op"] == "update_type"]
+        assert (update["type"], update["type_id"], update["to"]) == ("Term", "t-Term", stated["Term"])
+        assert plan["items"][-1]["op"] == "reparent_type"
+
+    def test_without_a_type_hierarchy_nothing_moves(self):
+        model = _alias_model()
+        plan = publisher.BrainRunnerEngine(lambda: _tenant_with(_stated(model), hierarchy=False)).plan(model, TENANT)
+        assert plan["items"] == [] and plan["hierarchy"] is False
 
 
 def test_an_unresolved_parent_reads_as_a_sentence():
