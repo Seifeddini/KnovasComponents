@@ -38,7 +38,10 @@ def record(
     An audit write that fails must not take the action with it — a deletion
     that succeeded and then 500'd on its own logging would leave the operator
     with neither the outcome nor the record. The failure is logged loudly
-    instead, where monitoring can see it.
+    instead, where monitoring can see it: at ERROR, with the action, the
+    target type and the error's code (``_error_code``), never its message
+    and no traceback -- PostgreSQL's DETAIL quotes the row, the actor's
+    e-mail with it.
     """
     try:
         conn.execute(
@@ -58,8 +61,23 @@ def record(
                 json.dumps(dict(detail or {})),
             ),
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("AUDIT WRITE FAILED action=%s target=%s", action, target_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("AUDIT WRITE FAILED action=%s target_type=%s %s",
+                     action, target_type, _error_code(exc))
+
+
+def _error_code(exc: BaseException) -> str:
+    """The exception's type and, from psycopg, the SQLSTATE and the constraint's
+    name: identifiers only. Never str(exc): a database error's message and its
+    DETAIL line quote the values of the row that failed."""
+    sqlstate = constraint = None
+    try:
+        diag = getattr(exc, "diag", None)
+        sqlstate = getattr(diag, "sqlstate", None)
+        constraint = getattr(diag, "constraint_name", None)
+    except Exception:  # noqa: BLE001 - a code that cannot be read is logged as absent
+        pass
+    return f"error={type(exc).__name__} sqlstate={sqlstate or '-'} constraint={constraint or '-'}"
 
 
 def recent(
