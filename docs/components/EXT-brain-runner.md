@@ -14,9 +14,9 @@ card_hash: sha256:f1456c041718e205
 
 | Field | Value |
 |---|---|
-| Id | EXT-BRAIN-RUNNER |
+| Id | `EXT-BRAIN-RUNNER` |
 | Kind | external |
-| Owner | ROLE-ENGINE-OWNER |
+| Owner | `ROLE-ENGINE-OWNER` |
 
 ## Purpose
 
@@ -34,12 +34,12 @@ card_hash: sha256:f1456c041718e205
 
 | Id | Name | Entrance | Ref |
 |---|---|---|---|
-| cli.plan | python -m brain_runner plan --config FILE --out PLAN --state STATE --mapping ID ... | cli | python -m brain_runner plan |
-| cli.apply | python -m brain_runner apply --plan PLAN --state STATE [--approve-guard REASON] | cli | python -m brain_runner apply |
-| cli.compile-write | python -m brain_runner compile-write --config FILE --job FILE | cli | python -m brain_runner compile-write |
-| call.runner-entry | brain_runner.__main__.main(argv, source=), runner.make_plan(previous=, stream_source=), sources.LocalSource, sources.base.path_order | call | brain_runner.__main__#main |
-| call.publish-api | config, bundle.build and dumps, ontology.plan and apply, diff, snapshot, state, api.BrainApi | call | brain_runner.ontology#plan |
-| call.mapping-api | mapping.evaluate, run_mapping, MappingRun and the private _emit and _selected; inverse.invertible; extractors.extract | call | brain_runner.mapping#run_mapping |
+| `cli.plan` | python -m brain_runner plan --config FILE --out PLAN --state STATE --mapping ID ... | cli | `python -m brain_runner plan` |
+| `cli.apply` | python -m brain_runner apply --plan PLAN --state STATE [--approve-guard REASON] | cli | `python -m brain_runner apply` |
+| `cli.compile-write` | python -m brain_runner compile-write --config FILE --job FILE | cli | `python -m brain_runner compile-write` |
+| `call.runner-entry` | brain_runner.\_\_main\_\_.main(argv, source=), runner.make_plan(previous=, stream_source=), sources.LocalSource, sources.base.path_order | call | `brain_runner.__main__#main` |
+| `call.publish-api` | config, bundle.build and dumps, ontology.plan and apply, diff, snapshot, state, api.BrainApi | call | `brain_runner.ontology#plan` |
+| `call.mapping-api` | mapping.evaluate, run_mapping, MappingRun and the private \_emit and \_selected; inverse.invertible; extractors.extract | call | `brain_runner.mapping#run_mapping` |
 
 ## Contract
 
@@ -49,7 +49,7 @@ card_hash: sha256:f1456c041718e205
 
 | Id | Statement | Risk class | Evidence |
 |---|---|---|---|
-| EXT-BRAIN-RUNNER/cli.plan/P-1 | Exits 0 with the plan file (summary per mapping with add, change and retire; blocked mappings and the guard's counts per type; source.stream) and writes nothing to the Brain; reads BRAIN_API_URL, and behind Link BRAIN_LOCAL_TOKEN and BRAIN_COMPONENT_NAME instead of a client certificate. | critical | kind: test, ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py, checks: TestLinkMode::test_a_dry_run_reads_plans_and_reports_through_link_only; TestLinkMode::test_the_runners_brain_calls_go_through_links_relay_with_the_local_token |
+| `EXT-BRAIN-RUNNER/cli.plan/P-1` | Exits 0 with the plan file (summary per mapping with add, change and retire; blocked mappings and the guard's counts per type; source.stream) and writes nothing to the Brain; reads BRAIN_API_URL, and behind Link BRAIN_LOCAL_TOKEN and BRAIN_COMPONENT_NAME instead of a client certificate. | critical | kind: test, ref: `KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py`, checks: `TestLinkMode::test_a_dry_run_reads_plans_and_reports_through_link_only`; `TestLinkMode::test_the_runners_brain_calls_go_through_links_relay_with_the_local_token` |
 
 ### `cli.apply`
 
@@ -57,7 +57,7 @@ card_hash: sha256:f1456c041718e205
 
 | Id | Statement | Risk class | Evidence |
 |---|---|---|---|
-| EXT-BRAIN-RUNNER/cli.apply/P-1 | Applies exactly the given plan; exits 3 when the plan is stale; prints a JSON report with done counts, errors and blocked mappings; --approve-guard releases what the deletion guard held, with the reason. | critical | kind: test, ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py, checks: TestLinkMode::test_the_last_acknowledged_stream_is_the_next_plans_previous |
+| `EXT-BRAIN-RUNNER/cli.apply/P-1` | Applies exactly the given plan; exits 3 when the plan is stale; prints a JSON report with done counts, errors and blocked mappings; --approve-guard releases what the deletion guard held, with the reason. | critical | kind: test, ref: `KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py`, checks: `TestLinkMode::test_the_last_acknowledged_stream_is_the_next_plans_previous` |
 
 ### `cli.compile-write`
 
@@ -65,7 +65,7 @@ card_hash: sha256:f1456c041718e205
 
 | Id | Statement | Risk class | Evidence |
 |---|---|---|---|
-| EXT-BRAIN-RUNNER/cli.compile-write/P-1 | Exits 0 with {edits} for the one file a write job changes, or 3 with {refused} and a code (computed_attribute among them); writes nothing anywhere. | critical | kind: test, ref: KnovasPlatform/components/docbridge_integration/tests/test_github_write.py, checks: TestAProposalBecomesAPullRequest::test_the_pull_request_carries_only_the_changed_values; TestNothingIsWritten::test_what_the_inverse_mapping_refuses_is_the_jobs_refusal |
+| `EXT-BRAIN-RUNNER/cli.compile-write/P-1` | Exits 0 with {edits} for the one file a write job changes, or 3 with {refused} and a code (computed_attribute among them); writes nothing anywhere. | critical | kind: test, ref: `KnovasPlatform/components/docbridge_integration/tests/test_github_write.py`, checks: `TestAProposalBecomesAPullRequest::test_the_pull_request_carries_only_the_changed_values`; `TestNothingIsWritten::test_what_the_inverse_mapping_refuses_is_the_jobs_refusal` |
 
 ### `call.runner-entry`
 
@@ -73,7 +73,7 @@ card_hash: sha256:f1456c041718e205
 
 | Id | Statement | Risk class | Evidence |
 |---|---|---|---|
-| EXT-BRAIN-RUNNER/call.runner-entry/P-1 | main takes argv and a source object; make_plan takes previous and stream_source as keywords; LocalSource can be subclassed with glob, last_commit and tracked. | standard | kind: test, ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py, checks: TestLinkMode::test_the_last_acknowledged_stream_is_the_next_plans_previous; kind: test, ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py, checks: TestFiles::test_the_runner_reads_it_through_the_share_source |
+| `EXT-BRAIN-RUNNER/call.runner-entry/P-1` | main takes argv and a source object; make_plan takes previous and stream_source as keywords; LocalSource can be subclassed with glob, last_commit and tracked. | standard | kind: test, ref: `KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py`, checks: `TestLinkMode::test_the_last_acknowledged_stream_is_the_next_plans_previous`; kind: test, ref: `KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py`, checks: `TestFiles::test_the_runner_reads_it_through_the_share_source` |
 
 ### `call.publish-api`
 
@@ -81,7 +81,7 @@ card_hash: sha256:f1456c041718e205
 
 | Id | Statement | Risk class | Evidence |
 |---|---|---|---|
-| EXT-BRAIN-RUNNER/call.publish-api/P-1 | The bundle is brain-runner's own (format brain-definitions-bundle, version 1); ontology.plan says what the tenant's ontology needs and ontology.apply answers written, refused and skipped. | critical | kind: test, ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py, checks: TestTheBundle::test_the_bundle_is_brain_runner_s_own; TestTheAliasesOnTheTenant |
+| `EXT-BRAIN-RUNNER/call.publish-api/P-1` | The bundle is brain-runner's own (format brain-definitions-bundle, version 1); ontology.plan says what the tenant's ontology needs and ontology.apply answers written, refused and skipped. | critical | kind: test, ref: `KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py`, checks: `TestTheBundle::test_the_bundle_is_brain_runner_s_own`; `TestTheAliasesOnTheTenant` |
 
 ### `call.mapping-api`
 
@@ -89,7 +89,7 @@ card_hash: sha256:f1456c041718e205
 
 | Id | Statement | Risk class | Evidence |
 |---|---|---|---|
-| EXT-BRAIN-RUNNER/call.mapping-api/P-1 | A mapping the Builder writes is evaluated and run by brain-runner's own rules, and inverse.invertible gives the reason codes the Builder shows. | standard | kind: test, ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_mappings.py; kind: test, ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_mapping_writes.py, checks: TestInvertible::test_brain_runner_s_rule_is_used_when_installed |
+| `EXT-BRAIN-RUNNER/call.mapping-api/P-1` | A mapping the Builder writes is evaluated and run by brain-runner's own rules, and inverse.invertible gives the reason codes the Builder shows. | standard | kind: test, ref: `KnovasPlatform/components/docbridge_integration/tests/test_builder_mappings.py`; kind: test, ref: `KnovasPlatform/components/docbridge_integration/tests/test_builder_mapping_writes.py`, checks: `TestInvertible::test_brain_runner_s_rule_is_used_when_installed` |
 
 ## Uses
 
@@ -101,8 +101,8 @@ None stated.
 
 | Component | Operations | Expects |
 |---|---|---|
-| L2-BRAIN-BUILDER | call.publish-api; call.mapping-api | EXT-BRAIN-RUNNER/call.publish-api/P-1; EXT-BRAIN-RUNNER/call.mapping-api/P-1 |
-| L3-SYNC-COMPONENT | cli.plan; cli.apply; cli.compile-write; call.runner-entry | EXT-BRAIN-RUNNER/cli.plan/P-1; EXT-BRAIN-RUNNER/cli.apply/P-1; EXT-BRAIN-RUNNER/cli.compile-write/P-1; EXT-BRAIN-RUNNER/call.runner-entry/P-1 |
+| `L2-BRAIN-BUILDER` | `call.publish-api`; `call.mapping-api` | `EXT-BRAIN-RUNNER/call.publish-api/P-1`; `EXT-BRAIN-RUNNER/call.mapping-api/P-1` |
+| `L3-SYNC-COMPONENT` | `cli.plan`; `cli.apply`; `cli.compile-write`; `call.runner-entry` | `EXT-BRAIN-RUNNER/cli.plan/P-1`; `EXT-BRAIN-RUNNER/cli.apply/P-1`; `EXT-BRAIN-RUNNER/cli.compile-write/P-1`; `EXT-BRAIN-RUNNER/call.runner-entry/P-1` |
 
 ## Hides
 
@@ -122,22 +122,22 @@ None stated.
 
 | Line | Kind | Ref | Checks |
 |---|---|---|---|
-| EXT-BRAIN-RUNNER/cli.plan/P-1 | test | KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py | TestLinkMode::test_a_dry_run_reads_plans_and_reports_through_link_only; TestLinkMode::test_the_runners_brain_calls_go_through_links_relay_with_the_local_token |
-| EXT-BRAIN-RUNNER/cli.apply/P-1 | test | KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py | TestLinkMode::test_the_last_acknowledged_stream_is_the_next_plans_previous |
-| EXT-BRAIN-RUNNER/cli.compile-write/P-1 | test | KnovasPlatform/components/docbridge_integration/tests/test_github_write.py | TestAProposalBecomesAPullRequest::test_the_pull_request_carries_only_the_changed_values; TestNothingIsWritten::test_what_the_inverse_mapping_refuses_is_the_jobs_refusal |
-| EXT-BRAIN-RUNNER/call.runner-entry/P-1 | test | KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py | TestLinkMode::test_the_last_acknowledged_stream_is_the_next_plans_previous |
-| EXT-BRAIN-RUNNER/call.runner-entry/P-1 | test | KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py | TestFiles::test_the_runner_reads_it_through_the_share_source |
-| EXT-BRAIN-RUNNER/call.publish-api/P-1 | test | KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py | TestTheBundle::test_the_bundle_is_brain_runner_s_own; TestTheAliasesOnTheTenant |
-| EXT-BRAIN-RUNNER/call.mapping-api/P-1 | test | KnovasPlatform/components/docbridge_integration/tests/test_builder_mappings.py |  |
-| EXT-BRAIN-RUNNER/call.mapping-api/P-1 | test | KnovasPlatform/components/docbridge_integration/tests/test_builder_mapping_writes.py | TestInvertible::test_brain_runner_s_rule_is_used_when_installed |
+| `EXT-BRAIN-RUNNER/cli.plan/P-1` | test | `KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py` | `TestLinkMode::test_a_dry_run_reads_plans_and_reports_through_link_only`; `TestLinkMode::test_the_runners_brain_calls_go_through_links_relay_with_the_local_token` |
+| `EXT-BRAIN-RUNNER/cli.apply/P-1` | test | `KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py` | `TestLinkMode::test_the_last_acknowledged_stream_is_the_next_plans_previous` |
+| `EXT-BRAIN-RUNNER/cli.compile-write/P-1` | test | `KnovasPlatform/components/docbridge_integration/tests/test_github_write.py` | `TestAProposalBecomesAPullRequest::test_the_pull_request_carries_only_the_changed_values`; `TestNothingIsWritten::test_what_the_inverse_mapping_refuses_is_the_jobs_refusal` |
+| `EXT-BRAIN-RUNNER/call.runner-entry/P-1` | test | `KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py` | `TestLinkMode::test_the_last_acknowledged_stream_is_the_next_plans_previous` |
+| `EXT-BRAIN-RUNNER/call.runner-entry/P-1` | test | `KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py` | `TestFiles::test_the_runner_reads_it_through_the_share_source` |
+| `EXT-BRAIN-RUNNER/call.publish-api/P-1` | test | `KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py` | `TestTheBundle::test_the_bundle_is_brain_runner_s_own`; `TestTheAliasesOnTheTenant` |
+| `EXT-BRAIN-RUNNER/call.mapping-api/P-1` | test | `KnovasPlatform/components/docbridge_integration/tests/test_builder_mappings.py` |  |
+| `EXT-BRAIN-RUNNER/call.mapping-api/P-1` | test | `KnovasPlatform/components/docbridge_integration/tests/test_builder_mapping_writes.py` | `TestInvertible::test_brain_runner_s_rule_is_used_when_installed` |
 
 ## To review
 
 | At | Why |
 |---|---|
-| /contract | The evidence is this repository's tests that run the real brain-runner of the pin CI installs; they show the pinned release keeps these lines, not that a later one does. The runner's own tests live where it is released. |
-| /operations/5 | The Builder imports two private names (mapping._emit and mapping._selected); a runner release may change them without notice. |
-| /owner | Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4). |
+| `/contract` | The evidence is this repository's tests that run the real brain-runner of the pin CI installs; they show the pinned release keeps these lines, not that a later one does. The runner's own tests live where it is released. |
+| `/operations/5` | The Builder imports two private names (mapping.\_emit and mapping.\_selected); a runner release may change them without notice. |
+| `/owner` | Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4). |
 
 ## Migrated from
 

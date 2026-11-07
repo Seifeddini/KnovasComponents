@@ -11,6 +11,11 @@ options:
           KnovasPlatform/components/experiments_runner, KnovasPlatform/experiments-sdk/python,
           KnovasPlatform/mock_knovas_api]
   boundaries: {path: docs/components/boundaries.yaml, select: "items(data.components)[].{owner: key, prefixes: value.paths}"}
-  routes: {decorators: [route], verb_decorators: [get, post, put, patch, delete], registrations: [add_url_rule]}
+  # a route's app and prefixes: the Flask apps, the blueprints with their own url_prefix, and register_blueprint,
+  # whose url_prefix replaces the blueprint's (a blueprint registered as a factory's result is not followed to
+  # its app: such a route's app is the blueprint)
+  routes: {decorators: [route], verb_decorators: [get, post, put, patch, delete], registrations: [add_url_rule],
+           apps: [Flask], routers: [{call: Blueprint, prefix: url_prefix}],
+           mounts: [{call: register_blueprint, prefix: url_prefix, replaces: true}]}
   cli: {subcommands: [add_parser], commands: [command], main_guard: true}
   http: {methods: [get, post, put, patch, delete]}

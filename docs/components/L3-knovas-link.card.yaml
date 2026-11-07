@@ -836,16 +836,16 @@ review:
     card yet); the domain is confirmed by a person (Software Map K5).
 - at: /owner
   why: Proposed owner; one role per component is confirmed by a person (Software Map K4).
-- at: /contract/*/limits/0
+- at: L3-KNOVAS-LINK/*/L-1
   why: No evidence; MAX_JSON_BYTES in local_api.py and the install package's compose file (builder/sites.py); no test
     sends a body over 256 KiB.
-- at: /contract/local.brain-relay/limits/1
+- at: L3-KNOVAS-LINK/local.brain-relay/L-2
   why: No evidence; a known limit stated in relay.py and the protocol document.
-- at: /contract/install-certificate/limits/0
+- at: L3-KNOVAS-LINK/install-certificate/L-1
   why: No evidence; MAX_INPUT_BYTES in certificate.py.
-- at: /contract/work-channel/limits/0
+- at: L3-KNOVAS-LINK/work-channel/L-1
   why: No evidence for the numbers; WAIT_SECONDS, MAX_SOURCES and BACKOFF_MAX_SECONDS in jobs.py.
-- at: /contract/heartbeat-loop/limits/0
+- at: L3-KNOVAS-LINK/heartbeat-loop/L-1
   why: No evidence for the numbers; settings.py and link.py (CONFIG_EVERY_BEATS).
 - at: /operations
   why: The code reader sees only `python -m knovas_link` (its __main__ guard); the local API's routes (a Starlette route

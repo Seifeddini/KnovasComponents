@@ -14,9 +14,9 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Field | Value |
 |---|---|
-| Id | EXT-BRAIN-API |
+| Id | `EXT-BRAIN-API` |
 | Kind | external |
-| Owner | ROLE-ENGINE-OWNER |
+| Owner | `ROLE-ENGINE-OWNER` |
 
 ## Purpose
 
@@ -34,18 +34,18 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Name | Entrance | Ref |
 |---|---|---|---|
-| connector-jobs-claim | GET /secured/connector/jobs?source=KEYS&wait=SECONDS - claim one job of the tenant for these sources, or a probe addressed to this certificate | http | GET /secured/connector/jobs |
-| connector-job-part | POST /secured/connector/jobs/{job_id}/part?n=N - one part of a fetch, with X-Knovas-Lease | http | POST /secured/connector/jobs/{job_id}/part |
-| connector-job-result | POST /secured/connector/jobs/{job_id}/result - a job's result, with X-Knovas-Lease | http | POST /secured/connector/jobs/{job_id}/result |
-| connector-probe | POST /secured/connector/probe - queue a probe addressed to the calling certificate | http | POST /secured/connector/probe |
-| connector-job-stats | GET /secured/connector/jobs/stats?since=TIME - job counts for the «Verbindung» card | http | GET /secured/connector/jobs/stats |
-| source-writes | GET /secured/source-writes?status=STATUS - the tenant's write proposals | http | GET /secured/source-writes |
-| source-write-accept | POST /secured/source-writes/{id}/accept - accept a write proposal, with the declared actor | http | POST /secured/source-writes/{id}/accept |
-| source-write-reject | POST /secured/source-writes/{id}/reject - reject a write proposal, with the declared actor and a reason | http | POST /secured/source-writes/{id}/reject |
-| sign-certificate | POST /secured/sign_certificate - sign a component's request for the Platform's tenant | http | POST /secured/sign_certificate |
-| graph-routes | /secured/graph/... - node types, nodes, facts, edges and their schema (read and written by the Builder and by brain-runner) | http | /secured/graph/{path} |
-| access-routes | /secured/access_groups, /secured/folder_rules and the RBAC posture - the access window's backend | http | /secured/access_groups |
-| ingest-routes | /secured/init_document_transmission, transmit_document_part, delete_information_object, documents, documents/source_ref - the routes Link relays for a component's documents | http | /secured/documents |
+| `connector-jobs-claim` | GET /secured/connector/jobs?source=KEYS&wait=SECONDS - claim one job of the tenant for these sources, or a probe addressed to this certificate | http | `GET /secured/connector/jobs` |
+| `connector-job-part` | POST /secured/connector/jobs/{job_id}/part?n=N - one part of a fetch, with X-Knovas-Lease | http | `POST /secured/connector/jobs/{job_id}/part` |
+| `connector-job-result` | POST /secured/connector/jobs/{job_id}/result - a job's result, with X-Knovas-Lease | http | `POST /secured/connector/jobs/{job_id}/result` |
+| `connector-probe` | POST /secured/connector/probe - queue a probe addressed to the calling certificate | http | `POST /secured/connector/probe` |
+| `connector-job-stats` | GET /secured/connector/jobs/stats?since=TIME - job counts for the «Verbindung» card | http | `GET /secured/connector/jobs/stats` |
+| `source-writes` | GET /secured/source-writes?status=STATUS - the tenant's write proposals | http | `GET /secured/source-writes` |
+| `source-write-accept` | POST /secured/source-writes/{id}/accept - accept a write proposal, with the declared actor | http | `POST /secured/source-writes/{id}/accept` |
+| `source-write-reject` | POST /secured/source-writes/{id}/reject - reject a write proposal, with the declared actor and a reason | http | `POST /secured/source-writes/{id}/reject` |
+| `sign-certificate` | POST /secured/sign_certificate - sign a component's request for the Platform's tenant | http | `POST /secured/sign_certificate` |
+| `graph-routes` | /secured/graph/... - node types, nodes, facts, edges and their schema (read and written by the Builder and by brain-runner) | http | `/secured/graph/{path}` |
+| `access-routes` | /secured/access_groups, /secured/folder_rules and the RBAC posture - the access window's backend | http | `/secured/access_groups` |
+| `ingest-routes` | /secured/init_document_transmission, transmit_document_part, delete_information_object, documents, documents/source_ref - the routes Link relays for a component's documents | http | `/secured/documents` |
 
 ## Contract
 
@@ -55,7 +55,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/*/A-1 | The tenant of every call is the one the caller's client certificate names; a request never names it. | critical |
+| `EXT-BRAIN-API/*/A-1` | The tenant of every call is the one the caller's client certificate names; a request never names it. | critical |
 
 ### `connector-jobs-claim`
 
@@ -63,7 +63,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/connector-jobs-claim/P-1 | Answers 200 {job} with an opaque lease (16 to 128 visible ASCII characters), 204 when no job came within wait, or 429 with Retry-After when its waiter caps are reached; a job validates against job.schema.json. | critical |
+| `EXT-BRAIN-API/connector-jobs-claim/P-1` | Answers 200 {job} with an opaque lease (16 to 128 visible ASCII characters), 204 when no job came within wait, or 429 with Retry-After when its waiter caps are reached; a job validates against job.schema.json. | critical |
 
 ### `connector-job-part`
 
@@ -71,7 +71,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/connector-job-part/P-1 | Takes a part with the claim's lease with 2xx; answers 409 lease_lost once the claim is gone; any other answer is a refusal of the part. | critical |
+| `EXT-BRAIN-API/connector-job-part/P-1` | Takes a part with the claim's lease with 2xx; answers 409 lease_lost once the claim is gone; any other answer is a refusal of the part. | critical |
 
 ### `connector-job-result`
 
@@ -79,7 +79,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/connector-job-result/P-1 | Takes a result with the claim's lease with 2xx; answers 404 or 409 lease_lost when the job has an outcome already or the claim is gone, 400 when it refuses the result. | critical |
+| `EXT-BRAIN-API/connector-job-result/P-1` | Takes a result with the claim's lease with 2xx; answers 404 or 409 lease_lost when the job has an outcome already or the claim is gone, 400 when it refuses the result. | critical |
 
 ### `connector-probe`
 
@@ -87,7 +87,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/connector-probe/P-1 | Answers 200 or 201 with a job_id (a UUID) and hands that probe to the calling certificate's next claim; 429 with Retry-After when busy. | standard |
+| `EXT-BRAIN-API/connector-probe/P-1` | Answers 200 or 201 with a job_id (a UUID) and hands that probe to the calling certificate's next claim; 429 with Retry-After when busy. | standard |
 
 ### `connector-job-stats`
 
@@ -95,7 +95,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/connector-job-stats/P-1 | Answers the tenant's job counts since the given time, by kind and status. | low |
+| `EXT-BRAIN-API/connector-job-stats/P-1` | Answers the tenant's job counts since the given time, by kind and status. | low |
 
 ### `source-writes`
 
@@ -103,7 +103,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/source-writes/P-1 | Answers {"proposals": [...]} of the tenant, of one status or all. | standard |
+| `EXT-BRAIN-API/source-writes/P-1` | Answers {"proposals": [...]} of the tenant, of one status or all. | standard |
 
 ### `source-write-accept`
 
@@ -111,7 +111,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/source-write-accept/P-1 | Accepting queues one write job and records the declared actor; it answers the proposal's new status and, once applied, a result_ref; a refusal names its code in error_code (source_ref_missing among them). | critical |
+| `EXT-BRAIN-API/source-write-accept/P-1` | Accepting queues one write job and records the declared actor; it answers the proposal's new status and, once applied, a result_ref; a refusal names its code in error_code (source_ref_missing among them). | critical |
 
 ### `source-write-reject`
 
@@ -119,7 +119,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/source-write-reject/P-1 | Rejecting records the declared actor and the reason, and answers the proposal's new status. | standard |
+| `EXT-BRAIN-API/source-write-reject/P-1` | Rejecting records the declared actor and the reason, and answers the proposal's new status. | standard |
 
 ### `sign-certificate`
 
@@ -127,7 +127,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/sign-certificate/P-1 | Signs a component's certificate request for the calling Platform's tenant, or refuses (production answers 503, so a deployment there issues no certificate at enrolment). | critical |
+| `EXT-BRAIN-API/sign-certificate/P-1` | Signs a component's certificate request for the calling Platform's tenant, or refuses (production answers 503, so a deployment there issues no certificate at enrolment). | critical |
 
 ### `graph-routes`
 
@@ -135,7 +135,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/graph-routes/P-1 | The graph routes brain-runner and the Builder call, as brain-runner's pinned release expects them; every method below /secured/graph/ is reachable for a certificate of the tenant. | critical |
+| `EXT-BRAIN-API/graph-routes/P-1` | The graph routes brain-runner and the Builder call, as brain-runner's pinned release expects them; every method below /secured/graph/ is reachable for a certificate of the tenant. | critical |
 
 ### `access-routes`
 
@@ -143,7 +143,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/access-routes/P-1 | Lists, creates, renames, deletes and moves (PATCH with parent) access groups and folder rules; a Brain that cannot move groups answers so (move_unsupported). | standard |
+| `EXT-BRAIN-API/access-routes/P-1` | Lists, creates, renames, deletes and moves (PATCH with parent) access groups and folder rules; a Brain that cannot move groups answers so (move_unsupported). | standard |
 
 ### `ingest-routes`
 
@@ -151,7 +151,7 @@ card_hash: sha256:d08cf3bf6be0b8fe
 
 | Id | Statement | Risk class |
 |---|---|---|
-| EXT-BRAIN-API/ingest-routes/P-1 | The document routes of the connector protocol, reached through Link's relay with the site's certificate. | standard |
+| `EXT-BRAIN-API/ingest-routes/P-1` | The document routes of the connector protocol, reached through Link's relay with the site's certificate. | standard |
 
 ## Uses
 
@@ -163,8 +163,8 @@ None stated.
 
 | Component | Operations | Expects |
 |---|---|---|
-| L2-BRAIN-BUILDER | source-writes; source-write-accept; source-write-reject; connector-job-stats; sign-certificate; graph-routes; access-routes | EXT-BRAIN-API/*/A-1; EXT-BRAIN-API/source-writes/P-1; EXT-BRAIN-API/source-write-accept/P-1; EXT-BRAIN-API/source-write-reject/P-1; EXT-BRAIN-API/connector-job-stats/P-1; EXT-BRAIN-API/sign-certificate/P-1; EXT-BRAIN-API/graph-routes/P-1; EXT-BRAIN-API/access-routes/P-1 |
-| L3-KNOVAS-LINK | connector-jobs-claim; connector-job-part; connector-job-result; connector-probe; graph-routes; ingest-routes | EXT-BRAIN-API/*/A-1; EXT-BRAIN-API/connector-jobs-claim/P-1; EXT-BRAIN-API/connector-job-part/P-1; EXT-BRAIN-API/connector-job-result/P-1; EXT-BRAIN-API/connector-probe/P-1; EXT-BRAIN-API/graph-routes/P-1; EXT-BRAIN-API/ingest-routes/P-1 |
+| `L2-BRAIN-BUILDER` | `source-writes`; `source-write-accept`; `source-write-reject`; `connector-job-stats`; `sign-certificate`; `graph-routes`; `access-routes` | `EXT-BRAIN-API/*/A-1`; `EXT-BRAIN-API/source-writes/P-1`; `EXT-BRAIN-API/source-write-accept/P-1`; `EXT-BRAIN-API/source-write-reject/P-1`; `EXT-BRAIN-API/connector-job-stats/P-1`; `EXT-BRAIN-API/sign-certificate/P-1`; `EXT-BRAIN-API/graph-routes/P-1`; `EXT-BRAIN-API/access-routes/P-1` |
+| `L3-KNOVAS-LINK` | `connector-jobs-claim`; `connector-job-part`; `connector-job-result`; `connector-probe`; `graph-routes`; `ingest-routes` | `EXT-BRAIN-API/*/A-1`; `EXT-BRAIN-API/connector-jobs-claim/P-1`; `EXT-BRAIN-API/connector-job-part/P-1`; `EXT-BRAIN-API/connector-job-result/P-1`; `EXT-BRAIN-API/connector-probe/P-1`; `EXT-BRAIN-API/graph-routes/P-1`; `EXT-BRAIN-API/ingest-routes/P-1` |
 
 ## Hides
 
@@ -188,9 +188,9 @@ No line names evidence yet.
 
 | At | Why |
 |---|---|
-| /contract | No line here has evidence in this repository. They state what this repository's code relies on; the Brain's own tests and its card live in the repository that serves it, and a card cannot point at a line of a card in another repository. This repository's tests run against in-process fakes of these routes (KnovasLink/tests/conftest.py, tests/test_builder_approvals.py), which shows what is relied on, not that the Brain keeps it. |
-| /owner | Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4). |
-| /operations | Aggregated where this repository relies on a family of routes (graph, access, ingest); the Brain's card lists them one by one. |
+| `/contract` | No line here has evidence in this repository. They state what this repository's code relies on; the Brain's own tests and its card live in the repository that serves it, and a card cannot point at a line of a card in another repository. This repository's tests run against in-process fakes of these routes (KnovasLink/tests/conftest.py, tests/test_builder_approvals.py), which shows what is relied on, not that the Brain keeps it. |
+| `/owner` | Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4). |
+| `/operations` | Aggregated where this repository relies on a family of routes (graph, access, ingest); the Brain's card lists them one by one. |
 
 ## Migrated from
 

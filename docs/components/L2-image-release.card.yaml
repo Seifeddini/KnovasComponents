@@ -188,7 +188,7 @@ review:
   why: The domain of the release workflow is open (Software Map K5); KnovasComponents has no domain for its delivery yet.
 - at: /owner
   why: Proposed owner; one role per component is confirmed by a person (Software Map K4).
-- at: /contract/release-images/limits/1
+- at: L2-IMAGE-RELEASE/release-images/L-2
   why: No evidence; GitHub's own behaviour, stated in the workflow's header.
 - at: /uses/2
   why: The Platform image is built from the whole docbridge_integration folder, which is more than the Builder; the

@@ -14,9 +14,9 @@ card_hash: sha256:35a42eb727ec7156
 
 | Field | Value |
 |---|---|
-| Id | EXT-GITHUB-API |
+| Id | `EXT-GITHUB-API` |
 | Kind | external |
-| Owner | ROLE-ENGINE-OWNER |
+| Owner | `ROLE-ENGINE-OWNER` |
 
 ## Purpose
 
@@ -30,9 +30,9 @@ card_hash: sha256:35a42eb727ec7156
 
 | Id | Name | Entrance | Ref |
 |---|---|---|---|
-| repo-contents | GET and PUT /repos/{owner}/{repo}/contents/{path}, GET /repos/{owner}/{repo} and /repos/{owner}/{repo}/commits/{ref} - read a file and its blob sha, the default branch, a ref; write a file on a branch | http | /repos/{owner}/{repo}/contents/{path} |
-| git-data | GET /repos/{owner}/{repo}/git/blobs/{sha} (raw), GET /git/ref/heads/{branch}, POST /git/refs, DELETE /git/refs/heads/{branch} | http | /repos/{owner}/{repo}/git/blobs/{sha} |
-| pulls | GET and POST /repos/{owner}/{repo}/pulls - find or open the pull request of a write | http | /repos/{owner}/{repo}/pulls |
+| `repo-contents` | GET and PUT /repos/{owner}/{repo}/contents/{path}, GET /repos/{owner}/{repo} and /repos/{owner}/{repo}/commits/{ref} - read a file and its blob sha, the default branch, a ref; write a file on a branch | http | `/repos/{owner}/{repo}/contents/{path}` |
+| `git-data` | GET /repos/{owner}/{repo}/git/blobs/{sha} (raw), GET /git/ref/heads/{branch}, POST /git/refs, DELETE /git/refs/heads/{branch} | http | `/repos/{owner}/{repo}/git/blobs/{sha}` |
+| `pulls` | GET and POST /repos/{owner}/{repo}/pulls - find or open the pull request of a write | http | `/repos/{owner}/{repo}/pulls` |
 
 ## Contract
 
@@ -42,7 +42,7 @@ card_hash: sha256:35a42eb727ec7156
 
 | Id | Statement | Risk class | Evidence |
 |---|---|---|---|
-| EXT-GITHUB-API/repo-contents/P-1 | A file read at a ref answers its blob sha; 404 means not there (or, for a token that may read but not write, a refused write step); 403 refuses a write. | standard | kind: test, ref: KnovasPlatform/components/docbridge_integration/tests/test_github_write.py, checks: TestATokenThatCannotWrite::test_a_404_on_a_write_step_after_the_file_was_read_is_token_cannot_write |
+| `EXT-GITHUB-API/repo-contents/P-1` | A file read at a ref answers its blob sha; 404 means not there (or, for a token that may read but not write, a refused write step); 403 refuses a write. | standard | kind: test, ref: `KnovasPlatform/components/docbridge_integration/tests/test_github_write.py`, checks: `TestATokenThatCannotWrite::test_a_404_on_a_write_step_after_the_file_was_read_is_token_cannot_write` |
 
 ### `git-data`
 
@@ -50,7 +50,7 @@ card_hash: sha256:35a42eb727ec7156
 
 | Id | Statement | Risk class | Evidence |
 |---|---|---|---|
-| EXT-GITHUB-API/git-data/P-1 | A blob read raw by its sha gives the file's bytes, whose git blob hash is that sha; a branch made from a head sha can be deleted again. | critical | kind: test, ref: KnovasPlatform/components/docbridge_integration/tests/test_github_jobs.py, checks: TestFetch::test_the_blob_at_the_version_arrives_whole_and_its_git_hash_is_the_version |
+| `EXT-GITHUB-API/git-data/P-1` | A blob read raw by its sha gives the file's bytes, whose git blob hash is that sha; a branch made from a head sha can be deleted again. | critical | kind: test, ref: `KnovasPlatform/components/docbridge_integration/tests/test_github_jobs.py`, checks: `TestFetch::test_the_blob_at_the_version_arrives_whole_and_its_git_hash_is_the_version` |
 
 ### `pulls`
 
@@ -58,7 +58,7 @@ card_hash: sha256:35a42eb727ec7156
 
 | Id | Statement | Risk class | Evidence |
 |---|---|---|---|
-| EXT-GITHUB-API/pulls/P-1 | A pull request opened from a branch is found again by its head branch, so a repeated write answers the same one. | standard | kind: test, ref: KnovasPlatform/components/docbridge_integration/tests/test_github_write.py, checks: TestAProposalBecomesAPullRequest::test_a_job_claimed_again_ends_with_the_same_pull_request |
+| `EXT-GITHUB-API/pulls/P-1` | A pull request opened from a branch is found again by its head branch, so a repeated write answers the same one. | standard | kind: test, ref: `KnovasPlatform/components/docbridge_integration/tests/test_github_write.py`, checks: `TestAProposalBecomesAPullRequest::test_a_job_claimed_again_ends_with_the_same_pull_request` |
 
 ## Uses
 
@@ -70,7 +70,7 @@ None stated.
 
 | Component | Operations | Expects |
 |---|---|---|
-| L3-SYNC-COMPONENT | repo-contents; git-data; pulls | EXT-GITHUB-API/git-data/P-1; EXT-GITHUB-API/pulls/P-1 |
+| `L3-SYNC-COMPONENT` | `repo-contents`; `git-data`; `pulls` | `EXT-GITHUB-API/git-data/P-1`; `EXT-GITHUB-API/pulls/P-1` |
 
 ## Hides
 
@@ -90,16 +90,16 @@ None stated.
 
 | Line | Kind | Ref | Checks |
 |---|---|---|---|
-| EXT-GITHUB-API/repo-contents/P-1 | test | KnovasPlatform/components/docbridge_integration/tests/test_github_write.py | TestATokenThatCannotWrite::test_a_404_on_a_write_step_after_the_file_was_read_is_token_cannot_write |
-| EXT-GITHUB-API/git-data/P-1 | test | KnovasPlatform/components/docbridge_integration/tests/test_github_jobs.py | TestFetch::test_the_blob_at_the_version_arrives_whole_and_its_git_hash_is_the_version |
-| EXT-GITHUB-API/pulls/P-1 | test | KnovasPlatform/components/docbridge_integration/tests/test_github_write.py | TestAProposalBecomesAPullRequest::test_a_job_claimed_again_ends_with_the_same_pull_request |
+| `EXT-GITHUB-API/repo-contents/P-1` | test | `KnovasPlatform/components/docbridge_integration/tests/test_github_write.py` | `TestATokenThatCannotWrite::test_a_404_on_a_write_step_after_the_file_was_read_is_token_cannot_write` |
+| `EXT-GITHUB-API/git-data/P-1` | test | `KnovasPlatform/components/docbridge_integration/tests/test_github_jobs.py` | `TestFetch::test_the_blob_at_the_version_arrives_whole_and_its_git_hash_is_the_version` |
+| `EXT-GITHUB-API/pulls/P-1` | test | `KnovasPlatform/components/docbridge_integration/tests/test_github_write.py` | `TestAProposalBecomesAPullRequest::test_a_job_claimed_again_ends_with_the_same_pull_request` |
 
 ## To review
 
 | At | Why |
 |---|---|
-| /contract | The evidence runs against an in-process stand-in of GitHub's REST API (tests/fake_github_rest.py), written from GitHub's documentation (API version 2022-11-28); it shows what is relied on, not that GitHub keeps it. |
-| /owner | Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4). |
+| `/contract` | The evidence runs against an in-process stand-in of GitHub's REST API (tests/fake_github_rest.py), written from GitHub's documentation (API version 2022-11-28); it shows what is relied on, not that GitHub keeps it. |
+| `/owner` | Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4). |
 
 ## Migrated from
 

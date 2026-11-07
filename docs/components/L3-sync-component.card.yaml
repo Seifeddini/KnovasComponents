@@ -546,7 +546,7 @@ review:
 - at: /status
   why: Link mode is built ahead of its bet's approval and not deployed; whether direct mode runs at a company is not
     read from the code.
-- at: /contract/platform-commands/limits/0
+- at: L3-SYNC-COMPONENT/platform-commands/L-1
   why: No evidence; the timeout is in engine.py (_cli) and the size in fetchers.py (MAX_BYTES).
 - at: /operations
   why: The code reader sees only the three programs; the commands, the schedule and the jobs are listed by hand (the

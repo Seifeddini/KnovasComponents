@@ -81,315 +81,315 @@ operations:
 - id: home
   name: GET /builder/ - the entry, redirects to the first stage
   entrance: http
-  ref: GET /
+  ref: GET /builder/
 - id: stage
   name: GET /builder/{slug} - one of the eight stages (arbeitsbereich, verbinden, ontologie, prozesse, quellen, ansichten, pruefen, betrieb)
   entrance: http
-  ref: GET /{slug}
+  ref: GET /builder/{slug}
 - id: workspace
   name: GET /builder/w/{workspace_id} - a workspace's overview; chooses it
   entrance: http
-  ref: GET /w/{workspace_id}
+  ref: GET /builder/w/{workspace_id}
 - id: workspace-delete
   name: POST /builder/api/w/{workspace_id}/delete - delete a workspace, its name typed again
   entrance: http
-  ref: POST /api/w/{workspace_id}/delete
+  ref: POST /builder/api/w/{workspace_id}/delete
 - id: pack-update
   name: GET /builder/w/{workspace_id}/pakete/{pack_id} - what updating a pack would change
   entrance: http
-  ref: GET /w/{workspace_id}/pakete/{pack_id}
+  ref: GET /builder/w/{workspace_id}/pakete/{pack_id}
 - id: definitions-page
   name: GET /builder/w/{workspace_id}/definitionen - what adopting the tenant's definitions would add
   entrance: http
-  ref: GET /w/{workspace_id}/definitionen
+  ref: GET /builder/w/{workspace_id}/definitionen
 - id: definitions-adopt
   name: POST /builder/api/w/{workspace_id}/definitions/adopt - adopt the tenant's definitions into the draft
   entrance: http
-  ref: POST /api/w/{workspace_id}/definitions/adopt
+  ref: POST /builder/api/w/{workspace_id}/definitions/adopt
 - id: export
   name: GET /builder/w/{workspace_id}/export - the workspace as a configuration package (zip)
   entrance: http
-  ref: GET /w/{workspace_id}/export
+  ref: GET /builder/w/{workspace_id}/export
 - id: import-preview
   name: POST /builder/api/import/preview - what a package holds, before the import
   entrance: http
-  ref: POST /api/import/preview
+  ref: POST /builder/api/import/preview
 - id: import
   name: POST /builder/api/import - a workspace from an uploaded configuration package
   entrance: http
-  ref: POST /api/import
+  ref: POST /builder/api/import
 - id: workspace-create
   name: POST /builder/api/workspaces - a new workspace, empty, from packs or from the tenant
   entrance: http
-  ref: POST /api/workspaces
+  ref: POST /builder/api/workspaces
 - id: ontology-edit
   name: POST /builder/api/w/{workspace_id}/ontology - one edit of the draft (ontology, processes, sources, mappings, views)
   entrance: http
-  ref: POST /api/w/{workspace_id}/ontology
+  ref: POST /builder/api/w/{workspace_id}/ontology
 - id: undo
   name: POST /builder/api/w/{workspace_id}/undo
   entrance: http
-  ref: POST /api/w/{workspace_id}/undo
+  ref: POST /builder/api/w/{workspace_id}/undo
 - id: redo
   name: POST /builder/api/w/{workspace_id}/redo
   entrance: http
-  ref: POST /api/w/{workspace_id}/redo
+  ref: POST /builder/api/w/{workspace_id}/redo
 - id: brain-shape
   name: GET and POST /builder/api/w/{workspace_id}/brain-shape - relations and hierarchies the tenant's links show, as proposals; take some over
   entrance: http
-  ref: /api/w/{workspace_id}/brain-shape
+  ref: /builder/api/w/{workspace_id}/brain-shape
 - id: views-assistant
   name: POST /builder/api/w/{workspace_id}/views/assistant - views from a description, by the views assistant
   entrance: http
-  ref: POST /api/w/{workspace_id}/views/assistant
+  ref: POST /builder/api/w/{workspace_id}/views/assistant
 - id: views-preview
   name: POST /builder/api/w/{workspace_id}/views/preview - a profile's start view and one page, on sample data
   entrance: http
-  ref: POST /api/w/{workspace_id}/views/preview
+  ref: POST /builder/api/w/{workspace_id}/views/preview
 - id: comments
   name: GET /builder/api/w/{workspace_id}/comments?target=T
   entrance: http
-  ref: GET /api/w/{workspace_id}/comments
+  ref: GET /builder/api/w/{workspace_id}/comments
 - id: comment-add
   name: POST /builder/api/w/{workspace_id}/comments
   entrance: http
-  ref: POST /api/w/{workspace_id}/comments
+  ref: POST /builder/api/w/{workspace_id}/comments
 - id: comment-resolve
   name: POST /builder/api/w/{workspace_id}/comments/{comment_id}/resolve
   entrance: http
-  ref: POST /api/w/{workspace_id}/comments/{comment_id}/resolve
+  ref: POST /builder/api/w/{workspace_id}/comments/{comment_id}/resolve
 - id: team-page
   name: GET /builder/w/{workspace_id}/team - who may work on the workspace, and the access log
   entrance: http
-  ref: GET /w/{workspace_id}/team
+  ref: GET /builder/w/{workspace_id}/team
 - id: grant-access
   name: POST /builder/api/w/{workspace_id}/access - invite a consultant to this workspace only
   entrance: http
-  ref: POST /api/w/{workspace_id}/access
+  ref: POST /builder/api/w/{workspace_id}/access
 - id: revoke-access
   name: POST /builder/api/w/{workspace_id}/access/{grant_id}/revoke
   entrance: http
-  ref: POST /api/w/{workspace_id}/access/{grant_id}/revoke
+  ref: POST /builder/api/w/{workspace_id}/access/{grant_id}/revoke
 - id: activity
   name: GET /builder/w/{workspace_id}/aktivitaet - who changed what, when
   entrance: http
-  ref: GET /w/{workspace_id}/aktivitaet
+  ref: GET /builder/w/{workspace_id}/aktivitaet
 - id: type-review
   name: POST /builder/api/w/{workspace_id}/reviews - a type's health reviewed
   entrance: http
-  ref: POST /api/w/{workspace_id}/reviews
+  ref: POST /builder/api/w/{workspace_id}/reviews
 - id: component-page
   name: 'GET /builder/komponenten/{component_id} - one component: what it serves and runs, schedule, runs, held plans, events, commands, checks'
   entrance: http
-  ref: GET /komponenten/{component_id}
+  ref: GET /builder/komponenten/{component_id}
 - id: component-enrol
   name: 'POST /builder/api/components/enrol - the wizard: a component and its one-time enrolment token'
   entrance: http
-  ref: POST /api/components/enrol
+  ref: POST /builder/api/components/enrol
 - id: component-rotate
   name: POST /builder/api/components/{component_id}/rotate - «Token erneuern»
   entrance: http
-  ref: POST /api/components/{component_id}/rotate
+  ref: POST /builder/api/components/{component_id}/rotate
 - id: component-revoke
   name: POST /builder/api/components/{component_id}/revoke
   entrance: http
-  ref: POST /api/components/{component_id}/revoke
+  ref: POST /builder/api/components/{component_id}/revoke
 - id: component-delete
   name: POST /builder/api/components/{component_id}/delete
   entrance: http
-  ref: POST /api/components/{component_id}/delete
+  ref: POST /builder/api/components/{component_id}/delete
 - id: component-run
   name: 'POST /builder/api/components/{component_id}/run - run now: a dry run or an apply'
   entrance: http
-  ref: POST /api/components/{component_id}/run
+  ref: POST /builder/api/components/{component_id}/run
 - id: component-check
   name: POST /builder/api/components/{component_id}/check - «Verbindung prüfen»
   entrance: http
-  ref: POST /api/components/{component_id}/check
+  ref: POST /builder/api/components/{component_id}/check
 - id: component-pause
   name: POST /builder/api/components/{component_id}/pause
   entrance: http
-  ref: POST /api/components/{component_id}/pause
+  ref: POST /builder/api/components/{component_id}/pause
 - id: component-resume
   name: POST /builder/api/components/{component_id}/resume
   entrance: http
-  ref: POST /api/components/{component_id}/resume
+  ref: POST /builder/api/components/{component_id}/resume
 - id: component-schedule
   name: POST /builder/api/components/{component_id}/schedule
   entrance: http
-  ref: POST /api/components/{component_id}/schedule
+  ref: POST /builder/api/components/{component_id}/schedule
 - id: component-settings
   name: POST /builder/api/components/{component_id}/settings - name, site, owner
   entrance: http
-  ref: POST /api/components/{component_id}/settings
+  ref: POST /builder/api/components/{component_id}/settings
 - id: component-plan
   name: POST /builder/api/components/{component_id}/plans/{plan_id} - approve or reject a held plan
   entrance: http
-  ref: POST /api/components/{component_id}/plans/{plan_id}
+  ref: POST /builder/api/components/{component_id}/plans/{plan_id}
 - id: component-register
   name: POST /builder/api/components - register a component the Platform reaches (adapter kinds)
   entrance: http
-  ref: POST /api/components
+  ref: POST /builder/api/components
 - id: site-page
   name: 'GET /builder/standorte/{site_id} - a site: the one command, the certificate step, the checklist and the package'
   entrance: http
-  ref: GET /standorte/{site_id}
+  ref: GET /builder/standorte/{site_id}
 - id: site-create
   name: POST /builder/api/sites - «Standort anlegen»
   entrance: http
-  ref: POST /api/sites
+  ref: POST /builder/api/sites
 - id: site-package
   name: POST /builder/api/sites/{site_id}/package - «Installationspaket herunterladen»
   entrance: http
-  ref: POST /api/sites/{site_id}/package
+  ref: POST /builder/api/sites/{site_id}/package
 - id: site-rotate
   name: POST /builder/api/sites/{site_id}/rotate - «Token erneuern»
   entrance: http
-  ref: POST /api/sites/{site_id}/rotate
+  ref: POST /builder/api/sites/{site_id}/rotate
 - id: site-certificate
   name: POST /builder/api/sites/{site_id}/certificate - «Zertifikat erfassen»
   entrance: http
-  ref: POST /api/sites/{site_id}/certificate
+  ref: POST /builder/api/sites/{site_id}/certificate
 - id: site-probe
   name: POST /builder/api/sites/{site_id}/probe - «Jetzt prüfen»
   entrance: http
-  ref: POST /api/sites/{site_id}/probe
+  ref: POST /builder/api/sites/{site_id}/probe
 - id: approvals-page
   name: 'GET /builder/betrieb/freigaben - «Freigaben»: open write proposals and what became of the decided ones'
   entrance: http
-  ref: GET /betrieb/freigaben
+  ref: GET /builder/betrieb/freigaben
 - id: approvals-count
   name: GET /builder/api/freigaben/count - the badge
   entrance: http
-  ref: GET /api/freigaben/count
+  ref: GET /builder/api/freigaben/count
 - id: approval-accept
   name: POST /builder/api/freigaben/{proposal_id}/accept
   entrance: http
-  ref: POST /api/freigaben/{proposal_id}/accept
+  ref: POST /builder/api/freigaben/{proposal_id}/accept
 - id: approval-reject
   name: POST /builder/api/freigaben/{proposal_id}/reject
   entrance: http
-  ref: POST /api/freigaben/{proposal_id}/reject
+  ref: POST /builder/api/freigaben/{proposal_id}/reject
 - id: connection-page
   name: 'GET /builder/betrieb/verbindung - «Verbindung»: one health card per site'
   entrance: http
-  ref: GET /betrieb/verbindung
+  ref: GET /builder/betrieb/verbindung
 - id: access-page
   name: 'GET /builder/zugriff - the access window: group tree, a group, its people'
   entrance: http
-  ref: GET /zugriff
+  ref: GET /builder/zugriff
 - id: access-preview
   name: POST /builder/api/access/preview - what a structural change would do
   entrance: http
-  ref: POST /api/access/preview
+  ref: POST /builder/api/access/preview
 - id: access-apply
   name: POST /builder/api/access/apply - the change, after its preview
   entrance: http
-  ref: POST /api/access/apply
+  ref: POST /builder/api/access/apply
 - id: access-rule-add
   name: POST /builder/api/access/rules - a folder assigned to a group
   entrance: http
-  ref: POST /api/access/rules
+  ref: POST /builder/api/access/rules
 - id: access-rule-remove
   name: POST /builder/api/access/rules/remove
   entrance: http
-  ref: POST /api/access/rules/remove
+  ref: POST /builder/api/access/rules/remove
 - id: access-members
   name: POST /builder/api/access/members - a person into or out of a group
   entrance: http
-  ref: POST /api/access/members
+  ref: POST /builder/api/access/members
 - id: access-explain
   name: POST /builder/api/access/explain - why a person sees a document, or why not
   entrance: http
-  ref: POST /api/access/explain
+  ref: POST /builder/api/access/explain
 - id: access-posture
   name: POST /builder/api/access/posture - ask to switch RBAC enforcement
   entrance: http
-  ref: POST /api/access/posture
+  ref: POST /builder/api/access/posture
 - id: access-posture-approve
   name: POST /builder/api/access/posture/{request_id}/approve
   entrance: http
-  ref: POST /api/access/posture/{request_id}/approve
+  ref: POST /builder/api/access/posture/{request_id}/approve
 - id: mapping-page
   name: GET /builder/zuordnung/{mapping_id} - a mapping's page with the panels «Zugriff» and «Zurückschreiben»
   entrance: http
-  ref: GET /zuordnung/{mapping_id}
+  ref: GET /builder/zuordnung/{mapping_id}
 - id: mapping-preview
   name: POST /builder/api/w/{workspace_id}/mappings/{mapping_id}/preview
   entrance: http
-  ref: POST /api/w/{workspace_id}/mappings/{mapping_id}/preview
+  ref: POST /builder/api/w/{workspace_id}/mappings/{mapping_id}/preview
 - id: mapping-dry-run
   name: POST /builder/api/w/{workspace_id}/mappings/{mapping_id}/dry-run
   entrance: http
-  ref: POST /api/w/{workspace_id}/mappings/{mapping_id}/dry-run
+  ref: POST /builder/api/w/{workspace_id}/mappings/{mapping_id}/dry-run
 - id: source-credential
   name: POST /builder/api/w/{workspace_id}/sources/{key}/credential
   entrance: http
-  ref: POST /api/w/{workspace_id}/sources/{key}/credential
+  ref: POST /builder/api/w/{workspace_id}/sources/{key}/credential
 - id: source-test
   name: POST /builder/api/w/{workspace_id}/sources/{key}/test - reach the source and list what it holds
   entrance: http
-  ref: POST /api/w/{workspace_id}/sources/{key}/test
+  ref: POST /builder/api/w/{workspace_id}/sources/{key}/test
 - id: source-sample
   name: POST /builder/api/w/{workspace_id}/sources/{key}/sample
   entrance: http
-  ref: POST /api/w/{workspace_id}/sources/{key}/sample
+  ref: POST /builder/api/w/{workspace_id}/sources/{key}/sample
 - id: tenant-link
   name: POST /builder/api/w/{workspace_id}/tenant - link the workspace to this Platform's tenant
   entrance: http
-  ref: POST /api/w/{workspace_id}/tenant
+  ref: POST /builder/api/w/{workspace_id}/tenant
 - id: dry-run
   name: POST /builder/api/w/{workspace_id}/dry-run - compile the draft and plan it against the tenant
   entrance: http
-  ref: POST /api/w/{workspace_id}/dry-run
+  ref: POST /builder/api/w/{workspace_id}/dry-run
 - id: approve
   name: POST /builder/api/w/{workspace_id}/approve - a reviewer approves the draft as dry-run
   entrance: http
-  ref: POST /api/w/{workspace_id}/approve
+  ref: POST /builder/api/w/{workspace_id}/approve
 - id: publish
   name: POST /builder/api/w/{workspace_id}/publish - apply the approved draft to the tenant
   entrance: http
-  ref: POST /api/w/{workspace_id}/publish
+  ref: POST /builder/api/w/{workspace_id}/publish
 - id: bundle
   name: GET /builder/api/w/{workspace_id}/bundle - the newest published bundle
   entrance: http
-  ref: GET /api/w/{workspace_id}/bundle
+  ref: GET /builder/api/w/{workspace_id}/bundle
 - id: styleguide
   name: GET /builder/_styleguide?ansicht=beide|hell|dunkel - the design system's page
   entrance: http
-  ref: GET /_styleguide
+  ref: GET /builder/_styleguide
 - id: protocol-enrol
   name: POST /api/connectors/v1/enrol - a component presents its one-time token and its certificate request
   entrance: http
-  ref: POST /enrol
+  ref: POST /api/connectors/v1/enrol
 - id: protocol-heartbeat
   name: POST /api/connectors/v1/heartbeat
   entrance: http
-  ref: POST /heartbeat
+  ref: POST /api/connectors/v1/heartbeat
 - id: protocol-config
   name: GET /api/connectors/v1/config
   entrance: http
-  ref: GET /config
+  ref: GET /api/connectors/v1/config
 - id: protocol-package
   name: GET /api/connectors/v1/package
   entrance: http
-  ref: GET /package
+  ref: GET /api/connectors/v1/package
 - id: protocol-runs
   name: POST /api/connectors/v1/runs
   entrance: http
-  ref: POST /runs
+  ref: POST /api/connectors/v1/runs
 - id: protocol-command-done
   name: POST /api/connectors/v1/commands/{command_id}/done
   entrance: http
-  ref: POST /commands/{command_id}/done
+  ref: POST /api/connectors/v1/commands/{command_id}/done
 - id: protocol-events
   name: POST /api/connectors/v1/events
   entrance: http
-  ref: POST /events
+  ref: POST /api/connectors/v1/events
 - id: protocol-checks
   name: POST /api/connectors/v1/checks
   entrance: http
-  ref: POST /checks
+  ref: POST /api/connectors/v1/checks
 - id: call.builder-blueprint
   name: create_builder_blueprint(...) - the Builder's blueprint under /builder
   entrance: call
@@ -2725,13 +2725,13 @@ review:
   why: The Builder runs for its first tenant from a branch; its connection-layer pages are built and not deployed at a company. Live or planned is not read from the code.
 - at: /source_paths
   why: 'Differs from the entry L2-BRAIN-BUILDER in the Brain''s own component manifest (kept where the Brain is built): adds connector_protocol.py (the HTTP binding of builder/protocol.py), static/css/builder and the builder migrations; leaves out scripts/builder_*.py (development tools). The manifest entry is to follow this card (boundaries.yaml says why).'
-- at: /contract/component-settings/promises/0
+- at: L2-BRAIN-BUILDER/component-settings/P-1
   why: No evidence; no test calls the settings route.
-- at: /contract/access-rule-remove/promises/0
+- at: L2-BRAIN-BUILDER/access-rule-remove/P-1
   why: No evidence; no test calls the rule-removal route.
-- at: /contract/site-package/limits/0
+- at: L2-BRAIN-BUILDER/site-package/L-1
   why: No evidence; read from builder_routes.py (_PLATFORM_URL, the revoked check, the response headers).
-- at: /contract/protocol-heartbeat/limits/0
+- at: L2-BRAIN-BUILDER/protocol-heartbeat/L-1
   why: No evidence; MAX_BODY and the no_tenant answer in connector_protocol.py. Stated once for all eight protocol calls.
 - at: /contract
   why: Every route's first need is its permission from ENDPOINT_PERMISSIONS; the test named shows that every endpoint is in the table and that the gate enforces it for representative roles, not each route's permission one by one.

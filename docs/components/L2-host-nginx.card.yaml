@@ -38,15 +38,15 @@ operations:
 - id: https-proxy
   name: Port 443, every path, proxied to the Platform on 127.0.0.1 (DOCBRIDGE_WEB_PORT, default 8081)
   entrance: http
-  ref: knovas-platform.conf.example, server 443, location /
+  ref: / @nginx:443
 - id: login-throttle
   name: Port 443, location = /login, throttled per client address, then proxied
   entrance: http
-  ref: knovas-platform.conf.example, server 443, location = /login
+  ref: /login @nginx:443
 - id: http-redirect
   name: Port 80, the ACME challenge from /var/www/letsencrypt and a 301 to HTTPS for everything else
   entrance: http
-  ref: knovas-platform.conf.example, server 80
+  ref: / @nginx:80
 contract:
   '*':
     always:
@@ -180,16 +180,17 @@ review:
 - at: /status
   why: The host nginx site runs where scripts/host-https.sh was run; the terminator is built and run by hand once,
     not deployed at a company.
-- at: /contract/install/needs/0
+- at: L2-HOST-NGINX/install/N-1
   why: No evidence; read from scripts/host-https.sh (usage, root and tool checks), no test runs the script.
-- at: /contract/install/promises/0
+- at: L2-HOST-NGINX/install/P-1
   why: No evidence; read from scripts/host-https.sh, no test runs the script.
-- at: /contract/https-proxy/limits/1
+- at: L2-HOST-NGINX/https-proxy/L-2
   why: No evidence; read from knovas-platform.conf.example.
-- at: /contract/login-throttle/limits/0
+- at: L2-HOST-NGINX/login-throttle/L-1
   why: No evidence; read from knovas-login-limit.conf and knovas-platform.conf.example.
-- at: /contract/http-redirect/promises/0
+- at: L2-HOST-NGINX/http-redirect/P-1
   why: No evidence; read from knovas-platform.conf.example.
 - at: /operations
   why: The nginx files and the shell script are not read by the code reader (Python only), so these operations are
-    listed by hand and cannot be checked against the code.
+    listed by hand and cannot be checked against the code. An http ref's app, nginx:443 or nginx:80, is that server
+    block of knovas-platform.conf.example.
