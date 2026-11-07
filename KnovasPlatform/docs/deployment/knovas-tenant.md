@@ -6,6 +6,11 @@ read-only on the brain. The views themselves are described in
 [`docs/superpowers/plans/2026-10-27-process-and-spine-views.md`](../../../docs/superpowers/plans/2026-10-27-process-and-spine-views.md)
 and measured in [`docs/superpowers/reports/2026-10-27-views-final-report.md`](../../../docs/superpowers/reports/2026-10-27-views-final-report.md).
 
+**Step by step, for the Knovas machine outside Azure (KG-1, CL-8, S-6):**
+[section 4](#4-step-by-step-the-platform-with-the-brain-builder-from-a-branch) runs the Platform with the Brain
+Builder from a branch's released images; [section 5](#5-step-by-step-the-knovas-site-knovas-link-and-the-sync-component)
+installs the Knovas site (Knovas Link and the sync component) beside it. Sections 1 to 3 are the reference.
+
 ## Where it runs today (30 Oct 2026)
 
 **No standing deployment serves the Knovas tenant.** Searched for one:
@@ -193,7 +198,8 @@ section; the API behind it (`/api/settings/platform`) answers 403 to anyone else
 ### Sync von GitHub (KC-0.2)
 
 The Platform syncs the tenant's Brain from its knowledge base on demand: **Einstellungen → Sync von GitHub** (`/sync`,
-`admin` accounts only). It runs the knowledge base's own mapping runner, **brain-runner**, as an installed package.
+`admin` accounts only). **Not on the Brain Builder machine:** there the Builder and its sites write the Brain, and this
+sync stays off for the tenant (S-6; section 4.6 leaves `BRAIN_SYNC_*` empty). It runs the knowledge base's own mapping runner, **brain-runner**, as an installed package.
 The image installs a pinned release; the Platform never imports or runs code from the repository.
 
 **Set-up, once:**
@@ -387,3 +393,523 @@ cd src && python -c "from web_interface.app import create_app; create_app().run(
 ```
 
 With accounts, change-set previews can read a local KnowledgeBase checkout: `VIEWS_KB_LOCAL_REPO=<path to the checkout>`, with the `VIEWS_KB_*` paths of "The tenant's knowledge base" above exported too. Creating pull requests needs `KB_GITHUB_TOKEN` (contents and pull requests on KnowledgeBase only).
+
+## 4. Step by step: the Platform with the Brain Builder from a branch
+
+For the Knovas machine outside Azure (KG-1, CL-8): the Platform with accounts and the Brain Builder, from images the
+release workflow built from a branch ([release-images.md](release-images.md)), with its own revocable certificate
+(S-6), the connectors' client-certificate terminator, Sync von GitHub off, and a tested backup. Every command is
+copied as it stands; replace only what is in `<angle brackets>`. **You should see** says what a good result looks
+like; **Stop if** says when not to go on.
+
+The values used below:
+
+| Placeholder | What |
+|---|---|
+| `<branch>` | the KnovasComponents branch to deploy, today `cl/jolly-fermat-ro3vkk` |
+| `<commit>` | the full commit the release run built (its summary names it) |
+| `<fqdn>` | the Platform's public name on this machine, e.g. a name under knovas.ch with its DNS A record pointing here |
+| `<machine>` | how you reach the machine with `ssh` |
+| `<platform digest line>` | the line `DOCBRIDGE_WEB_IMAGE=ghcr.io/seifeddini/docbridge-web-clientbundle@sha256:…` from the run's summary |
+
+### 4.0 Before you start
+
+- **Once per repository** ([release-images.md, "Once per repository"](release-images.md#once-per-repository)): the
+  workflow file on `main`, the secret `KB_READ_TOKEN`, the variable `CI_EPHEMERAL_RUNNER`, and after the first run
+  the three packages' Actions access and visibility.
+- **Your workstation** (WSL): `gh` (signed in), `kubectl` with the context `knovas-prod-aks`, `jq`, `openssl`, `ssh`/`scp`.
+- **The machine:** Ubuntu 24.04, Docker Engine with the compose plugin, and:
+
+  ```bash
+  sudo apt-get update && sudo apt-get install -y git jq openssl unzip nginx certbot libnginx-mod-http-js
+  docker compose version
+  ```
+
+  You should see `Docker Compose version v2…` (or later). Ports 80 and 443 reach the machine; `<fqdn>` resolves to it.
+- **Your Knovas admin login** (an employee with the admin flag) for internal-api.
+- **The Knovas root CA** `ca-root.pem` (the CA of the Brain's server certificate), from the folder where the tenant
+  certificates are kept. It is public; it is not the tenant's certificate.
+
+### 4.1 Build the images from the branch (workstation)
+
+```bash
+gh workflow run release-images.yml --repo Seifeddini/KnovasComponents --ref cl/jolly-fermat-ro3vkk -f images=all
+sleep 10
+gh run list --repo Seifeddini/KnovasComponents --workflow release-images.yml --limit 1
+gh run watch <run id from the line above> --repo Seifeddini/KnovasComponents --exit-status
+gh run view <run id> --repo Seifeddini/KnovasComponents --web
+```
+
+You should see three jobs (`platform`, `knovas-link`, `sync-component`) end green, and in the browser, on the run's
+**Summary**, three sections. Write down: the **commit**, the `DOCBRIDGE_WEB_IMAGE=…` line, `KNOVAS_LINK_DIGEST=…` and
+`SYNC_COMPONENT_DIGEST=…` (the last two are for section 5).
+
+**Stop if** `gh workflow run` says the workflow is not found (it is not on `main` yet: 4.0), or a job is red: the
+summary of [release-images.md, "Run it"](release-images.md#run-it) says which setting is missing.
+
+### 4.2 The checkout at that commit (machine)
+
+The checkout gives `docker-compose.yml`, `config/` and the nginx configuration; they must be of the **same commit** as
+the image.
+
+```bash
+ssh <machine>
+git clone https://github.com/Seifeddini/KnovasComponents.git ~/knovas-platform     # first time only
+cd ~/knovas-platform
+git fetch origin
+git checkout --detach <commit>
+git rev-parse HEAD
+```
+
+You should see exactly `<commit>`. **Stop if** it differs.
+
+### 4.3 Pull the image and check its signature (machine)
+
+Create a pull credential for this machine: github.com → Settings → Developer settings → Personal access tokens →
+**Tokens (classic)** → Generate new token (classic): note `ghcr pull <machine>`, an expiry, scope **`read:packages`**
+only. Then:
+
+```bash
+docker login ghcr.io -u Seifeddini           # paste the token as the password
+curl -sSfL -o /tmp/cosign https://github.com/sigstore/cosign/releases/download/v2.6.1/cosign-linux-amd64
+echo "064954c5d8c7e3b28188eee5b1727b31c411550bc5fefd41aa672d3c761d103a  /tmp/cosign" | sha256sum -c -
+chmod +x /tmp/cosign
+IMG=ghcr.io/seifeddini/docbridge-web-clientbundle@sha256:<the platform digest>
+/tmp/cosign verify "$IMG" \
+  --certificate-identity "https://github.com/Seifeddini/KnovasComponents/.github/workflows/release-images.yml@refs/heads/<branch>" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-github-workflow-sha <commit> > /dev/null && echo "signature OK"
+docker pull "$IMG"
+docker run --rm "$IMG" python -c "import brain_runner; print('brain-runner', brain_runner.__version__)"
+```
+
+You should see `Login Succeeded`, `/tmp/cosign: OK`, `signature OK`, the pull, and `brain-runner 0.…`.
+**Stop if** the signature check fails (do not run that image) or brain-runner is missing (the Builder cannot dry-run
+or publish without it).
+
+### 4.4 The Platform's own certificate (S-6)
+
+The Platform gets its own certificate from Knovas's client CA, revocable on its own; the tenant's shared certificate
+does not go on this machine.
+
+**a) The request (machine):**
+
+```bash
+cd ~/knovas-platform
+mkdir -p certs
+( umask 077; openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+    -keyout certs/client-key.pem -subj "/CN=knovas-platform" -out platform.csr )
+openssl req -in platform.csr -noout -subject
+```
+
+You should see `subject=CN = knovas-platform`. The key `certs/client-key.pem` never leaves the machine.
+
+**b) An admin signs it, in-cluster only (workstation).** Copy the request over, then open the port-forward in a
+second terminal and leave it running:
+
+```bash
+scp <machine>:knovas-platform/platform.csr .
+kubectl --context knovas-prod-aks -n knovas-prod port-forward deployment/internal-api 5000:5000
+```
+
+You should see `Forwarding from 127.0.0.1:5000 -> 5000`. In the first terminal:
+
+```bash
+read -rp "Knovas admin email: " KN_EMAIL; read -rsp "Password: " KN_PW; echo
+ADMIN_JWT="$(jq -n --arg e "$KN_EMAIL" --arg p "$KN_PW" '{email: $e, password: $p}' \
+  | curl -sS -X POST http://localhost:5000/generate_emp_jwt -H 'Content-Type: application/json' -d @- \
+  | jq -r '.data.jwt // empty')"; unset KN_PW
+[ -n "$ADMIN_JWT" ] && echo "signed in"
+
+jq -n --rawfile csr platform.csr --arg cid af639810-afc7-403f-8139-f6026d085c99 \
+  '{csr: $csr, customer_id: $cid, organisation: "Knovas Platform", validity_days: 365}' \
+  | curl -sS -X POST http://localhost:5000/sign_certificate \
+      -H "Authorization: Bearer $ADMIN_JWT" -H 'Content-Type: application/json' -d @- > platform-signed.json
+jq -r '.status, .serial_number, .expires_at, (.error // empty)' platform-signed.json
+jq -r .certificate platform-signed.json > platform.crt
+jq -r .certificate_chain platform-signed.json | awk '/BEGIN CERTIFICATE/{n++} n>1' > knovas-client-ca.pem
+openssl x509 -in platform.crt -noout -subject -serial -enddate
+openssl verify -CAfile knovas-client-ca.pem platform.crt
+```
+
+You should see `signed in`; then `success`, the serial number and the expiry; a subject with
+`OU = Semantix-Customer-af639810-afc7-403f-8139-f6026d085c99` and `CN = knovas-platform`; and `platform.crt: OK`.
+**Write down the serial number** (it revokes this certificate). **Stop if** the status is not `success` (a `403` means
+your employee has no admin flag; a `404` means the request went through the public address, not the port-forward), or
+`openssl verify` does not say `OK` (then the chain is incomplete: do not go on, ask for the client CA's full chain).
+
+`knovas-client-ca.pem` is Knovas's client CA chain (public): the Platform checks site certificates against it and
+nginx verifies Knovas Link with it. Copy both back and stop the port-forward (Ctrl+C):
+
+```bash
+scp platform.crt <machine>:knovas-platform/certs/client-cert.pem
+scp knovas-client-ca.pem <machine>:knovas-platform/certs/knovas-client-ca.pem
+```
+
+**c) Check on the machine:**
+
+```bash
+cd ~/knovas-platform
+cp <the Knovas root CA you keep> certs/ca-root.pem
+[ "$(openssl x509 -in certs/client-cert.pem -noout -pubkey | sha256sum)" = \
+  "$(openssl pkey -in certs/client-key.pem -pubout | sha256sum)" ] && echo "key and certificate match"
+ls certs
+```
+
+You should see `key and certificate match` and the four files `ca-root.pem client-cert.pem client-key.pem
+knovas-client-ca.pem` (no `client-key.password.txt` or `client-key.plain.pem` from an older certificate: delete them
+if they are there).
+
+**Revoking it** (if the machine is lost): an admin, through the same port-forward and `ADMIN_JWT`:
+
+```bash
+curl -sS -X POST http://localhost:5000/revoke_certificate -H "Authorization: Bearer $ADMIN_JWT" \
+  -H 'Content-Type: application/json' \
+  -d '{"certificate_serial_number": "<serial number>", "reason_text": "platform machine retired"}'
+```
+
+### 4.5 The settings key (machine)
+
+The Builder keeps its components' token hashes and the sources' secrets encrypted with `PLATFORM_SETTINGS_KEY`;
+without it no site can enrol (`no_secrets`). Keep it outside the checkout:
+
+```bash
+IMG=ghcr.io/seifeddini/docbridge-web-clientbundle@sha256:<the platform digest>     # as in 4.3
+sudo install -d -m 0700 /etc/knovas
+docker run --rm "$IMG" python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" \
+  | sudo tee /etc/knovas/platform_settings_key > /dev/null
+sudo chmod 0600 /etc/knovas/platform_settings_key
+cat > ~/knovas-platform/docker-compose.override.yml <<'EOF'
+services:
+  docbridge-web:
+    environment:
+      PLATFORM_SETTINGS_KEY_FILE: /app/secrets/platform_settings_key
+    volumes:
+      - /etc/knovas/platform_settings_key:/app/secrets/platform_settings_key:ro
+EOF
+```
+
+Losing this key makes every saved secret unreadable: it goes into every backup (4.9).
+
+### 4.6 `knovas.env` (machine)
+
+```bash
+cd ~/knovas-platform
+mkdir -p data/no-local-documents
+nano knovas.env
+```
+
+Content (replace the three `<…>`):
+
+```bash
+KNOVAS_API_URL=https://api.knovas.ch:8443
+KNOVAS_TENANT_ID=af639810-afc7-403f-8139-f6026d085c99
+KNOVAS_PLATFORM_URL=https://<fqdn>
+KNOVAS_DOCUMENTS_PATH=./data/no-local-documents     # the Knovas Connector is never started here
+PLATFORM_ADMIN_EMAIL=<your address>
+COMPOSE_PROFILES=
+ONTOLOGY_SOURCE=graph
+
+# The released image (4.1). Never build while it is set.
+<platform digest line>
+
+# The tenant's knowledge base, for the views ("The tenant's knowledge base" above)
+VIEWS_KB_GITHUB_REPO=Seifeddini/KnowledgeBase
+VIEWS_KB_DECISIONS_DIR=docs/ModernDocs/client-zero/ontology/decisions
+VIEWS_KB_PLAN_LINKS_PATH=docs/ModernDocs/client-zero/ontology/plan-links.yaml
+VIEWS_KB_SAMPLE_EDGES_PATH=docs/ModernDocs/client-zero/ontology/sample.yaml
+
+# Sync von GitHub (KC-0.2) stays OFF for this tenant (S-6): the Builder and its sites are the Brain's writer.
+# Leave both empty here, and never fill them on the settings page.
+BRAIN_SYNC_REPOSITORY=
+BRAIN_SYNC_CONFIG_PATH=
+
+# Brain Builder sites (DEC-0056 A1, S-6): production's Secure API does not sign at enrolment; a Knovas admin signs
+# each site's request. Link learns the client CA at enrolment; nginx (4.8) verifies Link with the same file.
+BUILDER_CONNECTOR_ISSUE_CERTIFICATES=false
+BUILDER_CONNECTOR_CLIENT_CA=/app/certs/knovas-client-ca.pem
+BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT=true
+```
+
+`KB_READ_TOKEN` is **not** needed here: the image comes built. `WEB_SESSION_COOKIE_SECURE` stays unset (HTTPS).
+
+### 4.7 Start (machine)
+
+```bash
+cd ~/knovas-platform
+./scripts/setup.sh
+docker compose --env-file knovas.env pull docbridge-web
+docker compose --env-file knovas.env up -d --no-build docbridge-web-nginx
+docker compose --env-file knovas.env ps
+docker inspect --format '{{.Config.Image}}' "$(docker compose --env-file knovas.env ps -q docbridge-web)"
+./scripts/doctor.sh
+```
+
+`setup.sh` may ask for your sudo password (it hands the certificate files to the Connector's user). You should see
+`Setup complete.`, then `platform-db`, `docbridge-web` and `docbridge-web-nginx` running (`healthy` after a minute),
+and the image line printing `ghcr.io/seifeddini/docbridge-web-clientbundle@sha256:<the platform digest>`. In
+doctor.sh's output look for `OK  /secured/graph — Knowledge Graph is enabled`; its lines about Knovas Connector,
+documents, the share and the image's build time do not apply here (the Connector is never started, the image was not
+built on this machine). **Never** use `./scripts/start.sh` or `--build` here:
+both build an image instead of running the released one, and start.sh starts the Knovas Connector.
+**Stop if** `docbridge-web` restarts in a loop: `docker compose --env-file knovas.env logs --tail 50 docbridge-web`.
+
+### 4.8 HTTPS and the connectors' terminator (machine)
+
+```bash
+cd ~/knovas-platform
+sudo ./scripts/host-https.sh <fqdn> <your address> certs/knovas-client-ca.pem
+curl -sS -o /dev/null -w '%{http_code}\n' https://<fqdn>/health
+```
+
+The third argument switches on the client-certificate terminator: nginx verifies a site's certificate against
+Knovas's client CA and hands its SHA-256 to the Platform (`X-Client-Cert-Fingerprint`), which
+`BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT=true` needs. Later runs of host-https.sh keep it. You should see
+`https://<fqdn> answers` and `200`. **Stop if** the script says `needs nginx's njs module`
+(`sudo apt-get install -y libnginx-mod-http-js`, then again).
+
+### 4.9 First sign-in and the checks (browser)
+
+```bash
+docker compose --env-file knovas.env exec docbridge-web cat /app/data/platform-admin-bootstrap
+```
+
+Sign in at `https://<fqdn>` as `PLATFORM_ADMIN_EMAIL` with that password, set a new one, then delete the file
+(`docker compose --env-file knovas.env exec docbridge-web rm /app/data/platform-admin-bootstrap`). Check:
+
+- **Einstellungen → Sync von GitHub** says "Sync nicht eingerichtet: repository fehlt" (KC-0.2 is off).
+- **Einstellungen → Ansichten und Wissensbasis:** the token field does not say the key is missing.
+- **`https://<fqdn>/builder`** opens the Brain Builder.
+
+### 4.10 Backup of the Builder's store, and the one restore test (machine)
+
+The Builder's store is the Platform's PostgreSQL (`platform-db`, database `knovas_platform`): workspaces, versions,
+approvals, sites, components, the settings (encrypted secrets), accounts and grants. Beside it: the app's data volume
+(the published bundle the views read, the broker key) and the settings key.
+
+**Backup** (before every update, and daily):
+
+```bash
+cd ~/knovas-platform
+B=~/knovas-backups/$(date +%Y%m%d-%H%M); mkdir -p "$B"; chmod 700 ~/knovas-backups "$B"
+docker compose --env-file knovas.env exec -T platform-db pg_dump -U platform -d knovas_platform --format=custom > "$B/platform-db.dump"
+docker compose --env-file knovas.env exec -T docbridge-web tar -C /app -czf - data secrets/broker > "$B/docbridge-app.tgz"
+sudo cp /etc/knovas/platform_settings_key "$B/" && sudo chown "$USER" "$B/platform_settings_key"
+cp knovas.env docker-compose.override.yml "$B/"
+git rev-parse HEAD > "$B/commit"
+ls -l "$B"
+```
+
+You should see `platform-db.dump` and `docbridge-app.tgz` larger than zero. Copy the folder off the machine
+(`scp -r <machine>:knovas-backups/<folder> .` onto encrypted storage): it holds the settings key and the database whose
+secrets it opens.
+
+**The restore test** (once now, and after any change to the backup): restore into a scratch database beside the live
+one and compare the Builder's counts. Nothing live is touched.
+
+```bash
+Q="select 'workspaces', count(*) from builder_workspace union all select 'versions', count(*) from builder_version union all select 'sites', count(*) from builder_site union all select 'components', count(*) from builder_component union all select 'settings', count(*) from platform_settings union all select 'users', count(*) from users"
+docker compose --env-file knovas.env exec -T platform-db createdb -U platform restore_check
+docker compose --env-file knovas.env exec -T platform-db pg_restore -U platform -d restore_check --no-owner --exit-on-error < "$B/platform-db.dump" && echo restored
+for db in knovas_platform restore_check; do echo "== $db"; docker compose --env-file knovas.env exec -T platform-db psql -U platform -d "$db" -Atc "$Q"; done
+docker compose --env-file knovas.env exec -T platform-db dropdb -U platform restore_check
+tar -tzf "$B/docbridge-app.tgz" | head
+```
+
+You should see `restored`, then the same six counts for both databases (if nothing changed since the backup), and
+the archive listing `data/…` and `secrets/broker/…`. Write the date and the counts into the operations log.
+**Stop if** pg_restore prints an error or a count differs: the backup is not usable.
+
+**A real restore** (the machine's database is lost or wrong), from a backup folder `$B`:
+
+```bash
+docker compose --env-file knovas.env stop docbridge-web-nginx docbridge-web
+docker compose --env-file knovas.env exec -T platform-db dropdb -U platform knovas_platform
+docker compose --env-file knovas.env exec -T platform-db createdb -U platform knovas_platform
+docker compose --env-file knovas.env exec -T platform-db pg_restore -U platform -d knovas_platform --no-owner --exit-on-error < "$B/platform-db.dump"
+docker compose --env-file knovas.env run --rm --no-deps -T docbridge-web tar -C /app -xzf - < "$B/docbridge-app.tgz"
+sudo install -m 0600 "$B/platform_settings_key" /etc/knovas/platform_settings_key
+docker compose --env-file knovas.env up -d --no-build docbridge-web-nginx
+```
+
+### 4.11 Update to a newer build of a branch
+
+1. Run 4.1 again (`-f images=platform`, or `all` when the site moves too) on the branch; note the new commit and line.
+2. Back up (4.10).
+3. On the machine:
+
+   ```bash
+   cd ~/knovas-platform
+   git fetch origin && git checkout --detach <new commit> && git rev-parse HEAD
+   nano knovas.env                      # replace the DOCBRIDGE_WEB_IMAGE line with the new one
+   ./scripts/setup.sh
+   docker compose --env-file knovas.env pull docbridge-web
+   docker compose --env-file knovas.env up -d --no-build docbridge-web-nginx
+   docker inspect --format '{{.Config.Image}}' "$(docker compose --env-file knovas.env ps -q docbridge-web)"
+   echo "$(date -Is) <new commit> <new digest>" >> ~/knovas-deployments.log
+   ```
+
+   You should see the new commit, the new digest, and the services healthy again. The Platform applies new database
+   migrations by itself when it starts.
+
+### 4.12 Roll back
+
+Take the previous commit and digest from `~/knovas-deployments.log` (or the earlier run's summary). First check
+whether the newer build changed the database:
+
+```bash
+git diff --stat <previous commit> <current commit> -- KnovasPlatform/components/docbridge_integration/src/identity/migrations/
+```
+
+- **No files listed:** check out the previous commit, put its `DOCBRIDGE_WEB_IMAGE` line back, then `./scripts/setup.sh`,
+  `pull`, `up -d --no-build docbridge-web-nginx` as in 4.11.
+- **Migrations listed:** migrations only go forward. Do the same, and before the `up`, the real restore of 4.10 from the
+  backup taken before the update. What was done in the Builder since that backup is lost.
+
+### 4.13 A Platform without the Brain Builder (other clients)
+
+The same image serves a client that does not use the Builder yet. There is no switch that removes the Builder: it
+opens for `admin` and the Builder roles only. For such a client:
+
+- leave all `BUILDER_CONNECTOR_*` lines out, create no site, give nobody a Builder role;
+- run `host-https.sh` **without** the third argument (no terminator; the header is always stripped);
+- no Knovas Link and no sync component on its machine (section 5 does not apply), and `release-images` with
+  `-f images=platform` is enough;
+- `PLATFORM_SETTINGS_KEY` only if its admins save tokens on the settings page; Sync von GitHub as that client needs.
+
+## 5. Step by step: the Knovas site (Knovas Link and the sync component)
+
+On the same machine as the Platform (CL-8). Generic reference: [../connect-a-site.md](../connect-a-site.md).
+
+### 5.0 Before you start
+
+- Section 4 is done: the Platform runs with `BUILDER_CONNECTOR_CLIENT_CA` and the terminator (4.8). Link learns the
+  client CA and the tenant when it enrols, so this must be in place **before** 5.2.
+- From the release run (4.1): `KNOVAS_LINK_DIGEST=sha256:…` and `SYNC_COMPONENT_DIGEST=sha256:…`, best from the same
+  run as the Platform.
+- In the Builder you hold «Zugänge verwalten» (admin has it).
+
+### 5.1 Create the site and download the package (browser)
+
+Builder → **Verbinden** (the «Standorte» list) → **Standort anlegen**: name `knovas-hq`, responsible person, tick
+**GitHub** → Standort anlegen. On the site page: **Installationspaket herunterladen**. The zip holds
+`docker-compose.yml`, `knovas-link.env` (the Platform's address and a one-time token, 24 hours, used once) and
+`knovas-sources.env`. Every download makes a new token and voids the one before.
+
+### 5.2 Install it (machine)
+
+```bash
+scp ~/Downloads/knovas-site-knovas-hq.zip <machine>:      # from your workstation
+ssh <machine>
+mkdir -p ~/knovas-site && cd ~/knovas-site
+unzip -o ~/knovas-site-knovas-hq.zip && rm ~/knovas-site-knovas-hq.zip
+grep LINK_PLATFORM_URL knovas-link.env
+cat > .env <<'EOF'
+KNOVAS_LINK_DIGEST=sha256:<from the release run>
+SYNC_COMPONENT_DIGEST=sha256:<from the release run>
+EOF
+cat > docker-compose.override.yml <<'EOF'
+# The package names its images by digest without a registry; they come from GHCR (release-images.md).
+services:
+  knovas-link:
+    image: ghcr.io/seifeddini/knovas-link@${KNOVAS_LINK_DIGEST:?KNOVAS_LINK_DIGEST in .env}
+  sync-component:
+    image: ghcr.io/seifeddini/sync-component@${SYNC_COMPONENT_DIGEST:?SYNC_COMPONENT_DIGEST in .env}
+EOF
+docker compose config --images
+docker compose pull
+docker compose up -d
+docker compose ps
+docker compose logs --tail 20 knovas-link
+```
+
+You should see `LINK_PLATFORM_URL=https://<fqdn>/api/connectors/v1`, the two images
+`ghcr.io/seifeddini/knovas-link@sha256:…` and `ghcr.io/seifeddini/sync-component@sha256:…`, both containers running,
+and in Link's log `enrol.done, certificate none` and `certificate.waiting: …`. The machine is already logged in to
+GHCR (4.3). To check the signatures, run the `cosign verify` of 4.3 with each image.
+**Stop if** the log says `enrol.refused` (the token was used or is older than 24 hours: download the package again) or
+`enrol.unreachable` (Link does not reach `<fqdn>`: `curl -sS https://<fqdn>/health` on the machine).
+
+### 5.3 The site's certificate (DEC-0056 A1)
+
+**a) The request (machine):**
+
+```bash
+cd ~/knovas-site
+docker compose exec -T knovas-link python -m knovas_link certificate-request > site.csr
+docker compose exec -T knovas-link python -m knovas_link certificate-fingerprint
+openssl req -in site.csr -noout -subject
+```
+
+You should see a fingerprint (64 hex characters) **equal to** the one the site page shows under «Zertifikat des
+Standorts», and `subject=CN = knovas-link`. **Stop if** they differ.
+
+**b) An admin compares and signs, in-cluster only (workstation),** with the port-forward and `ADMIN_JWT` of 4.4 b:
+
+```bash
+scp <machine>:knovas-site/site.csr .
+openssl req -in site.csr -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum
+jq -n --rawfile csr site.csr --arg cid af639810-afc7-403f-8139-f6026d085c99 \
+  '{csr: $csr, customer_id: $cid, organisation: "Knovas Site knovas-hq", validity_days: 365}' \
+  | curl -sS -X POST http://localhost:5000/sign_certificate \
+      -H "Authorization: Bearer $ADMIN_JWT" -H 'Content-Type: application/json' -d @- > site-signed.json
+jq -r '.status, .serial_number, .expires_at, (.error // empty)' site-signed.json
+jq -r .certificate site-signed.json > site.crt
+openssl verify -CAfile knovas-client-ca.pem site.crt
+```
+
+Sign only if the first line's hash equals the site page's fingerprint. You should see `success`, the serial (write it
+down: revoking it stops this site only) and `site.crt: OK`.
+
+**c) Record it in the Builder (browser):** the site page → **Zertifikat erfassen** → paste the whole content of
+`site.crt` (`cat site.crt`, from `-----BEGIN CERTIFICATE-----` to `-----END CERTIFICATE-----`) → save. You should see
+it accepted. It is refused, with the reason, if it is not for this site's request, not for this tenant, not for client
+authentication, not valid now, or not signed by `knovas-client-ca.pem`.
+
+**d) Install it (machine):**
+
+```bash
+scp site.crt <machine>:knovas-site/site.crt            # from your workstation
+cd ~/knovas-site
+docker compose exec -T knovas-link python -m knovas_link install-certificate < site.crt
+docker compose logs --tail 20 knovas-link
+```
+
+You should see `certificate.installed: serial …`, and within 30 seconds `certificate.picked_up: Link uses its own
+certificate from now on`. **Stop if** it prints a code such as `certificate.no_client_ca` or `certificate.wrong_tenant`
+(the reasons are in [../connect-a-site.md](../connect-a-site.md)); `certificate.no_client_ca` means Link enrolled before
+`BUILDER_CONNECTOR_CLIENT_CA` was set: on the site page «Token erneuern», download the package again and repeat from 5.2.
+
+**e) Check (browser):** the site page's checklist: Paket installiert ✓, Zertifikat ✓, Knovas Link online ✓; press
+**Jetzt prüfen**, then Arbeitskanal geprüft ✓. Betrieb → Verbindung shows the site green (a probe within the last 10
+minutes), the component green, and the versions. If Link stays red with `certificate_required` or `bad_certificate`
+in its log, the terminator is not in place: run 4.8 again with the third argument.
+
+### 5.4 GitHub tokens for the sources (when the sources are added, phase 5)
+
+Two fine-grained tokens (github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens →
+Generate new token), resource owner `Seifeddini`, **Only select repositories**, an expiry:
+
+| Token | Repositories | Repository permissions |
+|---|---|---|
+| read | `KnowledgeBase`, `KnovasComponents` | **Contents: Read-only** (Metadata: read-only is added by itself) |
+| write | `knovas-brain` only | **Contents: Read and write**, **Pull requests: Read and write** |
+
+For each source, the Builder shows the exact line for `knovas-sources.env` (`SYNC_CREDENTIAL_<KEY>=`, with «Kopieren»).
+Put the read token behind the lines of the KnowledgeBase and KnovasComponents sources, the write token behind the
+knovas-brain source's line, then:
+
+```bash
+cd ~/knovas-site
+nano knovas-sources.env
+docker compose up -d --force-recreate sync-component
+```
+
+and «Verbindung prüfen» on each source. No token is ever typed into the Platform.
+
+### 5.5 Update and roll back the site
+
+Update: put the new digests into `~/knovas-site/.env`, then `docker compose pull && docker compose up -d`. Link and
+the component keep their data volumes, so no new certificate is needed. Roll back: the previous digests, the same two
+commands. Back up nothing here beyond the volumes' presence: Link's key is in `knovas-site_link-data`; losing it means
+«Token erneuern» and a new certificate (5.2–5.3).

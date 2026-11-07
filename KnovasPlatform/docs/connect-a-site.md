@@ -8,7 +8,17 @@ Stand: MVP des Verbindungsteils (MVP-23 bis MVP-28). Wie Knovas Link sein Zertif
 
 1. **«Standort anlegen»:** Name (zum Beispiel «Büro Zürich»), verantwortlich, und was dort gelesen wird: GitHub, HTTP/JSON-Schnittstelle, Dateiablage. Dafür braucht es die Berechtigung «Zugänge verwalten».
 2. **«Installationspaket herunterladen»:** ein Zip mit `docker-compose.yml`, `knovas-link.env` und `knovas-sources.env`. `knovas-link.env` enthält nur die Adresse der Plattform und ein Einmal-Token für Knovas Link (24 Stunden, nur einmal) und wird nur vom Dienst `knovas-link` gelesen. In `knovas-sources.env` kommen die Zugänge der Quellen; nur die Komponenten lesen sie. Jedes Herunterladen erzeugt ein neues Token; das vorige gilt dann nicht mehr. Läuft Knovas Link schon, enthält das Paket kein Token.
-3. **Abbilder:** Es gibt noch keine Registry. Die Abbilder `knovas-link` und `sync-component` werden aus dem Repository gebaut und auf den Rechner kopiert (`docker save` / `docker load`). Die Datei nennt sie per Digest; die Variablen `KNOVAS_LINK_DIGEST` und `SYNC_COMPONENT_DIGEST` sind Platzhalter, bis Knovas Abbilder mit Digest veröffentlicht.
+3. **Abbilder:** Der Workflow `release-images` baut `knovas-link` und `sync-component` aus einem Branch, signiert sie und legt sie in GHCR ab ([deployment/release-images.md](deployment/release-images.md)); seine Zusammenfassung nennt `KNOVAS_LINK_DIGEST=sha256:…` und `SYNC_COMPONENT_DIGEST=sha256:…`. Am Standort kommen beide Zeilen in eine Datei `.env` neben `docker-compose.yml`. Das Paket nennt die Abbilder noch ohne Registry; bis der Builder sie aus einer Einstellung nimmt, legt man daneben eine `docker-compose.override.yml` mit dem Namen in GHCR an (`<owner>` in Kleinbuchstaben; nur die Dienste, die das Paket enthält):
+
+   ```yaml
+   services:
+     knovas-link:
+       image: ghcr.io/<owner>/knovas-link@${KNOVAS_LINK_DIGEST:?KNOVAS_LINK_DIGEST in .env}
+     sync-component:
+       image: ghcr.io/<owner>/sync-component@${SYNC_COMPONENT_DIGEST:?SYNC_COMPONENT_DIGEST in .env}
+   ```
+
+   Der Rechner meldet sich mit einem eigenen, widerrufbaren Lese-Token bei GHCR an (`docker login ghcr.io`, Token (classic) nur mit `read:packages`). Ein mit `docker load` kopiertes Abbild hat keinen Digest und startet das Paket nicht.
 
 ## 2. Beim Kunden
 
@@ -61,6 +71,8 @@ Bei der Anmeldung hält der Builder den **Fingerabdruck des Antrags** fest: SHA-
    ```
 
    Knovas Link nimmt das Zertifikat nur, wenn es zu seinem Schlüssel gehört, jetzt gültig ist, für die Anmeldung als Client ausgestellt ist (`clientAuth`), von der Client-CA von Knovas signiert ist und den Mandanten des Standorts nennt; sonst schreibt es nichts und nennt den Grund als Code (`certificate.wrong_key`, `certificate.not_valid_now`, `certificate.not_client_auth`, `certificate.wrong_issuer`, `certificate.wrong_tenant`, `certificate.unreadable`, `certificate.not_enrolled`), auf Deutsch und Englisch. Client-CA und Mandant nennt die Plattform bei der Anmeldung; wo sie es nicht tut, setzt man `LINK_CLIENT_CA` (Datei) und `LINK_TENANT` in `knovas-link.env`. Kennt Knovas Link eines von beiden nicht, installiert es nichts (`certificate.no_client_ca`, `certificate.no_tenant`). Bei Erfolg nennt es die Seriennummer.
+
+**Der TLS-Terminator vor der Plattform** prüft das Zertifikat von Knovas Link gegen die Client-CA und setzt `X-Client-Cert-Fingerprint`: mit host nginx `scripts/host-https.sh <fqdn> <E-Mail> <Client-CA als PEM>` (das njs-Modul `libnginx-mod-http-js` muss installiert sein; `deploy/host-nginx/knovas-client-cert.js`). Ohne ihn bleibt Knovas Link nach dem Erfassen rot (`certificate_required`).
 
 **Bis das Zertifikat erfasst ist** (mit `BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT=true`, dem Standard), nimmt die Plattform von Knovas Link nur den Herzschlag an, ohne ihm Befehle zu geben; Konfiguration, Paket, Befehle und Berichte verweigert sie (`certificate_not_recorded`). Danach verlangt sie bei jedem Aufruf den Fingerabdruck des erfassten Zertifikats, den der TLS-Terminator vor der Plattform setzt (BB-07, B3).
 
