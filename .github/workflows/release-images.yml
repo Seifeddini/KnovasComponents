@@ -1,0 +1,231 @@
+# Release images: build, sign (keyless) and push the Platform, Knovas Link and the sync component to GHCR from the
+# branch a person picks (V1-G10, FEAT-2026-11-05-knovas-brain-v1). Guide: KnovasPlatform/docs/deployment/release-images.md.
+#
+# Started by hand only, on any branch: Actions > release-images > Run workflow > "Use workflow from: <branch>", or
+#   gh workflow run release-images.yml --ref <branch> -f images=all
+# GitHub offers a workflow_dispatch workflow only once its file is on the default branch; the run then uses the file
+# of the branch it was started on. A branch without this file cannot be released by it.
+#
+# One job per image, each on a single-use runner (K-D3, [self-hosted, knovas-ci-ephemeral] while the repository
+# variable CI_EPHEMERAL_RUNNER is set; one fresh AWS instance per job, destroyed after it) or else a GitHub-hosted one,
+# never the shared box (vars.CI_RUNNER runs pull-request code, and these jobs hold packages: write and id-token: write).
+# Each job:
+#   - builds the image from the run's commit without the layer cache (--pull --no-cache), with the
+#     image's own Dockerfile (the one docker-compose.yml builds). The Platform and the sync component install
+#     brain-runner from the private knowledge base: the read-only secret KB_READ_TOKEN reaches that one step as a
+#     BuildKit secret (no layer, no log), and the release refuses to build either image without it;
+#   - checks the image (brain-runner installed where it must be; no token left in it);
+#   - pushes ghcr.io/<owner>/<package>:<first 12 of the commit> and :<branch, sanitised> with this run's GITHUB_TOKEN;
+#   - signs the pushed digest keylessly with checksum-pinned cosign (the version KnowledgeBase's
+#     brain-engine-image.yml signs with) and verifies the signature against this run's own identity
+#     (this workflow file at this branch), commit and trigger;
+#   - writes the image by digest, the branch and the commit into the run's summary.
+# Tags move; deployments name the digest.
+#
+# Packages (scripts/ci/release_image.sh): docbridge-web-clientbundle (platform), knovas-link, sync-component. Each
+# must grant this repository's Actions "Write" (package settings > Manage Actions access) and stay private.
+name: release-images
+
+on:
+  workflow_dispatch:
+    inputs:
+      images:
+        description: "Which images to build from this branch (site = knovas-link and sync-component)"
+        type: choice
+        default: all
+        options:
+          - all
+          - platform
+          - site
+          - knovas-link
+          - sync-component
+
+permissions: {}
+
+concurrency:
+  group: release-images-${{ github.ref }}-${{ inputs.images }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    name: ${{ matrix.image }}
+    # Branches only: the branch tag names what was built.
+    if: startsWith(github.ref, 'refs/heads/')
+    runs-on: ${{ vars.CI_EPHEMERAL_RUNNER && fromJSON('["self-hosted","knovas-ci-ephemeral"]') || 'ubuntu-24.04' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON('{"all":["platform","knovas-link","sync-component"],"platform":["platform"],"site":["knovas-link","sync-component"],"knovas-link":["knovas-link"],"sync-component":["sync-component"]}')[inputs.images] }}
+    env:
+      COSIGN_VERSION: v2.6.1
+      COSIGN_SHA256: 064954c5d8c7e3b28188eee5b1727b31c411550bc5fefd41aa672d3c761d103a
+      ISSUER: https://token.actions.githubusercontent.com
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the runner's tools
+        run: |
+          missing=""
+          for tool in docker curl sha256sum; do
+            command -v "$tool" >/dev/null || missing="$missing $tool"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::the runner lacks:$missing"; exit 1
+          fi
+
+      - name: What to build
+        id: what
+        env:
+          IMAGE_KEY: ${{ matrix.image }}
+          REF_NAME: ${{ github.ref_name }}
+        run: bash scripts/ci/release_image.sh "$IMAGE_KEY" "$GITHUB_REPOSITORY_OWNER" "$REF_NAME" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
+
+      # This job's own Docker config: the login below and cosign read only it.
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-config" >> "$GITHUB_ENV"
+          export DOCKER_CONFIG="$RUNNER_TEMP/docker-config"
+          mkdir -p "$DOCKER_CONFIG"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and check the image
+        env:
+          IMAGE: ${{ steps.what.outputs.repository }}
+          CONTEXT: ${{ steps.what.outputs.context }}
+          RUNNER: ${{ steps.what.outputs.runner }}
+          SHORT_TAG: ${{ steps.what.outputs.short_tag }}
+          REF_NAME: ${{ github.ref_name }}
+          # Read-only (Contents: read on the knowledge base), for brain-runner's install only. Never printed.
+          KB_READ_TOKEN: ${{ secrets.KB_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          build=(docker build --pull --no-cache
+                 --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+                 --label "org.opencontainers.image.revision=${GITHUB_SHA}"
+                 --label "org.opencontainers.image.version=${SHORT_TAG}"
+                 --label "org.opencontainers.image.ref.name=${REF_NAME}"
+                 -t "$IMAGE:$SHORT_TAG")
+          if [ "$RUNNER" = "yes" ]; then
+            if [ -z "${KB_READ_TOKEN:-}" ]; then
+              echo "::error title=KB_READ_TOKEN is not set::This image installs brain-runner from the knowledge base and is not released without it. Set the repository secret KB_READ_TOKEN (a fine-grained token, Contents: read on that repository only)."
+              exit 1
+            fi
+            build+=(--secret "id=kb_read_token,env=KB_READ_TOKEN" --build-arg KB_READ_TOKEN_GIVEN=yes)
+          fi
+          "${build[@]}" "$CONTEXT"
+          if [ "$RUNNER" = "yes" ]; then
+            docker run --rm --entrypoint python "$IMAGE:$SHORT_TAG" \
+              -c "import brain_runner; print('brain-runner', brain_runner.__version__)"
+            # The token reached the build as a secret only: neither the layers' history nor git's configuration
+            # may hold it (quiet greps: nothing is printed either way).
+            if docker history --no-trunc --format '{{.CreatedBy}}' "$IMAGE:$SHORT_TAG" | grep -qF -- "$KB_READ_TOKEN"; then
+              echo "::error::the token is in the image's history"; exit 1
+            fi
+            if docker run --rm --user 0 --entrypoint sh "$IMAGE:$SHORT_TAG" \
+                 -c 'cat /root/.gitconfig /etc/gitconfig 2>/dev/null' | grep -q 'x-access-token'; then
+              echo "::error::a token is left in the image's git configuration"; exit 1
+            fi
+          else
+            docker run --rm --entrypoint python "$IMAGE:$SHORT_TAG" \
+              -c "import knovas_link; print('knovas-link', knovas_link.VERSION)"
+          fi
+
+      - name: Push
+        id: push
+        env:
+          IMAGE: ${{ steps.what.outputs.repository }}
+          SHORT_TAG: ${{ steps.what.outputs.short_tag }}
+          BRANCH_TAG: ${{ steps.what.outputs.branch_tag }}
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE:$SHORT_TAG" | tee "$RUNNER_TEMP/push.log"
+          # The digest the registry answered with, cross-checked against the local store's record where it keeps one.
+          DIGEST="$(grep -oE 'digest: sha256:[0-9a-f]{64}' "$RUNNER_TEMP/push.log" | tail -1 | cut -d' ' -f2)"
+          test -n "$DIGEST" || { echo "::error::no digest in the push output"; exit 1; }
+          RECORDED="$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE:$SHORT_TAG" \
+                      | grep "^$IMAGE@" | head -1 | cut -d@ -f2 || true)"
+          if [ -n "$RECORDED" ] && [ "$RECORDED" != "$DIGEST" ]; then
+            echo "::error::push answered $DIGEST, the local store recorded $RECORDED"; exit 1
+          fi
+          docker tag "$IMAGE:$SHORT_TAG" "$IMAGE:$BRANCH_TAG"
+          docker push "$IMAGE:$BRANCH_TAG" | tee "$RUNNER_TEMP/push-branch.log"
+          AGAIN="$(grep -oE 'digest: sha256:[0-9a-f]{64}' "$RUNNER_TEMP/push-branch.log" | tail -1 | cut -d' ' -f2)"
+          if [ -n "$AGAIN" ] && [ "$AGAIN" != "$DIGEST" ]; then
+            echo "::error::the branch tag got $AGAIN, the commit tag $DIGEST"; exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign (pinned by checksum)
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/release-images/bin"
+          mkdir -p "$bin"
+          curl -sSfL -o "$bin/cosign" \
+            "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64"
+          echo "${COSIGN_SHA256}  $bin/cosign" | sha256sum -c -
+          chmod +x "$bin/cosign"
+
+      - name: Sign keylessly and verify (this run's identity and commit)
+        env:
+          REF: ${{ steps.what.outputs.repository }}@${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          # Trust comes from cosign's embedded TUF root only.
+          unset SIGSTORE_ROOT_FILE SIGSTORE_REKOR_PUBLIC_KEY SIGSTORE_CT_LOG_PUBLIC_KEY_FILE \
+                SIGSTORE_TSA_CERTIFICATE_FILE TUF_MIRROR TUF_ROOT_JSON COSIGN_REPOSITORY
+          export TUF_ROOT="$RUNNER_TEMP/release-images/tuf"
+          cosign="$RUNNER_TEMP/release-images/bin/cosign"
+          SIGNER="${GITHUB_SERVER_URL}/${GITHUB_WORKFLOW_REF}"
+          "$cosign" sign --yes "$REF"
+          "$cosign" verify "$REF" \
+            --certificate-identity "$SIGNER" --certificate-oidc-issuer "$ISSUER" \
+            --certificate-github-workflow-sha "$GITHUB_SHA" \
+            --certificate-github-workflow-trigger workflow_dispatch >/dev/null
+          echo "verified: $REF (signed by $SIGNER at $GITHUB_SHA)"
+          echo "SIGNER=$SIGNER" >> "$GITHUB_ENV"
+
+      - name: Summary
+        env:
+          IMAGE_KEY: ${{ matrix.image }}
+          IMAGE: ${{ steps.what.outputs.repository }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          SHORT_TAG: ${{ steps.what.outputs.short_tag }}
+          BRANCH_TAG: ${{ steps.what.outputs.branch_tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          case "$IMAGE_KEY" in
+            platform)       line="DOCBRIDGE_WEB_IMAGE=${IMAGE}@${DIGEST}" ;;
+            knovas-link)    line="KNOVAS_LINK_DIGEST=${DIGEST}" ;;
+            sync-component) line="SYNC_COMPONENT_DIGEST=${DIGEST}" ;;
+          esac
+          {
+            echo "### ${IMAGE_KEY}"
+            echo
+            echo "- image: \`${IMAGE}@${DIGEST}\`"
+            echo "- branch: \`${REF_NAME}\`"
+            echo "- commit: \`${GITHUB_SHA}\`"
+            echo "- tags (they move; deploy by digest): \`${SHORT_TAG}\`, \`${BRANCH_TAG}\`"
+            echo "- signed by: \`${SIGNER}\` (issuer \`${ISSUER}\`), verified"
+            echo
+            echo "For the deployment (KnovasPlatform/docs/deployment/release-images.md):"
+            echo
+            echo '```'
+            echo "$line"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io || true
