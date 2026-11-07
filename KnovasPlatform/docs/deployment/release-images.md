@@ -45,12 +45,32 @@ the image names the deployment already uses.
 2. **Secret `KB_READ_TOKEN`** (Settings → Secrets and variables → Actions → Repository secrets): a fine-grained token,
    **Contents: read** on the knowledge-base repository only. The CI job `knovas-platform` uses the same secret.
 3. **Variable `CI_EPHEMERAL_RUNNER`** (same page, Variables) is set, so the jobs run on the single-use runners.
-4. **The three packages** (after the first run creates them, or now if they exist): on GitHub, your profile →
-   Packages → each of `docbridge-web-clientbundle`, `knovas-link`, `sync-component` → Package settings:
-   - **Manage Actions access** → Add repository → this repository → role **Write**. (A package this workflow
-     created first is linked already; one that existed before is not, and the push fails with `denied`.)
-   - **Danger zone → visibility: Private.** The Platform and sync-component images contain brain-runner from the
-     private knowledge base; they must never be public.
+4. **The three packages, private, before the first run.** A package the workflow's token creates takes the
+   repository's visibility, so in a public repository the first run would publish the images. The Platform and
+   sync-component images contain brain-runner from the private knowledge base; they must never be public. So a
+   person creates each package first, from a workstation with Docker:
+   - A personal access token (classic) with only `write:packages`, short expiry. Log in without the token landing in
+     the shell history or on screen:
+
+     ```bash
+     read -rs GHCR_PAT && printf '%s' "$GHCR_PAT" | docker login ghcr.io -u <owner> --password-stdin; unset GHCR_PAT
+     ```
+
+   - Push a placeholder under each name (a package you push yourself is private):
+
+     ```bash
+     docker pull busybox:1.36.1
+     for n in docbridge-web-clientbundle knovas-link sync-component; do
+       docker tag busybox:1.36.1 ghcr.io/<owner>/$n:placeholder && docker push ghcr.io/<owner>/$n:placeholder
+     done
+     docker logout ghcr.io
+     ```
+
+   - On GitHub, your profile → Packages → each of the three → Package settings: **Manage Actions access** → Add
+     repository → this repository → role **Write**; check that the visibility under "Danger zone" says **Private**.
+   - Delete the token, then set the repository variable **`GHCR_PACKAGES_PRIVATE` = `confirmed`** (Settings → Secrets
+     and variables → Actions → Variables). Without it the workflow stops before it logs in or pushes anything.
+   - The `placeholder` tags can be deleted once real images are there (package → the version → Delete).
 
 ## Run it
 

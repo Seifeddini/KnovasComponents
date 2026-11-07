@@ -420,8 +420,8 @@ The values used below:
 ### 4.0 Before you start
 
 - **Once per repository** ([release-images.md, "Once per repository"](release-images.md#once-per-repository)): the
-  workflow file on `main`, the secret `KB_READ_TOKEN`, the variable `CI_EPHEMERAL_RUNNER`, and after the first run
-  the three packages' Actions access and visibility.
+  workflow file on `main`, the secret `KB_READ_TOKEN`, the variable `CI_EPHEMERAL_RUNNER`, and **before the first
+  run** the three packages created private with Actions access, confirmed by the variable `GHCR_PACKAGES_PRIVATE`.
 - **Your workstation** (WSL): `gh` (signed in), `kubectl` with the context `knovas-prod-aks`, `jq`, `openssl`, `ssh`/`scp`.
 - **The machine:** Ubuntu 24.04, Docker Engine with the compose plugin, and:
 

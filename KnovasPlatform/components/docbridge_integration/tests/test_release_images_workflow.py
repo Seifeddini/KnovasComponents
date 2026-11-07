@@ -145,6 +145,17 @@ def test_cosign_is_pinned_and_the_digest_signed_and_verified():
         < steps.index("Summary")
 
 
+def test_nothing_is_pushed_unless_a_person_confirmed_the_packages_private():
+    # A package the run's token creates takes the repository's visibility: a first push from a public repository
+    # would publish the images. The run stops before it logs in unless a person confirmed the packages private.
+    step = _step("The packages exist and are private")
+    assert step["env"]["CONFIRMED"] == "${{ vars.GHCR_PACKAGES_PRIVATE }}"
+    assert '[ "${CONFIRMED:-}" != "confirmed" ]' in step["run"] and "exit 1" in step["run"]
+    names = [s.get("name") for s in _job()["steps"]]
+    gate = names.index("The packages exist and are private")
+    assert gate < names.index("Log in to GHCR") < names.index("Push")
+
+
 def test_the_push_reads_the_digest_and_both_tags_name_it():
     run = _step("Push")["run"]
     assert "digest: sha256:[0-9a-f]{64}" in run and 'echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"' in run
