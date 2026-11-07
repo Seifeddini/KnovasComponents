@@ -88,6 +88,19 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: bash scripts/ci/release_image.sh "$IMAGE_KEY" "$GITHUB_REPOSITORY_OWNER" "$REF_NAME" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
 
+      # A package this run's token creates takes the repository's visibility, and a public repository would publish
+      # the images. A person creates the three packages private first and confirms it with the repository variable
+      # GHCR_PACKAGES_PRIVATE=confirmed (release-images.md, "Once per repository"). Without it nothing is pushed.
+      - name: The packages exist and are private
+        env:
+          CONFIRMED: ${{ vars.GHCR_PACKAGES_PRIVATE }}
+          IMAGE: ${{ steps.what.outputs.repository }}
+        run: |
+          if [ "${CONFIRMED:-}" != "confirmed" ]; then
+            echo "::error title=Packages not confirmed private::A first push from this workflow would create $IMAGE with this repository's visibility. Create the three packages private first, then set the repository variable GHCR_PACKAGES_PRIVATE=confirmed (release-images.md, \"Once per repository\")."
+            exit 1
+          fi
+
       # This job's own Docker config: the login below and cosign read only it.
       - name: Log in to GHCR
         env:
