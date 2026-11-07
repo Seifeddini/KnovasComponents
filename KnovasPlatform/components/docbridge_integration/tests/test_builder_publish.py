@@ -368,6 +368,88 @@ class TestTheAliasesOnTheTenant:
         assert plan["items"] == [] and plan["hierarchy"] is False
 
 
+class _Listed(_Tenant):
+    """A tenant that lists its types, the core's included, in the reverse order."""
+
+    def get(self, path):
+        found = super().get(path)
+        return {k: list(reversed(v)) for k, v in found.items()} if path.startswith("secured/graph/node-types") else found
+
+
+def _models() -> dict:
+    sample = package.read_package(package.files_from_directory(SAMPLE_PACKAGE)).model
+    sample["mappings"] = []          # its mapping is a sketch brain-runner does not load; the ontology is the point
+    return {"sample": sample, "aliases": _alias_model()}
+
+
+def _held() -> dict:
+    """The descriptions the tenant holds, written once (as a loader or an earlier publish wrote them)."""
+    models = _models()
+    drifted = _stated(models["aliases"])
+    drifted["Term"] = drifted["Term"].replace("euo:Designation", "euo:InformationContentEntity")
+    return {"sample": _stated(models["sample"]), "aliases": drifted}
+
+
+def _digests(reverse_listing: bool, held: dict) -> dict:
+    """For three plans of the installed brain-runner: what an approval holds, computed as the dry run and the publish
+    compute it (builder_routes: review.review_hash over summarise_plan's rows of BrainRunnerEngine.plan), and the
+    plan's values in any order (what publish applies: a parent's target, a description's text, an attribute's body,
+    none of which the rows carry). The tenants: one without the model (types and attributes to create, parents it does
+    not know), one holding it without parents (parents to set), and one holding the aliases with a drifted description
+    (an alias moved, a description back, a type standing for another's iri)."""
+    import json
+
+    def values(plan):
+        return sorted(json.dumps([part, item], sort_keys=True) for part in ("items", "not_configured",
+                                                                            "unresolved_parents")
+                      for item in plan.get(part) or [])
+
+    tenant, models, out = (_Listed if reverse_listing else _Tenant), _models(), {}
+    for name, model, descriptions in (("empty", "sample", {}), ("held", "sample", held["sample"]),
+                                      ("aliases", "aliases", held["aliases"])):
+        types = [{"id": f"t-{n}", "name": n, "description": d, "parent_type_id": None, "managed_by": "tenant"}
+                 for n, d in descriptions.items()]
+        plan = publisher.BrainRunnerEngine(lambda: tenant(types)).plan(models[model], TENANT)
+        out[name] = {"digest": review.review_hash(base_hash=None, content_hash=package.content_hash(models[model]),
+                                                  plan_rows=publisher.summarise_plan(plan)["rows"],
+                                                  effects={"access": None, "roles": None}),
+                     "plan": values(plan)}
+    return out
+
+
+class TestTheDigestAnApprovalHolds:
+    """An approval holds the dry run's digest (BB-07, B1). Publish plans again, in another request and often in
+    another worker process, and refuses (409) unless the fresh digest is the same. So brain-runner's plan of the same
+    draft on the same tenant must give the same digest in a fresh interpreter (another PYTHONHASHSEED: another set
+    order) and when the tenant lists its types in another order; otherwise every publish is refused. The digest's rows
+    do not carry the plan's values (a parent's target, a description), so those are compared too: the publish must
+    apply what the dry run planned. Measured on Knovas's package with brain-runner 0.3.0 on 2026-11-07: stable."""
+
+    @pytest.fixture(autouse=True)
+    def _runner(self):
+        ontology = pytest.importorskip("brain_runner.ontology")
+        if not hasattr(ontology, "resolve_parents"):
+            pytest.skip("brain-runner without type parents")
+
+    def test_the_same_in_another_process_and_another_listing_order(self):
+        import json
+        import subprocess
+        import sys
+
+        held = _held()
+        here = _digests(False, held)
+        assert len({d["digest"] for d in here.values()}) == 3 and here == _digests(True, held)
+        code = ("import json, sys, test_builder_publish as t; "
+                "print(json.dumps(t._digests(True, json.loads(sys.stdin.read()))))")
+        for seed in ("0", "1", "4242"):
+            run = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).parent, capture_output=True,
+                                 text=True, input=json.dumps(held),
+                                 env={**os.environ, "PYTHONHASHSEED": seed,
+                                      "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)})
+            assert run.returncode == 0, run.stderr[-2000:]
+            assert json.loads(run.stdout.strip().splitlines()[-1]) == here, f"PYTHONHASHSEED={seed}"
+
+
 def test_an_unresolved_parent_reads_as_a_sentence():
     [row] = publisher._rows({"unresolved_parents": [
         {"type": "Symbol", "parent": "eng:CodeArtifact", "reason": "parent eng:CodeArtifact is neither ..."}]})
