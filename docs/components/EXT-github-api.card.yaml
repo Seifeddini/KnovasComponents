@@ -1,0 +1,65 @@
+card: 2
+id: EXT-GITHUB-API
+name: GitHub's REST API (external)
+kind: external
+owner: ROLE-ENGINE-OWNER
+purpose: GitHub's REST API (BRAIN_GITHUB_API, by default api.github.com), as far as this repository reads a source
+  repository through it and proposes changes to it, always with the source's own credential.
+not_responsible_for:
+- Holding a credential; each call carries the source's token from the caller's environment.
+operations:
+- id: repo-contents
+  name: GET and PUT /repos/{owner}/{repo}/contents/{path}, GET /repos/{owner}/{repo} and
+    /repos/{owner}/{repo}/commits/{ref} - read a file and its blob sha, the default branch, a ref; write a file on a
+    branch
+  entrance: http
+  ref: /repos/{owner}/{repo}/contents/{path}
+- id: git-data
+  name: GET /repos/{owner}/{repo}/git/blobs/{sha} (raw), GET /git/ref/heads/{branch}, POST /git/refs, DELETE
+    /git/refs/heads/{branch}
+  entrance: http
+  ref: /repos/{owner}/{repo}/git/blobs/{sha}
+- id: pulls
+  name: GET and POST /repos/{owner}/{repo}/pulls - find or open the pull request of a write
+  entrance: http
+  ref: /repos/{owner}/{repo}/pulls
+contract:
+  repo-contents:
+    promises:
+    - id: EXT-GITHUB-API/repo-contents/P-1
+      statement: A file read at a ref answers its blob sha; 404 means not there (or, for a token that may read but not
+        write, a refused write step); 403 refuses a write.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_github_write.py
+        checks:
+        - TestATokenThatCannotWrite::test_a_404_on_a_write_step_after_the_file_was_read_is_token_cannot_write
+  git-data:
+    promises:
+    - id: EXT-GITHUB-API/git-data/P-1
+      statement: A blob read raw by its sha gives the file's bytes, whose git blob hash is that sha; a branch made from
+        a head sha can be deleted again.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_github_jobs.py
+        checks:
+        - TestFetch::test_the_blob_at_the_version_arrives_whole_and_its_git_hash_is_the_version
+  pulls:
+    promises:
+    - id: EXT-GITHUB-API/pulls/P-1
+      statement: A pull request opened from a branch is found again by its head branch, so a repeated write answers the
+        same one.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_github_write.py
+        checks:
+        - TestAProposalBecomesAPullRequest::test_a_job_claimed_again_ends_with_the_same_pull_request
+review:
+- at: /contract
+  why: The evidence runs against an in-process stand-in of GitHub's REST API (tests/fake_github_rest.py), written from
+    GitHub's documentation (API version 2022-11-28); it shows what is relied on, not that GitHub keeps it.
+- at: /owner
+  why: Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4).

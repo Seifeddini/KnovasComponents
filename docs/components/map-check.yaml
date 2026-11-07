@@ -1,0 +1,27 @@
+# The software map's checks for this repository: settings of brain-runner's `map-check` (format: brain-runner's
+# mapcheck/__init__.py). The cards (format 2) live in this folder, one per component; boundaries.yaml says where each
+# component's code begins and ends, and why. Report only: nothing blocks.
+#
+# Run from a checkout with brain-runner on the path (it reads committed files only, never the working tree):
+#   python3 -m brain_runner map-check --repo . --base origin/main --head HEAD \
+#     --settings docs/components/map-check.yaml --markdown /tmp/map-check.md
+#   python3 -m brain_runner map-check ... --within L3-KNOVAS-LINK      # one card
+version: 1
+cards: ["docs/components/**/*.card.yaml"]
+code:
+  # The code reader, given the head's cards as its boundaries (map-check's default for code_map): every route, command
+  # and name one card's code takes from another, and the dependencies between the cards. Python only: the Builder's
+  # JavaScript, the njs file, the nginx files, the workflow and the shell scripts are not read.
+  - extractor: code_map
+    glob: "**/*.py"
+    options:
+      tracked_only: true
+      roots: [KnovasLink/src, KnovasPlatform/components/sync_component/src,
+              KnovasPlatform/components/docbridge_integration/src, KnovasConnector/src,
+              KnovasPlatform/components/experiments_runner, KnovasPlatform/experiments-sdk/python,
+              KnovasPlatform/mock_knovas_api]
+      routes: {decorators: [route], verb_decorators: [get, post, put, patch, delete], registrations: [add_url_rule]}
+      cli: {subcommands: [add_parser], commands: [command], main_guard: true}
+      http: {methods: [get, post, put, patch, delete]}
+budget: {tokens: 16000, chars_per_token: 4, size_classes: [8000, 16000]}
+checks: {declared: report, compatible: report, budget: report, complete: report, fresh: report}

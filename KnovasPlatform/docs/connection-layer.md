@@ -110,3 +110,6 @@ network is closed (`builder/sites.py`).
   terminator: the header of `scripts/host-https.sh` and [connect-a-site.md](connect-a-site.md) § 2.
 - Knovas's own deployment of the Platform and its site: [deployment/knovas-tenant.md](deployment/knovas-tenant.md)
   §§ 4–5.
+- What each part offers, promises and relies on, one card per component with the tests behind each line:
+  [`docs/components/`](../../docs/components/) (where each component's code begins and ends, and why:
+  `boundaries.yaml`).

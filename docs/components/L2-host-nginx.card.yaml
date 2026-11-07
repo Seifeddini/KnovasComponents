@@ -1,0 +1,195 @@
+card: 2
+id: L2-HOST-NGINX
+name: Host nginx in front of the Platform, with the connectors' client-certificate terminator
+kind: infrastructure
+owner: ROLE-ENGINE-OWNER
+level: 2
+source_paths:
+- KnovasPlatform/deploy/host-nginx
+- scripts/host-https.sh
+purpose: Terminates HTTPS for the Platform on the host and, given the client CA that signs the sites' certificates,
+  passes the SHA-256 of a verified client certificate to the Platform as X-Client-Cert-Fingerprint.
+responsible_for:
+- id: L2-HOST-NGINX/R-1
+  statement: The host's nginx site for the Platform, TLS on port 443 and a redirect plus the ACME challenge on port 80.
+  code:
+  - KnovasPlatform/deploy/host-nginx/knovas-platform.conf.example
+  - scripts/host-https.sh
+- id: L2-HOST-NGINX/R-2
+  statement: The connector protocol's client-certificate terminator (knovas-client-cert.js, knovas-connector-mtls.conf).
+  code:
+  - KnovasPlatform/deploy/host-nginx/knovas-client-cert.js
+  - KnovasPlatform/deploy/host-nginx/knovas-connector-mtls.conf
+- id: L2-HOST-NGINX/R-3
+  statement: The login throttle's zone and the access-log format without a request line (knovas-login-limit.conf).
+  code:
+  - KnovasPlatform/deploy/host-nginx/knovas-login-limit.conf
+not_responsible_for:
+- Deciding whether a component may call; the Platform checks the control token and the recorded fingerprint.
+- The nginx inside the Platform's compose stack (docbridge-web-nginx).
+terms:
+- client CA (the CA that signs the sites' certificates)
+- terminator (the TLS end that verifies a client certificate and passes on its fingerprint)
+operations:
+- id: install
+  name: sudo scripts/host-https.sh FQDN EMAIL [CLIENT_CA_PEM]
+  entrance: cli
+  ref: scripts/host-https.sh
+- id: https-proxy
+  name: Port 443, every path, proxied to the Platform on 127.0.0.1 (DOCBRIDGE_WEB_PORT, default 8081)
+  entrance: http
+  ref: knovas-platform.conf.example, server 443, location /
+- id: login-throttle
+  name: Port 443, location = /login, throttled per client address, then proxied
+  entrance: http
+  ref: knovas-platform.conf.example, server 443, location = /login
+- id: http-redirect
+  name: Port 80, the ACME challenge from /var/www/letsencrypt and a 301 to HTTPS for everything else
+  entrance: http
+  ref: knovas-platform.conf.example, server 80
+contract:
+  '*':
+    always:
+    - id: L2-HOST-NGINX/*/A-1
+      statement: The access log carries time, method, status, size and duration only, never the request line, because
+        the Platform's URLs carry document pointers.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_nginx_privacy_log.py
+        checks:
+        - test_host_nginx_example_logs_only_the_privacy_format
+        - test_privacy_format_has_no_uri_variable
+  install:
+    needs:
+    - id: L2-HOST-NGINX/install/N-1
+      statement: Run as root with a name whose DNS record points at the host and port 80 reachable, nginx and certbot
+        installed; otherwise it stops with a usage or a missing-tool message.
+      risk_class: standard
+    - id: L2-HOST-NGINX/install/N-2
+      statement: A third argument is a PEM certificate (else it stops), and the terminator needs nginx's njs module
+        (else it stops and names the package libnginx-mod-http-js).
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_terminator_config.py
+        checks:
+        - test_host_https_installs_the_terminator_only_with_a_client_ca
+    promises:
+    - id: L2-HOST-NGINX/install/P-1
+      statement: Writes the site from the template with the name, the Let's Encrypt certificate and the port from
+        knovas.env, requests a certificate only when none is there, enables the site, reloads nginx and installs a
+        renewal hook that reloads it again.
+      risk_class: standard
+    - id: L2-HOST-NGINX/install/P-2
+      statement: Given the client CA, installs it at /etc/nginx/knovas/connector-client-ca.pem with the njs file and its
+        conf and switches the terminator lines on; once installed, later runs keep the terminator.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_terminator_config.py
+        checks:
+        - test_host_https_installs_the_terminator_only_with_a_client_ca
+        - test_with_the_client_ca_the_header_is_the_verified_certificates_hash
+  https-proxy:
+    promises:
+    - id: L2-HOST-NGINX/https-proxy/P-1
+      statement: X-Client-Cert-Fingerprint is always set by nginx, never passed on from a client - empty without the
+        terminator; with it, the SHA-256 (hex) of the DER of the client certificate nginx verified against the client
+        CA, and empty when no certificate was verified.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_terminator_config.py
+        checks:
+        - test_the_template_strips_the_header_and_leaves_the_terminator_off
+        - test_with_the_client_ca_the_header_is_the_verified_certificates_hash
+        - test_the_hash_is_empty_unless_nginx_verified_the_certificate
+      - kind: measurement
+        ref: run by hand in nginx with njs on 2026-11-07 (test_connector_terminator_config.py's docstring)
+        checks:
+        - a verified certificate gave sha256(DER); no certificate and a forged header gave an empty header; a
+          certificate of another CA was refused (400)
+    - id: L2-HOST-NGINX/https-proxy/P-2
+      statement: A client certificate is optional (ssl_verify_client optional), so Knovas Link enrols and beats before
+        its certificate is recorded and browsers are not asked for one.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_terminator_config.py
+        checks:
+        - test_with_the_client_ca_the_header_is_the_verified_certificates_hash
+    - id: L2-HOST-NGINX/https-proxy/P-3
+      statement: X-Forwarded-For is set to the address nginx saw, never appended to, so a client cannot name its own
+        address.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_experiments_leftovers_deploydocs.py
+        checks:
+        - test_compose_trusts_exactly_the_proxies_that_add_an_entry
+    limits:
+    - id: L2-HOST-NGINX/https-proxy/L-1
+      statement: The proxy waits at least as long as gunicorn's timeout (proxy_read_timeout 180 s), connects within
+        10 s.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_timeouts.py
+        checks:
+        - test_every_nginx_waits_at_least_as_long_as_gunicorn
+    - id: L2-HOST-NGINX/https-proxy/L-2
+      statement: A request body is at most 32 MB (client_max_body_size 32m); TLS 1.2 and 1.3 only; HSTS for a year.
+      risk_class: standard
+  login-throttle:
+    limits:
+    - id: L2-HOST-NGINX/login-throttle/L-1
+      statement: At most 10 requests a minute per client address with a burst of 5; beyond that nginx answers 429
+        before the Platform sees the request.
+      risk_class: standard
+  http-redirect:
+    promises:
+    - id: L2-HOST-NGINX/http-redirect/P-1
+      statement: Port 80 answers the ACME challenge from /var/www/letsencrypt and redirects everything else to HTTPS
+        with 301.
+      risk_class: low
+uses:
+- component: L2-BRAIN-BUILDER
+  operations:
+  - protocol-enrol
+  - protocol-heartbeat
+  - protocol-config
+  - protocol-package
+  - protocol-runs
+  - protocol-command-done
+  - protocol-events
+  - protocol-checks
+  expects:
+  - L2-BRAIN-BUILDER/protocol-heartbeat/N-1
+  method: proxies every path to the Platform; the protocol's calls are the ones the terminator's header is for
+  protocol: HTTP/1.1 to 127.0.0.1
+hides:
+- The template's paths for the certificate, the client CA and the njs file.
+- The login throttle's rate and burst.
+review:
+- at: /parent
+  why: The host nginx serves the whole Platform, not only the Builder; KnovasComponents has no domain for the Platform's
+    deployment yet (Software Map K5).
+- at: /owner
+  why: Proposed owner; one role per component is confirmed by a person (Software Map K4).
+- at: /status
+  why: The host nginx site runs where scripts/host-https.sh was run; the terminator is built and run by hand once,
+    not deployed at a company.
+- at: /contract/install/needs/0
+  why: No evidence; read from scripts/host-https.sh (usage, root and tool checks), no test runs the script.
+- at: /contract/install/promises/0
+  why: No evidence; read from scripts/host-https.sh, no test runs the script.
+- at: /contract/https-proxy/limits/1
+  why: No evidence; read from knovas-platform.conf.example.
+- at: /contract/login-throttle/limits/0
+  why: No evidence; read from knovas-login-limit.conf and knovas-platform.conf.example.
+- at: /contract/http-redirect/promises/0
+  why: No evidence; read from knovas-platform.conf.example.
+- at: /operations
+  why: The nginx files and the shell script are not read by the code reader (Python only), so these operations are
+    listed by hand and cannot be checked against the code.

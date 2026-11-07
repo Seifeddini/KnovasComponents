@@ -1,0 +1,151 @@
+card: 2
+id: EXT-BRAIN-API
+name: The Knovas Brain's secured API (external)
+kind: external
+owner: ROLE-ENGINE-OWNER
+purpose: The Brain's HTTPS API under /secured/, served by Knovas outside this repository, as far as the components of
+  this repository rely on it.
+not_responsible_for:
+- Anything this repository builds; the Brain's code, cards and tests live in the repository that serves it.
+terms:
+- tenant (taken from the caller's client certificate, never from a request)
+operations:
+- id: connector-jobs-claim
+  name: GET /secured/connector/jobs?source=KEYS&wait=SECONDS - claim one job of the tenant for these sources, or a
+    probe addressed to this certificate
+  entrance: http
+  ref: GET /secured/connector/jobs
+- id: connector-job-part
+  name: POST /secured/connector/jobs/{job_id}/part?n=N - one part of a fetch, with X-Knovas-Lease
+  entrance: http
+  ref: POST /secured/connector/jobs/{job_id}/part
+- id: connector-job-result
+  name: POST /secured/connector/jobs/{job_id}/result - a job's result, with X-Knovas-Lease
+  entrance: http
+  ref: POST /secured/connector/jobs/{job_id}/result
+- id: connector-probe
+  name: POST /secured/connector/probe - queue a probe addressed to the calling certificate
+  entrance: http
+  ref: POST /secured/connector/probe
+- id: connector-job-stats
+  name: GET /secured/connector/jobs/stats?since=TIME - job counts for the «Verbindung» card
+  entrance: http
+  ref: GET /secured/connector/jobs/stats
+- id: source-writes
+  name: GET /secured/source-writes?status=STATUS - the tenant's write proposals
+  entrance: http
+  ref: GET /secured/source-writes
+- id: source-write-accept
+  name: POST /secured/source-writes/{id}/accept - accept a write proposal, with the declared actor
+  entrance: http
+  ref: POST /secured/source-writes/{id}/accept
+- id: source-write-reject
+  name: POST /secured/source-writes/{id}/reject - reject a write proposal, with the declared actor and a reason
+  entrance: http
+  ref: POST /secured/source-writes/{id}/reject
+- id: sign-certificate
+  name: POST /secured/sign_certificate - sign a component's request for the Platform's tenant
+  entrance: http
+  ref: POST /secured/sign_certificate
+- id: graph-routes
+  name: /secured/graph/... - node types, nodes, facts, edges and their schema (read and written by the Builder and by
+    brain-runner)
+  entrance: http
+  ref: /secured/graph/{path}
+- id: access-routes
+  name: /secured/access_groups, /secured/folder_rules and the RBAC posture - the access window's backend
+  entrance: http
+  ref: /secured/access_groups
+- id: ingest-routes
+  name: /secured/init_document_transmission, transmit_document_part, delete_information_object, documents,
+    documents/source_ref - the routes Link relays for a component's documents
+  entrance: http
+  ref: /secured/documents
+contract:
+  '*':
+    always:
+    - id: EXT-BRAIN-API/*/A-1
+      statement: The tenant of every call is the one the caller's client certificate names; a request never names it.
+      risk_class: critical
+  connector-jobs-claim:
+    promises:
+    - id: EXT-BRAIN-API/connector-jobs-claim/P-1
+      statement: Answers 200 {job} with an opaque lease (16 to 128 visible ASCII characters), 204 when no job came
+        within wait, or 429 with Retry-After when its waiter caps are reached; a job validates against
+        job.schema.json.
+      risk_class: critical
+  connector-job-part:
+    promises:
+    - id: EXT-BRAIN-API/connector-job-part/P-1
+      statement: Takes a part with the claim's lease with 2xx; answers 409 lease_lost once the claim is gone; any other
+        answer is a refusal of the part.
+      risk_class: critical
+  connector-job-result:
+    promises:
+    - id: EXT-BRAIN-API/connector-job-result/P-1
+      statement: Takes a result with the claim's lease with 2xx; answers 404 or 409 lease_lost when the job has an
+        outcome already or the claim is gone, 400 when it refuses the result.
+      risk_class: critical
+  connector-probe:
+    promises:
+    - id: EXT-BRAIN-API/connector-probe/P-1
+      statement: Answers 200 or 201 with a job_id (a UUID) and hands that probe to the calling certificate's next claim;
+        429 with Retry-After when busy.
+      risk_class: standard
+  connector-job-stats:
+    promises:
+    - id: EXT-BRAIN-API/connector-job-stats/P-1
+      statement: Answers the tenant's job counts since the given time, by kind and status.
+      risk_class: low
+  source-writes:
+    promises:
+    - id: EXT-BRAIN-API/source-writes/P-1
+      statement: 'Answers {"proposals": [...]} of the tenant, of one status or all.'
+      risk_class: standard
+  source-write-accept:
+    promises:
+    - id: EXT-BRAIN-API/source-write-accept/P-1
+      statement: Accepting queues one write job and records the declared actor; it answers the proposal's new status
+        and, once applied, a result_ref; a refusal names its code in error_code (source_ref_missing among them).
+      risk_class: critical
+  source-write-reject:
+    promises:
+    - id: EXT-BRAIN-API/source-write-reject/P-1
+      statement: Rejecting records the declared actor and the reason, and answers the proposal's new status.
+      risk_class: standard
+  sign-certificate:
+    promises:
+    - id: EXT-BRAIN-API/sign-certificate/P-1
+      statement: Signs a component's certificate request for the calling Platform's tenant, or refuses (production
+        answers 503, so a deployment there issues no certificate at enrolment).
+      risk_class: critical
+  graph-routes:
+    promises:
+    - id: EXT-BRAIN-API/graph-routes/P-1
+      statement: The graph routes brain-runner and the Builder call, as brain-runner's pinned release expects them;
+        every method below /secured/graph/ is reachable for a certificate of the tenant.
+      risk_class: critical
+  access-routes:
+    promises:
+    - id: EXT-BRAIN-API/access-routes/P-1
+      statement: Lists, creates, renames, deletes and moves (PATCH with parent) access groups and folder rules; a Brain
+        that cannot move groups answers so (move_unsupported).
+      risk_class: standard
+  ingest-routes:
+    promises:
+    - id: EXT-BRAIN-API/ingest-routes/P-1
+      statement: The document routes of the connector protocol, reached through Link's relay with the site's
+        certificate.
+      risk_class: standard
+review:
+- at: /contract
+  why: No line here has evidence in this repository. They state what this repository's code relies on; the Brain's
+    own tests and its card live in the repository that serves it, and a card cannot point at a line of a card in
+    another repository. This repository's tests run against in-process fakes of these routes
+    (KnovasLink/tests/conftest.py, tests/test_builder_approvals.py), which shows what is relied on, not that the
+    Brain keeps it.
+- at: /owner
+  why: Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4).
+- at: /operations
+  why: Aggregated where this repository relies on a family of routes (graph, access, ingest); the Brain's card lists
+    them one by one.
