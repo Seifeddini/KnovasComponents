@@ -86,11 +86,11 @@ network is closed (`builder/sites.py`).
   workflow.
 - **No image is released yet.** GitHub offers the release workflow only once its file is on the default branch
   ([release-images.md](deployment/release-images.md), "Once per repository").
-- **Images behind Link need brain-runner 0.3.0 or later.** The Platform's and the sync component's Dockerfiles pin
-  brain-runner 0.1.1 (`BRAIN_RUNNER_GIT_REF`). That version cannot call the Brain through Link (`BRAIN_LOCAL_TOKEN`)
-  and has no `compile-write`, so a sync component built with it cannot plan, apply or answer write jobs in link mode
-  (sync component README, "Release coupling"). The release run prints the version in its step "Build and check the
-  image".
+- **Images behind Link need brain-runner 0.3.1 or later.** The Platform's and the sync component's Dockerfiles pin
+  0.3.1 (`BRAIN_RUNNER_VERSION`, `BRAIN_RUNNER_GIT_REF`) since 2026-11-07. Older releases (0.1.1, the pin before) cannot
+  call the Brain through Link (`BRAIN_LOCAL_TOKEN`) and have no `compile-write`, so a sync component built with one
+  cannot plan, apply or answer write jobs in link mode (sync component README, "Release coupling"). The release run
+  prints the version in its step "Build and check the image".
 - **Not built:** sources other than GitHub for `fetch` and `write`; the Knovas Connector behind Link; permissions from
   the source; credentials typed into the Builder; monitoring history and notifications; autonomous writes. The Builder
   records who accepted a proposal, but the Brain does not yet bind the accept to a verified person.

@@ -22,7 +22,7 @@ Stand: MVP des Verbindungsteils (MVP-23 bis MVP-28). Wie Knovas Link sein Zertif
 
    Der Rechner meldet sich mit einem eigenen, widerrufbaren Lese-Token bei GHCR an (`docker login ghcr.io`, Token (classic) nur mit `read:packages`). Ein mit `docker load` kopiertes Abbild hat keinen Digest und startet das Paket nicht.
 
-   **brain-runner 0.3.0 oder neuer:** Hinter Knovas Link braucht die Sync-Komponente diese Version. Die Dockerfiles pinnen heute noch 0.1.1 (`BRAIN_RUNNER_GIT_REF`); damit kann die Komponente hinter Knovas Link weder Probeläufe noch Anwenden noch Schreibaufträge ausführen. Der Release-Lauf nennt die Version im Schritt «Build and check the image» (`brain-runner …`). Steht dort 0.1.1, das Abbild nicht verwenden (README der Sync-Komponente, «Release coupling»).
+   **brain-runner 0.3.1 oder neuer:** Hinter Knovas Link braucht die Sync-Komponente diese Version; die Dockerfiles pinnen sie seit dem 7. November 2026 (`BRAIN_RUNNER_GIT_REF`). Mit einer älteren Version (etwa 0.1.1, dem Pin davor) kann die Komponente hinter Knovas Link weder Probeläufe noch Anwenden noch Schreibaufträge ausführen. Der Release-Lauf nennt die Version im Schritt «Build and check the image» (`brain-runner …`). Steht dort eine ältere Version, das Abbild nicht verwenden (README der Sync-Komponente, «Release coupling»).
 
 ## 2. Beim Kunden
 

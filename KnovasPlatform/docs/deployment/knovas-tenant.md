@@ -209,8 +209,9 @@ The image installs a pinned release; the Platform never imports or runs code fro
 **Set-up, once:**
 
 1. **The package in the image.**
-   - The Dockerfile installs brain-runner at `BRAIN_RUNNER_GIT_REF` (today `0.1.1`, commit `43ea868e`, tag
-     `brain-runner-v0.1.1` on KnowledgeBase: fetch for the sync, ontology plan and apply for the builder).
+   - The Dockerfile installs brain-runner at `BRAIN_RUNNER_GIT_REF` (today `0.3.1`, commit `646f22212`, tag
+     `brain-runner-v0.3.1` on KnowledgeBase: fetch, plan and apply for the sync and the builder, Brain calls through
+     Link, write jobs).
    - KnowledgeBase is private, so the build needs a read-only token: a fine-grained GitHub token for
      `Seifeddini/KnowledgeBase` only, permission **Contents: read**. Put it in `knovas.env` and rebuild:
 
@@ -224,7 +225,7 @@ The image installs a pinned release; the Platform never imports or runs code fro
    - `start.sh` also takes the token from `.env` (it runs compose with `--env-file knovas.env`, which skips `.env`)
      and says after the build whether brain-runner is installed. A layer built without the token is rebuilt once a
      token is given (build argument `KB_READ_TOKEN_GIVEN`; a secret alone does not change the layer cache).
-   - Check the build output for `brain-runner 0.1.1`. Without the token the image builds without brain-runner, and the
+   - Check the build output for `brain-runner 0.3.1`. Without the token the image builds without brain-runner, and the
      sync page and the builder's source test say the package is not installed.
 2. **Settings** (Einstellungen → Ansichten und Wissensbasis, or pinned by the environment):
 
@@ -792,11 +793,12 @@ On the same machine as the Platform (CL-8). Generic reference: [../connect-a-sit
 - From the release run (4.1): `KNOVAS_LINK_DIGEST=sha256:…` and `SYNC_COMPONENT_DIGEST=sha256:…`, best from the same
   run as the Platform.
 - In the Builder you hold «Zugänge verwalten» (admin has it).
-- **The sync-component image carries brain-runner 0.3.0 or later.** In the release run (4.1), the sync-component job's
-  step "Build and check the image" prints `brain-runner <version>`. **Stop if** it says `0.1.1`: both Dockerfiles still
-  pin it (`BRAIN_RUNNER_GIT_REF=43ea868e…`), and behind Link that version can neither reach the Brain through Link
-  (`BRAIN_LOCAL_TOKEN`) nor compile a write (`compile-write`). The pin moves to `brain-runner-v0.3.0` (`8c6e2d058`) first
-  (Brain v1 plan, step 8; the sync component's README, "Release coupling").
+- **The sync-component image carries brain-runner 0.3.1 or later.** In the release run (4.1), the sync-component job's
+  step "Build and check the image" prints `brain-runner <version>`. **Stop if** it prints an older version (such as
+  `0.1.1`, the pin before 2026-11-07): behind Link that version can neither reach the Brain through Link
+  (`BRAIN_LOCAL_TOKEN`) nor compile a write (`compile-write`). Both Dockerfiles pin `brain-runner-v0.3.1`
+  (`BRAIN_RUNNER_GIT_REF=646f22212…`); release from a checkout that has that pin (Brain v1 plan, step 8; the sync
+  component's README, "Release coupling").
 
 ### 5.1 Create the site and download the package (browser)
 

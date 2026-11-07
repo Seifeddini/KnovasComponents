@@ -97,10 +97,10 @@ PY
 #   KB_READ_TOKEN=github_pat_... in knovas.env, then ./scripts/start.sh (or docker compose --env-file knovas.env build)
 # Without compose: docker build --secret id=kb_read_token,env=KB_READ_TOKEN .
 # --no-deps: its dependencies are the Platform's (requirements.txt pins PyYAML, jsonschema and requests; jmespath
-# and defusedxml are pinned there at the package's versions). The package pins requests==2.34.2; the Platform
-# keeps 2.32.0 until both agree (a pin in a library is too strict; noted for KnowledgeBase).
-ARG BRAIN_RUNNER_VERSION=0.1.1
-ARG BRAIN_RUNNER_GIT_REF=43ea868e85b1be8ffa6299aa35289e74e28bf000
+# and defusedxml are pinned there at the package's versions). The package takes requests >=2.32.0,<3, so the
+# Platform's 2.32.0 satisfies it.
+ARG BRAIN_RUNNER_VERSION=0.3.1
+ARG BRAIN_RUNNER_GIT_REF=646f222124324fab28cf42002ac3962ab3876127
 # "yes" when a token is given (docker-compose.yml). A secret is not part of the layer cache: without this, a
 # layer built once without the token stays cached, and adding the token later never runs the install.
 ARG KB_READ_TOKEN_GIVEN=no

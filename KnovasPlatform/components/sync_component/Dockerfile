@@ -38,7 +38,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # The same release of the runner as the Platform's image (docbridge_integration/Dockerfile).
-ARG BRAIN_RUNNER_GIT_REF=43ea868e85b1be8ffa6299aa35289e74e28bf000
+ARG BRAIN_RUNNER_GIT_REF=646f222124324fab28cf42002ac3962ab3876127
 RUN --mount=type=secret,id=kb_read_token,required=true \
     git config --global url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf "https://github.com/" \
     && pip install --no-cache-dir --no-deps \
