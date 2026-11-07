@@ -87,7 +87,11 @@ services:
       - knovas-internal
 
   docbridge-web:
-    image: docbridge-web-clientbundle:latest
+    # Built here by default. A released image instead (V1-G10, .github/workflows/release-images.yml): set
+    # DOCBRIDGE_WEB_IMAGE in knovas.env to the image by digest the release run names, then
+    # `docker compose --env-file knovas.env pull docbridge-web` and `up -d --no-build`; never build with it set
+    # (KnovasPlatform/docs/deployment/release-images.md).
+    image: ${DOCBRIDGE_WEB_IMAGE:-docbridge-web-clientbundle:latest}
     build:
       context: ./KnovasPlatform/components/docbridge_integration
       dockerfile: Dockerfile
