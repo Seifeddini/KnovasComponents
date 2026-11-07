@@ -3,7 +3,8 @@
 One component per site, and the only process there that talks to Knovas (connector protocol 1.1, KC-7a). The other
 components on the site (the sync component, the Knovas Connector, any later reader of a source) talk only to Link,
 through its local API; they hold no Knovas certificate and open no port. A new kind of source is a new local component,
-never a change to Link.
+never a change to Link. How Link fits with the sync component and the Brain Builder:
+[the connection layer](../KnovasPlatform/docs/connection-layer.md).
 
 **Status: built ahead of its bet's approval, not deployed.** The site's certificate follows DEC-0056 (option A, A1; see
 "The certificate").
@@ -28,7 +29,7 @@ The contracts it is built against are in [`contracts/`](contracts/): the local A
 docker build -t knovas-link:1.1.0 KnovasLink
 ```
 
-Settings come from the environment only; the install package's `knovas-site.env` holds the first two:
+Settings come from the environment only; the install package's `knovas-link.env` holds the first two:
 
 | Setting | |
 |---|---|
@@ -42,7 +43,8 @@ Settings come from the environment only; the install package's `knovas-site.env`
 | `LINK_PORT` | `8460` |
 | `LINK_HEARTBEAT_SECONDS`, `LINK_PROBE_SECONDS` | `30` and `300` |
 
-Volumes and network, as the install package (MVP-23) is to lay them out:
+Volumes and network, as the Builder's install package lays them out (MVP-23,
+`KnovasPlatform/components/docbridge_integration/src/builder/sites.py`):
 
 - **`/data`**: the site's key, certificate, control token and the last configuration and package. The key is made
   here at the first start and never leaves; every file is readable by Link's user (10460) only.
@@ -51,26 +53,33 @@ Volumes and network, as the install package (MVP-23) is to lay them out:
   kept, so a restart does not lock components out. Each component mounts **only its own folder**, at `/link`, and
   reads `/link/token`.
 - **Network:** the local API listens on 8460 on the site's internal network `knovas-site` (`internal: true`) with **no
-  published port**. Link alone is also on an outbound network.
+  published port**. Every service is also on the egress network `knovas-egress`, so that each component reaches its
+  own sources. Only Link can reach Knovas because only Link holds a Knovas certificate and token; a component holds
+  neither and knows only Link's local address.
 
 ```yaml
 services:
   knovas-link:
-    image: knovas-link:1.1.0
-    env_file: knovas-site.env
-    volumes: [link-data:/data, link-tokens:/link]
-    networks: [knovas-site, outbound]
-  sync-component:                     # in link mode (MVP-20): reaches Link at http://knovas-link:8460
+    image: knovas-link@${KNOVAS_LINK_DIGEST}          # by digest (release-images.md)
+    env_file: [knovas-link.env]
+    volumes: [link-data:/data, {type: volume, source: link-tokens, target: /link}]
+    networks: [knovas-site, knovas-egress]
+  sync-component:                                     # in link mode (MVP-20)
+    image: sync-component@${SYNC_COMPONENT_DIGEST}
+    env_file: [knovas-sources.env]                    # the sources' credentials only
+    environment: {SYNC_LINK_URL: "http://knovas-link:8460", SYNC_DATA_DIR: /data}
     volumes:
+      - sync-component-data:/data
       - {type: volume, source: link-tokens, target: /link, read_only: true, volume: {subpath: sync-component}}
-    networks: [knovas-site]
-    depends_on: {knovas-link: {condition: service_healthy}}
+    networks: [knovas-site, knovas-egress]
+    depends_on: [knovas-link]
 networks:
   knovas-site: {internal: true}
-  outbound: {}
+  knovas-egress: {}
 volumes:
   link-data: {}
   link-tokens: {}
+  sync-component-data: {}
 ```
 
 At start Link enrols if it has not, or if `LINK_ENROL_TOKEN` is a token it did not enrol with («Token erneuern»), as
@@ -208,5 +217,12 @@ or type in Link's code, image or this page.
 
 - The issuance job that signs with the HSM-held client CA key (DEC-0062); until then one Knovas admin confirms and
   signs (above).
-- The install package and the Builder's site page (MVP-23, MVP-28); the sync component's link mode (MVP-20).
 - Credentials sealed to Link's key (CL-1, I2).
+- Jobs bound to one site: a `fetch` or `write` job names no certificate serial yet, so any certificate of the tenant
+  that names the source can claim it. Needed before a tenant has a second site.
+- A narrower relay: everything below `secured/graph/` passes with every method (accepted for now, see
+  [connector protocol v1.1](../KnovasPlatform/docs/connector-protocol-v1.md), "Sites and Knovas Link").
+
+Built since this page first listed them: the install package and the Builder's site page (MVP-23, MVP-28) and the
+sync component's link mode (MVP-20). No image is released yet: see
+[release-images.md](../KnovasPlatform/docs/deployment/release-images.md).

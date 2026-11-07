@@ -2,7 +2,7 @@
 
 **Status: draft (KC-7a, BET-2026-11-sources-and-access).** The control plane and the records path are built and tested. DEC-0056 is decided: option A, with A1 (one certificate per site, held by Knovas Link). What is still marked *proposed* is not decided yet; a change to it before the first company runs a component is cheap, and after that it is not.
 
-**Version 1.1** (MVP-2, KC-7a): additions to 1.0 only. It adds sites and Knovas Link, streams, jobs on a work channel, probes, write proposals and fetching originals, in the sections from "Sites and Knovas Link" on. None of them is built yet. The paths stay `/api/connectors/v1`, and a component that knows only 1.0 keeps working unchanged. The contracts are files in `KnovasComponents/KnovasLink/contracts/`, pinned by `contracts.lock`.
+**Version 1.1** (MVP-2, KC-7a): additions to 1.0 only. It adds sites and Knovas Link, streams, jobs on a work channel, probes, write proposals and fetching originals, in the sections from "Sites and Knovas Link" on. All of them are built: Knovas Link, the sync component's link mode with GitHub `fetch` and `write`, the Builder's sites, and the Brain's routes, which run at Knovas since 2026-11-07. No company runs a site yet. What is built where: [connection-layer.md](connection-layer.md). The paths stay `/api/connectors/v1`, and a component that knows only 1.0 keeps working unchanged. The contracts are files in `KnovasComponents/KnovasLink/contracts/`, pinned by `contracts.lock`.
 
 A connector is a separately deployed sync component, registered for one company (DEC-0040). This document is what any connector must do, in any language. The Platform's side is `docbridge_integration/src/builder/protocol.py`; the reference component is `components/sync_component`.
 
@@ -83,9 +83,9 @@ Until then, designing a mapping for a source read at the company works like this
 
 Each source has an `access`: `read`, or `read_write`. A kind of integration declares which it allows (`builder/sources.py`), and a person chooses only where there is a choice. A source without the field reads. A component that cannot write to a source reports `source.write_unsupported` and does not run it, rather than quietly reading.
 
-**Today every kind reads:** no component can write to a source, so `read_write` is offered nowhere. A share is also mounted read only, and a GitHub token needs only `Contents: read`. The first integration to write back is meant to be Jira (FEAT-2026-11-03-jira-sync). A write to a source falls under the same rule as one to the Brain: a dry run shown, and a person's approval.
+**In version 1.0 every kind reads:** no component writes to a source, a share is mounted read only, and a GitHub token needs only `Contents: read`. Jira was meant to be the first to write back (FEAT-2026-11-03-jira-sync); GitHub came first, in version 1.1. A write to a source falls under the same rule as one to the Brain: a dry run shown, and a person's approval.
 
-Version 1.1 adds the first write, not built yet: a GitHub source, as a pull request (see "Write proposals"). A component that can write to a kind of source declares `write:<kind>` in `capabilities`, for GitHub `write:github`. `read_write` is offered for a source only when its kind allows it and a component on its site declares that capability, and it stays off until a person switches it on and publishes.
+Version 1.1 adds the first write, built: a GitHub source, as a pull request (see "Write proposals"). A component that can write to a kind of source declares `write:<kind>` in `capabilities`, for GitHub `write:github`. `read_write` is offered for a source only when its kind allows it and a component on its site declares that capability, and it stays off until a person switches it on and publishes.
 
 ## Which component reads what
 
@@ -104,7 +104,7 @@ A function that reads the source, or tells the runner where to read: `sync_compo
 
 ## Sites and Knovas Link
 
-*Proposed, version 1.1. Not built.*
+*Version 1.1, built. Still marked proposed: see the status at the top.*
 
 A **site** is one machine at the company, with one Docker network. **Knovas Link** (`KnovasComponents/KnovasLink/`, container `knovas-link`) is one component per site and the only process there that talks to Knovas: enrolment, the control plane, the Brain calls and the work channel. The site's other components talk only to Link, through its local API: `KnovasLink/contracts/local-api.md`. They hold no Knovas certificate and open no port. A new kind of source is a new local component, never a change to Link.
 
@@ -118,7 +118,7 @@ A **site** is one machine at the company, with one Docker network. **Knovas Link
 
 ## Streams
 
-*Proposed, version 1.1. Not built.*
+*Version 1.1, built. Still marked proposed: see the status at the top.*
 
 A stream moves items, deletions and state from a source towards the Brain. Each message is one JSON object, `{type, source, external_id, version, content_hash, payload, state}`: `KnovasLink/contracts/stream-message.schema.json`.
 
@@ -142,7 +142,7 @@ A stream moves items, deletions and state from a source towards the Brain. Each 
 
 ## Jobs and the work channel
 
-*Proposed, version 1.1. Not built.*
+*Version 1.1, built. Still marked proposed: see the status at the top.*
 
 Knovas asks a site for work with **jobs**, `{id, kind, source, target_serial, deadline, actor, args}`: `KnovasLink/contracts/job.schema.json`. The answer to a job is a **result**: `KnovasLink/contracts/job-result.schema.json`.
 
@@ -157,7 +157,7 @@ Knovas asks a site for work with **jobs**, `{id, kind, source, target_serial, de
 - **The work channel.** Link long-polls secure-api with the site's certificate:
   - `GET /secured/connector/jobs?source=a,b&wait=25` answers 200 `{job}` or 204. It claims one job of the caller's tenant for those sources, or a probe addressed to the caller's certificate serial. A claim holds a lease of 60 seconds. Every job it hands out carries `lease`, an opaque string of 16 to 128 characters that names this claim.
   - `POST /secured/connector/jobs/<id>/part?n=` takes the bytes of one part.
-  - `POST /secured/connector/jobs/<id>/result` takes the result and answers 200 `{"accepted": true}`, or 409 `lease_lost` when the lease ended or the job has an outcome already. A late answer is discarded and counted.
+  - `POST /secured/connector/jobs/<id>/result` takes the result and answers 200 with the job's state (`{"status": "success", "job_id": …, "state": "done"}`), or 409 `lease_lost` when the lease ended or the job has an outcome already. A late answer is discarded and counted.
   - Link sends the job's lease back as the header `X-Knovas-Lease` on every part and result. A missing lease, a stale one, or one of another claim of the same job is 409 `lease_lost`. Components never see the lease: Link removes it before it hands a job on, and its own local jobs carry none.
   - Long-polls and waiting fetches hold a server thread each, so they are capped per pod and per tenant; beyond the caps the answer is 429 with `Retry-After`.
 - **On the site.** Link hands each job to the component that registered its kind and to which its source is assigned, and passes the parts and the result on unchanged and in order. No component for the kind: Link answers `unsupported`. Silent past the deadline: `unreachable`. The source's switch off: `refused` with `fetch_disabled` or `write_disabled`. A job that does not validate against the contract: `failed` with `invalid_job`, never handed out. Knovas did not take a part of a fetch: `failed` with `part_not_accepted`, and the relay of that job ends.
@@ -166,7 +166,7 @@ Knovas asks a site for work with **jobs**, `{id, kind, source, target_serial, de
 
 ## Probes
 
-*Proposed, version 1.1. Not built.*
+*Version 1.1, built. Still marked proposed: see the status at the top.*
 
 A heartbeat says that a process runs. A probe says that the whole channel works.
 
@@ -177,7 +177,7 @@ A heartbeat says that a process runs. A probe says that the whole channel works.
 
 ## Write proposals
 
-*Proposed, version 1.1. Not built.*
+*Version 1.1, built. Still marked proposed: see the status at the top.*
 
 A write to a source is an intent with an actor, an expected version and a mode. Version 1.1 has one mode, `proposal`: the change is staged where the source reviews it, for GitHub a pull request, and never applied directly. `standing` is reserved for autonomous agents; a component refuses it with `mode_unsupported`.
 
@@ -192,17 +192,17 @@ Writing needs the source's `access` to be `read_write`, which is off until a per
 
 ## Fetching originals
 
-*Proposed, version 1.1. Not built.*
+*Version 1.1, built. Still marked proposed: see the status at the top.*
 
 The Brain never holds the original. Someone who may read a document gets the original from its source, through the work channel, as the source holds it.
 
 - `GET /secured/documents/original?pointer=…`. The pointer is checked exactly as search filters it; one the caller may not see answers 404.
 - The document needs a source reference `{source, external_id, version}`, set on upload or later with `PUT /secured/documents/source_ref`. Without one the answer is 409 `no_source_ref`.
 - secure-api queues a `fetch` with a deadline of 20 seconds and `max_bytes` of 25 MiB. The component reads the original at `version` (for GitHub the blob) and posts it in parts of at most 4 MiB, numbered from 0 and in order, then the result with `version`, `bytes_sha256`, `mime`, `bytes` and `parts`.
-- secure-api streams the bytes to the caller as they arrive, with `X-Knovas-Source-Version` and `Content-Type`, and recomputes the SHA-256. A gap or a mismatch ends the answer with an error, never with a short file reported complete. Nothing is written to disk, to a database or to a cache, and no gateway retries a fetch.
+- secure-api streams the bytes to the caller as they arrive, as frames (`Content-Type: application/vnd.knovas.original-frames`: the parts, then one closing frame with the result or an error), with `X-Knovas-Source-Version`, and recomputes the SHA-256. The original's own media type is `mime` in the closing frame. A gap or a mismatch ends the answer with an error, never with a short file reported complete. Nothing is written to disk, to a database or to a cache, and no gateway retries a fetch.
 - No answer before the deadline gives 503 `source_unreachable`; a refusal gives 403 `source_refused` with the component's code. **Never the indexed text instead.**
 - A fetched `version` that differs from the recorded one marks the document's reference stale.
-- Every fetch writes one audit row: the declared actor, the pointer's hash, the bytes and the outcome.
+- Every fetch writes one audit event: the declared actor, the pointer's hash, the bytes and the outcome.
 - Fetching is off for a source until a person switches it on; otherwise Link refuses with `fetch_disabled`.
 
 For GitHub the caller can check what it got: the git blob hash of the bytes equals `version`.

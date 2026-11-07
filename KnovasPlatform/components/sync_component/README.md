@@ -2,7 +2,7 @@
 
 One deployable connection between a company's source and its Brain, under [connector protocol v1](../../docs/connector-protocol-v1.md). It runs at the company, calls out only, and takes its whole configuration from the Platform.
 
-It runs in one of two modes: **link mode** behind [Knovas Link](../../../KnovasLink/README.md) (MVP-20, below), where it talks to Link only, or **direct mode**, where it enrols itself with the Platform as described next. Direct mode is unchanged for existing installations.
+It runs in one of two modes: **link mode** behind [Knovas Link](../../../KnovasLink/README.md) (MVP-20, below), where it talks to Link only, or **direct mode**, where it enrols itself with the Platform as described next. Direct mode is unchanged for existing installations. How the component fits with Link and the Brain Builder: [the connection layer](../../docs/connection-layer.md).
 
 ## A new connection
 
@@ -25,15 +25,15 @@ A source's credential stays at the company: add `-e SYNC_CREDENTIAL_<KEY>=…` (
 | `SYNC_CREDENTIAL_<KEY>`, `SYNC_CREDENTIAL_GITHUB` | a source's credential, as in direct mode (from `knovas-sources.env`) |
 
 ```yaml
-  sync-component:
-    image: sync-component:0.1.0
-    env_file: knovas-sources.env          # the source credentials only
-    environment: {SYNC_LINK_URL: "http://knovas-link:8460"}
+  sync-component:                         # as the Builder's install package writes it (builder/sites.py)
+    image: sync-component@${SYNC_COMPONENT_DIGEST}
+    env_file: [knovas-sources.env]        # the source credentials only
+    environment: {SYNC_LINK_URL: "http://knovas-link:8460", SYNC_DATA_DIR: /data}
     volumes:
+      - sync-component-data:/data
       - {type: volume, source: link-tokens, target: /link, read_only: true, volume: {subpath: sync-component}}
-      - sync-data:/data
-    networks: [knovas-site, outbound]     # Link on the site's network; outbound only to reach its own sources
-    depends_on: {knovas-link: {condition: service_healthy}}
+    networks: [knovas-site, knovas-egress]   # Link on the internal network; the egress network reaches its own sources
+    depends_on: [knovas-link]
 ```
 
 Every call carries `Authorization: Bearer <token>` and `X-Component: <name>` and goes to Link's local API (`KnovasLink/contracts/local-api.md`): it registers at start (and every five minutes, so a restarted Link knows it again) with its capabilities, `fetch:github` and `write:github` among them, and the job kinds `fetch`, `write`, `probe`; it sends its heartbeat to Link and gets the Platform's commands back there, finishing them through `/local/v1/commands/<id>/done`; it reads its configuration and package from Link and reports runs, events and checks through `/local/v1/report/*`. The runner's Brain calls go through Link's relay: the runner gets `BRAIN_API_URL=<Link>/local/v1/brain` and `BRAIN_LOCAL_TOKEN=<token>` and sends no client certificate. It never calls the Platform or secure-api itself. A GitHub source switched to «Änderungen dürfen zurückgeschrieben werden» (`access: read_write`) is still read for dry runs and applies.
@@ -50,13 +50,15 @@ The component reports version 0.2.0 (link mode, jobs) in its registration and he
 
 A new kind of source answers jobs with one function and one entry in `HANDLERS` (`src/sync_component/jobs.py`). Logs carry codes, counts and durations only: never a path, a file name, a value, a repository or a token.
 
-**Release coupling.** Link mode needs a brain-runner that takes `BRAIN_LOCAL_TOKEN` (MVP-20) and `compile-write` (MVP-13); the image's pinned runner (`BRAIN_RUNNER_GIT_REF`) moves to that release together with the Platform's.
+**Release coupling.** Link mode needs a brain-runner that takes `BRAIN_LOCAL_TOKEN` (MVP-20) and `compile-write` (MVP-13): version 0.3.0 or later. The image's pinned runner (`BRAIN_RUNNER_GIT_REF` in the `Dockerfile`) is still 0.1.1 (`43ea868e…`), which has neither, so an image built from this `Dockerfile` today cannot plan, apply or answer write jobs behind Link. The pin moves to 0.3.0 together with the Platform's. The repository's CI tests already install 0.3.0 (`BRAIN_RUNNER_SHA` in `.github/workflows/ci.yml`), and a release run prints the version its image carries in the step "Build and check the image".
 
 **kustomize in the image.** The runner renders a Kubernetes kustomization (`kustomize_build`) with `kustomize build`; without it the folder is read as files, patches and components are not applied, and the mapping is stopped. The image carries kustomize v5.4.3, downloaded in a build stage of its own and checked against the SHA-256 its release publishes before it is unpacked (`Dockerfile`, `KUSTOMIZE_VERSION` and one checksum per architecture, amd64 and arm64; `tests/test_sync_component_image.py` pins that).
 
 ## Getting the image to a company
 
-There is no image registry yet. Build it once, then copy it:
+**Behind Knovas Link:** the release workflow builds, signs and pushes the image to GHCR, and the site's install package names it by digest (`SYNC_COMPONENT_DIGEST`): [release-images.md](../../docs/deployment/release-images.md). A copied image (`docker save` / `docker load`) has no digest and cannot start the package.
+
+**Direct mode** (the Builder's `docker run` line names the tag `sync-component:0.1.0`): build it once, then copy it:
 
 ```bash
 docker compose --env-file knovas.env --profile sync-component build sync-component   # KB_READ_TOKEN from knovas.env

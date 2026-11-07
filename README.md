@@ -8,8 +8,14 @@ Customer-hosted components for the Knovas platform.
 
 | Folder | Purpose |
 |--------|---------|
-| [KnovasPlatform/](KnovasPlatform/) | Search web app (Docker) — query indexed documents |
+| [KnovasPlatform/](KnovasPlatform/) | Search web app (Docker) — query indexed documents; with the Brain Builder |
 | [Knovas Connector](KnovasConnector/) — folder `KnovasConnector/` | Discover and sync local files into Knovas |
+| [Knovas Link](KnovasLink/) — folder `KnovasLink/` | The one door of a company's site to Knovas: the components beside it (the sync component) reach the Brain only through it |
+
+**Connecting a company's sources to its Brain** (Knovas Link, the sync component, the Brain Builder's sites and
+approvals; fetching originals and writing changes back as pull requests): start with
+[KnovasPlatform/docs/connection-layer.md](KnovasPlatform/docs/connection-layer.md). Built on this branch, not yet
+released.
 
 **Send to clients:** [docs/client/](docs/client/) — one page, Demo-Kanzlei from files to search.
 

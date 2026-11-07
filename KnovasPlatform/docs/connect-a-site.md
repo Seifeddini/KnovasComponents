@@ -4,6 +4,8 @@ Für Beraterinnen und Berater, die eine Firma an ihr Brain anschliessen. Ein **S
 
 Stand: MVP des Verbindungsteils (MVP-23 bis MVP-28). Wie Knovas Link sein Zertifikat erhält, hat DEC-0056 entschieden (Option A mit A1): jeder Standort erhält sein eigenes Zertifikat von der Client-CA von Knovas (Abschnitt 2).
 
+Überblick über alle Teile, wer sich wie ausweist und was schon gebaut ist (auf Englisch): [connection-layer.md](connection-layer.md).
+
 ## 1. Standort anlegen (Builder › Verbinden)
 
 1. **«Standort anlegen»:** Name (zum Beispiel «Büro Zürich»), verantwortlich, und was dort gelesen wird: GitHub, HTTP/JSON-Schnittstelle, Dateiablage. Dafür braucht es die Berechtigung «Zugänge verwalten».
@@ -19,6 +21,8 @@ Stand: MVP des Verbindungsteils (MVP-23 bis MVP-28). Wie Knovas Link sein Zertif
    ```
 
    Der Rechner meldet sich mit einem eigenen, widerrufbaren Lese-Token bei GHCR an (`docker login ghcr.io`, Token (classic) nur mit `read:packages`). Ein mit `docker load` kopiertes Abbild hat keinen Digest und startet das Paket nicht.
+
+   **brain-runner 0.3.0 oder neuer:** Hinter Knovas Link braucht die Sync-Komponente diese Version. Die Dockerfiles pinnen heute noch 0.1.1 (`BRAIN_RUNNER_GIT_REF`); damit kann die Komponente hinter Knovas Link weder Probeläufe noch Anwenden noch Schreibaufträge ausführen. Der Release-Lauf nennt die Version im Schritt «Build and check the image» (`brain-runner …`). Steht dort 0.1.1, das Abbild nicht verwenden (README der Sync-Komponente, «Release coupling»).
 
 ## 2. Beim Kunden
 

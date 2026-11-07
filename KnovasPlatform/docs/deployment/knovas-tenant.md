@@ -10,6 +10,10 @@ and measured in [`docs/superpowers/reports/2026-10-27-views-final-report.md`](..
 [section 4](#4-step-by-step-the-platform-with-the-brain-builder-from-a-branch) runs the Platform with the Brain
 Builder from a branch's released images; [section 5](#5-step-by-step-the-knovas-site-knovas-link-and-the-sync-component)
 installs the Knovas site (Knovas Link and the sync component) beside it. Sections 1 to 3 are the reference.
+How the parts fit together: [../connection-layer.md](../connection-layer.md). Knovas's internal owner page for the
+whole connection layer (the Brain's side, trust boundaries, flows, what is live in production):
+[`docs/Docs/04_COMPONENTS/connection_layer.md`](https://github.com/Seifeddini/KnowledgeBase/blob/cl/jolly-fermat-ro3vkk/docs/Docs/04_COMPONENTS/connection_layer.md)
+in KnowledgeBase.
 
 ## Where it runs today (30 Oct 2026)
 
@@ -788,6 +792,11 @@ On the same machine as the Platform (CL-8). Generic reference: [../connect-a-sit
 - From the release run (4.1): `KNOVAS_LINK_DIGEST=sha256:…` and `SYNC_COMPONENT_DIGEST=sha256:…`, best from the same
   run as the Platform.
 - In the Builder you hold «Zugänge verwalten» (admin has it).
+- **The sync-component image carries brain-runner 0.3.0 or later.** In the release run (4.1), the sync-component job's
+  step "Build and check the image" prints `brain-runner <version>`. **Stop if** it says `0.1.1`: both Dockerfiles still
+  pin it (`BRAIN_RUNNER_GIT_REF=43ea868e…`), and behind Link that version can neither reach the Brain through Link
+  (`BRAIN_LOCAL_TOKEN`) nor compile a write (`compile-write`). The pin moves to `brain-runner-v0.3.0` (`8c6e2d058`) first
+  (Brain v1 plan, step 8; the sync component's README, "Release coupling").
 
 ### 5.1 Create the site and download the package (browser)
 
