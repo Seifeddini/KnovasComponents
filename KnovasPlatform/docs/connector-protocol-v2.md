@@ -10,8 +10,10 @@ is being built (Phase B). After the first company runs a v2 connector, a change 
 only.
 
 The machine-readable contract is in `KnovasComponents/KnovasLink/contracts/v2/`, pinned by its own
-`contracts.lock` (`2.0.0-draft`), with valid and invalid examples under `examples/` and the contract test
-`KnovasLink/tests/test_contracts_v2.py`. Version 1.x (`connector-protocol-v1.md`, `KnovasLink/contracts/`,
+`contracts.lock`, with valid and invalid examples under `examples/` and the contract test
+`KnovasLink/tests/test_contracts_v2.py`. The lock still reads version `2.0.0-draft` and status `draft` although this
+text is v2.0 as approved: it names what is released, and nothing of v2 is released yet; it becomes `2.0.0` with the
+first release (the programme's coordinator, 2026-11-10). Version 1.x (`connector-protocol-v1.md`, `KnovasLink/contracts/`,
 `1.2.0`) is unchanged and keeps working.
 
 ## In plain words
@@ -421,7 +423,7 @@ source where one is available.
 | `exactly_once` | A repeated `act` with the same permit, also after a simulated loss of the result between the write and Link, writes once and answers with the first receipt; a repeated staging `act` answers the same stage, and the source's review holds that one change |
 | `permit_refusals` | Every refusal in "What Knovas Link checks" is produced for its case, and nothing is written (run against the kit's Link); the connector's own check refuses, for each staging it declares, a permit that does not bind its step, its staging or this site |
 | `no_credential_leaves_site` | No result, part, stream message, log line or error carries the source's credential (the kit plants a canary credential) |
-| `review_outcome` | For `native_review`: staged, then accepted gives receipts, declined gives no write, `unstage` withdraws |
+| `review_outcome` | For `native_review`: staged, then accepted gives receipts, declined gives no write, and `unstage`, where the connector offers it (optional in V1, D-7), withdraws |
 
 The suite's report (`report_sha256`) and the package digest go into the declaration. In this draft the declaration is
 the connector's own statement; see the open questions.
@@ -451,6 +453,13 @@ and two details go beyond them; the founder approved both with the full text (D-
 
 ## Change notes
 
+- **v2.0, text corrected 2026-11-10** after the independent verification of Phase A (KnowledgeBase
+  `docs/ModernDocs/steering/reports/verification/2026-11-10-write-back-phase-a.md`); no contract file changed, the
+  implementations follow the text: Link answers a repeat before anything else about an `act` and reserves a permit
+  before the connector sees it (steps 5, 7, 8; findings M1, M2); every refusal is a line of the site's write log (L2);
+  a token is read only in its one canonical spelling and an unreadable one is refused, never an error (L1, L5); the
+  conformance properties check each declared staging, so a connector that only stages can pass them (M3); the
+  conformance table's `unstage` is optional, as D-7 decided, and the lock's `draft` is explained under the status (L6).
 - **v2.0, amended 2026-11-10** (the founder's decisions of 2026-11-10; nothing of v2 had been released, so this
   amends v2.0 and is not a v2.1; the lock stays `2.0.0-draft` with new digests):
   - **D-14** (from D-B1-3): a preview's `changes`, a receipt's `values` and `differences`, and a `conflict` with its
