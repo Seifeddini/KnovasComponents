@@ -3,7 +3,7 @@
 For the offline demo (``serve_views_demo.py``): the views run unchanged against a graph
 that no Knovas server holds. ``OfflineClient.graph_get_many`` answers the paths the views
 ask for with the Secure API's envelopes (as ``tests/views_fixture.py`` does, measured on
-tenant af639810 on 2026-10-27); ``OfflineClient.get`` answers the same reads with the
+the Knovas tenant on 2026-10-27); ``OfflineClient.get`` answers the same reads with the
 ``secured/graph/`` prefix, the way KnowledgeBase's ``brain_runner`` reads a tenant, so its
 ``evaluate`` can compute the reports over the same file.
 

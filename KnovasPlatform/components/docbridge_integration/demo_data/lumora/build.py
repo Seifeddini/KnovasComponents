@@ -1,6 +1,11 @@
 """Build the Lumora demo (``serve_views_demo.py``) from a KnowledgeBase checkout.
 
-    python demo_data/lumora/build.py --kb ../../../../KnowledgeBase [--at 2026-10-30T08:00:00+00:00]
+    python demo_data/lumora/build.py --config <brain-config.yaml> [--at 2026-10-30T08:00:00+00:00]
+
+``--config`` is the ``brain-config.yaml`` of Knovas's own configuration in a KnowledgeBase checkout
+(its Client Zero folder under ``docs/ModernDocs``); the bundle is read from the folder of its generated
+definitions, and ``brain_runner`` from the checkout's ``scripts``. No default: the product names no
+tenant's folders (``tests/test_product_has_no_knovas_defaults.py``).
 
 Writes, next to this file:
 
@@ -37,24 +42,24 @@ from graph_views.offline import OfflineClient, OfflineGraph  # noqa: E402
 
 import company as C  # noqa: E402
 
-KB_BUNDLE = "docs/ModernDocs/client-zero/ontology/generated/bundle.json"
-KB_CONFIG = "docs/ModernDocs/client-zero/brain-config.yaml"
-KNOVAS_TENANT = "af639810-afc7-403f-8139-f6026d085c99"
-
-# Ordered: the longer phrase first. Applied to every string of the bundle's sections.
+# First the company's name and its Client Zero programme, everywhere (the source tenant's id is added in main()) ...
+GENERIC = [
+    (re.compile(r"Client Zero"), "Lumora"), (re.compile(r"client[- ]zero"), "lumora"),
+    (re.compile(r"Knovas's"), "Lumora's"), (re.compile(r"Knovas"), "Lumora"),
+]
+# ... then the examples that still say something only Knovas would, as they read after that. Longer phrase first.
 RENAMES = [
-    ("COMP-knovas, Knovas GmbH", "COMP-lumora, Lumora AG"),
-    ("PROD-PLATFORM, the Knovas Platform", "PROD-DESK, Lumora Desk"),
-    ("SYS-KNOVAS-SEMANTIX, the Knovas Semantix platform", "SYS-LUMORA-CORE, the Lumora Core platform"),
+    ("COMP-knovas, Lumora GmbH", "COMP-lumora, Lumora AG"),
+    ("PROD-PLATFORM, the Lumora Platform", "PROD-DESK, Lumora Desk"),
+    ("SYS-KNOVAS-SEMANTIX, the Lumora Semantix platform", "SYS-LUMORA-CORE, the Lumora Core platform"),
     ("the Platform for end users or the API for software vendors", "Lumora Desk for Treuhand firms or the Lumora API for software partners"),
-    ("GOAL-2026-Q4-client-zero-foundation, Knovas steers itself from its own brain by G1.",
+    ("GOAL-2026-Q4-lumora-foundation, Lumora steers itself from its own brain by G1.",
      "GOAL-2026-Q4-first-ten-treuhand, ten Treuhand firms search their files with Lumora Desk."),
-    ("FEAT-2026-10-25-client-zero-phase-0, the plan for Phase 0 of Client Zero.",
+    ("FEAT-2026-10-25-lumora-phase-0, the plan for Phase 0 of Lumora.",
      "FEAT-2026-10-21-email-intake, the plan for e-mail intake."),
-    ("Core, Cortex and Nexus are Knovas names", "Start, Team and Scale are Lumora names"),
+    ("Core, Cortex and Nexus are Lumora names", "Start, Team and Scale are Lumora names"),
     ("ROLE-ONTOLOGY-STEWARD, held by Siran.", "ROLE-ONTOLOGY-STEWARD, held by Nina."),
     ("pending Jiannis", "pending Lea"),
-    ("runs on tenant af639810.", "runs OCR on its own GPU."),
     ("ENV-knovas-cloudscale-prod, the production cluster at cloudscale", "ENV-lumora-prod, the production cluster"),
     ("ENV-knovas-cloudscale-prod", "ENV-lumora-prod"),
     ("knovas-software/app/src/api/graph_api.py", "lumora-core/search/query_api.py"),
@@ -69,10 +74,10 @@ RENAMES = [
     ("ICP-03, law firms in Switzerland and Germany.", "ICP-01, Treuhand firms in Switzerland."),
     ("One of the nine large areas", "One of the large areas"),
     ("(Ingest, Search, Graph, \u2026). A proposal in Phase 0.", "(Ingest, Search)."),
-    ("COMMIT-215b05af5f77, the merge of Knovas Phase 0.", "COMMIT-215b05af5f77, the merge of ranking v2."),
-    ("The Knovas Phase 0 plan as an instance of the feature lifecycle, currently approved.",
+    ("COMMIT-215b05af5f77, the merge of Lumora Phase 0.", "COMMIT-215b05af5f77, the merge of ranking v2."),
+    ("The Lumora Phase 0 plan as an instance of the feature lifecycle, currently approved.",
      "The usage-billing plan as an instance of the feature lifecycle, currently approved."),
-    ("Phase 1 of Client Zero, ground truth, ended with gate G1 on 25 Oct 2026.", "Phase 1 of Lumora Desk, pilots, ended with gate G1 on 25 Oct 2026."),
+    ("Phase 1 of Lumora, ground truth, ended with gate G1 on 25 Oct 2026.", "Phase 1 of Lumora Desk, pilots, ended with gate G1 on 25 Oct 2026."),
     ("REL-2026.10-brain-mvp, the brain MVP on cloudscale prod, 24 Oct 2026.", "REL-2026.10.0, Microsoft sign-in in prod, 16 Oct 2026."),
     ("The brain MVP on cloudscale prod, 24 Oct 2026.", "Lumora Desk 2026.10.0 in prod, 16 Oct 2026."),
     ("SVC-secure-api, the mTLS API for clients, running on cloudscale prod and AKS dev.",
@@ -82,15 +87,11 @@ RENAMES = [
     ("AKS, cloudscale, AWS, Lambda Labs, Docker Compose.", "a Kubernetes cluster, a cloud region, Docker Compose."),
     ("L2-SECURE-API", "L2-QUERY"), ("SVC-secure-api", "SVC-search-api"), ("WF-ci/acr-push", "WF-ci/image-push"),
     ("REC-docs/ModernDocs/glossary/NodeType.md", "REC-handbook/glossary/NodeType.md"),
-    ("docs/ModernDocs/client-zero/", "handbook/"), ("ModernDocs", "the handbook"),
+    ("docs/ModernDocs/lumora/", "handbook/"), ("ModernDocs", "the handbook"),
     ("KnowledgeBase.", "lumora/handbook."),
     ("PERS-siran", "PERS-marco"), ("PERS-jiannis", "PERS-lea"),
-    ("Knovas's", "Lumora's"), ("Knovas", "Lumora"),
-    ("Client Zero", "Lumora"), ("client-zero", "lumora"),
-    (KNOVAS_TENANT, C.TENANT),
 ]
-LEFTOVER = re.compile(r"Knovas|knovas|Siran|siran|Jiannis|jiannis|Seifeddini|Sarlos|af639810|Cortex|Nexus|cloudscale|"
-                      r"law.firm|KnowledgeBase|ModernDocs|secure-api", re.I)
+LEFTOVER = r"Knovas|Siran|Jiannis|Seifeddini|Sarlos|client[- ]zero|Cortex|Nexus|cloudscale|law.firm|KnowledgeBase|ModernDocs|secure-api"
 OWNERS = {"version": 1,
           "aliases": {"lea": "PERS-lea", "lea brunner": "PERS-lea", "marco": "PERS-marco", "marco keller": "PERS-marco",
                       "nina": "PERS-nina", "nina hofer": "PERS-nina", "daniel": "PERS-daniel", "daniel frei": "PERS-daniel",
@@ -107,25 +108,36 @@ def rename(x: Any) -> Any:
     if x == "knovas":                     # the vocabulary level of Knovas's own types (terms.yaml `level`)
         return "lumora"
     if isinstance(x, str):
+        for pattern, new in GENERIC:
+            x = pattern.sub(new, x)
         for old, new in RENAMES:
             x = x.replace(old, new)
     return x
 
 
-def leftovers(doc: Any, where: str) -> list[str]:
+def leftovers(doc: Any, where: str, pattern: re.Pattern) -> list[str]:
     text = json.dumps(doc, ensure_ascii=False)
-    return [f"{where}: ...{text[max(0, m.start() - 60):m.end() + 60]}..." for m in LEFTOVER.finditer(text)]
+    return [f"{where}: ...{text[max(0, m.start() - 60):m.end() + 60]}..." for m in pattern.finditer(text)]
 
 
-def demo_bundle(kb: Path) -> dict:
-    header, sections = B.check(json.loads((kb / KB_BUNDLE).read_text(encoding="utf-8")), KB_BUNDLE)
+def source_bundle(path: Path) -> tuple[dict, dict, str]:
+    """The KnowledgeBase bundle's header, sections and tenant id; the id joins the generic renames."""
+    header, sections = B.check(json.loads(path.read_text(encoding="utf-8")), path.name)
+    tenant = str(sections["types"].get("tenant") or "")
+    if tenant:
+        GENERIC.insert(0, (re.compile(re.escape(tenant)), C.TENANT))
+        RENAMES.insert(0, (f"runs on tenant {tenant[:8]}.", "runs OCR on its own GPU."))
+    return header, sections, tenant
+
+
+def demo_bundle(header: dict, sections: dict, kb: Path) -> dict:
     sections = rename(copy.deepcopy(sections))
     sections["owners"] = OWNERS
     sections["edit_map"] = copy.deepcopy(B.EMPTY["edit_map"])
     commit = subprocess.run(["git", "-C", str(kb), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     return {"header": {"format": B.FORMAT, "format_version": 1, "label": C.LABEL, "content_hash": B.content_hash(sections),
                        "source_commit": commit or header.get("source_commit"),
-                       "sources": {"derived_from": f"KnowledgeBase {KB_BUNDLE} ({header.get('content_hash')}), "
+                       "sources": {"derived_from": f"Knovas's definitions bundle in KnowledgeBase ({header.get('content_hash')}), "
                                                    "names replaced by demo_data/lumora/build.py"},
                        "reports": {"process_completeness": "process-completeness.json",
                                    "docs_completeness": "docs-completeness.json"}},
@@ -166,26 +178,32 @@ def demo_graph(sections: dict, descriptions: dict[str, str]) -> OfflineGraph:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--kb", required=True, type=Path, help="KnowledgeBase checkout")
+    ap.add_argument("--config", required=True, type=Path, help="brain-config.yaml of Knovas's configuration in KnowledgeBase")
     ap.add_argument("--at", default="2026-10-30T08:00:00+00:00", help="evaluation time (the demo's 'today')")
     ap.add_argument("--out", type=Path, default=HERE)
     args = ap.parse_args(argv)
-    kb = args.kb.resolve()
+    config = args.config.resolve()
+    kb = Path(subprocess.run(["git", "-C", str(config.parent), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, check=True).stdout.strip())
     sys.path.insert(0, str(kb / "scripts"))
     from brain_runner import config as CFG
     from brain_runner import evaluate as EV
     from brain_runner import graph as G
 
-    doc = demo_bundle(kb)
-    cfg = CFG.load(kb / KB_CONFIG)
+    cfg = CFG.load(config)
+    generated = config.parent / Path(cfg.manifest["generated"]["processes"]).parent
+    header, sections, tenant = source_bundle(generated / "bundle.json")
+    leftover = re.compile(LEFTOVER + (f"|{re.escape(tenant[:8])}" if tenant else ""), re.I)
+    doc = demo_bundle(header, sections, kb)
     cfg.manifest["runner"]["evaluate"]["extensions"] = []     # Knovas's own repository checks (Client Zero)
     graph = demo_graph(doc["sections"], type_descriptions(cfg, doc["sections"]))
     files = EV.evaluate(cfg, G.read(OfflineClient(graph)), dt.datetime.fromisoformat(args.at))
     files = {name: rename(json.loads(text)) for name, text in files.items()}
 
-    problems = leftovers(doc["sections"], "bundle.json") + leftovers({**graph.to_json(), "format": ""}, "graph.json")
+    problems = leftovers(doc["sections"], "bundle.json", leftover) + \
+        leftovers({**graph.to_json(), "format": ""}, "graph.json", leftover)
     for name, data in files.items():
-        problems += leftovers(data, name)
+        problems += leftovers(data, name, leftover)
     if problems:
         print("Knovas names left in the demo:\n  " + "\n  ".join(problems[:20]), file=sys.stderr)
         return 1

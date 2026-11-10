@@ -7,7 +7,7 @@ real views blueprint reads ``demo_data/lumora/graph.json`` through ``graph_views
 and the definitions bundle ``demo_data/lumora/bundle.json``. Lumora is a software company run
 the way Knovas runs itself (the same seven processes, roles, value streams and spines); every
 person, customer and record in it is invented (``demo_data/lumora/company.py``). Rebuild the
-data with ``demo_data/lumora/build.py --kb <KnowledgeBase checkout>``.
+data with ``demo_data/lumora/build.py --config <brain-config.yaml>`` (see its README).
 
 Saved views, change requests and node grants need the platform database and are off here; the
 visitor is the deployment's operator (as with identity off), so the Definition tab shows its

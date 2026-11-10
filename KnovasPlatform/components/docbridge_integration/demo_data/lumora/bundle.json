@@ -7,10 +7,10 @@
    "name": "Lumora AG",
    "kind": "software company (fictional demo)"
   },
-  "content_hash": "sha256:46433221d3ffed339cffff8ee89f91ec3d228334d87b03a312c2f84cba6963c2",
+  "content_hash": "sha256:8e1170f0dda471950d165d18d320fe1cdc7387d2091bc2d52fe535195c469a6f",
   "source_commit": "d3812e1059f98e24cd787172197983b12a1727a4",
   "sources": {
-   "derived_from": "KnowledgeBase docs/ModernDocs/client-zero/ontology/generated/bundle.json (sha256:c2c54f0893b804005054d7b4bc15f7dd5ae0284e63b4d3e2d010af0fabba94ff), names replaced by demo_data/lumora/build.py"
+   "derived_from": "Knovas's definitions bundle in KnowledgeBase (sha256:c2c54f0893b804005054d7b4bc15f7dd5ae0284e63b4d3e2d010af0fabba94ff), names replaced by demo_data/lumora/build.py"
   },
   "reports": {
    "process_completeness": "process-completeness.json",
@@ -2855,7 +2855,7 @@
     "Commit": {
      "de": "Commit",
      "en": "Commit",
-     "example": "COMMIT-215b05af5f77, the merge of Lumora Phase 0.",
+     "example": "COMMIT-215b05af5f77, the merge of ranking v2.",
      "meta": false,
      "text": "One recorded change to a repository, linked to the plan it implements and the components it touched."
     },
@@ -3149,7 +3149,7 @@
     "ProcessInstance": {
      "de": "Prozessinstanz",
      "en": "Process instance",
-     "example": "The Lumora Phase 0 plan as an instance of the feature lifecycle, currently approved.",
+     "example": "The usage-billing plan as an instance of the feature lifecycle, currently approved.",
      "meta": false,
      "text": "One running case of a process, such as one feature moving through the feature lifecycle."
     },

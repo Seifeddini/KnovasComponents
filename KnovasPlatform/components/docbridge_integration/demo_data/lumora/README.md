@@ -55,7 +55,7 @@ After a change to `company.py`, or to pick up newer definitions from KnowledgeBa
 
 ```bash
 pip install -r <KnowledgeBase>/scripts/brain_runner/requirements.txt
-python demo_data/lumora/build.py --kb <KnowledgeBase>
+python demo_data/lumora/build.py --config <KnowledgeBase>/docs/ModernDocs/<Knovas's Client Zero folder>/brain-config.yaml
 python -m pytest tests/test_views_demo.py
 ```
 
