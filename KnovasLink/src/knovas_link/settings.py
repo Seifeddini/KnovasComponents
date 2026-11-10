@@ -18,6 +18,13 @@ Optional, with defaults that the install package keeps:
     LINK_CLIENT_CA      a file with Knovas's client CA (PEM), when the Platform's enrolment answer has none:
                         install-certificate takes only a certificate it signed
 
+Connector protocol 2.0 (draft, BET-2026-11-write-back WB-10/WB-11; KnovasPlatform/docs/connector-protocol-v2.md):
+
+    LINK_PROTOCOL_V2    true: Link also speaks protocol v2 - it declares its site to the Brain, pins the Brain's
+                        permit keys, checks permits, keeps the used-permit store and the write log, and routes the
+                        jobs preview, act, reread, review_outcome and unstage. Off by default: then Link is the 1.x
+                        Link it was, and it refuses a v2 job as unsupported (protocol_unsupported).
+
 Only to test on one's own machine, never for a company (DEC-0056; see README):
 
     LINK_TEST_ONLY_SHARED_CERTIFICATE=true with LINK_BRAIN_CERT and LINK_BRAIN_KEY: the tenant's own certificate,
@@ -68,6 +75,7 @@ class Settings:
     test_only_shared_certificate: bool = False
     brain_cert: Optional[str] = None
     brain_key: Optional[str] = None
+    protocol_v2: bool = False
     default_components: tuple = field(default=DEFAULT_COMPONENTS)
 
     @classmethod
@@ -90,4 +98,5 @@ class Settings:
             test_only_shared_certificate=_flag(environ.get("LINK_TEST_ONLY_SHARED_CERTIFICATE")),
             brain_cert=environ.get("LINK_BRAIN_CERT") or None,
             brain_key=environ.get("LINK_BRAIN_KEY") or None,
+            protocol_v2=_flag(environ.get("LINK_PROTOCOL_V2")),
         )

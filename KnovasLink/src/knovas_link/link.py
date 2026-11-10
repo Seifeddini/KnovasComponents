@@ -32,6 +32,7 @@ from knovas_link.brain_client import BrainClient
 from knovas_link.errors import LocalError, StartupError
 from knovas_link.identity import Credentials, Store
 from knovas_link.jobs import MAX_SOURCES, WorkChannel
+from knovas_link.protocol_v2 import ProtocolV2
 from knovas_link.platform_client import PlatformClient, Refused, Unreachable
 from knovas_link.registry import Registry
 from knovas_link.settings import Settings
@@ -128,6 +129,8 @@ class Link:
         self.registry = Registry(settings.tokens_dir)
         self.telemetry = Telemetry()
         self.channel = WorkChannel(self)
+        #: Connector protocol 2.0 (draft), only while LINK_PROTOCOL_V2 is on.
+        self.v2 = ProtocolV2(self) if settings.protocol_v2 else None
         self.commands = Commands()
         self.platform = PlatformClient(settings.platform_url, ca_file=settings.platform_ca, transport=platform_transport)
         self.brain_transport = brain_transport
@@ -208,6 +211,8 @@ class Link:
             self.brain = BrainClient(self.brain_url, ssl_context=tls.context(ca, cert, key))
         if self._brain_ready is not None:
             self._brain_ready.set()
+        if self.v2 is not None:
+            self.channel.spawn(self.v2.start())
 
     async def pick_up_certificate(self) -> bool:
         """While Link has no certificate of its own (waiting, or the test-only shared one): the one
@@ -278,6 +283,8 @@ class Link:
 
     async def prepare(self) -> None:
         contracts.verify()
+        if self.v2 is not None:
+            contracts.verify_v2()
         self._brain_ready = asyncio.Event()
         self.credentials = await self.enrol()
         await self.platform.use(self.credentials)

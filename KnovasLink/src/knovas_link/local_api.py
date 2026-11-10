@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
-from knovas_link import VERSION, relay, sync_status
+from knovas_link import VERSION, contracts, relay, sync_status
 from knovas_link.brain_client import BrainUnreachable
 from knovas_link.errors import LocalError
 from knovas_link.link import Link
@@ -99,7 +99,15 @@ def create_app(link: Link) -> Any:
             raise LocalError(400, "bad_field", "version: a version")
         capabilities = _strings(body.get("capabilities"), _CAPABILITY, "capabilities")
         job_kinds = _strings(body.get("job_kinds"), _CAPABILITY, "job_kinds", limit=10)
-        link.registry.register(name, kind=kind, version=version, capabilities=capabilities, job_kinds=job_kinds)
+        declaration = None
+        if link.v2 is not None and body.get("declaration") is not None:      # protocol 2.0 (draft), behind its switch
+            declaration = body["declaration"]
+            if not contracts.v2_valid("declaration.schema.json", declaration):
+                raise LocalError(400, "bad_field", "declaration: as declaration.schema.json has it")
+        link.registry.register(name, kind=kind, version=version, capabilities=capabilities, job_kinds=job_kinds,
+                               declaration=declaration)
+        if declaration is not None:
+            link.channel.spawn(link.v2.declare_site())
         log.info("component.registered, job kinds %d", len(job_kinds))
         return JSONResponse({"sources": await link.sources_for(name)})
 

@@ -25,6 +25,8 @@ log = logging.getLogger("knovas_link.registry")
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{32,200}$")
 JOB_KINDS = ("fetch", "write", "probe")
+#: Protocol 2.0 (draft): the write path's job kinds, taken only from a component that also declared itself.
+V2_JOB_KINDS = ("preview", "act", "reread", "review_outcome", "unstage")
 #: A component whose last local heartbeat is older than this is shown offline.
 STALE_SECONDS = 120
 
@@ -44,6 +46,8 @@ class Component:
     reported_state: Optional[str] = None
     last_beat: Optional[float] = None
     local_ping_ms: Optional[int] = None
+    #: Protocol 2.0: the connector's declaration (declaration.schema.json), or None for a 1.x component.
+    declaration: Optional[dict] = None
 
     def state(self, now: float) -> str:
         """online or degraded as it said, offline when it fell silent, unknown when it never said."""
@@ -115,11 +119,15 @@ class Registry:
     def _component(self, name: str) -> Component:
         return self._components.setdefault(name, Component(name))
 
-    def register(self, name: str, *, kind: str, version: str, capabilities: list, job_kinds: list) -> Component:
-        """A later registration replaces the earlier one. A job kind Link does not know is ignored."""
+    def register(self, name: str, *, kind: str, version: str, capabilities: list, job_kinds: list,
+                 declaration: Optional[dict] = None) -> Component:
+        """A later registration replaces the earlier one. A job kind Link does not know is ignored; the v2 kinds count
+        only with a declaration (protocol 2.0)."""
         c = self._component(name)
         c.kind, c.version, c.capabilities = kind, version, list(capabilities)
-        c.job_kinds = tuple(k for k in JOB_KINDS if k in job_kinds)
+        c.declaration = declaration
+        known = JOB_KINDS + (V2_JOB_KINDS if declaration is not None else ())
+        c.job_kinds = tuple(k for k in known if k in job_kinds)
         c.registered = True
         if "probe" not in c.job_kinds:
             c.local_ping_ms = None

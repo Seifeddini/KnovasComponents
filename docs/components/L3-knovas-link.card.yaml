@@ -14,6 +14,15 @@ source_paths:
 - KnovasLink/contracts/job.schema.json
 - KnovasLink/contracts/local-api.md
 - KnovasLink/contracts/stream-message.schema.json
+- KnovasLink/contracts/v2/codes.json
+- KnovasLink/contracts/v2/contracts.lock
+- KnovasLink/contracts/v2/declaration.schema.json
+- KnovasLink/contracts/v2/job.schema.json
+- KnovasLink/contracts/v2/permit-keys.schema.json
+- KnovasLink/contracts/v2/permit.schema.json
+- KnovasLink/contracts/v2/result.schema.json
+- KnovasLink/contracts/v2/site.schema.json
+- KnovasLink/contracts/v2/stream-message.schema.json
 - KnovasLink/Dockerfile
 - KnovasLink/pyproject.toml
 - KnovasLink/requirements.txt
@@ -53,6 +62,17 @@ responsible_for:
   code:
   - KnovasLink/src/knovas_link/contracts.py
   - KnovasLink/contracts/contracts.lock
+- id: L3-KNOVAS-LINK/R-6
+  statement: Connector protocol 2.0 (draft), only while LINK_PROTOCOL_V2 is on - the site declaration to the Brain,
+    the pinned permit keys, the permit checks before an act reaches its connector, the used-permit store with the
+    first result for a repeat, the site's write log, and the routing of the v2 jobs to the connector that declared
+    the action.
+  code:
+  - KnovasLink/src/knovas_link/protocol_v2.py
+  - KnovasLink/src/knovas_link/permits.py
+  - KnovasLink/src/knovas_link/write_path.py
+  - KnovasLink/src/knovas_link/jobs.py
+  - KnovasLink/contracts/v2/contracts.lock
 not_responsible_for:
 - Reading a source; that is a component's job (today the sync component).
 - Holding a source's credential; it stays in the component's environment.
@@ -166,8 +186,13 @@ contract:
         ref: KnovasLink/tests/test_link_heartbeat.py
         checks:
         - test_the_heartbeat_carries_codes_and_counts_never_a_name
+      - kind: test
+        ref: KnovasLink/tests/test_protocol_v2.py
+        checks:
+        - test_logs_carry_no_permit_token_or_value
     - id: L3-KNOVAS-LINK/*/A-2
-      statement: Link does not start when a contract file it uses does not match contracts.lock.
+      statement: Link does not start when a contract file it uses does not match contracts.lock (and, with
+        LINK_PROTOCOL_V2 on, a v2 contract file its own lock).
       risk_class: standard
       evidence:
       - kind: test
@@ -178,6 +203,10 @@ contract:
         ref: KnovasLink/tests/test_contracts.py
         checks:
         - test_contracts_lock_matches_the_files
+      - kind: test
+        ref: KnovasLink/tests/test_protocol_v2.py
+        checks:
+        - test_link_refuses_to_start_with_v2_on_when_a_v2_contract_is_stale
     - id: L3-KNOVAS-LINK/*/A-3
       statement: Link's code, image and README name no client (no tenant, company, repository, mapping or type of a
         client's package).
@@ -226,6 +255,17 @@ contract:
         ref: KnovasLink/tests/test_local_api.py
         checks:
         - test_a_later_registration_replaces_the_earlier_and_unknown_job_kinds_are_ignored
+    - id: L3-KNOVAS-LINK/local.register/P-3
+      statement: With LINK_PROTOCOL_V2 on, a registration may carry a connector declaration (declaration.schema.json;
+        400 bad_field otherwise); only then do the v2 job kinds count, and Link declares its site to the Brain again.
+        With the switch off a declaration is ignored.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasLink/tests/test_protocol_v2.py
+        checks:
+        - test_with_the_switch_off_a_v2_job_is_refused_and_a_declaration_is_ignored
+        - test_link_declares_its_site_with_each_connectors_declaration_and_its_sources_of_that_kind
     limits:
     - id: L3-KNOVAS-LINK/local.register/L-1
       statement: Before Link has any configuration from the Platform the answer is 503 unreachable.
@@ -734,7 +774,66 @@ contract:
         checks:
         - test_the_channel_goes_down_and_comes_back
         - test_the_waiter_cap_is_respected_and_the_channel_comes_back
+    - id: L3-KNOVAS-LINK/work-channel/P-3
+      statement: 'Protocol 2.0 (LINK_PROTOCOL_V2): a v2 job (preview, act, reread, review_outcome, unstage) goes only
+        to the connector serving its source that declared the source''s kind, the action and its staging; otherwise
+        Link answers unsupported, refused action_not_declared or staging_unsupported, refused write_disabled for an
+        act or unstage on a source that only reads, failed invalid_job. With the switch off: unsupported
+        protocol_unsupported. A 1.x job goes its 1.x way either way.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasLink/tests/test_protocol_v2.py
+        checks:
+        - test_a_preview_reaches_the_connector_that_declared_the_action_and_its_answer_goes_back
+        - test_an_undeclared_action_is_refused_before_any_permit_check
+        - test_a_source_that_only_reads_refuses_an_act_write_disabled
+        - test_a_source_of_another_kind_than_the_connector_declared_is_unsupported
+        - test_a_v1_job_still_goes_its_1x_way_with_the_switch_on
+        - test_with_the_switch_off_a_v2_job_is_refused_and_a_declaration_is_ignored
+    - id: L3-KNOVAS-LINK/work-channel/P-4
+      statement: An act reaches its connector only when every step's permit passes Link's checks in the Alloy model's
+        order (LinkVerifyMechanism) - permit_missing, permit_bad_signature (canonical token, a pinned key whose
+        window holds the permit's iat, at most 3600 s, signature), permit_wrong_site (this certificate's serial),
+        permit_mismatch (tenant, source, action, target and parameters, expected version, staging), a used permit
+        answered with its first result (repeat true, permit_used, also after expiry), permit_expired; nothing is
+        written on a refusal, and the verdicts agree with the connector kit's reference.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasLink/tests/test_protocol_v2.py
+        checks:
+        - test_a_refused_permit_writes_nothing_and_is_logged
+        - test_an_act_under_a_valid_permit_is_written_once_and_a_repeat_gets_the_first_result
+        - test_a_repeat_after_the_permit_expired_and_its_key_retired_still_gets_the_first_result
+        - test_links_verdicts_agree_with_the_kits_reference
+    - id: L3-KNOVAS-LINK/work-channel/P-5
+      statement: Every delivery that carried a permit is a line of the site's write log (accepted, executed, refused,
+        repeated) and an act's first result is kept under each permit id, both written to Link's volume (0600)
+        before the job goes on; when that fails nothing goes on (failed write_log_unavailable).
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasLink/tests/test_protocol_v2.py
+        checks:
+        - test_an_act_under_a_valid_permit_is_written_once_and_a_repeat_gets_the_first_result
+        - test_when_the_write_log_cannot_be_written_nothing_goes_on
+    - id: L3-KNOVAS-LINK/work-channel/P-6
+      statement: With LINK_PROTOCOL_V2 on, Link pins the Brain's permit keys from GET /secured/connector/v2/permit-keys
+        only (keeping a key the Brain dropped until 30 days after its not_after) and declares its site with PUT
+        /secured/connector/v2/site, listing per connector only the assigned sources of the kind it declared.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasLink/tests/test_protocol_v2.py
+        checks:
+        - test_link_pins_the_brains_permit_keys_on_its_volume
+        - test_link_declares_its_site_with_each_connectors_declaration_and_its_sources_of_that_kind
     limits:
+    - id: L3-KNOVAS-LINK/work-channel/L-2
+      statement: Protocol 2.0 is a draft behind LINK_PROTOCOL_V2, off by default; the declarations do not reach the
+        Platform's heartbeat yet (Phase C, C-1).
+      risk_class: standard
     - id: L3-KNOVAS-LINK/work-channel/L-1
       statement: One long-poll of 25 s for at most 32 of the site's sources; backoff from 1 s doubling to 60 s.
       risk_class: low
@@ -877,3 +976,8 @@ review:
   why: The code reader sees only `python -m knovas_link` (its __main__ guard); the local API's routes (a Starlette route
     table with paths built from a constant), the three certificate commands (dispatched by argument) and the loops are
     listed by hand.
+- at: L3-KNOVAS-LINK/work-channel/L-2
+  why: No evidence; a known limit of the draft (FEAT-2026-11-10-write-back A-5, C-1).
+- at: L3-KNOVAS-LINK/*/A-2
+  why: Statement extended for the v2 contracts' own lock (A-5); a compatible addition, to be marked compatible by a
+    person who reviews it.

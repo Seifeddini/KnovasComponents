@@ -150,3 +150,27 @@ class BrainClient:
             return await self.http.send(request, stream=True)
         except httpx.HTTPError as exc:
             raise BrainUnreachable(type(exc).__name__) from None
+
+    # ---------------------------------------------------------------- connector protocol 2.0 (draft)
+
+    async def permit_keys(self) -> Any:
+        """``GET /secured/connector/v2/permit-keys``: the keys Link verifies permits with (only from here)."""
+        try:
+            answer = await self.http.get(self.base + "/secured/connector/v2/permit-keys")
+        except httpx.HTTPError as exc:
+            raise BrainUnreachable(type(exc).__name__) from None
+        if answer.status_code != 200:
+            raise BrainRefused(answer.status_code, error_code(answer))
+        try:
+            return answer.json()
+        except ValueError:
+            raise BrainRefused(200, "bad_answer") from None
+
+    async def declare_site(self, body: dict) -> None:
+        """``PUT /secured/connector/v2/site``: the site's id, protocol and its connectors' declarations."""
+        try:
+            answer = await self.http.put(self.base + "/secured/connector/v2/site", json=body)
+        except httpx.HTTPError as exc:
+            raise BrainUnreachable(type(exc).__name__) from None
+        if answer.status_code >= 300:
+            raise BrainRefused(answer.status_code, error_code(answer))

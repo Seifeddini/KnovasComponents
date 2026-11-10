@@ -427,10 +427,13 @@ def world(tmp_path):
 
 
 def register(world: World, client: TestClient, name: str = "sync-component", *, kind: str = "sync_component",
-             job_kinds: Any = ("fetch", "write", "probe"), capabilities: Any = ("dry_run", "apply", "write:github")):
-    answer = client.post("/local/v1/register", headers=world.headers(name),
-                         json={"component": name, "kind": kind, "version": "0.2.0", "capabilities": list(capabilities),
-                               "job_kinds": list(job_kinds)})
+             job_kinds: Any = ("fetch", "write", "probe"), capabilities: Any = ("dry_run", "apply", "write:github"),
+             declaration: Any = None):
+    body = {"component": name, "kind": kind, "version": "0.2.0", "capabilities": list(capabilities),
+            "job_kinds": list(job_kinds)}
+    if declaration is not None:                      # connector protocol 2.0 (draft)
+        body["declaration"] = declaration
+    answer = client.post("/local/v1/register", headers=world.headers(name), json=body)
     assert answer.status_code == 200, answer.text
     return answer.json()
 

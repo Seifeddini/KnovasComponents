@@ -207,8 +207,22 @@ heartbeat. A leak exposes the whole tenant, and the site cannot be revoked on it
   (paused when the site or the component is), and with its own where the Platform names none. Each source passes on
   `auto_apply` (register and configuration).
 
-**Logs** carry codes, counts and durations only: never a path, a document's name, a token or a certificate. There is
-no access log, because a relayed path or query may name a document.
+- **Connector protocol 2.0 (draft, `LINK_PROTOCOL_V2=true`; off by default)** ([the protocol
+  text](../KnovasPlatform/docs/connector-protocol-v2.md), contracts in `contracts/v2/` with their own lock; FEAT-2026-11-10-write-back
+  A-5). A connector registers with its declaration; Link declares its site to the Brain (`PUT
+  /secured/connector/v2/site`: its component id, protocol, version, and per connector its declaration and the assigned
+  sources of the kind it declared), pins the Brain's permit keys from `GET /secured/connector/v2/permit-keys` only
+  (`<data>/state/v2/permit-keys.json`), and routes `preview`, `act`, `reread`, `review_outcome` and `unstage` to the
+  connector that declared the action and staging (`refused action_not_declared` / `staging_unsupported`,
+  `write_disabled` for an act on a source that only reads). Before an `act` reaches its connector Link checks every
+  permit in the Alloy model's order (`write_path.py`): `permit_missing`, `permit_bad_signature`, `permit_wrong_site`,
+  `permit_mismatch`, a used permit answered with its first result (`repeat: true`, `permit_used`, also after expiry),
+  `permit_expired`; it writes the site's write log (`write-log.jsonl`) and keeps the first result under every permit id
+  (`used-permits.json`, 0600) before the job goes on, else `failed write_log_unavailable`. With the switch off a v2 job
+  is answered `unsupported protocol_unsupported` and a declaration is ignored; 1.x jobs go their 1.x way either way.
+
+**Logs** carry codes, counts and durations only: never a path, a document's name, a token, a permit or a certificate.
+There is no access log, because a relayed path or query may name a document.
 
 ## Tests
 
@@ -227,7 +241,8 @@ or type in Link's code, image or this page.
   signs (above).
 - Credentials sealed to Link's key (CL-1, I2).
 - Jobs bound to one site: a `fetch` or `write` job names no certificate serial yet, so any certificate of the tenant
-  that names the source can claim it. Needed before a tenant has a second site.
+  that names the source can claim it. Needed before a tenant has a second site. A v2 `act` is bound to one site by its permits (Link
+  refuses a permit naming another certificate serial); the Brain's claim by serial is task B2-4.
 - A narrower relay: everything below `secured/graph/` passes with every method (accepted for now, see
   [connector protocol v1.1](../KnovasPlatform/docs/connector-protocol-v1.md), "Sites and Knovas Link").
 

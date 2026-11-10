@@ -51,6 +51,15 @@ components:
       - KnovasLink/contracts/job.schema.json
       - KnovasLink/contracts/local-api.md
       - KnovasLink/contracts/stream-message.schema.json
+      - KnovasLink/contracts/v2/codes.json
+      - KnovasLink/contracts/v2/contracts.lock
+      - KnovasLink/contracts/v2/declaration.schema.json
+      - KnovasLink/contracts/v2/job.schema.json
+      - KnovasLink/contracts/v2/permit-keys.schema.json
+      - KnovasLink/contracts/v2/permit.schema.json
+      - KnovasLink/contracts/v2/result.schema.json
+      - KnovasLink/contracts/v2/site.schema.json
+      - KnovasLink/contracts/v2/stream-message.schema.json
       - KnovasLink/Dockerfile
       - KnovasLink/pyproject.toml
       - KnovasLink/requirements.txt
