@@ -9,6 +9,10 @@ the change shows in the review without the secret.
 
 Whether the component exists and serves the kind is the route's check: it
 knows the tenant's register, the model does not.
+
+With BUILDER_PROTOCOL_V2 on, a source may also be of a kind the catalogue has no form for, which a connector at a site
+declared (SPEC-write-back-13): its settings are names and values (sources.generic_settings), never a credential, and
+whether the chosen component declared the kind is again the route's check.
 """
 from __future__ import annotations
 
@@ -30,7 +34,13 @@ def key_from_name(name: str) -> str:
     return "-".join(re.findall(r"[a-z0-9]+", folded))[:60].strip("-") or "quelle"
 
 
-def _settings(kind: str, raw: Any) -> dict:
+def _settings(kind: str, raw: Any, key: str = "") -> dict:
+    if kind not in S.SOURCE_KINDS:
+        # A kind the Builder has no form for (protocol 2.0, SPEC-write-back-13): names and values, no credential.
+        try:
+            return S.generic_settings(raw, key or None)
+        except S.SettingsError as exc:
+            raise EditError(str(exc)) from None
     if raw is None:
         raw = {}
     if not isinstance(raw, Mapping):
@@ -64,7 +74,7 @@ def _access(kind: str, raw: Any) -> str:
 
 def _source_create(edit: _Edit, op: Mapping[str, Any]) -> None:
     kind = op.get("kind")
-    if kind not in S.SOURCE_KINDS:
+    if kind not in S.SOURCE_KINDS and not S.generic_kind(kind):
         raise EditError("Art: eine der angebotenen; CRM-Quellen sind geplant.")
     name = _text(op.get("name"), "Name", limit=120)
     if not name:
@@ -80,7 +90,7 @@ def _source_create(edit: _Edit, op: Mapping[str, Any]) -> None:
         key, n = f"{base}-{n}", n + 1
     source = {"key": key, "name": name, "kind": kind, "component": component, "sync_mode": "manual",
               "access": _access(kind, op.get("access")),
-              "settings": _settings(kind, op.get("settings")), "credential_set": False}
+              "settings": _settings(kind, op.get("settings"), key), "credential_set": False}
     _set_text(source, "owner", _text(op.get("owner"), "Verantwortlich", limit=120))
     edit.write(SOURCES, None, source)
 
@@ -90,6 +100,10 @@ def _source_update(edit: _Edit, op: Mapping[str, Any]) -> None:
     fields = op.get("fields") or {}
     if not isinstance(fields, Mapping):
         raise EditError("Felder: Angaben erwartet.")
+    if ("settings" in fields or "component" in fields) and new["kind"] not in S.SOURCE_KINDS \
+            and not S.generic_kind(new["kind"]):
+        # A kind only a connector declares is set up only while protocol 2.0 is on (its switch hides the form).
+        raise EditError("Einstellungen und Komponente dieser Art von Quelle werden nur mit Protokoll 2 geändert.", 409)
     if "name" in fields:
         new["name"] = _text(fields["name"], "Name", limit=120) or new["name"]
     if "owner" in fields:
@@ -99,7 +113,7 @@ def _source_update(edit: _Edit, op: Mapping[str, Any]) -> None:
     if "access" in fields:
         new["access"] = _access(new["kind"], fields["access"])
     if "settings" in fields:
-        new["settings"] = _settings(new["kind"], fields["settings"])
+        new["settings"] = _settings(new["kind"], fields["settings"], new["key"])
         # A credential belongs to where it was set for: a new address or repository drops it
         # (the route removes it from the registry), so a token never goes to another host.
         if any(new["settings"].get(k) != old["settings"].get(k) for k in HOST_SETTINGS):
@@ -130,7 +144,8 @@ def _source_switches(edit: _Edit, op: Mapping[str, Any]) -> None:
     if "fetch" in op:
         if not isinstance(op["fetch"], bool):
             raise EditError(f"«{S.SWITCHES['fetch']}»: an oder aus.")
-        if op["fetch"]:
+        # A kind the Builder has no form for: the serving component's declaration decides (the route's check).
+        if op["fetch"] and not S.generic_kind(new.get("kind")):
             why = S.fetch_offered(new.get("kind"))
             if why:
                 raise EditError(why)

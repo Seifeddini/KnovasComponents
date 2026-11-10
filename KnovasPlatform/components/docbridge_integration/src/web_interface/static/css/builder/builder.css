@@ -1447,6 +1447,17 @@ a.b-stat:hover { border-color: var(--color-border-strong); box-shadow: var(--sha
     .b-src-layout { grid-template-columns: minmax(0, 1fr); }
 }
 .b-src-profile td.is-num { white-space: nowrap; }
+/* The generic settings form (connector protocol 2.0, a kind without a form of its own): name, type, value, remove. */
+.b-src-generic { display: flex; flex-direction: column; gap: var(--space-1); align-items: flex-start; width: 100%; min-width: 0; }
+.b-src-generic-rows { display: flex; flex-direction: column; gap: var(--space-1); width: 100%; }
+.b-src-generic-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1.4fr) auto; gap: var(--space-1); align-items: center; }
+.b-src-generic-row input[type="checkbox"] { justify-self: start; }
+.b-src-generic-edit { max-width: 760px; }
+.b-src-generic-edit summary { cursor: pointer; }
+.b-src-generic-edit details[open] { display: flex; flex-direction: column; gap: var(--space-1); align-items: flex-start; }
+@media (max-width: 599px) {
+    .b-src-generic-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
 
 /* ---- Mapping (step B8) --------------------------------------------------- */
 

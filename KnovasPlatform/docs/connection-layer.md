@@ -32,7 +32,7 @@ entry point; it links to the pages that own each detail and repeats none of them
 | Sync component, link mode | the site, beside Link | reads GitHub, HTTP/JSON and file shares; runs brain-runner; answers `fetch` (a GitHub blob) and `write` (a pull request) jobs | [`components/sync_component/`](../components/sync_component/) | [sync component README](../components/sync_component/README.md) |
 | Brain Builder: sites | the Platform | the site page, its install package, «Token erneuern», the certificate step, «Jetzt prüfen»; per source «Quellen und Abgleich»: the last synced commit, the last run's counts, the next check, the switch «automatisch anwenden» (KG-2) | `components/docbridge_integration/src/builder/sites.py`, `builder/components.py` (`sync_rows`, `auto_apply_of`) | [connect-a-site.md](connect-a-site.md) §§ 1–2, 5 |
 | Brain Builder: a component's schedule | the Platform | manual, regularly (from 1 minute), in a window, or «bei neuen Commits» (poll every 15–3600 s); each component behind Link has its own | `builder/components.py` (`check_schedule`), `builder/protocol.py` (`components_of`) | [connect-a-site.md](connect-a-site.md) § 5 |
-| Brain Builder: sources and switches | the Platform | per source «Agenten dürfen Originale abrufen» and «Änderungen dürfen zurückgeschrieben werden», both off until switched on and published | `builder/sources.py` | [connect-a-site.md](connect-a-site.md) § 3 |
+| Brain Builder: sources and switches | the Platform | per source «Agenten dürfen Originale abrufen» and «Änderungen dürfen zurückgeschrieben werden», both off until switched on and published; with `BUILDER_PROTOCOL_V2` (off) also a source of a kind a connector at a site declared and the Builder has no form for, created with the generic settings form (names and values, never a credential) and served to the site as entered (SPEC-write-back-13) | `builder/sources.py`, `builder/source_edits.py`, `builder/protocol_v2.py` | [connect-a-site.md](connect-a-site.md) § 3 |
 | Brain Builder: mapping panels | the Platform | «Zugriff» (who reads the documents) and «Zurückschreiben» (which facts may travel back) | `builder/mapping_edits.py`, `builder/mappings.py` | [connect-a-site.md](connect-a-site.md) § 4 |
 | Brain Builder: «Betrieb › Freigaben» | the Platform | accept or reject write proposals (permission «Veröffentlichen»); with `BUILDER_PROTOCOL_V2` (off) also change sets of protocol 2 with their previews, approved only where every preview is exact, with the source's staging (`direct` unless set) | `builder/approvals.py`, `builder/connection_api.py`, `builder/protocol_v2.py` | [connect-a-site.md](connect-a-site.md) § 5 |
 | Brain Builder: «Betrieb › Verbindung» | the Platform | one health card per site: green only after a probe went round in the last 10 minutes | `builder/sites.py`, `builder/connection_api.py` | [connect-a-site.md](connect-a-site.md) § 5 |
@@ -78,6 +78,7 @@ network is closed (`builder/sites.py`).
 | `SYNC_LINK_URL` | the sync component runs in link mode (the install package sets it) | unset: direct mode |
 | A component's schedule «Bei neuen Commits» | it asks each GitHub source for its head every `poll_seconds` and plans only the mappings new commits concern (KG-2) | manual |
 | Source switch «Automatisch anwenden, wenn nichts zur Freigabe ansteht» (whoever manages sites) | the component applies a scheduled plan of that source right after it is made, only when nothing in it needs a person; a guard hold, drift or retire entry still waits | off |
+| `BUILDER_PROTOCOL_V2` | the Builder decides on the connectors' protocol 2 declarations: writing back and the staging per source where a connector declared actions and passed the conformance checks, change sets in «Freigaben», and a source of a kind the Builder has no form for, with the generic settings form, where a connector declared that kind and passed the read checks | off |
 | `BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT` | the Platform requires the terminator's fingerprint on connector calls | `true` |
 | `BUILDER_CONNECTOR_ISSUE_CERTIFICATES` | the Platform asks the Brain to sign a component's certificate at enrolment. Where the Brain cannot sign, set `false`: Knovas Link then waits for a certificate an admin signed | `true` |
 | `BUILDER_CONNECTOR_CLIENT_CA` | the client CA Link learns at enrolment and a recorded site certificate must chain to | empty |
@@ -103,6 +104,12 @@ network is closed (`builder/sites.py`).
   the source; credentials typed into the Builder; monitoring history and notifications; autonomous writes to a source
 (automatic apply writes to the Brain only, and only what needs no person); polling sources other than GitHub. The Builder
   records who accepted a proposal, but the Brain does not yet bind the accept to a verified person.
+- **A new source kind needs no Platform change** (SPEC-write-back-13, behind `BUILDER_PROTOCOL_V2`): what a source can
+  write comes from its connector's declaration, and a kind the Builder has no form for is created with one generic
+  settings form. The declaration describes no settings, so the form takes names and values (text, number, yes/no, list
+  of texts) and a connector's documentation says which; the form refuses what looks like a credential by its form,
+  not every secret. Typed fields from the connector would need an addition to the declaration: an open question, not
+  decided.
 - **Known limits:** jobs of one tenant are not yet bound to one site, so add a second site only after that item; Link
   relays every method below `secured/graph/` ([connector-protocol-v1.md](connector-protocol-v1.md), "Sites and Knovas
   Link").

@@ -14,6 +14,12 @@ other, and kept in the checked form below (the connector's identity is not kept)
 nothing through protocol 2.0 and is named with its field (``declaration_refused``); the heartbeat it came with is kept
 (Phase A verification L3).
 
+**A kind the Builder has no form for** (SPEC-write-back-13): with the switch on, a source of a kind a connector at a
+site declared is created with the generic settings form (builder/sources.py, ``generic_settings``)
+where the component serving it declared that kind and passed the read properties (``read_reason``); agents may fetch
+its originals where the component declared ``fetch`` (``fetch_reason``). The declaration describes no settings, so the
+form is name and value, not typed fields from the connector.
+
 **Staging needs its conformance** (Phase A verification M4): ``native_review`` is offered only where the connector
 passed ``review_outcome``, as the protocol requires for that staging; ``direct`` needs the write properties alone.
 
@@ -29,7 +35,7 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 SCHEMA = Path(__file__).resolve().parent / "contracts" / "declaration-v2.schema.json"
 TOKEN = re.compile(r"^[a-z][a-z0-9_.-]{0,62}$")
@@ -37,6 +43,7 @@ STAGINGS = ("direct", "native_review")
 PROPERTIES = ("replay_changes_nothing", "deletion_guard", "preview_equals_receipt", "exactly_once", "permit_refusals",
               "no_credential_leaves_site", "review_outcome")
 WRITE_PROPERTIES = ("preview_equals_receipt", "exactly_once", "permit_refusals", "no_credential_leaves_site")
+READ_PROPERTIES = ("replay_changes_nothing", "deletion_guard", "no_credential_leaves_site")
 #: What a staging needs besides the write properties (the declaration schema's ``conformance.passed``).
 STAGING_PROPERTIES = {"direct": (), "native_review": ("review_outcome",)}
 STREAMS = ("document", "record", "tombstone", "generation", "state", "principal", "group", "membership", "permission")
@@ -90,11 +97,7 @@ def write_reason(kind: Any, component: Optional[Mapping[str, Any]]) -> Optional[
     """Why writing back is not offered through protocol 2.0 for a source of ``kind``, or None when it is."""
     found = declaration_of(component)
     if found is None:
-        refused = ((component or {}).get("telemetry") or {}).get("declaration_refused")
-        if refused:
-            return (f"Die Anmeldung der Komponente mit Protokoll 2 entspricht dem Protokoll nicht ({refused}): eine "
-                    "Version der Komponente installieren, die zu dieser Plattform passt.")
-        return "Die Komponente dieser Quelle hat sich nicht mit Protokoll 2 angemeldet."
+        return _not_declared(component)
     if found.get("source_kind") != kind or not found.get("actions"):
         return "Die Komponente dieser Quelle bietet für diese Art von Quelle keine Aktion an."
     passed = (found.get("conformance") or {}).get("passed", [])
@@ -106,6 +109,58 @@ def write_reason(kind: Any, component: Optional[Mapping[str, Any]]) -> Optional[
         return ("Die Komponente bietet nur das Schreiben als Vorschlag zur Prüfung in der Quelle an und hat dessen "
                 "Prüfung (review_outcome) nicht bestanden.")
     return None
+
+
+def _not_declared(component: Optional[Mapping[str, Any]]) -> str:
+    refused = ((component or {}).get("telemetry") or {}).get("declaration_refused")
+    if refused:
+        return (f"Die Anmeldung der Komponente mit Protokoll 2 entspricht dem Protokoll nicht ({refused}): eine "
+                "Version der Komponente installieren, die zu dieser Plattform passt.")
+    return "Die Komponente dieser Quelle hat sich nicht mit Protokoll 2 angemeldet."
+
+
+def read_reason(kind: Any, component: Optional[Mapping[str, Any]]) -> Optional[str]:
+    """Why a source of ``kind`` cannot be read through ``component`` under protocol 2.0, or None: the component
+    declared the kind and passed the read properties (the protocol: reading needs replay_changes_nothing,
+    deletion_guard and no_credential_leaves_site). This is what lets a source of a kind the Builder has no form for
+    be created at all (SPEC-write-back-13); a kind of the Builder's own catalogue is read as before."""
+    found = declaration_of(component)
+    if found is None:
+        return _not_declared(component)
+    if found.get("source_kind") != kind:
+        return "Die Komponente dieser Quelle hat diese Art von Quelle nicht angemeldet."
+    passed = (found.get("conformance") or {}).get("passed", [])
+    missing = [p for p in READ_PROPERTIES if p not in passed]
+    if missing:
+        return ("Die Komponente hat die Prüfungen fürs Lesen nicht bestanden (" + ", ".join(missing) + "): eine "
+                "Version installieren, die sie besteht.")
+    return None
+
+
+def fetch_reason(kind: Any, component: Optional[Mapping[str, Any]]) -> Optional[str]:
+    """Why agents may not fetch originals of a source of ``kind`` through ``component`` under protocol 2.0, or None:
+    the component declared the kind with ``fetch``. Asked only for a kind the Builder has no form for; the catalogue's
+    kinds keep their own rule (sources.fetch_offered)."""
+    found = declaration_of(component)
+    if found is None:
+        return _not_declared(component)
+    if found.get("source_kind") != kind:
+        return "Die Komponente dieser Quelle hat diese Art von Quelle nicht angemeldet."
+    if found.get("fetch") is not True:
+        return "Die Komponente dieser Quelle ruft keine Originale ab (sie hat «fetch» nicht angemeldet)."
+    return None
+
+
+def declared_kinds(components: Iterable[Mapping[str, Any]], known: Iterable[str] = ()) -> dict:
+    """The source kinds the components declared that are not in ``known`` (the Builder's own forms), each with the
+    ids of the components a source of it can be read through (read_reason None), in the components' order."""
+    skip = set(known)
+    out: dict = {}
+    for c in components:
+        kind = (declaration_of(c) or {}).get("source_kind")
+        if kind and kind not in skip and read_reason(kind, c) is None:
+            out.setdefault(kind, []).append(c.get("id"))
+    return out
 
 
 def actions_of(kind: Any, component: Optional[Mapping[str, Any]]) -> list:

@@ -816,7 +816,7 @@ def create_builder_blueprint(
         store, current = _editable_workspace(workspace_id)
         op = request.get_json(silent=True)
         try:
-            _check_source_op(store, op)
+            _check_source_op(store, op, current)
             _check_switch_op(store, current, op)
             _check_role_op(op)
             model, changes, batch = store.edit(current.id, gate.current_user().id,
@@ -2587,11 +2587,16 @@ def create_builder_blueprint(
             workspace_id = workspace.id if workspace is not None else None
         published = {s.get("key"): s for s in ((store.published_model(workspace_id) if workspace_id and
                                                 hasattr(store, "published_model") else None) or {}).get("sources") or []}
+        from builder import protocol_v2
+
         for s in model.get("sources") or []:
             c = components.get(s.get("component"))
-            kind = source_kinds.SOURCE_KINDS.get(s.get("kind"), {})
+            # A kind the Builder has no form for (protocol 2.0, SPEC-write-back-13): its settings are names and values.
+            generic = s.get("kind") not in source_kinds.SOURCE_KINDS
+            kind = source_kinds.SOURCE_KINDS.get(s.get("kind")) or (
+                {"label": s.get("kind"), "credential": source_kinds.GENERIC_CREDENTIAL} if generic else {})
             on_site = bool(c and c.get("site_id"))
-            found.append({**s, "kind_label": kind.get("label", s.get("kind")),
+            found.append({**s, "kind_label": kind.get("label", s.get("kind")), "generic": generic,
                           "access": source_kinds.access_of(s),
                           "access_label": source_kinds.ACCESS.get(source_kinds.access_of(s), source_kinds.access_of(s)),
                           "component_name": c["name"] if c else None,
@@ -2604,7 +2609,7 @@ def create_builder_blueprint(
                           "fetch": source_kinds.fetch_of(s), "write": source_kinds.write_of(s),
                           "fetch_published": source_kinds.fetch_of(published.get(s.get("key")) or {}),
                           "write_published": source_kinds.write_of(published.get(s.get("key")) or {}),
-                          "fetch_reason": source_kinds.fetch_offered(s.get("kind")),
+                          "fetch_reason": source_kinds.fetch_offered(s.get("kind"), c),
                           "write_reason": source_kinds.write_offered(s.get("kind"), c),
                           # Connector protocol 2.0 (draft, BUILDER_PROTOCOL_V2): the actions the component declared,
                           # and how approved writes reach the source (C-Q1: direct unless set), draft and published.
@@ -2618,6 +2623,13 @@ def create_builder_blueprint(
                      "access": [{"value": m, "label": source_kinds.ACCESS[m]} for m in source_kinds.access_modes(k)],
                      "settings": [{"name": n, "label": l, "hint": h} for n, l, h in v["settings"]]}
                  for k, v in source_kinds.SOURCE_KINDS.items()}
+        # With protocol 2.0 on: each kind a connector at a site declared that the catalogue has no form for, offered
+        # with the generic form on the components that declared it and passed the read properties.
+        if protocol_v2.enabled():
+            for k, ids in protocol_v2.declared_kinds(components.values(), source_kinds.SOURCE_KINDS).items():
+                kinds[k] = {"label": k, "generic": True, "component": None, "components": [], "component_ids": ids,
+                            "credential": source_kinds.GENERIC_CREDENTIAL, "credential_required": False,
+                            "access": [{"value": "read", "label": source_kinds.ACCESS["read"]}], "settings": []}
         mapping_list = []
         for m in model.get("mappings") or []:
             d = m.get("definition") or {}
@@ -2632,12 +2644,16 @@ def create_builder_blueprint(
         return {"sources": found, "kinds": kinds, "planned": source_kinds.PLANNED_SOURCES, "mappings": mapping_list,
                 "types": sorted(types, key=lambda t: t["key"]),
                 "components": list(components.values()), "extractors": source_kinds.FILE_EXTRACTORS,
+                "generic_form": protocol_v2.enabled(),
+                "setting_types": [{"value": k, "label": v} for k, v in source_kinds.GENERIC_TYPES.items()],
                 "secrets": {"available": bool(secrets and secrets.available),
                             "reason": "" if secrets and secrets.available else
                             (secrets.reason if secrets else "Diese Plattform speichert keine Geheimnisse.")}}
 
-    def _check_source_op(store, op) -> None:
-        """A source names a component of this tenant's register that serves its kind."""
+    def _check_source_op(store, op, current=None) -> None:
+        """A source names a component of this tenant's register that serves its kind. For a kind the Builder has no
+        form for (protocol 2.0 on), a component that declared that kind and passed the read properties
+        (SPEC-write-back-13): on create, and when a source of such a kind moves to another component."""
         if not isinstance(op, Mapping) or op.get("op") not in ("source.create", "source.update"):
             return
         component_id = op.get("component") if op["op"] == "source.create" else (op.get("fields") or {}).get("component")
@@ -2647,11 +2663,25 @@ def create_builder_blueprint(
         component = store.component(tenant, str(component_id)) if tenant else None
         if component is None:
             raise editing.EditError("Diese Komponente ist für den Mandanten nicht registriert.", 404)
+        from builder import protocol_v2
+
         if op["op"] == "source.create":
+            if source_kinds.generic_kind(op.get("kind")):
+                why = protocol_v2.read_reason(op.get("kind"), component)
+                if why:
+                    raise editing.EditError(why, 409)
+                return
             kind = source_kinds.SOURCE_KINDS.get(op.get("kind"), {})
             wanted = kind.get("component")
             if wanted and component["kind"] not in (wanted, *kind.get("also_on", ())):
                 raise editing.EditError(f"Eine Quelle dieser Art liest nur ein {source_kinds.COMPONENT_KINDS[wanted]['label']}.")
+        elif current is not None:
+            source = next((s for s in (store.model(current.id) or {}).get("sources") or []
+                           if s.get("key") == op.get("key")), None)
+            if source is not None and source_kinds.generic_kind(source.get("kind")):
+                why = protocol_v2.read_reason(source.get("kind"), component)
+                if why:
+                    raise editing.EditError(why, 409)
 
     #: Who may bind a source to a component at a site: whoever manages the tenant's sites (BB-07, B2). A grant on one
     #: workspace never gives it (grants hold builder roles only), so a consultant cannot point a site at a source.
@@ -2697,7 +2727,17 @@ def create_builder_blueprint(
 
     def _check_switch_op(store, current, op) -> None:
         """Writing back is switched on only where the component serving the source can write to its kind (MVP-25); a
-        staging (protocol 2, C-Q1) is chosen only where that component declared it for the kind."""
+        staging (protocol 2, C-Q1) is chosen only where that component declared it for the kind; for a kind the
+        Builder has no form for, fetching originals only where that component declared ``fetch``."""
+        if isinstance(op, Mapping) and op.get("op") == "source.switches" and op.get("fetch") is True:
+            source = next((s for s in (store.model(current.id) or {}).get("sources") or []
+                           if s.get("key") == op.get("key")), None)
+            if source is not None and source_kinds.generic_kind(source.get("kind")):
+                tenant = _platform_tenant()
+                component = store.component(tenant, str(source.get("component"))) if tenant else None
+                why = source_kinds.fetch_offered(source.get("kind"), component)
+                if why:
+                    raise editing.EditError(why, 409)
         if isinstance(op, Mapping) and op.get("op") == "source.switches" and "staging" in op:
             from builder import protocol_v2
 
@@ -2960,8 +3000,9 @@ def create_builder_blueprint(
         store, current, _, source = _source_of(workspace_id, key)
         tenant = _platform_tenant()
         component = store.component(tenant, source.get("component")) if tenant and source.get("component") else None
-        if component is not None and component.get("site_id"):
-            # MVP-24: no credential of a source on a site is typed into the Platform.
+        if (component is not None and component.get("site_id")) or source.get("kind") not in source_kinds.SOURCE_KINDS:
+            # MVP-24: no credential of a source on a site is typed into the Platform; nor of a kind only a connector at
+            # a site declares (SPEC-write-back-13), wherever its component is.
             return jsonify({"success": False, "error": "Der Zugang dieser Quelle gehört an den Standort: die Zeile "
                             f"{site_rules.credential_line(key)}… in {site_rules.SOURCES_ENV_FILE} eintragen, danach neu starten und "
                             "Verbindung prüfen. In die Plattform wird er nicht eingegeben."}), 409
@@ -2989,6 +3030,9 @@ def create_builder_blueprint(
         component = store.component(tenant, source.get("component")) if tenant else None
         if component is None:
             raise source_kinds.ReaderError("Die Komponente dieser Quelle ist nicht registriert.")
+        if source.get("kind") not in source_kinds.SOURCE_KINDS:
+            # A kind only a connector at a site declares: read there, never by the Platform (SPEC-write-back-13).
+            raise source_kinds.ReaderError(source_kinds.on_site_problem(source.get("kind"), None, site=True))
         secrets = _secrets()
         secret = secrets.get(source_secret_key(current.id, source["key"])) if secrets and source.get("credential_set") else None
         kind = source_kinds.SOURCE_KINDS.get(source.get("kind"), {})

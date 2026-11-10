@@ -7,6 +7,11 @@
  * its own route and never comes back. "Testen" reaches the source through its
  * component and lists what it holds; "Stichprobe" shows up to 50 items of one
  * collection with the profile of their fields.
+ *
+ * With connector protocol 2.0 on (data.generic_form), a kind a connector at a site declared that has no form of its
+ * own (data.kinds[k].generic) gets the generic form: settings as name, type and value, sent typed (text, number,
+ * yes/no, list of texts) and checked again by the server, which refuses anything that looks like a credential. Its
+ * credential is a line of knovas-sources.env at the site, never a value here (SPEC-write-back-13).
  */
 (function () {
     'use strict';
@@ -133,18 +138,157 @@
         head.appendChild(tools);
         box.appendChild(head);
 
-        var kind = data.kinds[s.kind] || { settings: [] };
-        var rows = [['Art', s.kind_label], ['Zugriff', s.access_label], ['Komponente', s.component_name || 'nicht registriert'],
+        var kind = data.kinds[s.kind] || { settings: [], credential: s.credential_label };
+        var rows = [['Art', s.generic ? s.kind_label + ' (vom Connector angemeldet)' : s.kind_label], ['Zugriff', s.access_label],
+                    ['Komponente', s.component_name || 'nicht registriert'],
                     ['Verantwortlich', s.owner], ['Synchronisation', 'manuell']];
-        kind.settings.forEach(function (f) { rows.push([f.label, (s.settings || {})[f.name]]); });
-        box.appendChild(dl(rows));
+        if (s.generic) {
+            if (s.site_name) rows.splice(3, 0, ['Standort', s.site_name]);
+            Object.keys(s.settings || {}).forEach(function (name) { rows.push([name, shownSetting(s.settings[name])]); });
+        } else {
+            kind.settings.forEach(function (f) { rows.push([f.label, (s.settings || {})[f.name]]); });
+        }
+        var list = dl(rows);
+        list.setAttribute('data-src-settings', '');
+        box.appendChild(list);
+        if (s.generic && data.generic_form) box.appendChild(genericSettingsBox(s));
 
         box.appendChild(switchesBox(s));
-        if (kind.credential) box.appendChild(credentialBox(s, kind));
+        if (s.generic) { if (s.on_site && s.credential_line) box.appendChild(siteCredentialBox(s, kind)); }
+        else if (kind.credential) box.appendChild(credentialBox(s, kind));
         var result = el('div', 'b-src-result');
         result.setAttribute('data-src-result', '');
         box.appendChild(result);
         if (tested[s.key]) showTest(s, tested[s.key]);
+    }
+
+    /* ---- generic settings (protocol 2.0, a kind without a form of its own) ---- */
+
+    function shownSetting(value) {
+        if (value === true) return 'ja';
+        if (value === false) return 'nein';
+        if (Array.isArray(value)) return value.join(', ');
+        return value === undefined || value === null ? '' : String(value);
+    }
+
+    function typeOf(value) {
+        if (typeof value === 'boolean') return 'boolean';
+        if (typeof value === 'number') return 'number';
+        if (Array.isArray(value)) return 'list';
+        return 'text';
+    }
+
+    /* Rows of name, type and value; read() answers { settings } typed as the connector reads them, or { error }. */
+    function settingsEditor(initial) {
+        var wrap = el('div', 'b-src-generic');
+        wrap.setAttribute('data-src-generic', '');
+        var rows = el('div', 'b-src-generic-rows');
+        wrap.appendChild(rows);
+
+        function valueInput(type, value) {
+            var input = el('input', type === 'boolean' ? null : 'b-input b-mono');
+            if (type === 'boolean') { input.type = 'checkbox'; input.checked = value === true; }
+            else {
+                input.type = 'text';
+                input.inputMode = type === 'number' ? 'decimal' : 'text';
+                input.value = Array.isArray(value) ? value.join(', ') : (value === undefined || value === null ? '' : String(value));
+                input.placeholder = type === 'list' ? 'mit Komma getrennt' : (type === 'number' ? 'z. B. 100' : 'Wert');
+                input.autocomplete = 'off';
+                input.spellcheck = false;
+            }
+            input.setAttribute('data-sg-value', '');
+            input.setAttribute('aria-label', 'Wert');
+            return input;
+        }
+
+        function addRow(name, value) {
+            var row = el('div', 'b-src-generic-row');
+            row.setAttribute('data-sg-row', '');
+            var nameInput = el('input', 'b-input b-mono');
+            nameInput.value = name || '';
+            nameInput.placeholder = 'Name, z. B. project';
+            nameInput.autocomplete = 'off';
+            nameInput.spellcheck = false;
+            nameInput.setAttribute('data-sg-name', '');
+            nameInput.setAttribute('aria-label', 'Name der Einstellung');
+            var type = el('select', 'b-select');
+            type.setAttribute('data-sg-type', '');
+            type.setAttribute('aria-label', 'Art des Werts');
+            (data.setting_types || []).forEach(function (t) { var o = el('option', null, t.label); o.value = t.value; type.appendChild(o); });
+            type.value = typeOf(value);
+            var input = valueInput(type.value, value);
+            type.addEventListener('change', function () {
+                var next = valueInput(type.value, type.value === 'boolean' ? false : input.value);
+                row.replaceChild(next, input);
+                input = next;
+            });
+            row.appendChild(nameInput);
+            row.appendChild(type);
+            row.appendChild(input);
+            row.appendChild(button('Entfernen', 'b-button--quiet b-button--small', function () { rows.removeChild(row); }));
+            rows.appendChild(row);
+        }
+
+        Object.keys(initial || {}).forEach(function (name) { addRow(name, initial[name]); });
+        if (!rows.children.length) addRow('', '');
+        wrap.appendChild(button('Einstellung hinzufügen', 'b-button--quiet b-button--small', function () { addRow('', ''); }));
+
+        return {
+            node: wrap,
+            read: function () {
+                var settings = {};
+                var error = null;
+                Array.prototype.forEach.call(rows.querySelectorAll('[data-sg-row]'), function (row) {
+                    if (error) return;
+                    var name = row.querySelector('[data-sg-name]').value.trim();
+                    var type = row.querySelector('[data-sg-type]').value;
+                    var input = row.querySelector('[data-sg-value]');
+                    var raw = type === 'boolean' ? null : input.value.trim();
+                    if (!name) { if (type !== 'boolean' && raw) error = 'Jede Einstellung braucht einen Namen.'; return; }
+                    if (Object.prototype.hasOwnProperty.call(settings, name)) { error = 'Die Einstellung «' + name + '» steht zweimal da.'; return; }
+                    if (type === 'boolean') settings[name] = input.checked;
+                    else if (type === 'number') {
+                        if (raw === '') return;
+                        var n = Number(raw.replace(',', '.'));
+                        if (!isFinite(n)) { error = '«' + name + '»: eine Zahl.'; return; }
+                        settings[name] = n;
+                    } else if (type === 'list') {
+                        settings[name] = raw.split(/[,\n]/).map(function (x) { return x.trim(); }).filter(Boolean);
+                    } else settings[name] = raw;
+                });
+                return error ? { error: error } : { settings: settings };
+            },
+        };
+    }
+
+    var GENERIC_NOTE = 'Für diese Art von Quelle hat der Builder kein eigenes Formular: Einstellungen als Name und Wert ' +
+        'eintragen, so wie der Connector sie liest (seine Dokumentation nennt sie). Zugänge gehören nicht hierher: ' +
+        'sie werden am Standort in knovas-sources.env eingetragen.';
+
+    /* A generic source's settings, changed as an edit of the draft: reviewed and published before the site sees them. */
+    function genericSettingsBox(s) {
+        var box = el('section', 'b-src-generic-edit');
+        box.setAttribute('data-src-generic-edit', '');
+        var details = el('details');
+        details.appendChild(el('summary', null, 'Einstellungen ändern'));
+        details.appendChild(el('p', 'b-small b-muted', GENERIC_NOTE));
+        var editor = settingsEditor(s.settings);
+        details.appendChild(editor.node);
+        var error = el('div', 'b-callout b-callout--critical');
+        error.setAttribute('role', 'alert');
+        error.hidden = true;
+        details.appendChild(error);
+        details.appendChild(button('Einstellungen speichern', 'b-button--secondary', function () {
+            var read = editor.read();
+            if (read.error) { error.textContent = read.error; error.hidden = false; return; }
+            post(root.dataset.editUrl, { op: 'source.update', key: s.key, fields: { settings: read.settings } }).then(function (payload) {
+                if (!payload.success) { error.textContent = payload.error; error.hidden = false; return; }
+                toast('Einstellungen im Entwurf geändert', 'Wirken am Standort nach Prüfen & Veröffentlichen.');
+                load(payload.sources, s.key);
+            });
+        }));
+        box.appendChild(details);
+        return box;
     }
 
     /* The source's two switches (connection layer MVP-25): off until switched on here; each is an edit of the draft,
@@ -538,16 +682,37 @@
         return r ? r.value : '';
     }
 
+    var CREDENTIAL_NOTE = dialog.querySelector('[data-sn-credential-note]').textContent;
+    var genericEditor = null;
+
     function syncKind() {
         var kind = data.kinds[chosenKind()];
         var select = form.elements.component;
         select.textContent = '';
-        var fitting = data.components.filter(function (c) { return kind && (kind.components || [kind.component]).indexOf(c.kind) !== -1; });
+        /* A declared kind: only the components that declared it and passed the read properties. */
+        var fitting = data.components.filter(function (c) {
+            if (kind && kind.component_ids) return kind.component_ids.indexOf(c.id) !== -1;
+            return kind && (kind.components || [kind.component]).indexOf(c.kind) !== -1;
+        });
         fitting.forEach(function (c) { var o = el('option', null, c.name + (c.site ? ' (' + c.site + ')' : '')); o.value = c.id; select.appendChild(o); });
         dialog.querySelector('[data-sn-component-hint]').textContent = fitting.length ? ''
             : 'Für diese Art ist keine Komponente registriert (Stufe Verbinden).';
         var box = dialog.querySelector('[data-sn-settings]');
         box.textContent = '';
+        var generic = !!(kind && kind.generic);
+        dialog.querySelector('[data-sn-key]').hidden = !generic;
+        dialog.querySelector('[data-sn-credential-note]').textContent = generic
+            ? 'Synchronisation: manuell. Der Zugang wird nicht hier eingegeben: nach dem Anlegen zeigt die Quelle die Zeile für knovas-sources.env am Standort.'
+            : CREDENTIAL_NOTE;
+        genericEditor = null;
+        if (generic) {
+            var field = el('fieldset', 'b-field b-choice');
+            field.appendChild(el('legend', 'b-label', 'Einstellungen'));
+            field.appendChild(el('p', 'b-small b-muted', GENERIC_NOTE));
+            genericEditor = settingsEditor({});
+            field.appendChild(genericEditor.node);
+            box.appendChild(field);
+        }
         (kind ? kind.settings : []).forEach(function (f) {
             var field = el('div', 'b-field');
             var input = el('input', 'b-input b-mono');
@@ -576,7 +741,9 @@
             accessField.appendChild(select);
             box.appendChild(accessField);
         } else if (modes.length === 1) {
-            box.appendChild(el('p', 'b-small b-muted', 'Zugriff: ' + modes[0].label + '. Diese Art von Quelle wird nie beschrieben.'));
+            box.appendChild(el('p', 'b-small b-muted', generic
+                ? 'Zugriff: ' + modes[0].label + '. Zurückschreiben schaltet die Quelle danach ein, wo die Komponente Aktionen angemeldet hat.'
+                : 'Zugriff: ' + modes[0].label + '. Diese Art von Quelle wird nie beschrieben.'));
         }
     }
 
@@ -595,13 +762,19 @@
         e.preventDefault();
         var kind = chosenKind();
         var settings = {};
+        if (genericEditor) {
+            var read = genericEditor.read();
+            if (read.error) { error.textContent = read.error; error.hidden = false; return; }
+            settings = read.settings;
+        }
         (data.kinds[kind] ? data.kinds[kind].settings : []).forEach(function (f) {
             settings[f.name] = form.elements['setting_' + f.name].value;
         });
+        var key = genericEditor ? form.elements.key.value.trim() : '';
         post(root.dataset.editUrl, { op: 'source.create', kind: kind, name: form.elements.name.value,
                                      owner: form.elements.owner.value, component: form.elements.component.value,
                                      access: form.elements.access ? form.elements.access.value : undefined,
-                                     settings: settings })
+                                     key: key || undefined, settings: settings })
             .then(function (payload) {
                 if (!payload.success) { error.textContent = payload.error; error.hidden = false; return; }
                 dialog.close();

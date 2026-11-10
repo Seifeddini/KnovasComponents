@@ -108,12 +108,19 @@
         <div class="b-dialog-body">
             <fieldset class="b-field b-choice">
                 <legend class="b-label">Art</legend>
-                {% for kind, k in sources.kinds.items() %}
+                {% for kind, k in sources.kinds.items() if not k.generic %}
                 <label class="b-check"><input type="radio" name="kind" value="{{ kind }}" {% if loop.first %}checked{% endif %}>{{ k.label }}</label>
                 {% endfor %}
                 {% for p in sources.planned %}
                 <label class="b-check b-muted"><input type="radio" name="kind" value="{{ p.kind }}" disabled>{{ p.label }} (geplant)</label>
                 {% endfor %}
+                {% set declared = sources.kinds.items() | selectattr('1.generic') | list %}
+                {% if declared %}
+                <p class="b-small b-muted" data-sn-declared>Von einem Connector am Standort angemeldet (Protokoll 2), mit allgemeinen Einstellungen:</p>
+                {% for kind, k in declared %}
+                <label class="b-check"><input type="radio" name="kind" value="{{ kind }}" data-sn-generic><span class="b-mono">{{ k.label }}</span></label>
+                {% endfor %}
+                {% endif %}
             </fieldset>
             <div class="b-field">
                 <label class="b-label" for="b-sn-component">Komponente</label>
@@ -124,8 +131,13 @@
                 <div class="b-field"><label class="b-label" for="b-sn-name">Name</label><input class="b-input" id="b-sn-name" name="name" required autocomplete="off"></div>
                 <div class="b-field"><label class="b-label" for="b-sn-owner">Verantwortlich</label><input class="b-input" id="b-sn-owner" name="owner" autocomplete="off"></div>
             </div>
+            <div class="b-field" data-sn-key hidden>
+                <label class="b-label" for="b-sn-key">Schlüssel</label>
+                <input class="b-input b-mono" id="b-sn-key" name="key" autocomplete="off" spellcheck="false" placeholder="aus dem Namen gebildet, falls leer">
+                <span class="b-hint">Klein geschrieben, Wörter mit Bindestrich. Bestimmt die Zeile für den Zugang am Standort (SYNC_CREDENTIAL_…).</span>
+            </div>
             <div data-sn-settings></div>
-            <p class="b-small b-muted">Synchronisation: manuell. Zugangsdaten setzen Sie nach dem Anlegen; sie werden nur geschrieben, nie angezeigt.</p>
+            <p class="b-small b-muted" data-sn-credential-note>Synchronisation: manuell. Zugangsdaten setzen Sie nach dem Anlegen; sie werden nur geschrieben, nie angezeigt.</p>
             <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
         </div>
         <div class="b-dialog-foot">

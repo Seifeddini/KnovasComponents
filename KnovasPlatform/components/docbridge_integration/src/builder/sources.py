@@ -18,7 +18,8 @@ enrolled KnovasConnector transfers a folder's documents. The Platform then
 reads nothing from a company's network (OnSiteFiles, on_site_problem); whether
 the component can read the source it reports as a code and counts.
 
-CRM and database connectors are shown as planned.
+CRM and database connectors are shown as planned. With connector protocol 2.0 on (BUILDER_PROTOCOL_V2), any other
+kind a connector at a site declares gets one generic settings form (section "kinds the Builder has no form for").
 
 A reader answers two questions: ``test`` -- reach the source and list what it
 holds as collections with counts -- and ``sample`` -- up to 50 items of one
@@ -28,6 +29,7 @@ names, values) goes to the page that asked, never into a log.
 """
 from __future__ import annotations
 
+import math
 import posixpath
 import re
 from collections import Counter
@@ -112,8 +114,13 @@ def write_of(source: Mapping[str, Any]) -> bool:
     return access_of(source) == "read_write"
 
 
-def fetch_offered(kind: Any) -> Optional[str]:
-    """Why the fetch switch is not offered for this kind, or None when it is."""
+def fetch_offered(kind: Any, component: Optional[Mapping[str, Any]] = None) -> Optional[str]:
+    """Why the fetch switch is not offered for this kind, or None when it is. For a kind the Builder has no form for
+    (protocol 2.0 on): the serving component's declaration decides (``component``; protocol_v2.fetch_reason)."""
+    if kind not in SOURCE_KINDS and generic_kind(kind):
+        from builder import protocol_v2
+
+        return protocol_v2.fetch_reason(kind, component)
     if not SOURCE_KINDS.get(kind, {}).get("fetch"):
         return "Originale dieser Art von Quelle kann noch keine Komponente abrufen."
     return None
@@ -128,6 +135,8 @@ def write_offered(kind: Any, component: Optional[Mapping[str, Any]]) -> Optional
 
     if protocol_v2.enabled() and protocol_v2.write_reason(kind, component) is None:
         return None
+    if generic_kind(kind):          # only the declaration can offer it: say what it lacks
+        return protocol_v2.write_reason(kind, component)
     if not SOURCE_KINDS.get(kind, {}).get("write"):
         return "In diese Art von Quelle kann noch nichts zurückgeschrieben werden."
     if component is None:
@@ -146,6 +155,10 @@ class ReaderError(RuntimeError):
     """The source could not be read; the message is for the page and names no content."""
 
 
+class SettingsError(ValueError):
+    """A generic kind's settings are refused; the message is for the page and names no value."""
+
+
 def settings_problem(kind: str, settings: Mapping[str, Any]) -> Optional[str]:
     """Why a source's settings cannot be read, or None."""
     if kind == "github":
@@ -162,6 +175,162 @@ def settings_problem(kind: str, settings: Mapping[str, Any]) -> Optional[str]:
         if not str(settings.get("url") or "").startswith("https://"):
             return "Adresse: eine https://-Adresse."
     return None
+
+
+# ------------------------------------------------------------------ kinds the Builder has no form for (protocol 2.0)
+#
+# SPEC-write-back-13: a new source kind needs no Platform change. With BUILDER_PROTOCOL_V2 on, a source of a kind a
+# connector at a site declared (protocol_v2.declared_kinds) and the catalogue above does not know is created with one
+# generic form: its settings as names and values -- text, a number, yes/no, or a list of texts -- carried to the site
+# exactly as entered (store.served_source), where the connector reads them as its documentation says. The declaration
+# describes no settings, so no field is typed from it. A credential is never one of them: it belongs at the site
+# (knovas-sources.env, SYNC_CREDENTIAL_<KEY>), so a name or value that looks like one is refused.
+
+#: A setting's name: what the connector reads under ``settings``.
+GENERIC_SETTING_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+GENERIC_SETTINGS_MAX = 30
+GENERIC_TEXT_MAX = 500
+GENERIC_LIST_MAX = 100
+GENERIC_ITEM_MAX = 200
+#: The largest whole number a setting carries unchanged through JSON.
+GENERIC_NUMBER_MAX = 2 ** 53
+#: The value types of the generic form, as the page names them.
+GENERIC_TYPES = {"text": "Text", "number": "Zahl", "boolean": "Ja/Nein", "list": "Liste von Texten"}
+#: What the page says about a generic kind's credential.
+GENERIC_CREDENTIAL = "Zugang der Quelle"
+
+#: Words of a setting's name that mean a credential (the name split at «_»).
+_SECRET_WORDS = frozenset({
+    "token", "tokens", "password", "passwords", "passwort", "passwd", "pwd", "pass", "passphrase", "secret", "secrets",
+    "geheimnis", "credential", "credentials", "auth", "authorization", "bearer", "apikey", "privatekey", "accesskey",
+    "secretkey", "cookie", "pat", "jwt", "otp", "totp"})
+#: «key» after one of these is key material (api_key, private_key), not a project's or record's key (project_key).
+_KEY_QUALIFIERS = frozenset({"api", "private", "access", "secret", "signing", "encryption", "ssh", "client", "master",
+                             "shared", "app", "account", "auth", "license", "licence"})
+#: Values that are credentials or key material, wherever they stand in the text.
+_SECRET_VALUE = re.compile(
+    r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY"                        # PEM key material
+    r"|\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"   # GitHub tokens
+    r"|\bglpat-[A-Za-z0-9_-]{20,}"                             # GitLab
+    r"|\bATATT[A-Za-z0-9_=-]{20,}"                             # Atlassian API token
+    r"|\bxox[abposr]-[A-Za-z0-9-]{10,}"                        # Slack
+    r"|\bAKIA[0-9A-Z]{16}\b"                                   # AWS access key id
+    r"|\bAIza[0-9A-Za-z_-]{30,}"                               # Google API key
+    r"|\bsk-[A-Za-z0-9_-]{20,}"                                # API keys of the sk- form
+    r"|\bknovas_[a-z]+_[A-Za-z0-9_-]{20,}"                     # Knovas's own tokens
+    r"|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.")           # a JSON web token
+_SCHEME_WITH_USER = re.compile(r"^[a-z][a-z0-9+.-]*://[^/?#\s]*@", re.IGNORECASE)
+_SECRET_QUERY = re.compile(r"[?&](?:access_token|token|api_key|apikey|key|sig|signature|password|secret|client_secret"
+                           r"|code)=", re.IGNORECASE)
+_AUTH_SCHEME = re.compile(r"^(?:bearer|basic|token|digest)\s+\S", re.IGNORECASE)
+_USER_AND_SECRET = re.compile(r"^[^\s:@/]+@[^\s:@/]+:\S{6,}$")        # <account email>:<API token>
+_TOKEN_ALPHABET = re.compile(r"^[A-Za-z0-9+=_-]{32,}$")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def generic_kind(kind: Any) -> bool:
+    """Whether ``kind`` gets the generic form: protocol 2.0 is on, the catalogue has no form for it, and it has the
+    shape of a declared source kind."""
+    from builder import protocol_v2
+
+    return (protocol_v2.enabled() and isinstance(kind, str) and kind not in SOURCE_KINDS
+            and protocol_v2.TOKEN.match(kind) is not None)
+
+
+def credential_name(name: str) -> bool:
+    """Whether a setting's name says it holds a credential or key material."""
+    words = str(name).lower().split("_")
+    if any(w in _SECRET_WORDS for w in words):
+        return True
+    return any(w == "key" and i > 0 and words[i - 1] in _KEY_QUALIFIERS for i, w in enumerate(words))
+
+
+def _random_looking(text: str) -> bool:
+    """A long word of a token's alphabet with capitals, small letters and digits, as random as a generated secret
+    (Shannon entropy of at least 4 bits a character). A hash in hex, an id or a path is not."""
+    if not _TOKEN_ALPHABET.match(text) or not (re.search(r"[a-z]", text) and re.search(r"[A-Z]", text)
+                                               and re.search(r"[0-9]", text)):
+        return False
+    counts = Counter(text)
+    entropy = -sum(n / len(text) * math.log2(n / len(text)) for n in counts.values())
+    return entropy >= 4.0
+
+
+def credential_value(text: str) -> bool:
+    """Whether a setting's value looks like a credential: key material, a known token's form, an address with a user
+    or a secret in its query, an authorization header's value, «account:secret», or a long random word."""
+    text = str(text).strip()
+    return bool(_SECRET_VALUE.search(text) or _SCHEME_WITH_USER.match(text) or _SECRET_QUERY.search(text)
+                or _AUTH_SCHEME.match(text) or _USER_AND_SECRET.match(text) or _random_looking(text))
+
+
+def _credential_refused(what: str, key: Optional[str]) -> str:
+    from builder.sites import SOURCES_ENV_FILE, credential_line
+
+    line = credential_line(key) if key else "SYNC_CREDENTIAL_<SCHLÜSSEL>="
+    return (f"{what} sieht nach einem Zugang aus (Token, Passwort, Geheimnis oder Schlüssel). Zugänge gehören an den "
+            f"Standort: dort in {SOURCES_ENV_FILE} hinter die Zeile {line} eintragen. In die Plattform werden sie "
+            "nicht eingegeben.")
+
+
+def _generic_text(value: str, where: str, limit: int, key: Optional[str]) -> Optional[str]:
+    text = value.strip()
+    if not text:
+        return None
+    if len(text) > limit:
+        raise SettingsError(f"{where}: höchstens {limit} Zeichen.")
+    if _CONTROL.search(text):
+        raise SettingsError(f"{where}: eine Zeile, ohne Steuerzeichen.")
+    if credential_value(text):
+        raise SettingsError(_credential_refused(f"Der Wert von {where}", key))
+    return text
+
+
+def generic_value(name: str, value: Any, key: Optional[str] = None) -> Any:
+    """One setting's value as kept: text (trimmed), a number, yes/no, or a list of texts; None when it is empty (the
+    setting is left out, as an empty field of a known kind is). SettingsError naming the setting, never its value."""
+    where = f"«{name}»"
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if (isinstance(value, float) and not math.isfinite(value)) or abs(value) > GENERIC_NUMBER_MAX:
+            raise SettingsError(f"{where}: eine Zahl bis {GENERIC_NUMBER_MAX}.")
+        return value
+    if isinstance(value, str):
+        return _generic_text(value, where, GENERIC_TEXT_MAX, key)
+    if isinstance(value, list):
+        if len(value) > GENERIC_LIST_MAX:
+            raise SettingsError(f"{where}: höchstens {GENERIC_LIST_MAX} Einträge.")
+        if not all(isinstance(v, str) for v in value):
+            raise SettingsError(f"{where}: eine Liste von Texten.")
+        items = [t for t in (_generic_text(v, where, GENERIC_ITEM_MAX, key) for v in value) if t is not None]
+        return items or None
+    raise SettingsError(f"{where}: Text, Zahl, Ja/Nein oder eine Liste von Texten.")
+
+
+def generic_settings(raw: Any, key: Optional[str] = None) -> dict:
+    """A generic kind's settings as kept and served to the site: names checked (a connector's own names, lower case,
+    never a credential's), values as ``generic_value``. ``key`` is the source's, for the line a refusal names.
+    SettingsError for the first problem; its message names a setting by its name or place, never by a value."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping):
+        raise SettingsError("Einstellungen: Namen und Werte erwartet.")
+    if len(raw) > GENERIC_SETTINGS_MAX:
+        raise SettingsError(f"Einstellungen: höchstens {GENERIC_SETTINGS_MAX}.")
+    out: dict = {}
+    for place, (name, value) in enumerate(raw.items(), start=1):
+        if not isinstance(name, str) or not GENERIC_SETTING_NAME.match(name):
+            raise SettingsError(f"Einstellung {place}: der Name klein geschrieben, aus Buchstaben, Ziffern und «_», "
+                                "beginnend mit einem Buchstaben, so wie der Connector ihn liest.")
+        if credential_name(name):
+            raise SettingsError(_credential_refused(f"Die Einstellung «{name}»", key))
+        kept = generic_value(name, value, key)
+        if kept is not None:
+            out[name] = kept
+    return out
 
 
 # ------------------------------------------------------------------ profile
