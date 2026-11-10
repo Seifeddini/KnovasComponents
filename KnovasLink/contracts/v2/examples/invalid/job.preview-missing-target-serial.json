@@ -1,8 +1,8 @@
 {
   "schema": "job.schema.json",
-  "description": "Write-path jobs name the site.",
+  "description": "Write-path jobs are addressed to one site certificate.",
   "breaks": [
-    "site"
+    "target_serial"
   ],
   "instance": {
     "id": "11111111-2222-4333-8444-555555555555",

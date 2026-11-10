@@ -1,18 +1,15 @@
 {
   "schema": "job.schema.json",
-  "description": "An act step needs its permit.",
+  "description": "An act carries its permits beside args.",
   "breaks": [
-    "args",
-    "steps",
-    0,
-    "permit"
+    "permits"
   ],
   "instance": {
     "id": "22222222-3333-4444-8555-666666666666",
     "kind": "act",
     "protocol": "2.0",
     "source": "records-main",
-    "site": "8a1e4b2c-7d3f-4e5a-b6c9-0f1d2e3a4b5c",
+    "target_serial": "731948205517",
     "deadline": "2026-11-10T14:10:00Z",
     "actor": {
       "kind": "user",
@@ -26,7 +23,8 @@
           "params": {
             "owner": "person-example-7",
             "due_date": "2026-12-01"
-          }
+          },
+          "expected_version": "v-4811"
         }
       ],
       "staging": "direct"

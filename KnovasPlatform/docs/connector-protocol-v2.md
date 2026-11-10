@@ -40,7 +40,7 @@ The machine-readable contract is in `KnovasComponents/KnovasLink/contracts/v2/`,
 | 1. The protocol names no source kind | `source_kind` is an opaque token; no message, no rule of the Brain and no rule of Link depends on its value. The contract test searches the schemas, the codes, the examples and this text (outside "Examples (informative)") for source names, operations and fields (SPEC-write-back-16, GI-CONN-08) |
 | 2. Staging is declared by the connector | Each action declares `staging: [direct, native_review]`; the Brain and Link treat both through the same jobs |
 | 3. Job kinds | `preview`, `act`, `reread`, `review_outcome`, plus `unstage` (see "Differences from the plan's §1.1"), next to 1.1's `probe` and `fetch` and the read streams |
-| 4. Permits | Ed25519 signatures with a key id, pinned by Link from the Brain; bound to tenant, site, source, action, target, parameter hash, expected version and expiry; used once |
+| 4. Permits | Ed25519 signatures with a key id (a JWS compact token, permit format 1, the same the Brain's side builds: plan §5.B2.1), pinned by Link from the Brain; bound to tenant, site, source, action, a hash of target and parameters, expected version, staging and expiry; used once |
 | 5. One record per action, 1.x keeps working | A step names one `target`; several steps in one job only where the connector declared `grouping: atomic`. A 1.x Link never receives a v2 job |
 
 ## Principles
@@ -66,7 +66,7 @@ approval, and a credential of a source stays at the company. Version 2 adds:
 | Connector declaration | `KnovasLink/contracts/v2/declaration.schema.json` | connector → Link (registration), inside the site declaration |
 | Site declaration | `KnovasLink/contracts/v2/site.schema.json` | Link → Brain, `PUT /secured/connector/v2/site`; the same declarations reach the Platform in Link's heartbeat |
 | Permit keys | `KnovasLink/contracts/v2/permit-keys.schema.json` | Brain → Link, `GET /secured/connector/v2/permit-keys` |
-| Permit | `KnovasLink/contracts/v2/permit.schema.json` | Brain → Link → connector, inside an `act` job |
+| Permit | `KnovasLink/contracts/v2/permit.schema.json` (decoded; it travels as a compact token) | Brain → Link, beside the `args` of an `act` job |
 | Job | `KnovasLink/contracts/v2/job.schema.json` | Brain → Link → connector, on the work channel |
 | Result | `KnovasLink/contracts/v2/result.schema.json` | connector → Link → Brain |
 | Stream message | `KnovasLink/contracts/v2/stream-message.schema.json` | connector, while reading |
@@ -98,10 +98,11 @@ only when it passed `preview_equals_receipt`, `exactly_once`, `permit_refusals` 
 **Where the declaration goes.** Link sends the declarations of all connectors behind it, with the source keys each
 serves, as one **site declaration** (`site.schema.json`) to the Brain with the site certificate:
 `PUT /secured/connector/v2/site {site, protocol, link_version, connectors: [{declaration, sources}]}`, at start and
-whenever a connector registers or leaves. `site` is Link's component id from its enrolment with the Platform. The Brain
-binds that id to the certificate that sent it (the tenant from the certificate, never from the body), queues v2 jobs
-only for a site that declared protocol 2, and lets only that site claim a job that names it. Link's heartbeat carries
-the same declarations to the Platform, so the Builder offers exactly what was declared (SPEC-write-back-12).
+whenever a connector registers or leaves. `site_id` is Link's component id from its enrolment with the Platform, so the
+Builder can show the site. The Brain binds the declaration to the certificate that sent it (tenant and serial from the
+certificate, never from the body) and queues v2 jobs only for a certificate whose site declared protocol 2. Link's
+heartbeat carries the same declarations to the Platform, so the Builder offers exactly what was declared
+(SPEC-write-back-12).
 
 **The ontology maps to the declaration.** The tenant's ontology declares its action types (WB-02: node type,
 parameters, preconditions, facts changed, inverse, risk class) and, per source kind, which connector action carries
@@ -129,24 +130,26 @@ that 1.1 reserved:
 
 Knovas asks a site for work on 1.1's work channel: Link long-polls `GET /secured/connector/jobs?source=…&wait=25`,
 posts parts and results to `POST /secured/connector/jobs/<id>/part?n=` and `…/result`, with the lease in
-`X-Knovas-Lease`, as in 1.1. A v2 job (`job.schema.json`) carries `protocol: "2.x"`; every write-path job also carries
-`site`.
+`X-Knovas-Lease`, as in 1.1. A v2 job (`job.schema.json`) carries `protocol: "2.x"`; every write-path job is addressed
+to one site certificate by `target_serial` (the decimal serial, as 1.1's probes are), and an `act` job carries its
+permits beside `args`, one token per step in the same order, so Link checks them before it reads `args`.
 
 | Kind | Args | What the connector does |
 |---|---|---|
 | `probe` | `{}` | nothing; as in 1.1 |
 | `fetch` | `{external_id, version?, max_bytes}` | reads the original bytes and posts them in parts, as in 1.1 |
 | `preview` | `{steps: [{action, target, params}], staging, at_version?}` | computes, without writing, exactly what the steps would change, in the source's own terms, and the version of each target it read; answers `preview` |
-| `act` | `{steps: [{action, target, params, permit}], staging}` | after Link's permit checks: writes the steps (directly, or into the source's own review step), reads the targets again and answers with one receipt per step |
+| `act` | `{steps: [{action, target, params, expected_version}], staging}`, with `permits: [token, …]` beside `args` | after Link's permit checks: writes the steps (directly, or into the source's own review step), reads the targets again and answers with one receipt per step |
 | `reread` | `{targets, fields?, permit_ids?}` | reads the targets again and answers what they hold and their versions; with `permit_ids`, the receipt of those permits' earlier write. Writes nothing |
 | `review_outcome` | `{stage_ref, permit_ids}` | reports the state of a staged change in the source's own review: `pending`, `accepted` (with the receipts of a re-read), `declined` or `withdrawn` |
 | `unstage` | `{stage_ref, permit_ids}` | withdraws a staged change from the source's review (the change set was withdrawn or refused in the Brain) |
 
 - **Not jobs.** `run`, `pause`, `check` and the other commands stay on the heartbeat. The 1.x `write` job is not a v2
   kind; it stays a 1.x job (see "Compatibility with 1.x").
-- **Only the named site claims.** The Brain hands a write-path job only to the certificate bound to the job's `site`
-  (closes finding F5 for v2), and Link itself refuses a permit naming another site: both checks stay, because each one
-  alone is the only guard when the other fails (SPEC-write-back-23).
+- **Only the named site claims.** The Brain hands a write-path job only to the certificate whose serial is the job's
+  `target_serial` (closes finding F5 for v2), and Link itself refuses a permit naming another serial: both checks stay,
+  because each one alone is the only guard when the other fails (SPEC-write-back-23). The site a permit names is the
+  one whose connector computed the approved preview, which proves that site holds the source's credential.
 - **Deadlines.** `preview` 30 seconds, `act` the permit's expiry, `reread`, `review_outcome` and `unstage` 60 seconds.
   Silent past the deadline: `unreachable`, as in 1.1.
 - **When the Brain asks for a review outcome.** While a change is staged, every 5 minutes and when a person asks in the
@@ -204,44 +207,58 @@ the tenant certificate and a declared actor only. The founder decided (D-3, 2026
 
 ## Permits
 
-The Brain signs one permit per approved action (`permit.schema.json`, SPEC-write-back-21):
+The Brain signs one permit per approved action (`permit.schema.json`, SPEC-write-back-21). This is **permit format 1**,
+the same the Brain's side builds (`knovas-software/app/src/services/write_back_permit_format.py` in KnowledgeBase, plan
+§5.B2.1); Phase A adopted it, with the two additions marked below. Decoded, a permit is:
 
 ```json
-{"claims": {"v": 2, "permit_id": "…", "tenant": "…", "site": "…", "source": "…", "change_set": "…",
-            "action_id": "…", "action": "…", "target": "…", "params_sha256": "…", "expected_version": "…",
-            "staging": "direct", "issued_at": "2026-11-10T14:00:00Z", "expires_at": "2026-11-10T15:00:00Z",
-            "approved_by": {"kind": "user", "id": "…"}},
- "alg": "EdDSA", "kid": "…", "sig": "…"}
+{"header":  {"alg": "EdDSA", "kid": "wbp-0123456789abcdef", "typ": "knovas-permit+jws"},
+ "payload": {"v": 1, "permit_id": "…", "tenant": "…", "site": "731948205517", "source": "…",
+             "action_id": "…", "change_set_id": "…", "action": "…", "params_hash": "sha256:…",
+             "expected_version": "…", "staging": "direct", "iat": 1794405600, "exp": 1794409200}}
 ```
 
-- **Signature.** Ed25519 (RFC 8032) over the canonical JSON (RFC 8785) of `claims`, base64url without padding. Times
-  are UTC with `Z` and whole seconds, and parameters hold no floating-point numbers, so every claim has one spelling.
-- **Keys.** The Brain answers `GET /secured/connector/v2/permit-keys` (`permit-keys.schema.json`) over Link's mTLS
-  channel: up to four keys, each with `kid`, the public key, `not_before` and `not_after`. Link pins them and accepts a
-  new key only from that route, never from the Platform or a job. A key id lets keys rotate: the Brain signs with the
-  newest and keeps the old one valid until every permit it signed has expired. The private key stays in the Brain
-  (where exactly is an open question below).
-- **Parameter hash.** `params_sha256` is SHA-256 over the canonical JSON of the step's `params`. The permit carries
-  the hash, never the values: a permit is safe to log by its id.
-- **Lifetime.** `expires_at` is at most 60 minutes after `issued_at`. A first delivery after it is refused
-  `permit_expired`; a repeat of a permit written before it still gets its first result (SPEC-write-back-10).
-- **Approver.** `approved_by` is the declared approver, recorded and never trusted for a decision until verified
-  identity exists (SPEC-write-back-40). Link's write log keeps a person's id only as a hash.
+- **Token.** It travels as a JWS compact token (RFC 7515): `base64url(header) "." base64url(payload) "."
+  base64url(signature)`, without padding. Header and payload are each the canonical JSON (RFC 8785) of their object; a
+  verifier refuses a part that is not in that form, so one permit has exactly one encoding. Parameters hold no
+  floating-point numbers, and times are whole seconds since 1970 (UTC).
+- **Signature.** Ed25519 (RFC 8032) over the ASCII of `header "." payload` as they appear in the token.
+- **Keys.** `kid` is `wbp-` and the first 16 hex digits of SHA-256 over the raw 32-byte public key, so it depends on
+  the key alone and keys can rotate. The Brain answers `GET /secured/connector/v2/permit-keys`
+  (`permit-keys.schema.json`) over Link's mTLS channel: up to four keys, each with `kid`, the public key, `not_before`
+  and `not_after`. Link pins them and accepts a new key only from that route, never from the Platform or a job. The
+  Brain signs with the newest key and keeps the old one valid until every permit it signed has expired. The private key
+  stays in the Brain (where exactly is an open question below).
+- **Site.** `site` is the serial (decimal) of the site certificate of the Link whose connector computed the approved
+  preview: that preview proves the site holds the source's credential.
+- **Action.** `action` is the connector's action name from its declaration, which the ontology's action type maps to
+  for this source's kind *(addition: the Brain's draft named the ontology's key; Link and the connector know only the
+  connector's names, and `action_id` links the permit to the ontology's action in the Brain)*.
+- **Parameter hash.** `params_hash` is `sha256:` and the hex SHA-256 over the canonical JSON of
+  `{"target": <the step's target>, "params": <the step's params>}`. The permit carries neither the item's name nor the
+  values: a permit is safe to log by its id.
+- **Staging.** `staging` binds how the approved change reaches the source *(addition: a job cannot turn an approved
+  review into a direct write, or the reverse, under the same permit)*.
+- **Lifetime.** `exp` is after `iat` and at most 3600 seconds later. A first delivery after it is refused
+  `permit_expired`; a repeat of a permit written before it still gets its first result (SPEC-write-back-10). An unused
+  permit that expired is not signed again: the action fails and a person proposes it again.
+- **Approver.** The permit names no person. The approver is the job's declared `actor`, recorded and never trusted for
+  a decision until verified identity exists (SPEC-write-back-40). Link's write log keeps a person's id only as a hash.
 
 ## What Knovas Link checks before a connector sees an `act`
 
-In this order, for every step; the first that fails answers for the whole job, and nothing is written:
+In this order, for every step and its permit (the order of the Alloy model's `LinkVerifyMechanism`,
+`network/write_back_permits.als`); the first that fails answers for the whole job, and nothing is written:
 
-1. A permit is there: else `refused permit_missing`.
-2. The permit id is in Link's used-permit store: with the same job content, the stored first result with
-   `repeat: true`; with other content, `refused permit_used`.
-3. The permit's `kid` is a pinned key inside its validity: else `refused permit_unknown_key`; the signature verifies:
-   else `refused permit_bad_signature`.
-4. `tenant` is the tenant of Link's certificate and `site` is Link's own site id: else `refused permit_mismatch` or
-   `refused permit_wrong_site`.
-5. `source`, `action`, `target`, `staging` and the hash of the step's `params` equal the job's: else
-   `refused permit_mismatch`.
-6. Now is before `expires_at`: else `refused permit_expired`.
+1. The step has its permit (as many permits as steps): else `refused permit_missing`.
+2. The token is readable and canonical, names a pinned key inside its validity and `EdDSA`, and its signature
+   verifies: else `refused permit_bad_signature`.
+3. `site` is the serial of Link's own certificate: else `refused permit_wrong_site`.
+4. `tenant` is the tenant of Link's certificate, and `source`, `action`, `params_hash` (over the step's `target` and
+   `params`), `expected_version` and `staging` equal the job's: else `refused permit_mismatch`.
+5. The permit id is not in Link's used-permit store: else the stored first result, with `repeat: true` and
+   `code: permit_used`; nothing is written again, also after the permit's expiry.
+6. Now is before `exp`: else `refused permit_expired`.
 7. The source's switch allows writing (`access: read_write`): else `refused write_disabled` (1.x code); the connector
    serving the source declared the action with this staging: else `refused action_not_declared` or
    `refused staging_unsupported`; several steps only for `grouping: atomic`: else `refused grouping_unsupported`.
@@ -249,8 +266,9 @@ In this order, for every step; the first that fails answers for the whole job, a
    write_log_unavailable`.
 
 After the connector's result Link stores it under every permit id of the job before it passes the result on, and
-records the outcome in its write log. The log and the Brain's record reconcile by permit id (SPEC-write-back-26,
-WB-25). The connector checks the expected version itself; Link cannot, because it does not read the source.
+records each delivery in its write log, `{permit_id, job_id, outcome: executed | refused | repeated, code, at}`. The
+log and the Brain's record reconcile by permit id (SPEC-write-back-26, WB-25). The connector checks the expected
+version itself; Link cannot, because it does not read the source.
 
 ## Receipts
 
@@ -273,8 +291,8 @@ the receipts come with the `review_outcome` result that reports `accepted`.
 
 The **permit id is the idempotency key** of the write, end to end (SPEC-write-back-10, GI-CONN-05):
 
-- **Link** answers every repeat of a permit it already carried out with the stored first result, `repeat: true`, also
-  after the permit's expiry, and keeps the store for at least 30 days after the expiry.
+- **Link** answers every repeat of a permit it already carried out with the stored first result, `repeat: true` and
+  `code: permit_used`, also after the permit's expiry, and keeps the store for at least 30 days after the expiry.
 - **The connector** makes each write recognisable by its permit id where the source allows it (a marker the source
   keeps with the change), so that a write whose result was lost between the source and Link's store is found on the
   next delivery and answered with a receipt, not written again. A connector that cannot do this does not pass
@@ -316,13 +334,12 @@ The statuses are 1.1's: `ok`, `refused`, `conflict`, `unsupported`, `unreachable
 | `computed_field` | The change would set a field the source computes |
 | `target_not_found` | The target does not exist in the source |
 | `version_changed` | The target is no longer at the expected version (status `conflict`) |
-| `permit_missing` | An act step without a permit |
-| `permit_mismatch` | The permit and the job disagree (tenant, source, action, target, parameters, staging) |
-| `permit_bad_signature` | The signature does not verify |
-| `permit_unknown_key` | The key id is not pinned, or outside its validity |
+| `permit_missing` | An act step without its permit |
+| `permit_mismatch` | The permit and the job disagree (tenant, source, action, target and parameters, expected version, staging) |
+| `permit_bad_signature` | Unreadable or not canonical, unknown key id, another algorithm, or a signature that does not verify |
 | `permit_expired` | First delivery after the expiry |
-| `permit_wrong_site` | The permit names another site |
-| `permit_used` | The permit was used for other job content |
+| `permit_wrong_site` | The permit names another site certificate |
+| `permit_used` | A repeat of a permit already carried out: the first result, `repeat: true`, nothing written again |
 | `partly_written` | Some steps written, some not (grouping `none`) |
 | `not_staged` | `review_outcome` or `unstage` for an unknown stage |
 | `write_log_unavailable` | Link could not record the permit in its write log; nothing written |
@@ -383,9 +400,13 @@ and two details go beyond them; they are for the founder's review of the full te
 
 1. **Where the Brain's permit key lives**: in secure-api's Key Vault secret like other keys today, or with the client
    CA key's custody (DEC-0064 left the HSM out of the basis). The protocol only needs a key id and rotation.
-2. **Who vouches for a conformance report**: in this draft the connector's declaration states the properties it
+2. **The keys route's path**: this text says `GET /secured/connector/v2/permit-keys`, beside the work channel's routes;
+   the Brain's draft (plan §1.2, B2-Q6) says `/secured/write-back/permit-keys`. Either works; one is chosen when Phase C
+   builds it.
+3. **Who vouches for a conformance report**: in this draft the connector's declaration states the properties it
    passed. Later a Knovas-signed report per package digest could be required before the Builder offers writing.
-3. **Defaults**: permit lifetime 60 minutes, review polling every 5 minutes, write log kept 30 days after expiry.
+4. **Defaults**: permit lifetime 60 minutes (the Brain's `WRITE_BACK_PERMIT_TTL_SECONDS = 3600`), review polling every
+   5 minutes, Link's used-permit store kept 30 days after expiry.
 
 ## Examples (informative)
 

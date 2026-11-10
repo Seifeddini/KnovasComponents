@@ -1,54 +1,50 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://knovas.ch/connector/v2/permit.schema.json",
-  "title": "Change permit (connector protocol 2.0, draft)",
-  "description": "A single-use permit the Brain signs for one approved action of a change set (SPEC-write-back-21, GI-CONN-05). Knovas Link carries out an action only with a permit whose signature it verifies with a key it pinned from the Brain, that names its own tenant and site, the job's source, action, target and parameter hash, whose expiry has not passed and whose id it has not used. The signature covers the canonical JSON (RFC 8785) of claims. A permit carries no credential and no value of the change: only the hash of the parameters. Closed.",
+  "title": "Change permit, decoded (connector protocol 2.0, draft)",
+  "description": "A single-use permit the Brain signs for one approved action of a change set (SPEC-write-back-21, GI-CONN-05), permit format 1. It travels as a JWS compact token (RFC 7515), base64url(header) '.' base64url(payload) '.' base64url(signature), in the act job's permits list; this schema is the token decoded, {header, payload}. Header and payload are each the canonical JSON (RFC 8785) of their object; a verifier refuses a token whose parts are not in that form, so one permit has exactly one encoding. The signature is Ed25519 over the ASCII of header '.' payload as they appear in the token. A permit carries no credential, no value of the change and no item name: only the hash of the target and the parameters. Closed.",
   "type": "object",
-  "required": ["claims", "alg", "kid", "sig"],
+  "required": ["header", "payload"],
   "additionalProperties": false,
   "properties": {
-    "claims": {"$ref": "#/$defs/claims"},
-    "alg": {"const": "EdDSA", "description": "Ed25519 (RFC 8032) over the canonical JSON of claims."},
-    "kid": {"type": "string", "pattern": "^[A-Za-z0-9_-]{8,64}$", "description": "The id of the Brain's permit key, as GET /secured/connector/v2/permit-keys names it."},
-    "sig": {"type": "string", "pattern": "^[A-Za-z0-9_-]{86}$", "description": "The 64-byte signature, base64url without padding."}
+    "header": {"$ref": "#/$defs/header"},
+    "payload": {"$ref": "#/$defs/payload"}
   },
   "$defs": {
-    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
-    "utc": {
+    "token": {
       "type": "string",
-      "format": "date-time",
-      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
-      "description": "UTC, whole seconds, with Z: one spelling, so the canonical JSON is one string."
+      "pattern": "^[A-Za-z0-9_-]{16,1024}\\.[A-Za-z0-9_-]{16,4096}\\.[A-Za-z0-9_-]{86}$",
+      "description": "The compact token: three base64url parts without padding; the last is the 64-byte Ed25519 signature."
     },
-    "claims": {
+    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "header": {
       "type": "object",
-      "required": ["v", "permit_id", "tenant", "site", "source", "change_set", "action_id", "action", "target", "params_sha256", "expected_version", "staging", "issued_at", "expires_at", "approved_by"],
+      "required": ["alg", "kid", "typ"],
       "additionalProperties": false,
       "properties": {
-        "v": {"const": 2},
+        "alg": {"const": "EdDSA"},
+        "kid": {"type": "string", "pattern": "^wbp-[0-9a-f]{16}$", "description": "wbp- and the first 16 hex digits of SHA-256 over the raw 32-byte public key: the key id depends on the key alone, so keys can rotate."},
+        "typ": {"const": "knovas-permit+jws"}
+      }
+    },
+    "payload": {
+      "type": "object",
+      "required": ["v", "permit_id", "tenant", "site", "source", "action_id", "change_set_id", "action", "params_hash", "expected_version", "staging", "iat", "exp"],
+      "additionalProperties": false,
+      "properties": {
+        "v": {"const": 1, "description": "The permit format."},
         "permit_id": {"$ref": "#/$defs/uuid", "description": "Single use. Also the idempotency key of the write: every repeat of a written permit is answered with its first result (SPEC-write-back-10)."},
         "tenant": {"$ref": "#/$defs/uuid", "description": "The tenant of the approved change set; Link compares it with the tenant of its own certificate."},
-        "site": {"$ref": "#/$defs/uuid", "description": "The site that holds the source's credential: Knovas Link's site id, as it declared it to the Brain. Only that site may claim the job, and Link refuses any other (SPEC-write-back-23)."},
+        "site": {"type": "string", "pattern": "^[0-9]{1,40}$", "description": "The serial (decimal) of the site certificate of the Link whose connector computed the approved preview, which proves that site holds the source's credential. Only that certificate claims the job, and Link refuses a permit naming another serial (SPEC-write-back-23)."},
         "source": {"type": "string", "minLength": 1, "maxLength": 200, "description": "The workspace source key."},
-        "change_set": {"$ref": "#/$defs/uuid"},
         "action_id": {"$ref": "#/$defs/uuid", "description": "The action of the change set this permit carries out."},
-        "action": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,62}$", "description": "The connector's action name (the declaration's), not the ontology's action type."},
-        "target": {"type": "string", "minLength": 1, "maxLength": 1024, "description": "The item's external_id in the source."},
-        "params_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the canonical JSON (RFC 8785) of the step's params object."},
+        "change_set_id": {"$ref": "#/$defs/uuid"},
+        "action": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,62}$", "description": "The connector's action name, as its declaration names it: what the ontology's action type maps to for this source's kind. The ontology's key stays in the Brain, linked by action_id."},
+        "params_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "SHA-256 over the canonical JSON of {\"target\": <the step's target>, \"params\": <the step's params>}."},
         "expected_version": {"type": "string", "minLength": 1, "maxLength": 200, "description": "The item's version the approved preview read. A source at another version is a conflict; nothing is written (SPEC-write-back-32)."},
-        "staging": {"type": "string", "enum": ["direct", "native_review"]},
-        "issued_at": {"$ref": "#/$defs/utc"},
-        "expires_at": {"$ref": "#/$defs/utc", "description": "At most 60 minutes after issued_at. A first delivery after it is refused; a repeat of a permit written before it still gets its first result."},
-        "approved_by": {
-          "type": "object",
-          "required": ["kind", "id"],
-          "additionalProperties": false,
-          "description": "The declared approver, recorded and never trusted for a decision until verified identity exists (SPEC-write-back-40, the identity gap).",
-          "properties": {
-            "kind": {"type": "string", "enum": ["user", "agent", "component", "system"]},
-            "id": {"type": "string", "minLength": 1, "maxLength": 200}
-          }
-        }
+        "staging": {"type": "string", "enum": ["direct", "native_review"], "description": "How the approved change reaches the source; a job with another staging does not match."},
+        "iat": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Signed at, seconds since 1970 (UTC)."},
+        "exp": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Expiry, seconds since 1970 (UTC), after iat and at most 3600 s later. A first delivery after it is refused; a repeat of a permit written before it still gets its first result."}
       }
     }
   }

@@ -3,7 +3,7 @@
   "description": "A repeated delivery of the same permit: the first result, nothing written again.",
   "instance": {
     "status": "ok",
-    "code": null,
+    "code": "permit_used",
     "duration_ms": 1830,
     "receipts": [
       {

@@ -2,7 +2,7 @@
   "schema": "site.schema.json",
   "description": "A site declaration names its site.",
   "breaks": [
-    "site"
+    "site_id"
   ],
   "instance": {
     "protocol": "2.0",

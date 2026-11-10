@@ -6,7 +6,7 @@
     "kind": "review_outcome",
     "protocol": "2.0",
     "source": "records-main",
-    "site": "8a1e4b2c-7d3f-4e5a-b6c9-0f1d2e3a4b5c",
+    "target_serial": "731948205517",
     "deadline": "2026-11-10T14:10:00Z",
     "actor": {
       "kind": "user",

@@ -2,13 +2,13 @@
   "version": "2.0.0-draft",
   "status": "draft",
   "files": {
-    "codes.json": "551b799155540e218fc2df2fa078a1ced71b8ce08a2ca6cb5d9410cd4cbd71dc",
+    "codes.json": "53c0ae90c93983a88160c8b4a6960e63a0ce2c2722904bd86998181319afd735",
     "declaration.schema.json": "f79d0996076dfec55a60c163d4408ec45abc840ff973c1c3236738db93bb7dd3",
-    "job.schema.json": "0f760fa1f2ff28e186135b39e24c524a544126bec3a4a817476d78bee1b4ab86",
-    "permit-keys.schema.json": "7e92406c972d70d3bfa97e88299816230617e9f2b631901756ffc7727f501f49",
-    "permit.schema.json": "88a38b0037b75982e89ffd1f73dccdf7b7f47025415b22e0c2276f3ee8259d81",
+    "job.schema.json": "386623e5f63e54900b5ac8e48e7395753c32e4e766f8675b4c3aa522aa13b94f",
+    "permit-keys.schema.json": "cb5524508a7dd8c677c72793af8b113e27387ebc73e591be69d6077c1f7562a1",
+    "permit.schema.json": "4460d5c9b6882771fb794f79ec62d76904295a9c120d01e5fbacdd33d5d00120",
     "result.schema.json": "d48b67d2d0c9263284ca99f41247da0b67b419f7a12886140bf4cff9fe7b101b",
-    "site.schema.json": "7b327a80850e092dd575d8f4ead98f953569db16d891b981871a256e9d4e339b",
+    "site.schema.json": "a47521e296ff4aeb4faca8b45d87b899ea82a134240799b7b571894afccdb435",
     "stream-message.schema.json": "b18797f197754910a9223328536e03da5bd7ada1742606bf142671c593ed223c"
   }
 }

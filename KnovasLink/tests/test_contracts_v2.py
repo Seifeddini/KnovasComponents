@@ -36,8 +36,8 @@ WRITE_PATH_KINDS = {"preview", "act", "reread", "review_outcome", "unstage"}
 RESULT_STATUSES = ["ok", "refused", "conflict", "unsupported", "unreachable", "failed"]
 CONFORMANCE = ["replay_changes_nothing", "deletion_guard", "preview_equals_receipt", "exactly_once", "permit_refusals",
                "no_credential_leaves_site", "review_outcome"]
-PERMIT_CLAIMS = {"v", "permit_id", "tenant", "site", "source", "change_set", "action_id", "action", "target",
-                 "params_sha256", "expected_version", "staging", "issued_at", "expires_at", "approved_by"}
+PERMIT_PAYLOAD = {"v", "permit_id", "tenant", "site", "source", "action_id", "change_set_id", "action", "params_hash",
+                  "expected_version", "staging", "iat", "exp"}
 MAX_PERMIT_SECONDS = 3600
 
 # SPEC-write-back-16: the protocol names no source kind, no source-specific operation and no source-specific field.
@@ -127,7 +127,8 @@ def test_job_kinds_keep_probe_and_fetch_and_add_the_write_path():
     branches = {b["if"]["properties"]["kind"]["const"]: b["then"] for b in s["allOf"]}
     assert set(branches) == set(JOB_KINDS), "every job kind has its args"
     for kind in WRITE_PATH_KINDS:
-        assert {"source", "site"} <= set(branches[kind]["required"]), f"{kind} is addressed to one site (F5)"
+        assert {"source", "target_serial"} <= set(branches[kind]["required"]), f"{kind} is addressed to one site (F5)"
+    assert "permits" in branches["act"]["required"], "an act carries its permits beside args"
     assert "write" not in s["properties"]["kind"]["enum"], "the 1.x write job stays a 1.x job"
 
 
@@ -139,10 +140,11 @@ def test_result_statuses_are_1_1_s():
 
 def test_permit_binds_what_spec_21_names_and_carries_no_value():
     s = _schemas()["permit.schema.json"]
-    claims = s["$defs"]["claims"]
-    assert set(claims["required"]) == PERMIT_CLAIMS == set(claims["properties"])
-    assert claims["additionalProperties"] is False and s["additionalProperties"] is False
-    assert s["properties"]["alg"] == {"const": "EdDSA", "description": s["properties"]["alg"]["description"]}
+    payload = s["$defs"]["payload"]
+    assert set(payload["required"]) == PERMIT_PAYLOAD == set(payload["properties"])
+    assert payload["additionalProperties"] is False and s["$defs"]["header"]["additionalProperties"] is False
+    assert s["$defs"]["header"]["properties"]["alg"] == {"const": "EdDSA"}
+    assert "target" not in payload["properties"] and "params" not in payload["properties"], "no name, no value"
 
 
 def test_conformance_properties_are_the_kits():
@@ -195,32 +197,49 @@ def test_valid_examples_cover_every_job_kind_and_every_result_part():
     assert parts == {"preview", "receipts", "review", "conflict", "read", "repeat"}
 
 
+def _keys() -> dict:
+    out = {}
+    for k in _example("permit-keys.one-key")["keys"]:
+        raw = _b64(k["public_key"])
+        assert k["kid"] == "wbp-" + hashlib.sha256(raw).hexdigest()[:16], "the key id depends on the key alone"
+        out[k["kid"]] = Ed25519PublicKey.from_public_bytes(raw)
+    return out
+
+
+def _decode(token: str) -> tuple[dict, dict, bytes, bytes]:
+    """header, payload, the signed ASCII and the signature; each part must be the canonical JSON of its object."""
+    h, p, sig = token.split(".")
+    header, payload = json.loads(_b64(h)), json.loads(_b64(p))
+    assert _b64(h) == _jcs(header) and _b64(p) == _jcs(payload), "one permit, one encoding"
+    return header, payload, f"{h}.{p}".encode("ascii"), _b64(sig)
+
+
 def test_example_permits_verify_with_the_pinned_key_and_bind_their_steps():
-    keys = {k["kid"]: Ed25519PublicKey.from_public_bytes(_b64(k["public_key"]))
-            for k in _example("permit-keys.one-key")["keys"]}
+    keys = _keys()
     for job_name, permit_name in (("job.act-direct", "permit.direct"), ("job.act-native-review", "permit.native-review")):
         job = _example(job_name)
-        step = job["args"]["steps"][0]
-        permit = step["permit"]
-        assert permit == _example(permit_name)
-        keys[permit["kid"]].verify(_b64(permit["sig"]), _jcs(permit["claims"]))
-        c = permit["claims"]
-        assert c["params_sha256"] == hashlib.sha256(_jcs(step["params"])).hexdigest()
-        assert (c["action"], c["target"], c["source"], c["site"], c["staging"]) == (
-            step["action"], step["target"], job["source"], job["site"], job["args"]["staging"])
-        issued, expires = (datetime.fromisoformat(c[k].replace("Z", "+00:00")) for k in ("issued_at", "expires_at"))
-        assert 0 < (expires - issued).total_seconds() <= MAX_PERMIT_SECONDS
+        assert len(job["permits"]) == len(job["args"]["steps"])
+        for token, step in zip(job["permits"], job["args"]["steps"]):
+            header, payload, signed, sig = _decode(token)
+            assert {"header": header, "payload": payload} == _example(permit_name)
+            keys[header["kid"]].verify(sig, signed)
+            target_and_params = _jcs({"target": step["target"], "params": step["params"]})
+            assert payload["params_hash"] == "sha256:" + hashlib.sha256(target_and_params).hexdigest()
+            assert (payload["action"], payload["source"], payload["site"], payload["staging"], payload["expected_version"]) == (
+                step["action"], job["source"], job["target_serial"], job["args"]["staging"], step["expected_version"])
+            assert 0 < payload["exp"] - payload["iat"] <= MAX_PERMIT_SECONDS
 
 
 def test_a_changed_claim_breaks_the_signature():
-    keys = {k["kid"]: Ed25519PublicKey.from_public_bytes(_b64(k["public_key"]))
-            for k in _example("permit-keys.one-key")["keys"]}
-    permit = _example("permit.direct")
-    for field, value in (("site", "1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d"), ("expected_version", "v-4812"),
-                         ("expires_at", "2026-11-10T23:00:00Z")):
-        claims = dict(permit["claims"], **{field: value})
+    keys = _keys()
+    token = _example("job.act-direct")["permits"][0]
+    header, payload, _signed, sig = _decode(token)
+    for field, value in (("site", "731948205518"), ("expected_version", "v-4812"), ("exp", payload["exp"] + 3600),
+                         ("staging", "native_review")):
+        changed = dict(payload, **{field: value})
+        signed = (token.split(".")[0] + "." + base64.urlsafe_b64encode(_jcs(changed)).rstrip(b"=").decode()).encode()
         with pytest.raises(InvalidSignature):
-            keys[permit["kid"]].verify(_b64(permit["sig"]), _jcs(claims))
+            keys[header["kid"]].verify(sig, signed)
 
 
 def test_receipts_of_the_examples_match_their_previews():
@@ -229,8 +248,10 @@ def test_receipts_of_the_examples_match_their_previews():
     receipt = _example("result.act-written")["receipts"][0]
     assert receipt["values"] == preview["changes"] and receipt["differences"] == []
     assert receipt["expected_version"] == preview["read_versions"][0]["version"]
-    assert receipt["permit_id"] == _example("permit.direct")["claims"]["permit_id"]
-    assert _example("result.act-repeat")["receipts"] == _example("result.act-written")["receipts"]
+    assert receipt["permit_id"] == _example("permit.direct")["payload"]["permit_id"]
+    repeat = _example("result.act-repeat")
+    assert repeat["receipts"] == _example("result.act-written")["receipts"]
+    assert repeat["repeat"] is True and repeat["code"] == "permit_used"
 
 
 # ------------------------------------------------------------------ codes and lock

@@ -2,24 +2,54 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://knovas.ch/connector/v2/site.schema.json",
   "title": "Site declaration (connector protocol 2.0, draft)",
-  "description": "What Knovas Link sends the Brain with its site certificate, PUT /secured/connector/v2/site, at start and whenever a connector registers or leaves: its site id, the protocol it speaks, and the declaration of every connector behind it with the source keys each serves. The Brain binds the site id to the certificate that sent it (tenant from the certificate), queues v2 jobs only for a site that declared protocol 2, and lets only that site claim a job naming it. The Platform receives the same declarations in Link's heartbeat, so the Builder offers only what was declared (SPEC-write-back-12). Closed.",
+  "description": "What Knovas Link sends the Brain with its site certificate, PUT /secured/connector/v2/site, at start and whenever a connector registers or leaves: its site id, the protocol it speaks, and the declaration of every connector behind it with the source keys each serves. The Brain binds the declaration to the certificate that sent it (tenant and serial from the certificate, never from the body) and queues v2 jobs only for a certificate whose site declared protocol 2. The Platform receives the same declarations in Link's heartbeat, so the Builder offers only what was declared (SPEC-write-back-12). Closed.",
   "type": "object",
-  "required": ["site", "protocol", "link_version", "connectors"],
+  "required": [
+    "site_id",
+    "protocol",
+    "link_version",
+    "connectors"
+  ],
   "additionalProperties": false,
   "properties": {
-    "site": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "description": "The site id: Knovas Link's component id from its enrolment with the Platform."},
-    "protocol": {"type": "string", "pattern": "^2\\.[0-9]{1,3}$"},
-    "link_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]{1,40})?$"},
+    "site_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "Knovas Link's component id from its enrolment with the Platform, so the Builder can show the site; the Brain binds the declaration to the certificate that sent it, whose serial is what permits and jobs name."
+    },
+    "protocol": {
+      "type": "string",
+      "pattern": "^2\\.[0-9]{1,3}$"
+    },
+    "link_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]{1,40})?$"
+    },
     "connectors": {
       "type": "array",
       "maxItems": 32,
       "items": {
         "type": "object",
-        "required": ["declaration", "sources"],
+        "required": [
+          "declaration",
+          "sources"
+        ],
         "additionalProperties": false,
         "properties": {
-          "declaration": {"$ref": "declaration.schema.json"},
-          "sources": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 200}, "description": "The workspace source keys assigned to this connector (from GET /config)."}
+          "declaration": {
+            "$ref": "declaration.schema.json"
+          },
+          "sources": {
+            "type": "array",
+            "maxItems": 32,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "The workspace source keys assigned to this connector (from GET /config)."
+          }
         }
       }
     }

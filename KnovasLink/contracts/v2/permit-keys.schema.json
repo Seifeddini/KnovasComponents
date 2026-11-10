@@ -4,7 +4,9 @@
   "title": "Permit keys (connector protocol 2.0, draft)",
   "description": "The Brain's answer to GET /secured/connector/v2/permit-keys, over Link's mTLS channel only: the public keys Link verifies permits with. Link pins them; it accepts a new key only from this route, and never from the Platform or a job. A key past not_after verifies nothing. Closed.",
   "type": "object",
-  "required": ["keys"],
+  "required": [
+    "keys"
+  ],
   "additionalProperties": false,
   "properties": {
     "keys": {
@@ -13,14 +15,37 @@
       "maxItems": 4,
       "items": {
         "type": "object",
-        "required": ["kid", "alg", "public_key", "not_before", "not_after"],
+        "required": [
+          "kid",
+          "alg",
+          "public_key",
+          "not_before",
+          "not_after"
+        ],
         "additionalProperties": false,
         "properties": {
-          "kid": {"type": "string", "pattern": "^[A-Za-z0-9_-]{8,64}$"},
-          "alg": {"const": "EdDSA"},
-          "public_key": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43}$", "description": "The 32-byte Ed25519 public key, base64url without padding."},
-          "not_before": {"type": "string", "format": "date-time", "pattern": "Z$"},
-          "not_after": {"type": "string", "format": "date-time", "pattern": "Z$"}
+          "kid": {
+            "type": "string",
+            "pattern": "^wbp-[0-9a-f]{16}$"
+          },
+          "alg": {
+            "const": "EdDSA"
+          },
+          "public_key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "description": "The 32-byte Ed25519 public key, base64url without padding."
+          },
+          "not_before": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "Z$"
+          },
+          "not_after": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "Z$"
+          }
         }
       }
     }

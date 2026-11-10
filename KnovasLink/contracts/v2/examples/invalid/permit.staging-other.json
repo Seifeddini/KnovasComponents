@@ -2,32 +2,29 @@
   "schema": "permit.schema.json",
   "description": "Staging is direct or native_review.",
   "breaks": [
-    "claims",
+    "payload",
     "staging"
   ],
   "instance": {
-    "claims": {
-      "v": 2,
+    "header": {
+      "alg": "EdDSA",
+      "kid": "wbp-ed927a48f49e85f6",
+      "typ": "knovas-permit+jws"
+    },
+    "payload": {
+      "v": 1,
       "permit_id": "6e5d4c3b-2a19-4f08-8e7d-6c5b4a392817",
       "tenant": "3f0c2a8e-5b1d-4c7a-9e21-6d4b8a0f1c55",
-      "site": "8a1e4b2c-7d3f-4e5a-b6c9-0f1d2e3a4b5c",
+      "site": "731948205517",
       "source": "records-main",
-      "change_set": "c5d6e7f8-0a1b-4c2d-8e3f-4a5b6c7d8e9f",
       "action_id": "0f1e2d3c-4b5a-4968-8776-655443322110",
+      "change_set_id": "c5d6e7f8-0a1b-4c2d-8e3f-4a5b6c7d8e9f",
       "action": "set_fields",
-      "target": "items/matter-17",
-      "params_sha256": "e1fbd138b97e485dfe0025d2bce69dfb97e9a9c7f4989e66667e4ffceb392584",
+      "params_hash": "sha256:d4d5294e4e4aca0f9588f5838cbc7cc37f2bc863acb1eff7aa4eae2aa153b78c",
       "expected_version": "v-4811",
       "staging": "proposal",
-      "issued_at": "2026-11-10T14:00:00Z",
-      "expires_at": "2026-11-10T15:00:00Z",
-      "approved_by": {
-        "kind": "user",
-        "id": "person-example-approver"
-      }
-    },
-    "alg": "EdDSA",
-    "kid": "example-2026-11",
-    "sig": "KFIBXh3BUhWThc4XnlOfXiHhu8J7sGej-nJtBkTP8TYMcBYl_EyzfaAKNJ5NpsCSA-D3Jlcuz8Z8o3wZvd2MAA"
+      "iat": 1794405600,
+      "exp": 1794409200
+    }
   }
 }

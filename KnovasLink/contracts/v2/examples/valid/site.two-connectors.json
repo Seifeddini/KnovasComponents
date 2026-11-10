@@ -2,7 +2,7 @@
   "schema": "site.schema.json",
   "description": "Link declares its site and two connectors.",
   "instance": {
-    "site": "8a1e4b2c-7d3f-4e5a-b6c9-0f1d2e3a4b5c",
+    "site_id": "8a1e4b2c-7d3f-4e5a-b6c9-0f1d2e3a4b5c",
     "protocol": "2.0",
     "link_version": "2.0.0",
     "connectors": [
