@@ -400,9 +400,8 @@ and two details go beyond them; they are for the founder's review of the full te
 
 1. **Where the Brain's permit key lives**: in secure-api's Key Vault secret like other keys today, or with the client
    CA key's custody (DEC-0064 left the HSM out of the basis). The protocol only needs a key id and rotation.
-2. **The keys route's path**: this text says `GET /secured/connector/v2/permit-keys`, beside the work channel's routes;
-   the Brain's draft (plan §1.2, B2-Q6) says `/secured/write-back/permit-keys`. Either works; one is chosen when Phase C
-   builds it.
+2. **The keys route's path** (settled 2026-11-10 by the programme's coordinator): `GET
+   /secured/connector/v2/permit-keys`, beside the work channel's routes; the Brain's side adopts it.
 3. **Who vouches for a conformance report**: in this draft the connector's declaration states the properties it
    passed. Later a Knovas-signed report per package digest could be required before the Builder offers writing.
 4. **Defaults**: permit lifetime 60 minutes (the Brain's `WRITE_BACK_PERMIT_TTL_SECONDS = 3600`), review polling every
