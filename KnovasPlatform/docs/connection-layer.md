@@ -65,6 +65,7 @@ flowchart LR
 | Link → the Brain | the site's own client certificate (one per site), signed by Knovas's client CA | until it is installed Link claims no job and relays nothing (`waiting_for_certificate`); a path not on the allow-list is 403 `not_relayed` |
 | the Platform → the Brain | the Platform's own client certificate, and the signed-in person's assertion | accepting a proposal needs «Veröffentlichen» in the Builder |
 | sync component → source | the company's credential, `SYNC_CREDENTIAL_<KEY>` in `knovas-sources.env` | the source refuses it; a token that cannot write gives `token_cannot_write` |
+| a connector of its own kind → source (Jira) | the company's credential and its host, `SYNC_CREDENTIAL_<KEY>` and `SYNC_CREDENTIAL_<KEY>_HOST` in the connector's own `knovas-<kind>.env` (`knovas-jira.env`), which no other service reads | a site setting naming another host (`jira.bad_settings`), no host line (`jira.no_credential`); the sync component never uses a credential with a `_HOST` line, a host line, or another kind's line, whatever key the Platform names (verifier KC-3 N5) |
 
 The install package puts every service on the internal network `knovas-site` and on `knovas-egress` (to reach its own
 sources). "Only Link talks to Knovas" holds because only Link holds a Knovas certificate and token, not because the

@@ -26,6 +26,8 @@ Direct mode (connector protocol v1, without Link):
     SYNC_BRAIN_CA         the CA of the Brain API, when the Platform's chain does not cover it
     SYNC_CREDENTIAL_<KEY> a source's credential, by its key in upper case
     SYNC_CREDENTIAL_GITHUB the credential of every GitHub source (the same for any kind, in upper case)
+                          A credential with a SYNC_CREDENTIAL_<KEY>_HOST line beside it belongs to a connector of its
+                          own (the Jira connector, its own file knovas-jira.env) and is never used here (fetchers.py)
     SYNC_BRAIN_CERT, SYNC_BRAIN_KEY  the tenant's certificate, where the Platform issues none (only to test)
     SYNC_FILES_ROOT       where a file share is mounted, read only (default /sources: -v <folder>:/sources:ro)
 

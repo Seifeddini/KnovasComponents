@@ -38,7 +38,7 @@ def _settings(kind: str, raw: Any, key: str = "") -> dict:
     if kind not in S.SOURCE_KINDS:
         # A kind the Builder has no form for (protocol 2.0, SPEC-write-back-13): names and values, no credential.
         try:
-            return S.generic_settings(raw, key or None)
+            return S.generic_settings(raw, key or None, kind)
         except S.SettingsError as exc:
             raise EditError(str(exc)) from None
     if raw is None:

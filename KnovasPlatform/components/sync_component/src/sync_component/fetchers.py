@@ -5,6 +5,22 @@ A fetcher gets the source's settings from the Platform and its credential from t
 through the Platform). It either writes the source's data where the mappings read it (HTTP/JSON), or tells the runner
 where to read for itself (a GitHub repository, a mounted folder), and answers with a ``Reading``.
 
+Which credential goes where (SPEC-write-back-20; verifier KC-3 N5). The Platform names a source's key, kind and, for
+HTTP/JSON, the address the credential is sent to, so whoever controls the Platform's configuration could name a key
+whose line belongs to something else. ``credential_for`` therefore never hands out:
+
+- a credential the site bound to one host (a ``SYNC_CREDENTIAL_<NAME>_HOST`` line beside it): that is a connector's
+  of its own (the Jira connector reads its file, ``knovas-jira.env``, which this component never receives), and this
+  component does not use it at all, for any source, kind or address, nor another line instead;
+- a host line itself;
+- another kind's line: a source keyed like a kind it is not of (an HTTP/JSON source keyed ``github``) does not get
+  ``SYNC_CREDENTIAL_GITHUB``, which goes to the GitHub API only.
+
+A GitHub source's credential goes only to the GitHub API (``BRAIN_GITHUB_API``, default api.github.com: the site's own
+setting): every address is that base, the repository (``owner/name``) and a ref, both checked so that they cannot name
+another host, and no redirect is followed. An HTTP/JSON source's address is its own setting, so its credential (one
+without a host line) goes there, as in protocol 1.x.
+
 ``CHECKS`` holds what a kind can answer without reading everything: is the source reachable, with this credential? A
 kind without an entry is checked by fetching it into a temporary folder. A check answers with a code and counts, shown
 on the component's page in the Platform; it never names a file, an address or a value (GI-DATA-02/04).
@@ -194,6 +210,8 @@ def fetch_files(settings: Mapping[str, Any], credential: Optional[str], root: Pa
 
 FETCHERS: dict[str, Callable[..., Reading]] = {"http_json": fetch_http_json, "github": fetch_github,
                                                "knovas_connector": fetch_files}
+#: The kinds of source this component reads (and answers jobs for): a source of one never takes another's line.
+KINDS = frozenset(FETCHERS)
 CHECKS: dict[str, Callable[..., dict]] = {"github": check_github, "knovas_connector": check_files}
 #: The kinds whose head commit can be asked for: a schedule «bei neuen Commits» polls only these (KG-2).
 HEADS: dict[str, Callable[..., Head]] = {"github": head_github}
@@ -216,11 +234,32 @@ def check(kind: str, settings: Mapping[str, Any], credential: Optional[str], *, 
         return str(exc), {}
 
 
+#: The line beside a credential that binds it to one host (``SYNC_CREDENTIAL_<NAME>_HOST``, the Jira connector's rule).
+HOST_LINE = "_HOST"
+
+
+def credential_line(name: str) -> str:
+    """The variable a source's credential is read from: ``SYNC_CREDENTIAL_`` and the key or kind in upper case, every
+    other character an underscore (the Builder shows the same line, builder/sites.py)."""
+    return "SYNC_CREDENTIAL_" + "".join(c if c.isalnum() else "_" for c in str(name)).upper()
+
+
 def credential_for(source_key: str, kind: str = "", environ: Mapping[str, str] = os.environ) -> Optional[str]:
-    """A source's own credential, else the one for every source of its kind."""
-    for name in (source_key, kind):
-        if name:
-            found = environ.get("SYNC_CREDENTIAL_" + "".join(c if c.isalnum() else "_" for c in name).upper())
-            if found:
-                return found
+    """A source's own credential, else the one for every source of its kind; None when there is none, or when the line
+    it would take is not this component's to send (the module's docstring). A source keyed like another kind skips
+    that kind's line, which is not its own. A line with a host line beside it, or a host line, ends the search: no
+    other line is taken instead."""
+    own = credential_line(source_key) if source_key else None
+    if own is not None and own in {credential_line(k) for k in KINDS if k != kind}:
+        own = None                                      # keyed like another kind: that kind's line is not this source's
+    for line in (own, credential_line(kind) if kind else None):
+        if line is None:
+            continue
+        if line + HOST_LINE in environ:
+            return None                                 # bound to a host for a connector: never sent from here
+        if line.endswith(HOST_LINE) and line[:-len(HOST_LINE)] in environ:
+            return None                                 # another credential's host line, not a credential
+        found = environ.get(line)
+        if found:
+            return found
     return None

@@ -3,7 +3,7 @@
 # or: docker compose --env-file knovas.env --profile jira-connector build jira-connector
 # Built from this folder alone (the release workflow's context): the connector kit is the byte-for-byte copy under
 # vendor/ (tests/test_image.py). No secret is in the image: a source's credential comes from the site's
-# knovas-sources.env at run time, the component's token from Link's volume.
+# knovas-jira.env at run time, the component's token from Link's volume.
 FROM python:3.11-slim
 
 WORKDIR /app

@@ -806,7 +806,8 @@ On the same machine as the Platform (CL-8). Generic reference: [../connect-a-sit
 Builder → **Verbinden** (the «Standorte» list) → **Standort anlegen**: name `knovas-hq`, responsible person, tick
 **GitHub** → Standort anlegen. On the site page: **Installationspaket herunterladen**. The zip holds
 `docker-compose.yml`, `knovas-link.env` (the Platform's address and a one-time token, 24 hours, used once) and
-`knovas-sources.env`. Every download makes a new token and voids the one before.
+`knovas-sources.env` (the GitHub tokens: only the sync component reads it; the Jira credential never goes there, it
+has its own file, 5.7). Every download makes a new token and voids the one before.
 
 ### 5.2 Install it (machine)
 
@@ -983,7 +984,8 @@ nano .env      # the three digests from step 0, and:
 #   JIRA_CONNECTOR_IMAGE=ghcr.io/seifeddini/jira-connector
 #   JIRA_CONNECTOR_DIGEST=sha256:<from step 0>
 nano docker-compose.override.yml   # under sync-component add:  environment: {SYNC_PROTOCOL_V2: "1"}
-nano knovas-sources.env            # the Jira source's two lines (step 4), when you have the token
+touch knovas-jira.env && chmod 600 knovas-jira.env   # the Jira connector's own file (step 4 fills it); compose needs it
+grep -c SYNC_CREDENTIAL_JIRA knovas-sources.env   # must print 0; move a Jira line from there to knovas-jira.env
 docker compose config --images
 docker compose pull && docker compose up -d
 docker compose ps
@@ -1005,7 +1007,9 @@ automatic apply stay as in 5.6.
 
 **4. The Jira source.** Builder → Quellen & Zuordnung → Quelle hinzufügen → «Von einem Connector am Standort
 angemeldet»: kind `jira`, the site's component `jira-connector`, key (for example `jira-pilot`), settings `site`
-`https://<site>.atlassian.net` and `project` `<project key>` → create. In `~/knovas-site/knovas-sources.env`:
+`https://<site>.atlassian.net` and `project` `<project key>` → create. In `~/knovas-site/knovas-jira.env` (the
+Builder shows the line and names this file; never `knovas-sources.env`, which the sync component reads and whose
+sources' addresses the Platform names: verifier KC-3 N5):
 
 ```bash
 SYNC_CREDENTIAL_JIRA_PILOT=<account email>:<API token>

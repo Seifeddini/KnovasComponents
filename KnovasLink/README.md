@@ -70,7 +70,8 @@ services:
     networks: [knovas-site, knovas-egress]
   sync-component:                                     # in link mode (MVP-20)
     image: sync-component@${SYNC_COMPONENT_DIGEST}
-    env_file: [knovas-sources.env]                    # the sources' credentials only
+    env_file: [knovas-sources.env]                    # its sources' credentials only (a connector of its own kind
+                                                      # reads its own knovas-<kind>.env, never this file)
     environment: {SYNC_LINK_URL: "http://knovas-link:8460", SYNC_DATA_DIR: /data}
     volumes:
       - sync-component-data:/data

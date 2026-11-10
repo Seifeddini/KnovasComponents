@@ -17,9 +17,10 @@ structure:
   ``YYYY-MM-DD``; a status its text.
 - **Left out:** attachments and other media, extensions' parameters, placeholders, rules; a node of a kind not named
   here gives the text of its content.
-- **Bounded:** at most :data:`MAX_TEXT_CHARS` characters (32,768, half of the protocol's 64 KiB for one value); longer
-  text is cut and ends with ``…``. The walk reads at most :data:`MAX_NODES` nodes and :data:`MAX_DEPTH` levels; beyond
-  either it stops and the text read so far ends with ``…`` the same way. Control characters other than the line break
+- **Bounded:** at most :data:`MAX_TEXT_BYTES` bytes of utf-8 (32,768: 32 KiB, half of the protocol's 64 KiB for one
+  value, whatever the script: a CJK character is three bytes, an emoji four); longer text is cut on a character
+  boundary, never inside one, and ends with ``…`` within the bound. The walk reads at most :data:`MAX_NODES`
+  nodes and :data:`MAX_DEPTH` levels; beyond either it stops and the text read so far ends with ``…`` the same way. Control characters other than the line break
   and the tab are dropped, a line's trailing spaces too, and there is never more than one blank line in a row.
 
 The same document always gives the same text. Nothing here names a site, a project or an issue.
@@ -30,7 +31,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
-MAX_TEXT_CHARS = 32768
+MAX_TEXT_BYTES = 32768
 MAX_NODES = 20000
 MAX_DEPTH = 64
 CUT = "…"
@@ -54,9 +55,18 @@ def to_text(doc: Mapping[str, Any]) -> Optional[str]:
     """The document as plain text (module docstring), None when it holds no text."""
     walk = _Walk()
     text = _tidy("\n\n".join(walk.blocks(doc.get("content"), 1)))
-    if walk.cut or len(text) > MAX_TEXT_CHARS:
-        text = text[:MAX_TEXT_CHARS - len(CUT)].rstrip() + CUT
+    if walk.cut or _size(text) > MAX_TEXT_BYTES:
+        text = _cut(text, MAX_TEXT_BYTES - _size(CUT)).rstrip() + CUT
     return text or None
+
+
+def _size(text: str) -> int:
+    return len(text.encode("utf-8"))
+
+
+def _cut(text: str, budget: int) -> str:
+    """The longest start of ``text`` of at most ``budget`` bytes of utf-8, ending on a whole character."""
+    return text.encode("utf-8")[:budget].decode("utf-8", errors="ignore")
 
 
 def _tidy(text: str) -> str:
@@ -101,12 +111,12 @@ class _Walk:
 
     def _enter(self, depth: int) -> bool:
         self.nodes += 1
-        if self.nodes > MAX_NODES or depth > MAX_DEPTH or self.size > MAX_TEXT_CHARS:
+        if self.nodes > MAX_NODES or depth > MAX_DEPTH or self.size > MAX_TEXT_BYTES:
             self.cut = True
         return not self.cut
 
     def _made(self, text: str) -> str:
-        self.size += len(text)
+        self.size += _size(text)
         return text
 
     # -- blocks -------------------------------------------------------------------------------------------------------

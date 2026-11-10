@@ -1657,6 +1657,7 @@ def create_builder_blueprint(
                        containers=[{"name": c, **site_rules.CONTAINERS[c]} for c in site_rules.containers_of(site["options"])],
                        options=site_rules.OPTIONS, command=site_rules.COMMAND, env_file=site_rules.LINK_ENV_FILE,
                        sources_env_file=site_rules.SOURCES_ENV_FILE,
+                       connector_env_file=site_rules.CONNECTOR_ENV_FILE.format(kind="<Art>"),
                        certificate_step=site_rules.CERTIFICATE_STEP, certificate_check=site_rules.CERTIFICATE_CHECK,
                        certificate_fingerprint_command=site_rules.CERTIFICATE_FINGERPRINT, protocol_path=PROTOCOL_PATH,
                        compose_preview=site_rules.compose_file(site, site["options"]),
@@ -2603,7 +2604,9 @@ def create_builder_blueprint(
                           "component_kind": c["kind"] if c else None,
                           "credential_label": kind.get("credential"),
                           "credential_required": bool(kind.get("credential_required")),
-                          # A source on a site (MVP-24): its credential is a line of knovas-sources.env, never a value here.
+                          # A source on a site (MVP-24): its credential is a line of a file at the site, never a value
+                          # here: knovas-sources.env for the sync component, the connector's own knovas-<kind>.env for a
+                          # kind a connector declared (sites.credential_file; verifier KC-3 N5).
                           "on_site": on_site,
                           # Its switches (MVP-25): as in the draft, as published, and why one is not offered.
                           "fetch": source_kinds.fetch_of(s), "write": source_kinds.write_of(s),
@@ -2615,7 +2618,8 @@ def create_builder_blueprint(
                           # and how approved writes reach the source (C-Q1: direct unless set), draft and published.
                           "v2_actions": _v2_actions(s.get("kind"), c),
                           "staging": _v2_staging(s), "staging_published": _v2_staging(published.get(s.get("key"))),
-                          **({"credential_line": site_rules.credential_line(s.get("key")), "site_name": c.get("site"),
+                          **({"credential_line": site_rules.credential_line(s.get("key")),
+                              "credential_file": site_rules.credential_file(s.get("kind")), "site_name": c.get("site"),
                               "check_url": url_for("builder.component_check", component_id=c["id"])} if on_site else {})})
         kinds = {k: {"label": v["label"], "component": v["component"], "components": [v["component"], *v.get("also_on", ())],
                      "credential": v["credential"],
@@ -3004,8 +3008,9 @@ def create_builder_blueprint(
             # MVP-24: no credential of a source on a site is typed into the Platform; nor of a kind only a connector at
             # a site declares (SPEC-write-back-13), wherever its component is.
             return jsonify({"success": False, "error": "Der Zugang dieser Quelle gehört an den Standort: die Zeile "
-                            f"{site_rules.credential_line(key)}… in {site_rules.SOURCES_ENV_FILE} eintragen, danach neu starten und "
-                            "Verbindung prüfen. In die Plattform wird er nicht eingegeben."}), 409
+                            f"{site_rules.credential_line(key)}… in {site_rules.credential_file(source.get('kind'))} "
+                            "eintragen, danach neu starten und Verbindung prüfen. In die Plattform wird er nicht "
+                            "eingegeben."}), 409
         secrets = _secrets()
         if secrets is None:
             return jsonify({"success": False, "error": "Diese Plattform speichert keine Geheimnisse."}), 409

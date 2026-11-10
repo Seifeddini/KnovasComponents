@@ -2,18 +2,20 @@
 context), so it carries a byte-for-byte copy of the connector kit and the kit's pins; it holds no secret, runs as its
 own user and starts ``serve``. At a site it runs as its own component beside Knovas Link
 (``deploy/docker-compose.jira.yml``): its own folder of Link's token volume, read only, the internal and egress
-networks, its credentials from ``knovas-sources.env`` only, and Link told to speak protocol 2.0 and to write its
-token. In the repository's compose file it is off unless its profile is named and has no credential unless a file is
-named for it."""
+networks, its credentials from its own ``knovas-jira.env`` only, which no other service reads (verifier KC-3 N5: the
+sync component never holds the Jira credential), and Link told to speak protocol 2.0 and to write its token. In the
+repository's compose file it is off unless its profile is named and has no credential unless a file is named for it."""
 from __future__ import annotations
 
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 from knovas_connector_kit import contracts
@@ -84,7 +86,9 @@ def test_at_a_site_it_is_its_own_component_beside_link_with_the_site_credentials
     assert set(services) == {"knovas-link", "jira-connector"}
     assert services["knovas-link"] == {"environment": {"LINK_PROTOCOL_V2": "true", "LINK_COMPONENTS": "jira-connector"}}
     jira = services["jira-connector"]
-    assert jira["env_file"] == ["knovas-sources.env"], "never knovas-link.env: no Knovas token reaches a component"
+    assert jira["env_file"] == ["knovas-jira.env"], \
+        "its own file: never knovas-link.env (no Knovas token reaches a component), never knovas-sources.env (the sync " \
+        "component's)"
     assert jira["environment"] == {"SYNC_LINK_URL": "http://knovas-link:8460", "SYNC_NAME": "jira-connector"}
     assert jira["volumes"] == [{"type": "volume", "source": "link-tokens", "target": "/link", "read_only": True,
                                 "volume": {"subpath": "jira-connector"}}], "only its own folder of the token volume"
@@ -102,8 +106,12 @@ def test_the_site_file_names_the_builders_network_volume_and_link_address():
         .read_text(encoding="utf-8")
     for constant, value in (("INTERNAL_NETWORK", "knovas-site"), ("EGRESS_NETWORK", "knovas-egress"),
                             ("TOKEN_VOLUME", "link-tokens"), ("LINK_LOCAL_URL", "http://knovas-link:8460"),
-                            ("SOURCES_ENV_FILE", "knovas-sources.env")):
+                            ("SOURCES_ENV_FILE", "knovas-sources.env"), ("CONNECTOR_ENV_FILE", "knovas-{kind}.env")):
         assert re.search(rf'^{constant} = "{re.escape(value)}"$', sites, re.M), constant
+    declared = json.loads(subprocess.run([sys.executable, "-m", "knovas_connector_jira", "declaration"],
+                                         capture_output=True, text=True, env=image_env(), timeout=60).stdout)
+    assert yaml.safe_load(SITE_FILE.read_text(encoding="utf-8"))["services"]["jira-connector"]["env_file"] == \
+        ["knovas-{kind}.env".format(kind=declared["source_kind"])], "the file the Builder names for a jira source"
 
 
 def test_in_the_repositorys_compose_file_it_is_off_unless_named_and_has_no_credential_unless_a_file_is_named():
@@ -111,8 +119,8 @@ def test_in_the_repositorys_compose_file_it_is_off_unless_named_and_has_no_crede
     jira = compose["jira-connector"]
     assert jira["profiles"] == ["jira-connector"]
     assert jira["build"] == {"context": "./KnovasConnectorJira"} and jira["image"] == "jira-connector:0.1.0"
-    assert jira["env_file"] == ["${JIRA_CONNECTOR_SOURCES_ENV:-/dev/null}"]
+    assert jira["env_file"] == ["${JIRA_CONNECTOR_ENV_FILE:-/dev/null}"]
     assert "ports" not in jira and "secrets" not in jira and "environment" not in jira
     example = (REPO / "knovas.env.example").read_text(encoding="utf-8")
-    assert "# JIRA_CONNECTOR_SOURCES_ENV=./knovas-sources.env" in example
+    assert "# JIRA_CONNECTOR_ENV_FILE=./knovas-jira.env" in example and "SOURCES_ENV" not in example
     assert not re.search(r"^SYNC_CREDENTIAL", example, re.M), "a credential never goes into knovas.env"

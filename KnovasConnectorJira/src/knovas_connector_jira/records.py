@@ -10,8 +10,8 @@
   name or an email address), an option, status, priority or type as its name or value, a date as Jira writes it, a
   whole number as an integer and any other number as a string (the protocol carries no floating-point number), and a
   rich-text field (Atlassian Document Format: the description, the environment) as plain text, at most 32,768
-  characters (``adf.py``). A field reaches the record only when the settings name it in ``fields``: a mapping that
-  reads the description needs ``description`` there.
+  bytes of utf-8, cut on a character boundary (``adf.py``). A field reaches the record only when the settings name
+  it in ``fields``: a mapping that reads the description needs ``description`` there.
 - ``computed`` names the fields the source computes, from the issue's edit metadata: a field read but not editable by
   this credential (``created``, ``resolution``), and every field the settings name as set by an automation. ``status``
   is not computed unless the settings say so: it is written through a transition.

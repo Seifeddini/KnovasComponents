@@ -344,15 +344,16 @@ services:
   #   docker compose --env-file knovas.env --profile jira-connector run --rm -T \
   #     -v "$PWD/jira-settings.json:/settings.json:ro" jira-connector \
   #     dump-stream --source <source key> --settings /settings.json --out - > <source key>.jsonl
-  # The credential comes only from the file JIRA_CONNECTOR_SOURCES_ENV names (a site's knovas-sources.env:
-  # SYNC_CREDENTIAL_<KEY> and SYNC_CREDENTIAL_<KEY>_HOST), never from knovas.env; unset, the service has none.
+  # The credential comes only from the file JIRA_CONNECTOR_ENV_FILE names (a site's knovas-jira.env, the connector's
+  # own: SYNC_CREDENTIAL_<KEY> and SYNC_CREDENTIAL_<KEY>_HOST), never from knovas.env and never from a file another
+  # service reads; unset, the service has none.
   jira-connector:
     profiles: ["jira-connector"]
     image: jira-connector:0.1.0
     build:
       context: ./KnovasConnectorJira
     env_file:
-      - ${JIRA_CONNECTOR_SOURCES_ENV:-/dev/null}
+      - ${JIRA_CONNECTOR_ENV_FILE:-/dev/null}
     read_only: true
     cap_drop:
       - ALL

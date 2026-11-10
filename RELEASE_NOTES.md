@@ -18,15 +18,18 @@ WB-10, WB-11, WB-12).
   `KnovasPlatform/docs/connect-a-site.md` Abschnitt 6.2.
 - **Jira-Connector** (`KnovasConnectorJira/`, neues Abbild `jira-connector`): liest ein Jira-Projekt als Datensätze und
   führt `set_assignee`, `set_due_date` und `transition_issue` aus. Läuft am Standort als eigene Komponente neben
-  Knovas Link (`KnovasConnectorJira/deploy/docker-compose.jira.yml`); der Zugang nur aus `knovas-sources.env`, an
-  genau den Host, den die Zeile daneben nennt. `knovas-connector-jira dump-stream` schreibt den vollständigen
+  Knovas Link (`KnovasConnectorJira/deploy/docker-compose.jira.yml`); der Zugang nur aus seiner eigenen Datei
+  `knovas-jira.env`, die kein anderer Dienst liest (nie aus `knovas-sources.env`, die die Sync-Komponente liest), an
+  genau den Host, den die Zeile daneben nennt. Die Sync-Komponente verwendet keinen Zugang, neben dem eine Zeile
+  `…_HOST` steht, und keinen nach der Art einer anderen Quelle benannten. `knovas-connector-jira dump-stream` schreibt den vollständigen
   Datenstrom einer Quelle als JSON Lines für die Zuordnung ins Brain.
 - **Brain Builder** (`BUILDER_PROTOCOL_V2=true`): bietet je Quelle an, was ihr Connector angemeldet und geprüft hat;
   Quellen einer Art ohne eigenes Formular (etwa `jira`) mit einem allgemeinen Einstellungsformular; «Freigaben»
   zeigt Änderungssätze mit ihrer Vorschau und gibt nur genaue frei.
 - **Beim Update:** Der Release-Lauf baut jetzt vier Abbilder (`all`); das Paket `jira-connector` in GHCR einmal privat
   anlegen (`KnovasPlatform/docs/deployment/release-images.md`, «Once per repository»). Die Plattform wendet
-  **Migration 0025** beim Start an (nur hinzufügend: eine Komponente hinter Knovas Link darf eine eigene Art haben).
+  **Migration 0025** beim Start an (eine Komponente hinter Knovas Link darf eine eigene Art haben, nie die Art
+  `knovas_link`). Am Standort: die Jira-Zeilen in `knovas-jira.env`, nicht in `knovas-sources.env`.
   Ohne die Schalter ändert sich am Standort nichts.
 
 ## Automatisch abgleichen: bei neuen Commits, auf Wunsch ohne Klick (KG-2)

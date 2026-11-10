@@ -140,6 +140,25 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_github_jobs.py
         checks:
         - TestFetch::test_the_credential_comes_from_the_components_environment
+    - id: L3-SYNC-COMPONENT/*/A-6
+      statement: The component never hands out a credential that is not its to send, whatever key, kind or address the
+        Platform names - not one with a SYNC_CREDENTIAL_<KEY>_HOST line beside it (a connector's of its own, such as
+        the Jira connector's, which reads its own knovas-jira.env at a site), not a host line, and not another kind's
+        line (an HTTP/JSON source keyed github does not get SYNC_CREDENTIAL_GITHUB); a refused line is not replaced by
+        another. A GitHub source's credential goes only to the GitHub API (BRAIN_GITHUB_API), and GitHub sources keep
+        their own and their kind's line (SPEC-write-back-20, GI-CONN-07; verifier KC-3 N5).
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_credentials.py
+        checks:
+        - TestTheCanaryScenario::test_a_credential_bound_to_a_host_or_a_host_line_is_never_handed_out
+        - TestTheCanaryScenario::test_the_kind_wide_http_json_line_does_not_replace_a_refused_one
+        - TestTheCanaryScenario::test_the_check_the_component_runs_by_itself_sends_nothing_to_the_platforms_address
+        - TestTheCanaryScenario::test_a_dry_runs_fetch_and_a_job_get_no_credential_either
+        - TestGitHubStillWorks::test_a_github_source_gets_its_own_line_and_the_kinds_line_as_before
+        - TestGitHubStillWorks::test_its_check_head_and_read_send_the_token_to_the_github_api_only
+        - TestGitHubStillWorks::test_an_http_json_source_keyed_like_a_kind_does_not_get_that_kinds_line
     - id: L3-SYNC-COMPONENT/*/A-3
       statement: The Brain is written only on a person's command (an apply after a dry run, or an approved held plan),
         or - for a source whose automatic apply a person switched on - by the apply of a plan the schedule just made
@@ -746,6 +765,11 @@ review:
     same day after the independent verification of Phase A (L4) - a repeat's receipt is read at the commit of its
     permit, found in the file's whole history (the search failing explicitly past 10 000 commits) instead of the last
     50; a person confirms it is compatible.
+- at: L3-SYNC-COMPONENT/*/A-6
+  why: New 2026-11-10 after the independent verification of KC 2901cce..74d0ddf (N5) - credential_for no longer hands
+    out a host-bound, host or other kind's line. It narrows what the component sends; a site whose sync component held
+    such a line for one of its own sources loses it (none known - GitHub sources use no host line). A person confirms
+    it as a tightening.
 - at: L3-SYNC-COMPONENT/job.v2/P-4
   why: New 2026-11-10 for FEAT-2026-11-10-write-back C-5 (the site's half) - what SYNC_PROTOCOL_V2 adds and keeps,
     pinned; the switch-over at a site is in connect-a-site.md section 6.2. A person confirms it as an addition.

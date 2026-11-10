@@ -30,13 +30,14 @@ A source of kind `jira` names its site and project in its settings; nothing in t
 - `computed_fields` (optional): fields an automation sets. They are never written, and a preview that would set one is
   inexact (it cannot be approved). Fields the edit metadata does not let the credential set count as computed too.
 - The credential is read from the site's environment: `SYNC_CREDENTIAL_<SOURCE KEY>` (upper case, other characters as
-  `_`), else `SYNC_CREDENTIAL_JIRA`. `<account email>:<API token>` is sent as basic authentication, a bare token as a
+  `_`), else `SYNC_CREDENTIAL_JIRA`, at a site from the connector's own file `knovas-jira.env`, which no other service
+  reads (below, "At a site"). `<account email>:<API token>` is sent as basic authentication, a bare token as a
   bearer token. It never leaves the site: not in a result, a stream message, a log line or an error.
 - The one host the credential may be sent to is named beside it, in `SYNC_CREDENTIAL_<SOURCE KEY>_HOST` (for
   `SYNC_CREDENTIAL_JIRA`: `SYNC_CREDENTIAL_JIRA_HOST`), the host name only, never taken from the other line:
 
   ```bash
-  # knovas-sources.env at the site
+  # knovas-jira.env at the site (never knovas-sources.env: the sync component reads that one)
   SYNC_CREDENTIAL_JIRA_MAIN=<account email>:<API token>
   SYNC_CREDENTIAL_JIRA_MAIN_HOST=<your-site>.atlassian.net
   ```
@@ -63,9 +64,10 @@ HTML: blocks separated by a blank line; a heading's text alone; a code block's t
 before a bullet item, `1. ` (from the list's start) before an ordered one, `- [x] ` / `- [ ] ` for a task, two spaces
 more per level; a table row per line, cells separated by ` | `; marks dropped, a link as its text (never its address),
 a smart link card as its URL, a mention as `@` and the account id (never the name), an emoji, a date (`YYYY-MM-DD`)
-or a status as its text; attachments, media and extensions left out. At most **32,768 characters** (half of the
-protocol's 64 KiB for one value): longer text is cut and ends with `…`, as is the text read when the walk stops after
-20,000 nodes or 64 levels. A document without text is `null`.
+or a status as its text; attachments, media and extensions left out. At most **32,768 bytes of UTF-8** (32 KiB, half
+of the protocol's 64 KiB for one value, whatever the script: a CJK character is three bytes, an emoji four): longer
+text is cut on a character boundary, never inside one, and ends with `…` within the bound, as is the text read when the
+walk stops after 20,000 nodes or 64 levels. A document without text is `null`.
 
 ## What it writes
 
@@ -102,7 +104,7 @@ the connector. It holds no Knovas certificate or token and opens no port.
 | `SYNC_NAME` | the name Link wrote its token for (default `jira-connector`) |
 | `SYNC_LINK_TOKEN_FILE` | default `/link/token` (Link's folder for it, mounted read only) |
 | `SYNC_INTERVAL_SECONDS` | between heartbeats (default 30) |
-| `SYNC_CREDENTIAL_<KEY>`, `SYNC_CREDENTIAL_<KEY>_HOST` | the source's credential and its host, from `knovas-sources.env` |
+| `SYNC_CREDENTIAL_<KEY>`, `SYNC_CREDENTIAL_<KEY>_HOST` | the source's credential and its host, from `knovas-jira.env` |
 
 [`deploy/docker-compose.jira.yml`](deploy/docker-compose.jira.yml) adds it to the Builder's install package without
 changing the package: copy it beside the package's `docker-compose.yml` and put in the site's `.env`:
@@ -113,12 +115,25 @@ JIRA_CONNECTOR_IMAGE=ghcr.io/<owner, lower case>/jira-connector
 JIRA_CONNECTOR_DIGEST=sha256:<from the release run's summary>
 ```
 
+and the credential with its host into a file of its own beside them, `knovas-jira.env` (readable by its owner only:
+`chmod 600 knovas-jira.env`), which only `jira-connector` reads:
+
+```bash
+SYNC_CREDENTIAL_<SOURCE KEY>=<account email>:<API token>
+SYNC_CREDENTIAL_<SOURCE KEY>_HOST=<your-site>.atlassian.net
+```
+
+Never into `knovas-sources.env`: the sync component reads that file, and the Platform names the sources it checks and
+the addresses an HTTP/JSON source is read from, so a Jira credential there could be sent elsewhere by whoever controls
+the Platform's configuration (verifier KC-3 N5). The sync component also refuses, as a second wall, any credential with
+a `_HOST` line beside it. Without `knovas-jira.env` compose refuses to start.
+
 It also sets, on `knovas-link`, `LINK_PROTOCOL_V2=true` (Link takes declarations and routes v2 jobs only then) and
 `LINK_COMPONENTS=jira-connector` (Link writes this component's token from its start, before any source names it).
 Then `docker compose up -d`. The Platform needs `BUILDER_PROTOCOL_V2=true` to keep a component of the kind `jira`
 and offer its sources (the generic settings form; [connect-a-site.md](../KnovasPlatform/docs/connect-a-site.md)
 § 3). The site and the project come from the source's settings in the Builder, after Prüfen & Veröffentlichen; the
-credential and its host from `knovas-sources.env` (above), never from the Platform.
+credential and its host from `knovas-jira.env` (above), never from the Platform.
 
 ## `dump-stream`: a source's record stream for the Brain mapping
 
@@ -148,9 +163,9 @@ This interface is stable; a mapping run (brain-runner's record source, `RecordSo
 Through the container, with the service's environment:
 
 ```bash
-# at the site (settings from the Builder through Link, credential from knovas-sources.env)
+# at the site (settings from the Builder through Link, credential from knovas-jira.env)
 docker compose run --rm -T jira-connector dump-stream --source <source key> --out - > <source key>.jsonl
-# from a checkout of this repository, without Link (knovas.env: JIRA_CONNECTOR_SOURCES_ENV names the credential file)
+# from a checkout of this repository, without Link (knovas.env: JIRA_CONNECTOR_ENV_FILE names the credential file)
 docker compose --env-file knovas.env --profile jira-connector run --rm -T \
   -v "$PWD/jira-settings.json:/settings.json:ro" jira-connector \
   dump-stream --source <source key> --settings /settings.json --out - > <source key>.jsonl

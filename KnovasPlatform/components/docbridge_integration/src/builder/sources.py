@@ -183,8 +183,9 @@ def settings_problem(kind: str, settings: Mapping[str, Any]) -> Optional[str]:
 # connector at a site declared (protocol_v2.declared_kinds) and the catalogue above does not know is created with one
 # generic form: its settings as names and values -- text, a number, yes/no, or a list of texts -- carried to the site
 # exactly as entered (store.served_source), where the connector reads them as its documentation says. The declaration
-# describes no settings, so no field is typed from it. A credential is never one of them: it belongs at the site
-# (knovas-sources.env, SYNC_CREDENTIAL_<KEY>), so a name or value that looks like one is refused.
+# describes no settings, so no field is typed from it. A credential is never one of them: it belongs at the site, in
+# the connector's own file (knovas-<kind>.env, SYNC_CREDENTIAL_<KEY>; sites.credential_file), so a name or value that
+# looks like one is refused.
 
 #: A setting's name: what the connector reads under ``settings``.
 GENERIC_SETTING_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
@@ -264,16 +265,16 @@ def credential_value(text: str) -> bool:
                 or _AUTH_SCHEME.match(text) or _USER_AND_SECRET.match(text) or _random_looking(text))
 
 
-def _credential_refused(what: str, key: Optional[str]) -> str:
-    from builder.sites import SOURCES_ENV_FILE, credential_line
+def _credential_refused(what: str, key: Optional[str], kind: Optional[str] = None) -> str:
+    from builder.sites import credential_file, credential_line
 
     line = credential_line(key) if key else "SYNC_CREDENTIAL_<SCHLÜSSEL>="
     return (f"{what} sieht nach einem Zugang aus (Token, Passwort, Geheimnis oder Schlüssel). Zugänge gehören an den "
-            f"Standort: dort in {SOURCES_ENV_FILE} hinter die Zeile {line} eintragen. In die Plattform werden sie "
+            f"Standort: dort in {credential_file(kind)} hinter die Zeile {line} eintragen. In die Plattform werden sie "
             "nicht eingegeben.")
 
 
-def _generic_text(value: str, where: str, limit: int, key: Optional[str]) -> Optional[str]:
+def _generic_text(value: str, where: str, limit: int, key: Optional[str], kind: Optional[str] = None) -> Optional[str]:
     text = value.strip()
     if not text:
         return None
@@ -282,11 +283,11 @@ def _generic_text(value: str, where: str, limit: int, key: Optional[str]) -> Opt
     if _CONTROL.search(text):
         raise SettingsError(f"{where}: eine Zeile, ohne Steuerzeichen.")
     if credential_value(text):
-        raise SettingsError(_credential_refused(f"Der Wert von {where}", key))
+        raise SettingsError(_credential_refused(f"Der Wert von {where}", key, kind))
     return text
 
 
-def generic_value(name: str, value: Any, key: Optional[str] = None) -> Any:
+def generic_value(name: str, value: Any, key: Optional[str] = None, kind: Optional[str] = None) -> Any:
     """One setting's value as kept: text (trimmed), a number, yes/no, or a list of texts; None when it is empty (the
     setting is left out, as an empty field of a known kind is). SettingsError naming the setting, never its value."""
     where = f"«{name}»"
@@ -299,20 +300,21 @@ def generic_value(name: str, value: Any, key: Optional[str] = None) -> Any:
             raise SettingsError(f"{where}: eine Zahl bis {GENERIC_NUMBER_MAX}.")
         return value
     if isinstance(value, str):
-        return _generic_text(value, where, GENERIC_TEXT_MAX, key)
+        return _generic_text(value, where, GENERIC_TEXT_MAX, key, kind)
     if isinstance(value, list):
         if len(value) > GENERIC_LIST_MAX:
             raise SettingsError(f"{where}: höchstens {GENERIC_LIST_MAX} Einträge.")
         if not all(isinstance(v, str) for v in value):
             raise SettingsError(f"{where}: eine Liste von Texten.")
-        items = [t for t in (_generic_text(v, where, GENERIC_ITEM_MAX, key) for v in value) if t is not None]
+        items = [t for t in (_generic_text(v, where, GENERIC_ITEM_MAX, key, kind) for v in value) if t is not None]
         return items or None
     raise SettingsError(f"{where}: Text, Zahl, Ja/Nein oder eine Liste von Texten.")
 
 
-def generic_settings(raw: Any, key: Optional[str] = None) -> dict:
+def generic_settings(raw: Any, key: Optional[str] = None, kind: Optional[str] = None) -> dict:
     """A generic kind's settings as kept and served to the site: names checked (a connector's own names, lower case,
-    never a credential's), values as ``generic_value``. ``key`` is the source's, for the line a refusal names.
+    never a credential's), values as ``generic_value``. ``key`` and ``kind`` are the source's, for the line and the
+    file a refusal names.
     SettingsError for the first problem; its message names a setting by its name or place, never by a value."""
     if raw is None:
         return {}
@@ -326,8 +328,8 @@ def generic_settings(raw: Any, key: Optional[str] = None) -> dict:
             raise SettingsError(f"Einstellung {place}: der Name klein geschrieben, aus Buchstaben, Ziffern und «_», "
                                 "beginnend mit einem Buchstaben, so wie der Connector ihn liest.")
         if credential_name(name):
-            raise SettingsError(_credential_refused(f"Die Einstellung «{name}»", key))
-        kept = generic_value(name, value, key)
+            raise SettingsError(_credential_refused(f"Die Einstellung «{name}»", key, kind))
+        kept = generic_value(name, value, key, kind)
         if kept is not None:
             out[name] = kept
     return out
@@ -617,8 +619,11 @@ def on_site_problem(kind: Any, secret: Optional[str], site: bool = False) -> Opt
     """Why the Platform cannot read this source that a component reads at the company, or None. A source on a site
     (behind Knovas Link) takes no credential in the Platform at all (MVP-24)."""
     if site and kind != "knovas_connector":
-        return ("Diese Quelle liest die Komponente am Standort, mit dem Zugang aus knovas-sources.env; die Plattform liest "
-                "sie nicht und nimmt keinen Zugang an. Ob die Quelle lesbar ist, zeigt «Verbindung prüfen».")
+        from builder.sites import credential_file
+
+        return (f"Diese Quelle liest die Komponente am Standort, mit dem Zugang aus {credential_file(kind)}; die "
+                "Plattform liest sie nicht und nimmt keinen Zugang an. Ob die Quelle lesbar ist, zeigt «Verbindung "
+                "prüfen».")
     if kind == "github" and not secret:
         return ("Diese Quelle liest die Komponente bei der Firma, mit ihrem eigenen Token. Um hier Felder zu sehen und die "
                 "Zuordnung zu entwerfen, hier zusätzlich ein Lese-Token setzen. Ob die Komponente die Quelle erreicht, "

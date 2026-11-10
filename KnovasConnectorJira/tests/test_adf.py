@@ -119,16 +119,39 @@ class TestPlainText:
 
 
 class TestBounded:
+    """At most MAX_TEXT_BYTES bytes of UTF-8, cut on a character boundary (verifier KC-3, note 5: the bound was in
+    characters, so CJK text reached three times the bytes its comment claimed)."""
+
+    @staticmethod
+    def size(text):
+        return len(text.encode("utf-8"))
+
     def test_a_long_text_is_cut_to_the_bound_and_ends_with_an_ellipsis(self):
-        got = adf.to_text(doc(para(text("x" * (adf.MAX_TEXT_CHARS + 500)))))
-        assert len(got) == adf.MAX_TEXT_CHARS and got.endswith("…") and got.startswith("xxx")
+        got = adf.to_text(doc(para(text("x" * (adf.MAX_TEXT_BYTES + 500)))))
+        assert self.size(got) == adf.MAX_TEXT_BYTES and got.endswith("…") and got.startswith("xxx")
 
     def test_text_at_the_bound_is_kept_whole(self):
-        assert adf.to_text(doc(para(text("y" * adf.MAX_TEXT_CHARS)))) == "y" * adf.MAX_TEXT_CHARS
+        assert adf.to_text(doc(para(text("y" * adf.MAX_TEXT_BYTES)))) == "y" * adf.MAX_TEXT_BYTES
+        exactly = "日" * (adf.MAX_TEXT_BYTES // 3) + "ab"           # 3 bytes each, then two: exactly the bound
+        assert self.size(exactly) == adf.MAX_TEXT_BYTES and adf.to_text(doc(para(text(exactly)))) == exactly
+
+    @pytest.mark.parametrize("char", ["日", "ü", "😀", "𝄞"])
+    def test_multi_byte_text_is_bounded_in_bytes_and_cut_between_characters(self, char):
+        long = "a" + char * (adf.MAX_TEXT_BYTES // len(char.encode("utf-8")) + 50)
+        got = adf.to_text(doc(para(text(long))))
+        assert self.size(got) <= adf.MAX_TEXT_BYTES and got.endswith("…")
+        assert got[:-1] == long[:len(got) - 1], "a start of the text, every character whole"
+        assert got.encode("utf-8").decode("utf-8") == got and "\ufffd" not in got
+        assert self.size(got) > adf.MAX_TEXT_BYTES - len(char.encode("utf-8")) - len("…".encode("utf-8"))
+
+    def test_mixed_scripts_across_blocks_stay_within_the_bound(self):
+        blocks = [para(text(("Straße 東京 ✓ " * 40) + str(n))) for n in range(400)]
+        got = adf.to_text(doc(*blocks))
+        assert self.size(got) <= adf.MAX_TEXT_BYTES and got.endswith("…")
 
     def test_many_nodes_stop_the_walk_with_an_ellipsis(self):
         got = adf.to_text(doc(*[para(text("w")) for _ in range(adf.MAX_NODES + 10)]))
-        assert got.endswith("…") and len(got) <= adf.MAX_TEXT_CHARS
+        assert got.endswith("…") and self.size(got) <= adf.MAX_TEXT_BYTES
 
     def test_deep_nesting_stops_at_the_depth_bound(self):
         node = para(text("deep"))
@@ -136,8 +159,8 @@ class TestBounded:
             node = {"type": "blockquote", "content": [node]}
         assert adf.to_text(doc(node)) == "…"
 
-    def test_the_bound_fits_one_protocol_value(self):
-        assert adf.MAX_TEXT_CHARS <= 65536
+    def test_the_bound_is_half_of_one_protocol_value_in_bytes(self):
+        assert adf.MAX_TEXT_BYTES * 2 == 64 * 1024
 
 
 class TestInARecord:

@@ -10,6 +10,7 @@ import datetime as dt
 import html
 import io
 import zipfile
+from pathlib import Path
 
 import pytest
 import yaml
@@ -159,6 +160,76 @@ class TestTheRules:
         assert line == "SYNC_CREDENTIAL_AKTEN_REPO="
         assert credential_for("akten-repo", "github", {line[:-1]: "t0ken"}) == "t0ken"
 
+    def test_a_kind_a_connector_declared_has_its_credential_in_that_connectors_own_file(self):
+        """Verifier KC-3 N5: the sync component reads knovas-sources.env, and the Platform names which source it checks
+        and where an HTTP/JSON source is read from, so a connector's credential never goes there."""
+        for kind in ("github", "http_json", "knovas_connector"):
+            assert sites.credential_file(kind) == "knovas-sources.env", kind
+        assert sites.credential_file("jira") == "knovas-jira.env"
+        assert sites.credential_file("crm.v2") == "knovas-crm.v2.env"
+        for odd in ("", None, "../x", "Jira!", "a/b"):
+            assert sites.credential_file(odd) == "knovas-sources.env", odd
+        assert "knovas-jira.env" in sites.sources_env_file() and _env(sites.sources_env_file()) == {}
+
+
+def _compose(folder, *args):
+    """``docker compose`` on the package's file and the Jira file in ``folder``, with the site's .env values and no
+    credential from this machine (``config`` needs no daemon)."""
+    import os
+    import shutil
+    import subprocess
+
+    if shutil.which("docker") is None or subprocess.run(["docker", "compose", "version"], capture_output=True,
+                                                         timeout=60).returncode != 0:
+        pytest.skip("docker compose is not installed here (CI runs it)")
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("SYNC_", "COMPOSE_", "JIRA_", "KNOVAS_"))}
+    env.update(KNOVAS_LINK_DIGEST="sha256:" + "1" * 64, SYNC_COMPONENT_DIGEST="sha256:" + "2" * 64,
+               JIRA_CONNECTOR_IMAGE="ghcr.io/example/jira-connector", JIRA_CONNECTOR_DIGEST="sha256:" + "3" * 64)
+    return subprocess.run(["docker", "compose", "--project-directory", str(folder), "-f", "docker-compose.yml", "-f",
+                           "docker-compose.jira.yml", *args], cwd=folder, env=env, capture_output=True, text=True,
+                          timeout=120)
+
+
+class TestTheJiraFileBesideThePackage:
+    """The site's package plus KnovasConnectorJira/deploy/docker-compose.jira.yml, as the person runs them: the Jira
+    credential is in knovas-jira.env and reaches the jira-connector service only (verifier KC-3 N5)."""
+
+    JIRA_FILE = Path(__file__).resolve().parents[4] / "KnovasConnectorJira" / "deploy" / "docker-compose.jira.yml"
+    JIRA_LINES = {"SYNC_CREDENTIAL_JIRA_PILOT": "someone@example.invalid:CANARY-n5-compose",
+                  "SYNC_CREDENTIAL_JIRA_PILOT_HOST": "muster-partner.example.invalid"}
+
+    def package(self, folder, options=("github", "http_json")):
+        files = {sites.COMPOSE_FILE: sites.compose_file({"name": "Büro"}, list(options)),
+                 sites.LINK_ENV_FILE: sites.env_file("https://platform.example.test/api/connectors/v1", "kce_test"),
+                 sites.SOURCES_ENV_FILE: sites.sources_env_file() + "SYNC_CREDENTIAL_AKTEN_REPO=ghp_fake-for-tests\n",
+                 "docker-compose.jira.yml": self.JIRA_FILE.read_text(encoding="utf-8"),
+                 sites.CONNECTOR_ENV_FILE.format(kind="jira"): "".join(f"{k}={v}\n" for k, v in self.JIRA_LINES.items())}
+        for name, text in files.items():
+            (folder / name).write_text(text, encoding="utf-8")
+        return folder
+
+    def test_the_jira_lines_reach_the_jira_connector_and_no_other_service(self, tmp_path):
+        import json
+
+        done = _compose(self.package(tmp_path), "config", "--format", "json")
+        assert done.returncode == 0, done.stderr[-2000:]
+        services = json.loads(done.stdout)["services"]
+        assert set(services) == {"knovas-link", "sync-component", "jira-connector"}
+        jira = services["jira-connector"]["environment"]
+        assert {k: jira.get(k) for k in self.JIRA_LINES} == self.JIRA_LINES
+        assert "SYNC_CREDENTIAL_AKTEN_REPO" not in jira, "nor the sync component's credentials"
+        for name in ("sync-component", "knovas-link"):
+            env = services[name].get("environment") or {}
+            assert not [k for k in env if k.startswith("SYNC_CREDENTIAL_JIRA")], name
+            assert "CANARY" not in repr(services[name]) and "muster-partner" not in repr(services[name]), name
+        assert services["sync-component"]["environment"]["SYNC_CREDENTIAL_AKTEN_REPO"] == "ghp_fake-for-tests"
+        assert "LINK_ENROL_TOKEN" not in jira and "LINK_ENROL_TOKEN" not in services["sync-component"]["environment"]
+
+    def test_without_the_jira_file_compose_refuses_to_start(self, tmp_path):
+        folder = self.package(tmp_path)
+        (folder / "knovas-jira.env").unlink()
+        done = _compose(folder, "config", "--quiet")
+        assert done.returncode != 0 and "knovas-jira.env" in done.stderr
 
 class TestASite:
     def test_creating_a_site_makes_a_pending_knovas_link(self, world):

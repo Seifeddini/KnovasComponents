@@ -13,7 +13,7 @@ loop (FEAT-2026-11-10-write-back J-4; BET-2026-11-write-back WB-07).
   the source of that key as Knovas Link holds it from the Platform's published configuration for this component
   (``SYNC_LINK_URL``, ``SYNC_NAME``, ``SYNC_LINK_TOKEN_FILE``, as for ``serve``).
 - **The credential:** the site's, ``SYNC_CREDENTIAL_<SOURCE KEY>`` with ``SYNC_CREDENTIAL_<SOURCE KEY>_HOST`` (else the
-  ``_JIRA`` pair), from the environment (``knovas-sources.env``); never an argument, never written.
+  ``_JIRA`` pair), from the environment (``knovas-jira.env``); never an argument, never written.
 - **Exit codes:** 0 written; 2 usage, settings or configuration (``dump.*``, ``jira.bad_settings``,
   ``jira.no_credential``); 3 a Jira call failed (its code); 4 Jira cut the listing, so it is not complete and nothing
   is written (``dump.listing_cut``). Standard error carries one line: the code, or the counts.

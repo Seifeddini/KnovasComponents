@@ -8,7 +8,7 @@
         print the connector's protocol 2.0 declaration as JSON
 
 The image's entry point is this command, ``serve`` by default, so ``docker compose run --rm <service> dump-stream ...``
-runs the dump with the service's environment (the site's ``knovas-sources.env``).
+runs the dump with the service's environment (the site's ``knovas-jira.env``).
 """
 from __future__ import annotations
 

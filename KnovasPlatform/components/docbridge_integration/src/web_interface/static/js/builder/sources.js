@@ -11,7 +11,8 @@
  * With connector protocol 2.0 on (data.generic_form), a kind a connector at a site declared that has no form of its
  * own (data.kinds[k].generic) gets the generic form: settings as name, type and value, sent typed (text, number,
  * yes/no, list of texts) and checked again by the server, which refuses anything that looks like a credential. Its
- * credential is a line of knovas-sources.env at the site, never a value here (SPEC-write-back-13).
+ * credential is a line of the connector's own file at the site (knovas-<kind>.env, never knovas-sources.env), never a
+ * value here (SPEC-write-back-13; verifier KC-3 N5).
  */
 (function () {
     'use strict';
@@ -263,7 +264,8 @@
 
     var GENERIC_NOTE = 'Für diese Art von Quelle hat der Builder kein eigenes Formular: Einstellungen als Name und Wert ' +
         'eintragen, so wie der Connector sie liest (seine Dokumentation nennt sie). Zugänge gehören nicht hierher: ' +
-        'sie werden am Standort in knovas-sources.env eingetragen.';
+        'sie werden am Standort in die eigene Datei des Connectors eingetragen (knovas-<Art>.env), nie in ' +
+        'knovas-sources.env.';
 
     /* A generic source's settings, changed as an edit of the draft: reviewed and published before the site sees them. */
     function genericSettingsBox(s) {
@@ -378,14 +380,16 @@
         return wrap;
     }
 
-    /* A source on a site (connection layer MVP-24): its credential is a line of knovas-sources.env at the company, typed
-       there; the Platform shows the line and never takes the value. */
+    /* A source on a site (connection layer MVP-24): its credential is a line of a file at the company, typed there:
+       knovas-sources.env for the sync component, the connector's own knovas-<kind>.env for a kind a connector declared
+       (s.credential_file; verifier KC-3 N5). The Platform shows the line and the file and never takes the value. */
     function siteCredentialBox(s, kind) {
         var box = el('section', 'b-src-credential');
         box.setAttribute('data-src-site-credential', '');
         box.appendChild(el('h3', 'b-h3', 'Zugang'));
         box.appendChild(el('p', 'b-small', (s.write ? (kind.write_credential || kind.credential) : kind.credential) +
-            '. Diese Quelle liest eine Komponente am Standort «' + (s.site_name || '') + '»: den Wert dort in knovas-sources.env eintragen, hinter dieser Zeile.'));
+            '. Diese Quelle liest eine Komponente am Standort «' + (s.site_name || '') + '»: den Wert dort in ' +
+            (s.credential_file || 'knovas-sources.env') + ' eintragen, hinter dieser Zeile.'));
         var row = el('div', 'b-proc-inline');
         var line = el('code', 'b-mono', s.credential_line);
         line.setAttribute('data-src-credential-line', '');
@@ -702,7 +706,7 @@
         var generic = !!(kind && kind.generic);
         dialog.querySelector('[data-sn-key]').hidden = !generic;
         dialog.querySelector('[data-sn-credential-note]').textContent = generic
-            ? 'Synchronisation: manuell. Der Zugang wird nicht hier eingegeben: nach dem Anlegen zeigt die Quelle die Zeile für knovas-sources.env am Standort.'
+            ? 'Synchronisation: manuell. Der Zugang wird nicht hier eingegeben: nach dem Anlegen zeigt die Quelle die Zeile und die Datei am Standort (die eigene des Connectors, nie knovas-sources.env).'
             : CREDENTIAL_NOTE;
         genericEditor = null;
         if (generic) {

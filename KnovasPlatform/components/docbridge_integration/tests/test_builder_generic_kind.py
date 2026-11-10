@@ -4,7 +4,8 @@ FEAT-2026-11-10-write-back C-8; BET-2026-11-write-back WB-12, WB-07).
 With BUILDER_PROTOCOL_V2 on, a kind a connector at a site declared (here ``jira``, as the Jira connector declares it)
 and the Builder's catalogue does not know gets one generic form: the source's key, its kind, its component at the site,
 and its settings as names and values (text, number, yes/no, list of texts). Anything that looks like a credential is
-refused; the credential belongs at the site (knovas-sources.env). Publishing carries the settings to the site exactly
+refused; the credential belongs at the site, in the connector's own file (knovas-jira.env, never knovas-sources.env,
+which the sync component reads: verifier KC-3 N5). Publishing carries the settings to the site exactly
 as for a known kind, and the Jira connector reads them. The read and write switches and the staging follow the
 declaration as for a known kind. Known kinds keep their forms; with the switch off nothing of this is offered.
 The company, its site and its Jira project are made up.
@@ -131,6 +132,7 @@ def test_a_source_of_a_declared_kind_is_created_with_its_key_kind_site_and_typed
     [shown] = [s for s in made.get_json()["sources"]["sources"] if s["key"] == "jira-projekte"]
     assert shown["generic"] is True and shown["on_site"] is True and shown["site_name"]
     assert shown["credential_line"] == "SYNC_CREDENTIAL_JIRA_PROJEKTE=", "the credential's line for the site"
+    assert shown["credential_file"] == "knovas-jira.env", "the connector's own file, which the sync component never reads"
     assert shown["credential_label"] == S.GENERIC_CREDENTIAL
 
 
@@ -168,7 +170,8 @@ def test_a_setting_named_like_a_credential_is_refused_and_said_to_belong_at_the_
     refused = _create(world, settings={**SETTINGS, name: "irgendwas"})
     assert refused.status_code == 400
     error = refused.get_json()["error"]
-    assert f"«{name}»" in error and "knovas-sources.env" in error and "SYNC_CREDENTIAL_JIRA_PROJEKTE=" in error
+    assert f"«{name}»" in error and "knovas-jira.env" in error and "SYNC_CREDENTIAL_JIRA_PROJEKTE=" in error
+    assert "knovas-sources.env" not in error
     assert world["store"].model(world["workspace"])["sources"] == []
 
 
@@ -191,11 +194,11 @@ def test_a_value_that_looks_like_a_credential_is_refused_without_repeating_it(mo
     refused = _create(world, settings={**SETTINGS, "project": value})
     assert refused.status_code == 400
     error = refused.get_json()["error"]
-    assert "Der Wert von «project»" in error and "knovas-sources.env" in error
+    assert "Der Wert von «project»" in error and "knovas-jira.env" in error and "knovas-sources.env" not in error
     assert value not in json.dumps(refused.get_json()), "a refusal never repeats the value"
     assert world["store"].model(world["workspace"])["sources"] == []
     in_a_list = _create(world, settings={**SETTINGS, "fields": ["summary", value]})
-    assert in_a_list.status_code == 400 and "knovas-sources.env" in in_a_list.get_json()["error"]
+    assert in_a_list.status_code == 400 and "knovas-jira.env" in in_a_list.get_json()["error"]
 
 
 @pytest.mark.parametrize("name, value", [
@@ -217,6 +220,7 @@ def test_the_credential_is_never_entered_in_the_builder(monkeypatch):
     refused = world["http"].post(f"/builder/api/w/{world['workspace']}/sources/jira-projekte/credential",
                                  json={"value": "irgendwas"})
     assert refused.status_code == 409 and "SYNC_CREDENTIAL_JIRA_PROJEKTE=" in refused.get_json()["error"]
+    assert "knovas-jira.env" in refused.get_json()["error"] and "knovas-sources.env" not in refused.get_json()["error"]
     assert _source(world)["credential_set"] is False
 
 
@@ -411,7 +415,10 @@ def test_with_the_switch_off_a_component_of_an_unknown_kind_is_dropped_as_before
                     reason="No PostgreSQL for the migration test (PLATFORM_DB_TEST_DSN)")
 def test_the_migration_lets_only_a_child_take_its_connector_s_kind(platform_db):
     """0025 on PostgreSQL: a child behind Link may have the connector's own kind; a component enrolled on its own keeps
-    the list, and a kind not of a heartbeat's shape is refused."""
+    the list, a kind not of a heartbeat's shape is refused, and a child never takes Link's own kind (verifier KC-3,
+    note 2): each refusal is the constraint's CheckViolation, nothing else."""
+    from psycopg.errors import CheckViolation
+
     from builder.store import WorkspaceStore
 
     store = WorkspaceStore(platform_db)
@@ -423,8 +430,15 @@ def test_the_migration_lets_only_a_child_take_its_connector_s_kind(platform_db):
                                   name="Knovas Link · Büro Basel · jira")
     [child] = store.children(link_id)
     assert child["id"] == child_id and child["kind"] == "jira"
-    with pytest.raises(Exception):
+    with pytest.raises(CheckViolation, match="builder_component_kind_check"):
         store.register_component(TENANT, kind="jira", name="Für sich", site="", owner="", settings={}, actor_id=None)
-    with pytest.raises(Exception):
+    with pytest.raises(CheckViolation, match="builder_component_kind_check"):
         store.upsert_child(TENANT, parent_id=link_id, site_id=site_id, local_name="falsch", kind="Jira!",
                            name="Knovas Link · Büro Basel · falsch")
+    with pytest.raises(CheckViolation, match="builder_component_kind_check"):
+        store.upsert_child(TENANT, parent_id=link_id, site_id=site_id, local_name="zweiter-link", kind="knovas_link",
+                           name="Knovas Link · Büro Basel · zweiter-link")
+    for kind in ("sync_component", "github_runner"):      # a child of a listed kind is kept as before
+        assert store.upsert_child(TENANT, parent_id=link_id, site_id=site_id, local_name=kind, kind=kind,
+                                  name=f"Knovas Link · Büro Basel · {kind}")
+    assert [c["kind"] for c in store.components(TENANT, every=True) if c["kind"] == "knovas_link"] == ["knovas_link"]

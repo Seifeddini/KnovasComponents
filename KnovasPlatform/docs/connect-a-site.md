@@ -9,7 +9,7 @@ Stand: MVP des Verbindungsteils (MVP-23 bis MVP-28). Wie Knovas Link sein Zertif
 ## 1. Standort anlegen (Builder › Verbinden)
 
 1. **«Standort anlegen»:** Name (zum Beispiel «Büro Zürich»), verantwortlich, und was dort gelesen wird: GitHub, HTTP/JSON-Schnittstelle, Dateiablage. Dafür braucht es die Berechtigung «Zugänge verwalten».
-2. **«Installationspaket herunterladen»:** ein Zip mit `docker-compose.yml`, `knovas-link.env` und `knovas-sources.env`. `knovas-link.env` enthält nur die Adresse der Plattform und ein Einmal-Token für Knovas Link (24 Stunden, nur einmal) und wird nur vom Dienst `knovas-link` gelesen. In `knovas-sources.env` kommen die Zugänge der Quellen; nur die Komponenten lesen sie. Jedes Herunterladen erzeugt ein neues Token; das vorige gilt dann nicht mehr. Läuft Knovas Link schon, enthält das Paket kein Token.
+2. **«Installationspaket herunterladen»:** ein Zip mit `docker-compose.yml`, `knovas-link.env` und `knovas-sources.env`. `knovas-link.env` enthält nur die Adresse der Plattform und ein Einmal-Token für Knovas Link (24 Stunden, nur einmal) und wird nur vom Dienst `knovas-link` gelesen. In `knovas-sources.env` kommen die Zugänge der Quellen, die die Sync-Komponente liest; nur sie liest diese Datei. Ein Connector mit eigener Art (Protokoll 2, etwa der Jira-Connector) liest seine Zugänge aus einer eigenen Datei, `knovas-<Art>.env` (Jira: `knovas-jira.env`), die nur er liest; sie kommt mit seiner Datei neben das Paket (Abschnitt 6.1). Jedes Herunterladen erzeugt ein neues Token; das vorige gilt dann nicht mehr. Läuft Knovas Link schon, enthält das Paket kein Token.
 3. **Abbilder:** Der Workflow `release-images` baut `knovas-link` und `sync-component` aus einem Branch, signiert sie und legt sie in GHCR ab ([deployment/release-images.md](deployment/release-images.md)); seine Zusammenfassung nennt `KNOVAS_LINK_DIGEST=sha256:…` und `SYNC_COMPONENT_DIGEST=sha256:…`. Am Standort kommen beide Zeilen in eine Datei `.env` neben `docker-compose.yml`. Das Paket nennt die Abbilder noch ohne Registry; bis der Builder sie aus einer Einstellung nimmt, legt man daneben eine `docker-compose.override.yml` mit dem Namen in GHCR an (`<owner>` in Kleinbuchstaben; nur die Dienste, die das Paket enthält):
 
    ```yaml
@@ -90,19 +90,21 @@ Die Seite des Standorts hakt ab: **Paket installiert · Zertifikat · Knovas Lin
 
 ## 3. Quelle anlegen (Builder › Quellen & Zuordnung)
 
-Die Quelle auf die Komponente des Standorts legen. Das darf nur, wer die Standorte des Mandanten verwaltet (Berechtigung «Zugänge verwalten»): eine Beraterin mit einem Zugang zu nur einem Arbeitsbereich oder eine Autorin ohne diese Berechtigung kann keine Quelle an die Komponente eines Standorts binden, auch nicht über einen Import oder «Wiederherstellen» (BB-07, B2). Ihr Zugang wird **nicht** in die Plattform eingegeben: Der Builder zeigt die genaue Zeile für `knovas-sources.env`, etwa `SYNC_CREDENTIAL_AKTEN=`, mit «Kopieren». Den Wert am Standort dahinter eintragen, neu starten und «Verbindung prüfen».
+Die Quelle auf die Komponente des Standorts legen. Das darf nur, wer die Standorte des Mandanten verwaltet (Berechtigung «Zugänge verwalten»): eine Beraterin mit einem Zugang zu nur einem Arbeitsbereich oder eine Autorin ohne diese Berechtigung kann keine Quelle an die Komponente eines Standorts binden, auch nicht über einen Import oder «Wiederherstellen» (BB-07, B2). Ihr Zugang wird **nicht** in die Plattform eingegeben: Der Builder zeigt die genaue Zeile und die Datei, in die sie gehört, etwa `SYNC_CREDENTIAL_AKTEN=` in `knovas-sources.env`, mit «Kopieren». Den Wert am Standort dahinter eintragen, neu starten und «Verbindung prüfen». Die Datei ist `knovas-sources.env` für eine Quelle der Sync-Komponente (GitHub, HTTP/JSON, Dateiablage), die eigene Datei des Connectors (`knovas-<Art>.env`) für eine Art, die ein Connector angemeldet hat.
 
 **Eine Art von Quelle, für die der Builder kein eigenes Formular hat** (Protokoll 2, Entwurf; nur mit `BUILDER_PROTOCOL_V2=true`, Standard aus; SPEC-write-back-13): Meldet ein Connector am Standort eine Art von Quelle an, die der Builder nicht kennt (etwa der Jira-Connector die Art `jira`), steht sie im Dialog «Quelle hinzufügen» unter «Von einem Connector am Standort angemeldet». Der Connector darf sich bei Knovas Link unter seiner eigenen Art anmelden; die Plattform führt ihn, solange seine Anmeldung dem Protokoll entspricht, sonst nicht (wie bisher). Zuordnen lässt sich eine solche Quelle im Builder noch nicht (J-4). Angeboten wird sie nur auf den Komponenten, die sie angemeldet und die Prüfungen fürs Lesen bestanden haben (`replay_changes_nothing`, `deletion_guard`, `no_credential_leaves_site`). Dazu gehören:
 
 - **Schlüssel:** bestimmt die Zeile für den Zugang am Standort (`SYNC_CREDENTIAL_<SCHLÜSSEL>=`); leer gelassen, wird er aus dem Namen gebildet.
 - **Einstellungen als Name und Wert**, so wie der Connector sie liest; welche, sagt seine Dokumentation. Ein Wert ist Text, eine Zahl, Ja/Nein oder eine Liste von Texten (mit Komma getrennt). Beim Jira-Connector etwa `site` (`https://<firma>.atlassian.net`) und `project` (der Schlüssel des Projekts), falls nötig `fields` und `computed_fields` (Listen von Feld-Ids) und `page_size` (Zahl). Namen klein geschrieben, aus Buchstaben, Ziffern und `_`.
-- **Wohin der Zugang darf** (Jira-Connector): Den Host, an den der Zugang gehen darf, nennt der Standort selbst, in `knovas-sources.env` direkt neben dem Zugang, nur den Hostnamen:
+- **Wohin der Zugang darf** (Jira-Connector): Den Host, an den der Zugang gehen darf, nennt der Standort selbst, in der eigenen Datei des Connectors `knovas-jira.env` direkt neben dem Zugang, nur den Hostnamen:
   ```
   SYNC_CREDENTIAL_<SCHLÜSSEL>=<E-Mail des Kontos>:<API-Token>
   SYNC_CREDENTIAL_<SCHLÜSSEL>_HOST=<firma>.atlassian.net
   ```
   Die Einstellung `site` muss genau dieser Host sein (mit `https://`). Nennt sie einen anderen, verweigert der Connector die Quelle mit `jira.bad_settings`, fehlt die Zeile `…_HOST`, mit `jira.no_credential`, beides bevor er irgendetwas sendet. Einer Umleitung auf einen anderen Host folgt er nicht. So kann niemand, der die Einstellungen in der Plattform ändert, den Zugang an eine andere Adresse schicken.
-- **Kein Zugang:** Ein Name oder Wert, der nach einem Zugang aussieht (Token, Passwort, Geheimnis, Schlüssel, eine Adresse mit Benutzer oder Token, «E-Mail:Token»), wird abgelehnt; die Meldung nennt die Zeile für `knovas-sources.env`. Der Zugang wird am Standort eingetragen, nie in die Plattform. Die Prüfung erkennt Zugänge an ihrer Form, nicht jedes Geheimnis: ein kurzes Passwort unter einem harmlosen Namen fiele nicht auf. Es gehört trotzdem nicht hierher.
+
+  **Nie in `knovas-sources.env`:** Diese Datei liest die Sync-Komponente, und welche Quellen sie prüft und von welcher Adresse sie eine HTTP/JSON-Quelle liest, bestimmt die Plattform. Ein Jira-Zugang dort ginge an die Adresse, die nennt, wer die Einstellungen der Plattform steuert. Als zweite Sperre verwendet die Sync-Komponente keinen Zugang, neben dem eine Zeile `…_HOST` steht, und keinen, der nach der Art einer anderen Quelle heisst (`SYNC_CREDENTIAL_GITHUB` geht nur an GitHub).
+- **Kein Zugang:** Ein Name oder Wert, der nach einem Zugang aussieht (Token, Passwort, Geheimnis, Schlüssel, eine Adresse mit Benutzer oder Token, «E-Mail:Token»), wird abgelehnt; die Meldung nennt die Zeile und die eigene Datei des Connectors (`knovas-<Art>.env`). Der Zugang wird am Standort eingetragen, nie in die Plattform. Die Prüfung erkennt Zugänge an ihrer Form, nicht jedes Geheimnis: ein kurzes Passwort unter einem harmlosen Namen fiele nicht auf. Es gehört trotzdem nicht hierher.
 
 Geändert werden die Einstellungen auf der Seite der Quelle unter «Einstellungen ändern»; wie jede Änderung erreichen sie den Standort erst nach Prüfen & Veröffentlichen, dann genau so, wie sie eingetragen sind. «Änderungen dürfen zurückgeschrieben werden» gibt es, wo der Connector Aktionen angemeldet und die Prüfungen fürs Schreiben bestanden hat; «Agenten dürfen Originale abrufen», wo er `fetch` angemeldet hat; die Schreibweise wie bei jeder Quelle (Abschnitt 5). «Testen» liest eine solche Quelle nicht: das tut nur die Komponente am Standort.
 
@@ -156,11 +158,13 @@ Herunterladen).
    Die Datei setzt bei `knovas-link` `LINK_PROTOCOL_V2=true` und `LINK_COMPONENTS=jira-connector` (Knovas Link schreibt
    das Token dieser Komponente gleich beim Start, noch bevor eine Quelle sie nennt) und startet `jira-connector` als
    eigene Komponente: auf `knovas-site` zu Knovas Link, auf `knovas-egress` zu Jira, nur ihr eigener Ordner des
-   Token-Volumes, die Zugänge nur aus `knovas-sources.env`. `docker compose config --images` zeigt die drei Abbilder,
+   Token-Volumes, die Zugänge nur aus `knovas-jira.env`, die kein anderer Dienst liest (die Sync-Komponente erhält den
+   Jira-Zugang nie). Fehlt die Datei, startet compose nicht. `docker compose config --images` zeigt die drei Abbilder,
    dann `docker compose up -d`.
 3. **Im Builder** erscheint unter dem Standort die Komponente `jira-connector` (Art `jira`), sobald Knovas Link sie
    im Herzschlag meldet. Die Quelle legt man wie in Abschnitt 3 an («Von einem Connector am Standort angemeldet»,
-   Art `jira`, Einstellungen `site` und `project`), trägt die zwei Zeilen in `knovas-sources.env` ein,
+   Art `jira`, Einstellungen `site` und `project`), trägt die zwei Zeilen in `knovas-jira.env` ein (eine eigene Datei
+   neben `docker-compose.yml`, nur für den Eigentümer lesbar: `chmod 600 knovas-jira.env`; nie in `knovas-sources.env`),
    `docker compose up -d --force-recreate jira-connector`, dann Prüfen & Veröffentlichen und «Verbindung prüfen»: die
    Komponente meldet je Quelle `source.ok` oder den Grund (etwa `jira.unauthorized`, `jira.no_credential`,
    `jira.bad_settings`).
@@ -227,7 +231,7 @@ Protokoll 2, und der Builder bietet dafür nichts mehr an.
 | Knovas Link nicht erreichbar | Am Standort `docker compose ps`; erreicht der Rechner Knovas ausgehend? Danach «Jetzt prüfen». |
 | Arbeitskanal unterbrochen | Ausgehende Verbindung zu Knovas prüfen (Firewall, Proxy). |
 | Wartet auf das Zertifikat | Den Zertifikatsschritt ausführen (Abschnitt 2): Antrag mit `certificate-request`, Fingerabdruck vergleichen, von Knovas signieren lassen, im Builder erfassen, mit `install-certificate` installieren. |
-| Quelle nicht lesbar | Die Seite der Komponente nennt je Quelle den Grund; Zeile in `knovas-sources.env` prüfen, neu starten, «Verbindung prüfen». |
+| Quelle nicht lesbar | Die Seite der Komponente nennt je Quelle den Grund; Zeile in der Datei prüfen, die der Builder bei der Quelle nennt (`knovas-sources.env` oder die eigene Datei des Connectors, etwa `knovas-jira.env`), neu starten, «Verbindung prüfen». |
 | Vorschlag wartet | Betrieb › Freigaben. |
 
 Jeder Code hat im Builder einen Titel, eine Erklärung und den nächsten Schritt.

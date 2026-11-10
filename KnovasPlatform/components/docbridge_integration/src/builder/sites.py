@@ -11,8 +11,16 @@ its install package and Link's one-time enrolment token:
   share is ticked.
 - ``knovas-link.env``: the Platform's address and Link's one-time enrolment token, nothing else, read by the
   knovas-link service only.
-- ``knovas-sources.env``: the sources' credentials, lines the person adds there themselves
-  (``SYNC_CREDENTIAL_<KEY>=``, MVP-24), read by the source components only. No credential passes through the Platform.
+- ``knovas-sources.env``: the credentials of the sources the sync component reads, lines the person adds there
+  themselves (``SYNC_CREDENTIAL_<KEY>=``, MVP-24), read by the sync component only. No credential passes through the
+  Platform.
+
+A connector of its own kind added beside the package (connector protocol 2.0, e.g. the Jira connector's
+``docker-compose.jira.yml``) reads its sources' credentials from a file of its own, ``knovas-<kind>.env``
+(``knovas-jira.env``), which no other service reads: the sync component never holds them. The Platform names a
+source's key, kind and, for HTTP/JSON, the address it is read from, so a credential in the sync component's file could
+be sent elsewhere by whoever controls the Platform's configuration (SPEC-write-back-20; verifier KC-3 N5). The Builder
+shows each source's line together with the file it goes into (``credential_file``).
 
 **One door per site** is held by credentials, not by blocking egress: only Link holds a Knovas certificate and
 token; a component holds neither, knows only Link's local address, and so can reach Knovas only through Link.
@@ -63,8 +71,11 @@ EGRESS_NETWORK = "knovas-egress"
 TOKEN_VOLUME = "link-tokens"
 #: Link's address of the Platform and its one-time token: the knovas-link service alone reads it.
 LINK_ENV_FILE = "knovas-link.env"
-#: The sources' credentials: the source components alone read it.
+#: The credentials of the sources the sync component reads: the sync component alone reads it.
 SOURCES_ENV_FILE = "knovas-sources.env"
+#: The credentials of a connector of its own kind (protocol 2.0): only that connector's service reads it, by the kind
+#: it declared (the Jira connector: knovas-jira.env). Never knovas-sources.env (verifier KC-3 N5).
+CONNECTOR_ENV_FILE = "knovas-{kind}.env"
 COMPOSE_FILE = "docker-compose.yml"
 COMMAND = "docker compose up -d"
 #: Where the components reach Link's local API (MVP-16): service knovas-link, port 8460, on the internal network
@@ -127,8 +138,20 @@ def credential_env(source_key: str) -> str:
 
 
 def credential_line(source_key: str) -> str:
-    """The line for knovas-sources.env, the value left for the person to type at the company."""
+    """The line for the source's credential file at the site, the value left for the person to type at the company."""
     return credential_env(source_key) + "="
+
+
+def credential_file(kind: Any) -> str:
+    """The file at the site a source's credential line goes into: knovas-sources.env for a kind the Builder has a form
+    for (the sync component reads those sources), else ``knovas-<kind>.env``, the file of the connector that declared
+    the kind (protocol 2.0), which only its service reads."""
+    from builder import protocol_v2, sources
+
+    kind = str(kind or "")
+    if kind in sources.SOURCE_KINDS or not protocol_v2.TOKEN.match(kind):
+        return SOURCES_ENV_FILE
+    return CONNECTOR_ENV_FILE.format(kind=kind)
 
 
 # ------------------------------------------------------------------ the package
@@ -210,8 +233,10 @@ def env_file(platform_url: str, token: Optional[str]) -> str:
 
 def sources_env_file() -> str:
     """knovas-sources.env: empty but for how to fill it; the person adds each source's line at the company."""
-    return ("# Credentials of the sources, one line each: SYNC_CREDENTIAL_<KEY>=<value>.\n"
-            "# The Builder shows the exact line for every source on this site. Read by the source components only.\n")
+    return ("# Credentials of the sources the sync component reads, one line each: SYNC_CREDENTIAL_<KEY>=<value>.\n"
+            "# The Builder shows the exact line and file for every source on this site. Read by the sync component only.\n"
+            "# A connector of its own kind reads its own file, knovas-<kind>.env (the Jira connector: knovas-jira.env);\n"
+            "# its credential never goes here.\n")
 
 
 def package_zip(site: Mapping[str, Any], *, platform_url: str, token: Optional[str]) -> bytes:

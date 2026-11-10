@@ -13,6 +13,8 @@ It runs in one of two modes: **link mode** behind [Knovas Link](../../../KnovasL
 
 A source's credential stays at the company: add `-e SYNC_CREDENTIAL_<KEY>=…` (the source's key in upper case), or `-e SYNC_CREDENTIAL_GITHUB=…` for every GitHub source. It never travels through the Platform. A file share is mounted read only: `-v <folder>:/sources:ro`.
 
+**Which credential goes where** (SPEC-write-back-20; verifier KC-3 N5). The Platform names a source's key, its kind and, for HTTP/JSON, the address it is read from, so the component does not hand out every line a key could name (`fetchers.credential_for`): a credential with a `SYNC_CREDENTIAL_<KEY>_HOST` line beside it belongs to a connector that binds it to that host (the Jira connector, which reads its own file `knovas-jira.env` at a site) and is never used here, for any source, kind or address, nor replaced by another line; a host line is never a credential; and a source keyed like another kind (an HTTP/JSON source keyed `github`) does not get that kind's line (`SYNC_CREDENTIAL_GITHUB` goes to the GitHub API only). A GitHub source's credential goes only to the GitHub API (`BRAIN_GITHUB_API`, default `api.github.com`): the repository and ref are checked so they cannot name another host, and no redirect is followed. An HTTP/JSON source's own line (without a host line) still goes to the address its settings name, as in protocol 1.x.
+
 ## Link mode (MVP-20)
 
 **Status: built ahead of its bet's approval, not deployed.** On a site that runs Knovas Link the component neither enrols nor holds a certificate. It is turned on by `SYNC_LINK_URL`:
@@ -22,7 +24,7 @@ A source's credential stays at the company: add `-e SYNC_CREDENTIAL_<KEY>=…` (
 | `SYNC_LINK_URL` | Link's local API on the site's network, e.g. `http://knovas-link:8460` |
 | `SYNC_LINK_TOKEN_FILE` | the token Link wrote for this component (default `/link/token`: Link's folder for it, mounted read only) |
 | `SYNC_NAME` | the name Link knows it by and wrote its token for (default `sync-component`) |
-| `SYNC_CREDENTIAL_<KEY>`, `SYNC_CREDENTIAL_GITHUB` | a source's credential, as in direct mode (from `knovas-sources.env`) |
+| `SYNC_CREDENTIAL_<KEY>`, `SYNC_CREDENTIAL_GITHUB` | a source's credential, as in direct mode (from `knovas-sources.env`; a connector of its own kind has its own file, never this one) |
 
 ```yaml
   sync-component:                         # as the Builder's install package writes it (builder/sites.py)

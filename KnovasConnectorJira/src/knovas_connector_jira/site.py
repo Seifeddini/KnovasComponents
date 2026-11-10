@@ -6,7 +6,7 @@ WB-07). Everything comes from the environment; the source's site and project com
     SYNC_NAME               the component's name, as Link knows it and wrote its token for (default jira-connector)
     SYNC_INTERVAL_SECONDS   between local heartbeats (default 30)
     SYNC_CREDENTIAL_<KEY>, SYNC_CREDENTIAL_<KEY>_HOST   a source's credential and the one host it may go to
-                            (knovas-sources.env; client.credential_from_environment)
+                            (knovas-jira.env; client.credential_from_environment)
 
 It talks to Link only, over its local API (``KnovasLink/contracts/local-api.md``), as the sync component does in link
 mode: every call carries ``Authorization: Bearer <token>`` and ``X-Component: <name>``.
