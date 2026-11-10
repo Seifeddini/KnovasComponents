@@ -135,7 +135,7 @@ def preview_equals_receipt(factory: Callable) -> Optional[str]:
         if res["status"] != "ok" or len(res.get("receipts", [])) != 1:
             return "act_failed"
         r = res["receipts"][0]
-        shown = {(c["target"], c["field"]): c["after"] for c in prev["preview"]["changes"]}
+        shown = {(c["target"], c["field"]): c["after"] for c in prev["preview"]["changes"] if c["field"] is not None}
         found = {(v["target"], v["field"]): v["after"] for v in r["values"]}
         if r["outcome"] != "written" or r["differences"] or found != shown or r["version_after"] == expected:
             return "receipt_differs_from_preview"
@@ -289,21 +289,23 @@ def review_outcome(factory: Callable) -> Optional[str]:
         return "not_applicable"
     brain = Brain(h.source)
 
+    staged_ids: list = []
+
     def stage(hh):
         step = _staging_steps(hh, "native_review")[0]
         prev = hh.connector.handle(brain.preview([step], "native_review"))
         res = hh.connector.handle(brain.act([step], [_version(prev, step["target"])], "native_review"))
         if res["status"] != "ok" or res["receipts"][0]["outcome"] != "staged" or hh.writes(step["target"]) != 0:
             return None, step, prev
+        staged_ids[:] = [res["receipts"][0]["permit_id"]]
         return res["receipts"][0]["source_ref"], step, prev
 
     ref, step, prev = stage(h)
     if ref is None:
         return "not_staged_or_written_early"
-    ids = []
 
     def ask(hh, kind="review_outcome"):
-        return hh.connector.handle(brain.job(kind, {"stage_ref": ref, "permit_ids": [str(uuid.uuid4())]}))
+        return hh.connector.handle(brain.job(kind, {"stage_ref": ref, "permit_ids": list(staged_ids)}))
 
     if ask(h)["review"]["state"] != "pending":
         return "pending_not_reported"
@@ -317,11 +319,13 @@ def review_outcome(factory: Callable) -> Optional[str]:
     h.review(ref, False)
     if ask(h)["review"]["state"] != "declined" or h.writes(step["target"]) != 0:
         return "decline_not_reported_or_written"
+    # unstage is optional (not required in V1, the founder's decision of 2026-11-10): checked only when answered.
     h = factory()
     ref, step, prev = stage(h)
-    if ask(h, "unstage")["review"]["state"] != "withdrawn" or ask(h)["review"]["state"] != "withdrawn":
+    withdrawn = ask(h, "unstage")
+    if withdrawn["status"] == "ok" and (withdrawn["review"]["state"] != "withdrawn"
+                                        or ask(h)["review"]["state"] != "withdrawn"):
         return "unstage_not_withdrawn"
-    del ids
     return None
 
 
@@ -337,6 +341,9 @@ def run(factory: Callable) -> dict:
     declaration = factory().connector.declaration()
     for name in PROPERTIES:
         if name in WRITE_PROPERTIES[:3] and not declaration["actions"]:
+            not_applicable.append(name)
+            continue
+        if name in ("replay_changes_nothing", "deletion_guard") and not declaration["streams"]:
             not_applicable.append(name)
             continue
         try:

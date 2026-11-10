@@ -1,6 +1,6 @@
 # Knovas connector kit
 
-**Status: draft, for connector protocol 2.0 (Draft v2.0 — for the founder's review).** BET-2026-11-write-back, item
+**Status: draft, for connector protocol 2.0 (v2.0, approved by the founder on 2026-11-10).** BET-2026-11-write-back, item
 WB-11; feature plan FEAT-2026-11-10-write-back, Phase A (tasks A-3, A-4). Nothing at a site runs it yet: Knovas Link
 speaks v2 from task A-5, the GitHub connector moves onto the kit in Phase C, Jira follows in Phase D.
 

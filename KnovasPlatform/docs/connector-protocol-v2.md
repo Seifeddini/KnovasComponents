@@ -1,11 +1,12 @@
 # Connector protocol v2: reading and writing any source of truth
 
-**Status: Draft v2.0 — for the founder's review.** Written on 2026-11-10 for BET-2026-11-write-back, item WB-10
-(feature plan FEAT-2026-11-10-write-back, Phase A). Its five design choices are **decided** (the founder, 2026-11-10:
-"D-2: option A; D-3: approved; D-4: approved all"; DEC-0071 and D-4 in the plan's §1.1); the full text and its
-schemas wait for the founder's review. Nothing of it is built: Knovas Link, the connectors and the Brain build against
-it from WB-11 on. Until the text is approved, every detail outside the five choices may still change; after the first
-company runs a v2 connector, a change is a new minor version with additions only.
+**Status: v2.0, approved by the founder on 2026-11-10** (D-7: "approved. Withdrawing a change is not necessary for
+V1 (undo not required)"; D-8: the permit signing key in Key Vault; D-9: signed conformance reports later). Written on
+2026-11-10 for BET-2026-11-write-back, item WB-10 (feature plan FEAT-2026-11-10-write-back, Phase A); its five design
+choices were decided before (D-4, DEC-0071). Built behind switches that are off by default: the connector kit and
+its conformance suite, Knovas Link (`LINK_PROTOCOL_V2`), the first connector (`SYNC_PROTOCOL_V2`); the Brain's side
+is being built (Phase B). After the first company runs a v2 connector, a change is a new minor version with additions
+only.
 
 The machine-readable contract is in `KnovasComponents/KnovasLink/contracts/v2/`, pinned by its own
 `contracts.lock` (`2.0.0-draft`), with valid and invalid examples under `examples/` and the contract test
@@ -144,7 +145,7 @@ permit checks below (`permit_missing`, `permit_mismatch`, `permit_bad_signature`
 | `act` | `{steps: [{action, target, params, expected_version}], staging}`, with `permits: [token, …]` beside `args` | after Link's permit checks: writes the steps (directly, or into the source's own review step), reads the targets again and answers with one receipt per step |
 | `reread` | `{targets, fields?, permit_ids?}` | reads the targets again and answers what they hold and their versions; with `permit_ids`, the receipt of those permits' earlier write. Writes nothing |
 | `review_outcome` | `{stage_ref, permit_ids}` | reports the state of a staged change in the source's own review: `pending`, `accepted` (with the receipts of a re-read), `declined` or `withdrawn` |
-| `unstage` | `{stage_ref, permit_ids}` | withdraws a staged change from the source's review (the change set was withdrawn or refused in the Brain) |
+| `unstage` | `{stage_ref, permit_ids}` | optional, not required in V1: withdraws a staged change from the source's review (the change set was withdrawn or refused in the Brain); a connector that does not offer it answers `unsupported` |
 
 - **Not jobs.** `run`, `pause`, `check` and the other commands stay on the heartbeat. The 1.x `write` job is not a v2
   kind; it stays a 1.x job (see "Compatibility with 1.x").
@@ -198,7 +199,9 @@ A connector declares per action how a write can reach the source:
 - **`native_review`**: the connector stages the change in the source's own review step and answers `staged` with a
   `stage_ref`, an address it alone interprets. The Brain asks for the outcome with `review_outcome` jobs, applies the
   change set when the source accepts it (the receipt comes from the re-read at acceptance) and refuses it when the
-  source declines it (SPEC-write-back-35). Withdrawing the change set in the Brain sends `unstage`.
+  source declines it (SPEC-write-back-35). Withdrawing the change set in the Brain may send `unstage`, which a
+connector need not offer in V1 (the founder, 2026-11-10, D-7: "Withdrawing a change is not necessary for V1 (undo not
+required)"); then the staged change stays in the source's review until someone there closes it.
 
 Which mode a source uses is set per source in the Builder, from the modes its connector declared; both modes run
 through the same jobs and fields. The Brain and Link never ask what a staged change looks like in the source.
@@ -317,6 +320,12 @@ values at the expected version and now (SPEC-write-back-32). The Brain sets the 
 approver what changed. A reversal is previewed with `at_version` set to the version its original's receipt recorded,
 never at the current one, and is a conflict when the source changed since (SPEC-write-back-33, -34).
 
+## Undo and reversal: not in V1
+
+The founder decided on 2026-11-10 (D-7) that undo is not required for V1. A declaration's `inverse` may be `null` for
+every action, the Brain offers no reversal, and `reread`'s use for a reversal's preview and `preview`'s `at_version`
+stay in the contract for later (SPEC-write-back-33, -34; WB-32) without a connector having to support them.
+
 ## Grouping: all or none
 
 An action declares `grouping: atomic` when the connector can write several steps on one source all or none. Then the
@@ -396,21 +405,21 @@ the connector's own statement; see the open questions.
 ## Differences from the plan's §1.1
 
 The decided choices (D-4) name the job kinds `preview`, `act`, `reread` and `review_outcome`. This draft keeps them,
-and two details go beyond them; they are for the founder's review of the full text:
+and two details go beyond them; the founder approved both with the full text (D-7, 2026-11-10):
 
 1. **adds `unstage`**, so that withdrawing or refusing a change set in the Brain also withdraws its staged change from
-   the source's review, instead of leaving it open there;
+   the source's review, instead of leaving it open there. The founder approved the text on 2026-11-10 (D-7) with
+   `unstage` optional: a connector need not offer it in V1;
 2. **puts the receipt into `act`'s result**: the connector re-reads in the same job right after writing, which keeps
    the window between the write and the re-read small. `reread` is the separate kind for a lost result, a conflict's
    display and a reversal's preview, as §1.1 says.
 
 ## Open questions for the founder
 
-1. **Where the Brain's permit key lives**: in secure-api's Key Vault secret like other keys today, or with the client
-   CA key's custody (DEC-0064 left the HSM out of the basis). The protocol only needs a key id and rotation.
+1. **Where the Brain's permit key lives**: decided 2026-11-10 (D-8): in Key Vault, like secure-api's other keys.
 2. **The keys route's path** (settled 2026-11-10 by the programme's coordinator): `GET
    /secured/connector/v2/permit-keys`, beside the work channel's routes; the Brain's side adopts it.
-3. **Who vouches for a conformance report**: in this draft the connector's declaration states the properties it
+3. **Who vouches for a conformance report** (decided 2026-11-10, D-9: signed reports come later): in this draft the connector's declaration states the properties it
    passed. Later a Knovas-signed report per package digest could be required before the Builder offers writing.
 4. **Defaults**: permit lifetime 60 minutes (the Brain's `WRITE_BACK_PERMIT_TTL_SECONDS = 3600`), review polling every
    5 minutes, Link's used-permit store kept 30 days after expiry.

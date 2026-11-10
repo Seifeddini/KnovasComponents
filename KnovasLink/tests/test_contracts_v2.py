@@ -293,9 +293,9 @@ def _normative(text: str) -> str:
     return text[:start] + (rest[end:] if end >= 0 else "")
 
 
-def test_protocol_text_is_a_draft_for_the_founders_review():
-    text = PROTOCOL_DOC.read_text(encoding="utf-8")
-    assert "Draft v2.0 — for the founder's review" in text.splitlines()[2] or "Draft v2.0 — for the founder's review" in text[:600]
+def test_protocol_text_says_its_version_and_the_founders_approval():
+    head = PROTOCOL_DOC.read_text(encoding="utf-8")[:900]
+    assert "**Status: v2.0, approved by the founder on 2026-11-10**" in head and "D-7" in head
 
 
 def test_protocol_text_names_every_message_kind_and_code():
