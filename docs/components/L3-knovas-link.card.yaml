@@ -472,7 +472,8 @@ contract:
   local.job-result:
     needs:
     - id: L3-KNOVAS-LINK/local.job-result/N-1
-      statement: The caller holds the job, else 409 lease_lost; the result validates against job-result.schema.json,
+      statement: The caller holds the job, else 409 lease_lost; the result validates against job-result.schema.json
+        (a v2 job's against v2's result.schema.json, where every change, difference and conflict names its step),
         else 400 bad_field and the job stays open.
       risk_class: critical
       evidence:
@@ -480,6 +481,10 @@ contract:
         ref: KnovasLink/tests/test_work_channel.py
         checks:
         - test_a_result_that_breaks_the_contract_is_refused_and_the_job_stays_open
+      - kind: test
+        ref: KnovasLink/tests/test_protocol_v2.py
+        checks:
+        - test_a_v2_result_whose_changes_name_no_step_is_not_taken
     promises:
     - id: L3-KNOVAS-LINK/local.job-result/P-1
       statement: The result is passed to the Brain unchanged with the claim's lease, after the job's parts; then Link
@@ -794,7 +799,7 @@ contract:
     - id: L3-KNOVAS-LINK/work-channel/P-4
       statement: An act reaches its connector only when every step's permit passes Link's checks in the Alloy model's
         order (LinkVerifyMechanism) - permit_missing, permit_bad_signature (canonical token, a pinned key whose
-        window holds the permit's iat, at most 3600 s, signature), permit_wrong_site (this certificate's serial),
+        window holds the permit's iat, at most 10800 s, signature), permit_wrong_site (this certificate's serial),
         permit_mismatch (tenant, source, action, target and parameters, expected version, staging), a used permit
         answered with its first result (repeat true, permit_used, also after expiry), permit_expired; nothing is
         written on a refusal, and the verdicts agree with the connector kit's reference.
@@ -806,6 +811,7 @@ contract:
         - test_a_refused_permit_writes_nothing_and_is_logged
         - test_an_act_under_a_valid_permit_is_written_once_and_a_repeat_gets_the_first_result
         - test_a_repeat_after_the_permit_expired_and_its_key_retired_still_gets_the_first_result
+        - test_a_permit_may_live_three_hours_and_not_a_second_longer
         - test_links_verdicts_agree_with_the_kits_reference
     - id: L3-KNOVAS-LINK/work-channel/P-5
       statement: Every delivery that carried a permit is a line of the site's write log (accepted, executed, refused,
@@ -985,3 +991,11 @@ review:
 - at: L3-KNOVAS-LINK/work-channel/P-6
   why: Statement extended by C-1 (the declarations in the heartbeat); a compatible addition, to be marked compatible
     by a person who reviews it.
+- at: L3-KNOVAS-LINK/work-channel/P-4
+  why: Changed 2026-11-10 by the amendment of protocol v2.0 (D-15, the founder - a permit may live 3 hours); Link now
+    accepts permits up to 10800 s instead of 3600 s, a looser check. map-check reports the line as changed and not
+    marked compatible; a person confirms it (compatible, reviewed_by).
+- at: L3-KNOVAS-LINK/local.job-result/N-1
+  why: Tightened 2026-11-10 by the amendment of protocol v2.0 (D-14) - a v2 result whose changes, differences or
+    conflict name no step is refused 400 bad_field; the connectors on this branch (the kit's example, GitHub) name
+    them. A person confirms whether that is compatible (nothing of v2 was released).

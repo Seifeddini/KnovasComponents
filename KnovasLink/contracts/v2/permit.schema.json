@@ -132,7 +132,7 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 9007199254740991,
-          "description": "Expiry, seconds since 1970 (UTC), after iat and at most 3600 s later (Link refuses a longer one as permit_bad_signature). A first delivery after it is refused; a repeat of a permit written before it still gets its first result."
+          "description": "Expiry, seconds since 1970 (UTC), after iat and at most 10800 s (3 hours) later (Link refuses a longer one as permit_bad_signature; v2.0 as amended 2026-11-10, D-15). A first delivery after it is refused; a repeat of a permit written before it still gets its first result."
         }
       }
     }

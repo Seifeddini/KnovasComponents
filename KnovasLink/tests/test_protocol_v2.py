@@ -155,7 +155,8 @@ def test_link_refuses_to_start_with_v2_on_when_a_v2_contract_is_stale(world, tmp
 
 def test_link_declares_its_site_with_each_connectors_declaration_and_its_sources_of_that_kind(world, v2):
     client, link, brain, connector, src = v2
-    site = brain.sites[-1]
+    # The first declaration may leave before the connector registered; the one after its registration names it.
+    site = eventually(lambda: brain.sites[-1] if brain.sites[-1]["connectors"] else None)
     assert site["site_id"] == link.credentials.component and site["protocol"] == "2.0"
     assert [c["declaration"] for c in site["connectors"]] == [connector.declaration()]
     assert site["connectors"][0]["sources"] == [SOURCE], "only the assigned sources whose kind the connector declared"
@@ -255,6 +256,38 @@ def test_a_refused_permit_writes_nothing_and_is_logged(world, v2, case, code):
     assert nothing_waiting(world, client) and src.writes == {}
     if case not in ("unknown key", "no permits", "not a token"):
         assert [(e["outcome"], e["code"]) for e in link.v2.store.entries()] == [("refused", code)]
+
+
+@pytest.mark.parametrize("lifetime", [10800, 10801])
+def test_a_permit_may_live_three_hours_and_not_a_second_longer(world, v2, lifetime):
+    """D-15 (v2.0 as amended 2026-11-10): exp - iat up to 10800 s passes step 2; one second more is
+    permit_bad_signature, and nothing is written."""
+    client, link, brain, connector, src = v2
+    eventually(lambda: brain.signer.kid in link.v2.ring.keys)
+    job = world.secure.enqueue(_act(brain, iat=NOW - 10, exp=NOW - 10 + lifetime))
+    if lifetime == 10800:
+        serve(world, client, connector)
+        result = outcome(world, job["id"])
+        assert result["status"] == "ok" and src.writes == {"items/matter-1": 1}
+    else:
+        result = outcome(world, job["id"])
+        assert (result["status"], result["code"]) == ("refused", "permit_bad_signature")
+        assert nothing_waiting(world, client) and src.writes == {}
+
+
+def test_a_v2_result_whose_changes_name_no_step_is_not_taken(world, v2):
+    """D-14: Link checks a v2 result against v2's result schema, which requires every change's step."""
+    client, link, brain, connector, src = v2
+    world.secure.enqueue(brain.job("preview", {"steps": [{k: STEP[k] for k in ("action", "target", "params")}],
+                                               "staging": "direct"}))
+    answer = client.get("/local/v1/jobs?wait=3", headers=world.headers(CONNECTOR))
+    job = answer.json()["job"]
+    result = connector.handle(job)
+    assert [c["step"] for c in result["preview"]["changes"]] == [0]
+    for change in result["preview"]["changes"]:
+        del change["step"]
+    posted = client.post(f"/local/v1/jobs/{job['id']}/result", headers=world.headers(CONNECTOR), json=result)
+    assert posted.status_code == 400
 
 
 def test_links_verdicts_agree_with_the_kits_reference(world, v2):

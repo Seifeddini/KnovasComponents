@@ -22,6 +22,9 @@ Everything specific to GitHub lives here, none of it in the protocol (SPEC-write
   ``knovas/write-<permit id>``; ``stage_ref`` is the pull request's address. ``review_outcome`` answers pending,
   accepted (merged; receipts from the branch's file) or declined (closed without merge). No ``unstage`` in V1.
 - **reread** reads files again and finds earlier writes by their permit ids.
+- **Steps** (v2.0 as amended 2026-11-10, D-14): every change, difference and conflict names its step, the index into
+  the job's ``args.steps``. A preview may hold several steps, also two on one file; an ``act`` holds one (grouping
+  none), so a receipt's step is always 0, also in a ``reread`` or ``review_outcome`` result.
 
 Logs carry codes and counts only: never a path, a value, a token or a repository (GI-DATA-02, GI-DATA-04).
 """
@@ -166,11 +169,14 @@ class GitHubConnector(Connector):
         return None
 
     def _receipt(self, gh: GitHub, *, permit_id: str, path: str, ref: str, before: dict, expected: str,
-                 previewed: dict, outcome_name: str = "written", source_ref: Optional[str] = None) -> dict:
+                 previewed: dict, outcome_name: str = "written", source_ref: Optional[str] = None,
+                 step: int = 0) -> dict:
+        """``step``: the permit's step in its act job, always 0 here (one file per act, grouping none)."""
         sha, data = self._file(gh, path, ref)
         now = front_matter_edit.read(data)
-        values = [{"target": path, "field": k, "before": before.get(k), "after": now.get(k)} for k in previewed]
-        differences = [{"target": path, "field": k, "previewed": v, "found": now.get(k)}
+        values = [{"step": step, "target": path, "field": k, "before": before.get(k), "after": now.get(k)}
+                  for k in previewed]
+        differences = [{"step": step, "target": path, "field": k, "previewed": v, "found": now.get(k)}
                        for k, v in previewed.items() if now.get(k) != v]
         return {"permit_id": permit_id, "outcome": outcome_name, "expected_version": expected, "version_after": sha,
                 "reread_at": _now(), "values": values, "differences": differences, "side_effects": [],
@@ -182,7 +188,7 @@ class GitHubConnector(Connector):
         try:
             gh, src, branch = self._gh(source)
             changes, versions, exact, code = [], [], True, None
-            for step in steps:
+            for index, step in enumerate(steps):
                 if not valid_path(step["target"]):
                     return outcome("refused", "target_not_found")
                 if at_version is not None:
@@ -191,9 +197,11 @@ class GitHubConnector(Connector):
                     found = gh.file(step["target"], branch)["sha"]
                     if found != at_version:
                         return outcome("conflict", "version_changed", conflict={
-                            "target": step["target"], "expected_version": at_version, "found_version": found})
+                            "step": index, "target": step["target"], "expected_version": at_version,
+                            "found_version": found})
                 sha, data = self._file(gh, step["target"], branch)
-                versions.append({"target": step["target"], "version": sha})
+                if not any(v["target"] == step["target"] for v in versions):
+                    versions.append({"target": step["target"], "version": sha})
                 try:
                     values = self._values(src, step, sha, "preview")
                 except Outcome as out:
@@ -210,8 +218,10 @@ class GitHubConnector(Connector):
                                                     new.decode("utf-8", "replace").splitlines(True),
                                                     fromfile=step["target"], tofile=step["target"]))[:262144]
                 for k, v in self._shown(values).items():
-                    changes.append({"target": step["target"], "field": k, "before": old_values.get(k), "after": v})
-                changes.append({"target": step["target"], "field": None, "before": None, "after": None, "diff": diff})
+                    changes.append({"step": index, "target": step["target"], "field": k, "before": old_values.get(k),
+                                    "after": v})
+                changes.append({"step": index, "target": step["target"], "field": None, "before": None, "after": None,
+                                "diff": diff})
         except Outcome as out:
             return out.result
         preview = {"exact": exact, "read_versions": versions, "changes": changes if exact else [], "grouping": "none"}
@@ -245,7 +255,8 @@ class GitHubConnector(Connector):
             found, data = self._file(gh, path, branch)
             if found != expected:
                 return outcome("conflict", "version_changed",
-                               conflict={"target": path, "expected_version": expected, "found_version": found})
+                               conflict={"step": 0, "target": path, "expected_version": expected,
+                                         "found_version": found})
             values = self._values(src, step, expected, pid)
             try:
                 new = front_matter_edit.edit(data, values)
@@ -259,7 +270,8 @@ class GitHubConnector(Connector):
             if answer.status_code == 409:                         # the file moved between the read and the write
                 found = gh.file(path, branch)["sha"]
                 return outcome("conflict", "version_changed",
-                               conflict={"target": path, "expected_version": expected, "found_version": found})
+                               conflict={"step": 0, "target": path, "expected_version": expected,
+                                         "found_version": found})
             commit_url = ((gh.json(answer) or {}).get("commit") or {}).get("html_url")
             return outcome("ok", receipts=[self._receipt(gh, permit_id=pid, path=path, ref=branch, before=before,
                                                          expected=expected, previewed=self._shown(values),
@@ -279,7 +291,7 @@ class GitHubConnector(Connector):
         found, data = self._file(gh, path, head)
         if found != expected:
             return outcome("conflict", "version_changed",
-                           conflict={"target": path, "expected_version": expected, "found_version": found})
+                           conflict={"step": 0, "target": path, "expected_version": expected, "found_version": found})
         values = self._values(src, step, expected, pid)
         try:
             new = front_matter_edit.edit(data, values)

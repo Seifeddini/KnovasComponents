@@ -1,6 +1,7 @@
 # Knovas connector kit
 
-**Status: draft, for connector protocol 2.0 (v2.0, approved by the founder on 2026-11-10).** BET-2026-11-write-back, item
+**Status: draft, for connector protocol 2.0 (v2.0, approved by the founder on 2026-11-10, amended the same day: D-14,
+D-15).** BET-2026-11-write-back, item
 WB-11; feature plan FEAT-2026-11-10-write-back, Phase A (tasks A-3, A-4). Nothing at a site runs it yet: Knovas Link
 speaks v2 from task A-5, the GitHub connector moves onto the kit in Phase C, Jira follows in Phase D.
 
@@ -28,6 +29,11 @@ checks:
 - a read of the same source from the same state gives the same stream; absence is reported only through a complete
   `generation` or a `tombstone`, never from a listing the source cut;
 - `preview` writes nothing and is `exact: false` whenever it cannot say exactly what will change (a computed field);
+- every change, value, difference and conflict names its `step`, the index into the job's `args.steps` (for a receipt,
+  the step of its permit in its `act` job: keep it with the marker of the write, so a `reread` or `review_outcome`
+  names it too), so two actions on one item are told apart (D-14). `handle` refuses a `preview` or `act` answer whose
+  steps are not the job's (`failed internal`); give the harness `same_item_steps()` so the suite checks two on one
+  item;
 - `act` writes only while each target is at its permit's `expected_version` (else `conflict`, nothing written), keeps
   the permit id with the change in the source, re-reads after writing and answers receipts from that re-read;
 - a repeat of a permit (also after a crash between the write and the answer) finds the earlier write by its permit id
@@ -54,4 +60,8 @@ cd KnovasConnectorKit && pip install -r requirements.txt "pytest>=7.4,<9" && pyt
 ```
 
 `tests/test_conformance_suite.py` runs the suite on the example connector (every property passes) and on one mutant
-per property (`tests/mutants.py`), each of which fails exactly its own property.
+per property (`tests/mutants.py`), each of which fails exactly its own property; the further mutants (`EXTRA`: one
+writes past the preview's version, one names changes by their item instead of their step) fail only theirs.
+
+A permit lives at most 3 hours (`permits.MAX_LIFETIME_SECONDS = 10800`, D-15); the suite's stand-in for the Brain signs
+for that long.

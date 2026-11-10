@@ -104,7 +104,9 @@ answers `preview`, `act`, `reread` and `review_outcome` (`src/sync_component/git
   needs `Contents: write`, and the branch's protection must let it push;
 - `native_review`: today's pull request on `knovas/write-<permit id>` (then also `Pull requests: write`);
   `review_outcome` follows its merge or close;
-- no `unstage` and no inverse in V1 (the founder, 2026-11-10); reading stays protocol 1.x's.
+- no `unstage` and no inverse in V1 (the founder, 2026-11-10); reading stays protocol 1.x's;
+- every change, difference and conflict names its `step` (protocol v2.0 as amended 2026-11-10, D-14): a preview's the
+  index of its step, also with two steps on one file; an `act` holds one file, so its receipt and conflict name step 0.
 
 The kit's conformance suite runs against it in `docbridge_integration/tests/test_sync_component_github_v2.py`.
 

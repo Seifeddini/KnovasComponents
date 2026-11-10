@@ -23,7 +23,8 @@ from knovas_connector_kit import contracts
 from knovas_connector_kit.canonical import CanonicalError, canonical
 
 HEADER_TYP = "knovas-permit+jws"
-MAX_LIFETIME_SECONDS = 3600
+#: The protocol's maximum ``exp - iat``: 3 hours (v2.0 as amended 2026-11-10, D-15; it was 3600 s).
+MAX_LIFETIME_SECONDS = 10800
 
 
 class PermitError(Exception):
@@ -121,7 +122,8 @@ def _iso(ts: int) -> str:
 def verify(token: object, ring: KeyRing) -> Decoded:
     """Decode and verify: ``alg`` EdDSA, a pinned key whose window holds the permit's ``iat`` (checked at the signing
     time, not at the verifier's clock, so a repeat after a key's retirement still gets its first result), ``exp``
-    after ``iat`` and at most 3600 s later, and a valid signature; else ``permit_bad_signature``."""
+    after ``iat`` and at most ``MAX_LIFETIME_SECONDS`` (10800 s) later, and a valid signature; else
+    ``permit_bad_signature``."""
     d = decode(token)
     iat, exp = d.payload["iat"], d.payload["exp"]
     if not (iat < exp <= iat + MAX_LIFETIME_SECONDS):

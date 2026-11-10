@@ -2,7 +2,7 @@
 repeat also after expiry, and the write log (WB-21, WB-06, WB-25; SPEC-write-back -10, -21, -22, -23, -26)."""
 from __future__ import annotations
 
-from knovas_connector_kit.conformance.suite import NOW, SERIAL, Brain
+from knovas_connector_kit.conformance.suite import EXPIRED_IAT, NOW, SERIAL, Brain
 from knovas_connector_kit.example import make_harness
 from knovas_connector_kit.permits import Signer
 
@@ -21,13 +21,13 @@ def test_refusals_follow_the_models_order():
     # bad signature beats wrong site; wrong site beats mismatch; mismatch beats expiry
     job = brain.act([step], [v], signer=Signer(), site="1")
     assert gate.deliver(job)["code"] == "permit_bad_signature"
-    job = brain.act([step], [v], site="1", iat=NOW - 7200)
+    job = brain.act([step], [v], site="1", iat=EXPIRED_IAT)
     job["args"]["steps"][0]["params"] = {"owner": "x"}
     assert gate.deliver(job)["code"] == "permit_wrong_site"
-    job = brain.act([step], [v], iat=NOW - 7200)
+    job = brain.act([step], [v], iat=EXPIRED_IAT)
     job["args"]["steps"][0]["params"] = {"owner": "x"}
     assert gate.deliver(job)["code"] == "permit_mismatch"
-    assert gate.deliver(brain.act([step], [v], iat=NOW - 7200))["code"] == "permit_expired"
+    assert gate.deliver(brain.act([step], [v], iat=EXPIRED_IAT))["code"] == "permit_expired"
     assert h.writes(step["target"]) == 0
 
 
@@ -36,7 +36,7 @@ def test_a_repeat_after_expiry_gets_the_first_result():
     job = brain.act([step], [v])
     gate = brain.gate(h.connector)
     first = gate.deliver(job)
-    gate.clock = lambda: NOW + 10_000                            # long after the permit's expiry
+    gate.clock = lambda: NOW + 10 * 3600                         # long after the permit's expiry (3 h)
     repeat = gate.deliver(job)
     assert first["status"] == "ok"
     assert repeat["repeat"] is True and repeat["code"] == "permit_used"

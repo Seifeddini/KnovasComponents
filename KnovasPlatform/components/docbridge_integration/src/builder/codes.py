@@ -534,7 +534,8 @@ V2_CODES: Mapping[str, Mapping[str, str]] = {
     },
     "permit_expired": {
         "title": "Freigabe abgelaufen",
-        "explanation": "Die Freigabe kam nach ihrem Ablauf (eine Stunde) an; nichts wurde geschrieben.",
+        "explanation": "Die Freigabe kam nach ihrem Ablauf (höchstens drei Stunden nach der Freigabe) an; nichts "
+                       "wurde geschrieben.",
         "fix": "Die Änderung neu vorschlagen und freigeben.",
     },
     "permit_wrong_site": {

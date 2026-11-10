@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://knovas.ch/connector/v2/result.schema.json",
   "title": "Job result (connector protocol 2.0, draft)",
-  "description": "A connector's answer to one v2 job, which Knovas Link passes on unchanged after its own checks. The status and code set is 1.1's; v2 adds the preview, the receipts, the review outcome and the conflict. Those carry the values of the change (before and after), so a v2 result travels only on the work channel to the Brain: never into Link's logs, the Platform's reports, a heartbeat or a metric label (GI-DATA-02, GI-DATA-04). Closed.",
+  "description": "A connector's answer to one v2 job, which Knovas Link passes on unchanged after its own checks. The status and code set is 1.1's; v2 adds the preview, the receipts, the review outcome and the conflict. Every change, difference and conflict names its step, the 0-based index into the job's args.steps, so two actions on one item are told apart (v2.0 as amended 2026-11-10, D-14). Those carry the values of the change (before and after), so a v2 result travels only on the work channel to the Brain: never into Link's logs, the Platform's reports, a heartbeat or a metric label (GI-DATA-02, GI-DATA-04). Closed.",
   "type": "object",
   "required": ["status", "duration_ms"],
   "additionalProperties": false,
@@ -26,6 +26,7 @@
     "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
     "utc": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?Z$"},
     "external_id": {"type": "string", "minLength": 1, "maxLength": 1024},
+    "step": {"type": "integer", "minimum": 0, "maximum": 49, "description": "The 0-based index of the step this belongs to in a job's args.steps: of the preview job for a preview's changes and its conflict; of the act job that carried the permit for a receipt's values and differences (also when the receipt comes with a reread or review_outcome result) and for an act's conflict. Two actions on one item are told apart by it, never by the target (D-14)."},
     "version": {"type": "string", "minLength": 1, "maxLength": 200},
     "value": {
       "oneOf": [
@@ -35,10 +36,11 @@
     },
     "change": {
       "type": "object",
-      "description": "One change in the source's own terms: a field's value before and after, or, for a whole item's content (field null), the content's hashes and a unified diff.",
-      "required": ["target", "field", "before", "after"],
+      "description": "One change in the source's own terms: a field's value before and after, or, for a whole item's content (field null), the content's hashes and a unified diff; with the step it belongs to.",
+      "required": ["step", "target", "field", "before", "after"],
       "additionalProperties": false,
       "properties": {
+        "step": {"$ref": "#/$defs/step"},
         "target": {"$ref": "#/$defs/external_id"},
         "field": {"type": ["string", "null"], "minLength": 1, "maxLength": 200},
         "before": {"$ref": "#/$defs/value"},
@@ -75,11 +77,11 @@
         "expected_version": {"$ref": "#/$defs/version"},
         "version_after": {"oneOf": [{"$ref": "#/$defs/version"}, {"type": "null"}], "description": "The target's version after the write; null when not written or only staged."},
         "reread_at": {"$ref": "#/$defs/utc"},
-        "values": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/change"}, "description": "Per previewed field: before (at expected_version) and after (as re-read)."},
+        "values": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/change"}, "description": "Per previewed field, with its step: before (at expected_version) and after (as re-read)."},
         "differences": {
           "type": "array", "maxItems": 500,
-          "items": {"type": "object", "required": ["target", "field", "previewed", "found"], "additionalProperties": false,
-                    "properties": {"target": {"$ref": "#/$defs/external_id"}, "field": {"type": ["string", "null"]},
+          "items": {"type": "object", "required": ["step", "target", "field", "previewed", "found"], "additionalProperties": false,
+                    "properties": {"step": {"$ref": "#/$defs/step"}, "target": {"$ref": "#/$defs/external_id"}, "field": {"type": ["string", "null"]},
                                    "previewed": {"$ref": "#/$defs/value"}, "found": {"$ref": "#/$defs/value"}}},
           "description": "Every previewed field whose re-read value is not the approved one. Not empty: the change set becomes differing and the action is held on that source (SPEC-write-back-08)."
         },
@@ -106,10 +108,11 @@
     },
     "conflict": {
       "type": "object",
-      "description": "status conflict: the target is no longer at the expected version; nothing was written. What changed is shown to the approver (SPEC-write-back-32, -34).",
-      "required": ["target", "expected_version", "found_version"],
+      "description": "status conflict: the target is no longer at the expected version; nothing was written. step is the first step (lowest index) whose target the connector found at another version. What changed is shown to the approver, each change with its own step (SPEC-write-back-32, -34).",
+      "required": ["step", "target", "expected_version", "found_version"],
       "additionalProperties": false,
       "properties": {
+        "step": {"$ref": "#/$defs/step"},
         "target": {"$ref": "#/$defs/external_id"},
         "expected_version": {"$ref": "#/$defs/version"},
         "found_version": {"$ref": "#/$defs/version"},

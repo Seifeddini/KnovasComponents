@@ -2,8 +2,12 @@
 
 Each check takes a harness factory (``harness.py``), builds fresh harnesses as it needs them, and returns ``None``
 when the property holds or a short code saying what failed (never a value: a value may be customer data). The suite
-plays the Brain (it signs permits with a key of its own) and, for the permit refusals, Knovas Link (``gate.LinkGate``,
-the reference of Link's checks).
+plays the Brain (it signs permits with a key of its own, valid for the protocol's longest lifetime) and, for the permit
+refusals, Knovas Link (``gate.LinkGate``, the reference of Link's checks).
+
+Every change, value, difference and conflict names its step, the index into the job's ``args.steps`` (v2.0 as amended
+2026-11-10, D-14); ``preview_equals_receipt`` checks that a step's changes are attributed to it, also for two steps on
+one item.
 """
 from __future__ import annotations
 
@@ -15,7 +19,7 @@ from typing import Callable, Optional
 from knovas_connector_kit import SUITE_VERSION, contracts
 from knovas_connector_kit.canonical import digest, params_hash
 from knovas_connector_kit.gate import LinkGate
-from knovas_connector_kit.permits import KeyRing, Signer
+from knovas_connector_kit.permits import MAX_LIFETIME_SECONDS, KeyRing, Signer
 
 READ_PROPERTIES = ["replay_changes_nothing", "deletion_guard", "no_credential_leaves_site"]
 WRITE_PROPERTIES = ["preview_equals_receipt", "exactly_once", "permit_refusals", "no_credential_leaves_site"]
@@ -25,6 +29,8 @@ PROPERTIES = ["replay_changes_nothing", "deletion_guard", "preview_equals_receip
 TENANT = "00000000-0000-4000-8000-000000000001"
 SERIAL = "424242"
 NOW = 1794405600
+LIFETIME = MAX_LIFETIME_SECONDS          # the Brain signs for the protocol's longest lifetime, 3 hours (D-15)
+EXPIRED_IAT = NOW - 2 * LIFETIME         # signed so long ago that the permit expired before NOW
 ACTOR = {"kind": "user", "id": "conformance-approver"}
 
 
@@ -53,7 +59,7 @@ class Brain:
         payload = {"v": 1, "permit_id": str(uuid.uuid4()), "tenant": TENANT, "site": site, "source": self.source,
                    "action_id": str(uuid.uuid4()), "change_set_id": str(uuid.uuid4()), "action": step["action"],
                    "params_hash": params_hash(step["target"], step["params"]), "expected_version": expected,
-                   "staging": staging, "iat": iat, "exp": iat + 3600 if exp is None else exp}
+                   "staging": staging, "iat": iat, "exp": iat + LIFETIME if exp is None else exp}
         return (signer or self.signer).sign(payload)
 
     def act(self, steps: list[dict], expected: list[str], staging: str = "direct", **permit_kw) -> dict:
@@ -76,6 +82,28 @@ def _version(result: dict, target: str) -> Optional[str]:
         if rv["target"] == target:
             return rv["version"]
     return None
+
+
+def _shown(entries: list, step: int) -> set:
+    """What the entries named with ``step`` change: (target, field, after) of its field changes."""
+    return {(c["target"], c["field"], json.dumps(c["after"], sort_keys=True)) for c in entries
+            if c.get("step") == step and c["field"] is not None}
+
+
+def _attributed(entries: list, steps: list) -> bool:
+    """Every entry names a step of the job (D-14), on that step's target."""
+    return all(isinstance(e.get("step"), int) and 0 <= e["step"] < len(steps)
+               and e["target"] == steps[e["step"]]["target"] for e in entries)
+
+
+def _same_item_steps(h) -> Optional[list[dict]]:
+    """Two steps on one item: the harness's, or else its first direct step twice."""
+    offered = getattr(h, "same_item_steps", None)
+    steps = offered() if callable(offered) else None
+    if steps is None:
+        direct = _staging_steps(h, "direct")
+        steps = [direct[0], direct[0]] if direct else None
+    return steps
 
 
 # ------------------------------------------------------------------ read properties
@@ -126,22 +154,59 @@ def preview_equals_receipt(factory: Callable) -> Optional[str]:
     steps = _staging_steps(h, "direct")
     if not steps:
         return "no_direct_step"
-    for step in steps:
+    alone: dict = {}                     # step index -> what its own preview shows
+    for i, step in enumerate(steps):
         prev = h.connector.handle(brain.preview([step]))
         if prev["status"] != "ok" or not prev["preview"]["exact"]:
             return "preview_not_exact"
+        if not _attributed(prev["preview"]["changes"], [step]):
+            return "change_not_attributed_to_its_step"
+        alone[i] = _shown(prev["preview"]["changes"], 0)
         expected = _version(prev, step["target"])
         res = h.connector.handle(brain.act([step], [expected]))
         if res["status"] != "ok" or len(res.get("receipts", [])) != 1:
             return "act_failed"
         r = res["receipts"][0]
+        if not _attributed(r["values"] + r["differences"], [step]):
+            return "change_not_attributed_to_its_step"
         shown = {(c["target"], c["field"]): c["after"] for c in prev["preview"]["changes"] if c["field"] is not None}
         found = {(v["target"], v["field"]): v["after"] for v in r["values"]}
         if r["outcome"] != "written" or r["differences"] or found != shown or r["version_after"] == expected:
             return "receipt_differs_from_preview"
         if h.writes(step["target"]) != 1:
             return "wrote_other_than_once"
-    # A conflict writes nothing.
+    # Several steps in one preview: each change names the step it belongs to (D-14), and each step shows what its own
+    # preview shows, also when two steps change one item.
+    h = factory()
+    steps = _staging_steps(h, "direct")
+    prev = h.connector.handle(brain.preview(steps))
+    if prev["status"] != "ok" or not _attributed(prev["preview"]["changes"], steps):
+        return "change_not_attributed_to_its_step"
+    if any(_shown(prev["preview"]["changes"], i) != alone[i] for i in range(len(steps))):
+        return "change_not_attributed_to_its_step"
+    pair = _same_item_steps(h)
+    if pair is not None:
+        own = []
+        for step in pair:
+            single = h.connector.handle(brain.preview([step]))
+            if single["status"] != "ok":
+                return "preview_not_exact"
+            own.append(_shown(single["preview"]["changes"], 0))
+        both = h.connector.handle(brain.preview(pair))
+        if both["status"] != "ok" or not _attributed(both["preview"]["changes"], pair) \
+                or [_shown(both["preview"]["changes"], i) for i in range(len(pair))] != own:
+            return "change_not_attributed_to_its_step"
+        declared = [h.connector.declared_action(s["action"]) for s in pair]
+        if all(d["grouping"] == "atomic" and "direct" in d["staging"] for d in declared):
+            # Written together, each receipt's values name the step of its own permit.
+            res = h.connector.handle(brain.act(pair, [_version(both, s["target"]) for s in pair]))
+            if res["status"] != "ok" or len(res.get("receipts", [])) != len(pair):
+                return "act_failed"
+            for i, r in enumerate(res["receipts"]):
+                if not _attributed(r["values"] + r["differences"], pair) \
+                        or {v["step"] for v in r["values"]} != {i} or _shown(r["values"], i) != own[i]:
+                    return "change_not_attributed_to_its_step"
+    # A conflict writes nothing, and names the step whose item moved.
     h = factory()
     step = _staging_steps(h, "direct")[0]
     prev = h.connector.handle(brain.preview([step]))
@@ -150,6 +215,18 @@ def preview_equals_receipt(factory: Callable) -> Optional[str]:
     res = h.connector.handle(brain.act([step], [_version(prev, step["target"])]))
     if res["status"] != "conflict" or h.writes(step["target"]) != before:
         return "wrote_past_the_preview_version"
+    if not _attributed([res["conflict"]] + res["conflict"].get("changes", []), [step]):
+        return "change_not_attributed_to_its_step"
+    h = factory()
+    grouped = [s for s in _staging_steps(h, "direct")
+               if h.connector.declared_action(s["action"])["grouping"] == "atomic"][:2]
+    if len(grouped) == 2 and grouped[0]["target"] != grouped[1]["target"]:
+        prev = h.connector.handle(brain.preview(grouped))
+        h.change_behind(grouped[1]["target"])
+        res = h.connector.handle(brain.act(grouped, [_version(prev, s["target"]) for s in grouped]))
+        if res["status"] != "conflict" or res["conflict"]["step"] != 1 \
+                or not _attributed([res["conflict"]] + res["conflict"].get("changes", []), grouped):
+            return "change_not_attributed_to_its_step"
     # The receipt is a re-read: a source that stored something else shows a difference.
     h = factory()
     step = _staging_steps(h, "direct")[0]
@@ -207,7 +284,8 @@ def permit_refusals(factory: Callable) -> Optional[str]:
     changed["args"]["steps"][0]["params"] = {k: (v + "-changed" if isinstance(v, str) else v)
                                              for k, v in step["params"].items()}
     cases.append((gate.deliver(changed), "permit_mismatch"))
-    cases.append((gate.deliver(brain.act([step], [expected], iat=NOW - 7200)), "permit_expired"))
+    cases.append((gate.deliver(brain.act([step], [expected], iat=EXPIRED_IAT)), "permit_expired"))
+    cases.append((gate.deliver(brain.act([step], [expected], exp=NOW + LIFETIME + 1)), "permit_bad_signature"))
     for res, code in cases:
         if res["status"] != "refused" or res["code"] != code:
             return f"link_reference_{code}"
@@ -312,7 +390,8 @@ def review_outcome(factory: Callable) -> Optional[str]:
     h.review(ref, True)
     accepted = ask(h)
     if accepted["review"]["state"] != "accepted" or not accepted["review"].get("receipts") \
-            or accepted["review"]["receipts"][0]["differences"] or h.writes(step["target"]) != 1:
+            or accepted["review"]["receipts"][0]["differences"] or h.writes(step["target"]) != 1 \
+            or not _attributed(accepted["review"]["receipts"][0]["values"], [step]):
         return "acceptance_not_reported_with_receipt"
     h = factory()
     ref, step, prev = stage(h)

@@ -575,7 +575,8 @@ contract:
     promises:
     - id: L3-SYNC-COMPONENT/job.v2/P-1
       statement: A preview reads the file at the branch head, writes nothing, and shows before and after per front
-        matter key with a diff and the blob sha it read; a computed fact makes it inexact.
+        matter key with a diff and the blob sha it read, each change naming its step (two steps on one file are told
+        apart, D-14); a computed fact makes it inexact.
       risk_class: critical
       evidence:
       - kind: test
@@ -583,11 +584,12 @@ contract:
         checks:
         - test_the_github_connector_passes_the_conformance_suite
         - test_a_direct_write_is_one_commit_on_the_branch_with_the_permit_and_no_pull_request
+        - test_two_steps_on_one_file_are_told_apart_by_their_step
     - id: L3-SYNC-COMPONENT/job.v2/P-2
       statement: A direct act is one commit on the source's branch through the contents API with the expected blob sha
         and the trailer Knovas-Permit - a changed file is conflict version_changed and nothing is written, a repeat
         finds its commit and answers its receipt without writing again, and the receipt comes from reading the file
-        again. No pull request.
+        again; its values, differences and a conflict name step 0 (one file per act). No pull request.
       risk_class: critical
       evidence:
       - kind: test
@@ -596,6 +598,7 @@ contract:
         - test_a_direct_write_is_one_commit_on_the_branch_with_the_permit_and_no_pull_request
         - test_a_file_changed_after_the_preview_is_a_conflict_and_nothing_is_written
         - test_the_github_connector_passes_the_conformance_suite
+        - test_two_steps_on_one_file_are_told_apart_by_their_step
     - id: L3-SYNC-COMPONENT/job.v2/P-3
       statement: A native_review act opens today's pull request on knovas/write-<permit id>; review_outcome answers
         pending, accepted with receipts once merged, or declined once closed. unstage is not offered in V1.
@@ -719,3 +722,9 @@ review:
     long-poll calls LinkClient.next_job, which no receive setting names).
 - at: L3-SYNC-COMPONENT/job.v2/L-1
   why: No evidence; a known limit of the V1 draft (FEAT-2026-11-10-write-back C-3).
+- at: L3-SYNC-COMPONENT/job.v2/P-1
+  why: Extended 2026-11-10 by the amendment of protocol v2.0 (D-14) - each change of a preview names its step; a
+    compatible addition for the Brain, to be marked compatible by a person who reviews it.
+- at: L3-SYNC-COMPONENT/job.v2/P-2
+  why: Extended 2026-11-10 by the amendment of protocol v2.0 (D-14) - a receipt's values and differences and a
+    conflict name step 0; a compatible addition, to be marked compatible by a person who reviews it.

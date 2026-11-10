@@ -24,7 +24,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from knovas_link import contracts
 
-MAX_LIFETIME_SECONDS = 3600
+#: The protocol's maximum ``exp - iat``: 3 hours (v2.0 as amended 2026-11-10, D-15; it was 3600 s).
+MAX_LIFETIME_SECONDS = 10800
 MAX_SAFE_INTEGER = 2 ** 53 - 1
 _B64 = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
 
@@ -156,7 +157,7 @@ class Permit:
 
 def verify(token: Any, ring: KeyRing) -> Permit:
     """Step 2 of Link's checks: one canonical encoding, EdDSA, a pinned key whose window holds ``iat``, a lifetime
-    of at most 3600 s, and a valid signature; else ``permit_bad_signature``."""
+    of at most ``MAX_LIFETIME_SECONDS`` (10800 s), and a valid signature; else ``permit_bad_signature``."""
     if not isinstance(token, str) or token.count(".") != 2:
         raise PermitRefused("permit_bad_signature")
     h, p, s = token.split(".")

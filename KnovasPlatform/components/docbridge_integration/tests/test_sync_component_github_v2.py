@@ -79,6 +79,10 @@ class GitHubHarness:
         return [{"action": "set_front_matter", "target": "pages/a.md", "params": {"mapping": "pages", "owner": "person-7"}},
                 {"action": "set_front_matter", "target": "pages/b.md", "params": {"mapping": "pages", "status": "closed"}}]
 
+    def same_item_steps(self):
+        return [{"action": "set_front_matter", "target": "pages/d.md", "params": {"mapping": "pages", "owner": "person-9"}},
+                {"action": "set_front_matter", "target": "pages/d.md", "params": {"mapping": "pages", "status": "closed"}}]
+
     def computed_step(self):
         return {"action": "set_front_matter", "target": "pages/c.md",
                 "params": {"mapping": "pages", "updated": "2026-11-11"}}
@@ -198,6 +202,24 @@ def test_native_review_opens_a_pull_request_and_follows_its_outcome():
     accepted = ask()["review"]
     assert accepted["state"] == "accepted" and accepted["receipts"][0]["differences"] == []
     assert "status: closed" in h.gh.file_at("main", "pages/b.md").decode()
+
+
+def test_two_steps_on_one_file_are_told_apart_by_their_step():
+    """D-14 (v2.0 as amended 2026-11-10): each change of a preview, the diff included, names the step it belongs to;
+    an act holds one step, so its receipt and its conflict name step 0."""
+    h = make_harness()
+    brain = Brain(h.source)
+    owner, status = h.same_item_steps()
+    prev = h.connector.handle(brain.preview([owner, status]))
+    changes = prev["preview"]["changes"]
+    assert prev["status"] == "ok" and prev["preview"]["read_versions"] == [
+        {"target": "pages/d.md", "version": blob_sha(h.gh.file_at("main", "pages/d.md"))}]
+    assert [(c["step"], c["field"]) for c in changes] == [(0, "owner"), (0, None), (1, "status"), (1, None)]
+    _prev, _job, res = _preview_and_act(h, brain, status)
+    assert {v["step"] for v in res["receipts"][0]["values"]} == {0}
+    h.change_behind("pages/d.md")
+    stale = brain.act([owner], [prev["preview"]["read_versions"][0]["version"]])
+    assert h.connector.handle(stale)["conflict"]["step"] == 0
 
 
 def test_unstage_is_not_offered_in_v1():

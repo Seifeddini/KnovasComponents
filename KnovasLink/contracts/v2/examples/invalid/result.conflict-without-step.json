@@ -1,0 +1,27 @@
+{
+  "schema": "result.schema.json",
+  "description": "A conflict names the step whose target moved.",
+  "breaks": [
+    "conflict",
+    "step"
+  ],
+  "instance": {
+    "status": "conflict",
+    "code": "version_changed",
+    "duration_ms": 420,
+    "conflict": {
+      "target": "items/matter-17",
+      "expected_version": "v-4811",
+      "found_version": "v-4813",
+      "changes": [
+        {
+          "step": 0,
+          "target": "items/matter-17",
+          "field": "owner",
+          "before": "person-example-3",
+          "after": "person-example-9"
+        }
+      ]
+    }
+  }
+}

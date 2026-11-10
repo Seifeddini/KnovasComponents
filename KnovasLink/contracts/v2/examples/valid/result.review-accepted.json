@@ -17,6 +17,7 @@
           "reread_at": "2026-11-11T09:12:44Z",
           "values": [
             {
+              "step": 0,
               "target": "items/matter-18",
               "field": "state",
               "before": "waiting",

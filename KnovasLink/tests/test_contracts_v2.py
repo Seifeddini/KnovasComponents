@@ -3,8 +3,9 @@
 The schemas in KnovasLink/contracts/v2 are the draft of the generic read and write protocol, for the founder's review
 (KnovasPlatform/docs/connector-protocol-v2.md). Nothing runs them yet: Knovas Link, the connectors and the Brain build
 against them from WB-11 on. These tests hold the draft to itself: every example validates or fails naming its field,
-the example permits verify with the example key and bind the parameters of their act steps, the folder matches its own
-lock, version 1.x's contracts stay untouched, and neither the schemas nor the protocol text name a source kind.
+the example permits verify with the example key and bind the parameters of their act steps, every change, difference
+and conflict names its step, the lifetime the text states is the one Link checks, the folder matches its own lock,
+version 1.x's contracts stay untouched, and neither the schemas nor the protocol text name a source kind.
 """
 from __future__ import annotations
 
@@ -38,7 +39,7 @@ CONFORMANCE = ["replay_changes_nothing", "deletion_guard", "preview_equals_recei
                "no_credential_leaves_site", "review_outcome"]
 PERMIT_PAYLOAD = {"v", "permit_id", "tenant", "site", "source", "action_id", "change_set_id", "action", "params_hash",
                   "expected_version", "staging", "iat", "exp"}
-MAX_PERMIT_SECONDS = 3600
+MAX_PERMIT_SECONDS = 10800          # 3 hours: v2.0 as amended 2026-11-10 (D-15)
 
 # SPEC-write-back-16: the protocol names no source kind, no source-specific operation and no source-specific field.
 # Built from pieces so that this file does not hold the words either.
@@ -256,6 +257,58 @@ def test_receipts_of_the_examples_match_their_previews():
     assert repeat["repeat"] is True and repeat["code"] == "permit_used"
 
 
+# ------------------------------------------------------------------ steps (v2.0 as amended 2026-11-10, D-14)
+
+def test_every_change_difference_and_conflict_must_name_its_step():
+    """Two actions on one item are told apart by their step (the index into the job's args.steps), never by target."""
+    d = _schemas()["result.schema.json"]["$defs"]
+    assert d["step"]["type"] == "integer" and d["step"]["minimum"] == 0
+    job = _schemas()["job.schema.json"]["$defs"]
+    for args in ("preview_args", "act_args"):
+        assert d["step"]["maximum"] + 1 == job[args]["properties"]["steps"]["maxItems"], args
+    difference = d["receipt"]["properties"]["differences"]["items"]
+    for name, part in (("change", d["change"]), ("difference", difference), ("conflict", d["conflict"])):
+        assert "step" in part["required"] and part["properties"]["step"] == {"$ref": "#/$defs/step"}, name
+    assert d["preview"]["properties"]["changes"]["items"] == {"$ref": "#/$defs/change"}
+    assert d["receipt"]["properties"]["values"]["items"] == {"$ref": "#/$defs/change"}
+    assert d["conflict"]["properties"]["changes"]["items"] == {"$ref": "#/$defs/change"}
+
+
+def _belongs(entries, steps) -> None:
+    for e in entries:
+        assert 0 <= e["step"] < len(steps) and e["target"] == steps[e["step"]]["target"], e
+
+
+@pytest.mark.parametrize("job_name, result_name", [("job.preview", "result.preview-exact"),
+                                                   ("job.preview-two-actions-one-item",
+                                                    "result.preview-two-actions-one-item")])
+def test_a_previews_changes_name_the_steps_of_their_job(job_name, result_name):
+    steps = _example(job_name)["args"]["steps"]
+    changes = _example(result_name)["preview"]["changes"]
+    _belongs(changes, steps)
+    assert {c["step"] for c in changes} == set(range(len(steps))), "every step shows what it changes"
+
+
+def test_two_actions_on_one_item_are_told_apart_only_by_their_step():
+    steps = _example("job.preview-two-actions-one-item")["args"]["steps"]
+    changes = _example("result.preview-two-actions-one-item")["preview"]["changes"]
+    assert len({s["target"] for s in steps}) == 1 < len(steps)
+    for i, step in enumerate(steps):
+        assert {c["field"] for c in changes if c["step"] == i} == set(step["params"])
+
+
+def test_a_receipts_values_and_differences_name_the_step_of_its_permit():
+    job = _example("job.act-direct")
+    steps = job["args"]["steps"]
+    for name in ("result.act-written", "result.act-repeat", "result.reread"):
+        for receipt in _example(name)["receipts"]:
+            index = [_decode(t)[1]["permit_id"] for t in job["permits"]].index(receipt["permit_id"])
+            _belongs(receipt["values"] + receipt["differences"], steps)
+            assert {e["step"] for e in receipt["values"] + receipt["differences"]} == {index}
+    conflict = _example("result.conflict")["conflict"]
+    _belongs([conflict] + conflict["changes"], steps)
+
+
 # ------------------------------------------------------------------ codes and lock
 
 def test_v2_codes_are_new_codes_of_the_shared_shape():
@@ -298,6 +351,20 @@ def test_protocol_text_says_its_version_and_the_founders_approval():
     assert "**Status: v2.0, approved by the founder on 2026-11-10**" in head and "D-7" in head
 
 
+def test_protocol_text_states_the_lifetime_link_checks_and_the_amendment():
+    """D-15: one maximum, stated wherever the text, the permit schema and Link's check name it."""
+    text = PROTOCOL_DOC.read_text(encoding="utf-8")
+    from knovas_link.permits import MAX_LIFETIME_SECONDS
+    assert MAX_LIFETIME_SECONDS == MAX_PERMIT_SECONDS
+    words = " ".join(text.split())
+    assert words.count(f"at most {MAX_PERMIT_SECONDS} seconds") == 2, "the permit's lifetime and Link's step 2"
+    notes = _section(text, "Change notes")
+    assert "3600" not in _normative(text).replace(notes, ""), "the old maximum is named only in the change notes"
+    exp = _schemas()["permit.schema.json"]["$defs"]["payload"]["properties"]["exp"]["description"]
+    assert f"at most {MAX_PERMIT_SECONDS} s" in exp
+    assert "v2.0, amended 2026-11-10" in notes and "D-14" in notes and "D-15" in notes
+
+
 def test_protocol_text_names_every_message_kind_and_code():
     text = PROTOCOL_DOC.read_text(encoding="utf-8")
     for name in SCHEMA_OF_PREFIX.values():
@@ -307,7 +374,7 @@ def test_protocol_text_names_every_message_kind_and_code():
     for c in _load(V2 / "codes.json")["codes"]:
         assert f"`{c['code']}`" in text, c["code"]
     for heading in ("Compatibility with 1.x", "Permits", "Receipts", "Idempotency and exactly once", "Conflicts",
-                    "Staging: direct and native_review", "Declaring a connector", EXAMPLES_HEADING):
+                    "Staging: direct and native_review", "Declaring a connector", "Change notes", EXAMPLES_HEADING):
         assert re.search(rf"^## {re.escape(heading)}$", text, re.M), heading
 
 

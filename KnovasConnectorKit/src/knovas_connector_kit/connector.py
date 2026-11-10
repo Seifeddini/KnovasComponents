@@ -3,8 +3,10 @@
 A connector subclasses ``Connector``, returns its declaration and implements the operations its declaration promises.
 ``handle(job)`` is what its job loop calls for every job Knovas Link hands it: it checks the job against the contract,
 decodes the permits of an ``act`` (Link has verified them; the connector re-checks only that each permit binds its own
-step), dispatches, and checks the answer against the contract before it leaves. An exception becomes ``failed
-internal`` and is logged by its type only: an error text may quote a credential or a value (GI-DATA-04, GI-CONN-07).
+step), dispatches, and checks the answer against the contract before it leaves, including that every change,
+difference and conflict of a ``preview`` or ``act`` names a step of the job on that step's target (D-14). An exception
+becomes ``failed internal`` and is logged by its type only: an error text may quote a credential or a value
+(GI-DATA-04, GI-CONN-07).
 """
 from __future__ import annotations
 
@@ -20,6 +22,22 @@ from knovas_connector_kit.permits import PermitError, decode
 log = logging.getLogger("knovas_connector_kit")
 
 WRITE_PATH = ("preview", "act", "reread", "review_outcome", "unstage")
+
+
+def _steps_named(job: Any, result: dict) -> bool:
+    """A ``preview`` or ``act`` answer's changes, values, differences and conflict each name a step of the job, on that
+    step's target (D-14). A ``reread`` or ``review_outcome`` receipt names the step of its permit in an earlier
+    ``act`` job, which this job does not hold."""
+    if not isinstance(job, dict) or job.get("kind") not in ("preview", "act"):
+        return True
+    steps = (job.get("args") or {}).get("steps") or []
+    entries = list((result.get("preview") or {}).get("changes") or [])
+    for receipt in result.get("receipts") or []:
+        entries += receipt.get("values") or []
+        entries += receipt.get("differences") or []
+    if result.get("conflict"):
+        entries += [result["conflict"]] + list(result["conflict"].get("changes") or [])
+    return all(e["step"] < len(steps) and e["target"] == steps[e["step"]]["target"] for e in entries)
 
 
 def outcome(status: str, code: Optional[str] = None, **fields: Any) -> dict:
@@ -69,7 +87,7 @@ class Connector(ABC):
         started = time.monotonic()
         result = self._handle(job)
         result["duration_ms"] = int((time.monotonic() - started) * 1000)
-        if not contracts.valid("result.schema.json", result):
+        if not contracts.valid("result.schema.json", result) or not _steps_named(job, result):
             log.warning("connector.result_invalid", extra={"kind": job.get("kind") if isinstance(job, dict) else None})
             result = {"status": "failed", "code": "internal", "duration_ms": result["duration_ms"]}
         return result

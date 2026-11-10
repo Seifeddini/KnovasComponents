@@ -92,7 +92,7 @@ contract:
         - test_the_kits_contracts_are_links_v2_contracts_byte_for_byte
     - id: L3-CONNECTOR-KIT/*/A-3
       statement: A permit verifies only when it is the one canonical encoding, names EdDSA and a pinned key whose
-        window holds the permit's iat, lives at most 3600 seconds, and its signature verifies; else
+        window holds the permit's iat, lives at most 10800 seconds (3 hours, D-15), and its signature verifies; else
         permit_bad_signature.
       risk_class: critical
       evidence:
@@ -100,6 +100,7 @@ contract:
         ref: KnovasConnectorKit/tests/test_contracts_and_permits.py
         checks:
         - test_a_key_is_checked_at_the_permits_iat_not_at_the_verifiers_clock
+        - test_a_permit_lives_up_to_three_hours_and_not_a_second_longer
         - test_a_token_has_one_encoding_and_a_changed_payload_fails
         - test_the_examples_permits_verify_and_bind_their_steps
   call.knovas_connector_kit.connector.Connector:
@@ -107,8 +108,9 @@ contract:
     - id: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.Connector/P-1
       statement: handle(job) answers every job with one result that is valid against v2's result.schema.json - a job
         that is not valid is failed invalid_job, an action or staging the declaration lacks is refused, an act whose
-        permits do not bind their own steps is refused permit_mismatch (or permit_missing), and an exception is
-        failed internal, logged by its type only.
+        permits do not bind their own steps is refused permit_mismatch (or permit_missing), a preview's or act's
+        answer whose changes, values, differences or conflict do not each name a step of the job on that step's
+        target is failed internal (D-14), and an exception is failed internal, logged by its type only.
       risk_class: critical
       evidence:
       - kind: test
@@ -116,6 +118,7 @@ contract:
         checks:
         - test_the_suite_fails_the_mutant_on_its_property_only
         - test_the_example_connector_passes_every_property
+        - test_an_answer_whose_change_names_no_step_of_the_job_leaves_as_failed_internal
   call.knovas_connector_kit.connector.outcome:
     promises:
     - id: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.outcome/P-1
@@ -131,7 +134,7 @@ contract:
     needs:
     - id: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/N-1
       statement: A harness factory that gives a fresh connector over a source the suite may change, as
-        conformance/harness.py describes.
+        conformance/harness.py describes (same_item_steps optional; without it the suite pairs a step with itself).
       risk_class: standard
       evidence:
       - kind: test
@@ -142,13 +145,17 @@ contract:
     - id: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/P-1
       statement: Reports each of the seven properties as passed, failed (with a code, never a value) or not
         applicable, with the report's SHA-256, and exits 1 when one failed; a connector that breaks one property
-        fails exactly that one.
+        fails exactly that one. preview_equals_receipt also checks that every change, value, difference and conflict
+        names its own step, with two steps on one item (D-14); the suite signs permits for the longest lifetime, 3
+        hours (D-15).
       risk_class: critical
       evidence:
       - kind: test
         ref: KnovasConnectorKit/tests/test_conformance_suite.py
         checks:
         - test_the_suite_fails_the_mutant_on_its_property_only
+        - test_the_extra_mutants_fail_their_property_only
+        - test_a_connector_that_names_changes_by_item_fails_on_two_actions_on_one_item
         - test_the_report_is_reproducible
         - test_a_read_only_connector_is_not_offered_for_writing
     limits:
@@ -174,3 +181,18 @@ review:
     gate become operations of their own when a connector package (the GitHub connector, Phase C) imports them.
 - at: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/L-1
   why: No evidence; a known limit stated in the protocol text's open questions.
+- at: L3-CONNECTOR-KIT/*/A-3
+  why: Changed 2026-11-10 by the amendment of protocol v2.0 (D-15, the founder - a permit may live 3 hours); the
+    kit now accepts permits up to 10800 s instead of 3600 s, a looser rule. map-check reports the line as changed and
+    not marked compatible; a person confirms it (compatible, reviewed_by).
+- at: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.Connector/P-1
+  why: Extended 2026-11-10 by the amendment of protocol v2.0 (D-14) - an answer whose changes do not name the job's
+    steps leaves as failed internal; a connector built before the amendment, which names no step, now fails. A person
+    confirms whether that is compatible (nothing of v2 was released).
+- at: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/N-1
+  why: Extended 2026-11-10 (D-14) by the optional same_item_steps of a harness; a compatible addition, to be marked
+    compatible by a person who reviews it.
+- at: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/P-1
+  why: Extended 2026-11-10 by the amendment of protocol v2.0 (D-14, D-15) - preview_equals_receipt also checks each
+    change's step, so a connector that passed before may fail now. A person confirms whether that is compatible
+    (nothing of v2 was released).

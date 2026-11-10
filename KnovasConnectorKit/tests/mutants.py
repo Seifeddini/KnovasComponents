@@ -37,11 +37,25 @@ class CutListingDeletes(ExampleRecordsConnector):
 class ReceiptCopiesPreview(ExampleRecordsConnector):
     """Builds the receipt from what it meant to write, not from reading the source again."""
 
-    def _receipt(self, permit, target, before, version_before, previewed, outcome_name="written", source_ref=None):
-        r = super()._receipt(permit, target, before, version_before, previewed, outcome_name, source_ref)
-        r["values"] = [{"target": target, "field": f, "before": before.get(f), "after": v} for f, v in previewed.items()]
+    def _receipt(self, permit, target, before, version_before, previewed, outcome_name="written", source_ref=None,
+                 step=0):
+        r = super()._receipt(permit, target, before, version_before, previewed, outcome_name, source_ref, step)
+        r["values"] = [{"step": step, "target": target, "field": f, "before": before.get(f), "after": v}
+                       for f, v in previewed.items()]
         r["differences"] = []
         return r
+
+
+class StepsByTarget(ExampleRecordsConnector):
+    """Names each change by its item, as before the amendment (D-14): every change is given the first step of the
+    job on its target, so of two actions on one item the second shows nothing."""
+
+    def preview(self, source, steps, staging, at_version):
+        res = super().preview(source, steps, staging, at_version)
+        targets = [s["target"] for s in steps]
+        for change in (res.get("preview") or {}).get("changes", []):
+            change["step"] = targets.index(change["target"])
+        return res
 
 
 class IgnoresVersion(ExampleRecordsConnector):
@@ -102,7 +116,8 @@ MUTANTS = {
     "no_credential_leaves_site": LeaksCredential,
     "review_outcome": IgnoresDecline,
 }
-EXTRA = {"preview_equals_receipt": IgnoresVersion}
+#: Further mutants, each with the one property it breaks.
+EXTRA = [("preview_equals_receipt", IgnoresVersion), ("preview_equals_receipt", StepsByTarget)]
 
 
 def factory(cls):

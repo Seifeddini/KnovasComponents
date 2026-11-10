@@ -9,7 +9,8 @@ import pytest
 
 from knovas_connector_kit import contracts
 from knovas_connector_kit.canonical import CanonicalError, canonical, params_hash
-from knovas_connector_kit.permits import KeyRing, PermitError, Signer, b64e, decode, verify
+from knovas_connector_kit.permits import (MAX_LIFETIME_SECONDS, KeyRing, PermitError, Signer, b64e, decode,
+                                          verify)
 
 KIT_V2 = Path(contracts.FOLDER)
 LINK_V2 = Path(__file__).resolve().parents[2] / "KnovasLink" / "contracts" / "v2"
@@ -60,8 +61,18 @@ def test_a_key_is_checked_at_the_permits_iat_not_at_the_verifiers_clock():
     later = KeyRing.from_document(signer.keys_document("2026-11-12T00:00:00Z", "2027-01-01T00:00:00Z"))
     with pytest.raises(PermitError, match="permit_bad_signature"):
         verify(token, later)                                     # the key was not valid when it was signed
-    with pytest.raises(PermitError, match="permit_bad_signature"):
-        verify(signer.sign(dict(payload, exp=payload["iat"] + 3601)), retired)   # longer than 3600 s
+
+
+def test_a_permit_lives_up_to_three_hours_and_not_a_second_longer():
+    """D-15 (v2.0 as amended 2026-11-10): exp - iat at most 10800 s; one second more is permit_bad_signature."""
+    signer = Signer()
+    ring = KeyRing.from_document(signer.keys_document())
+    payload = decode(_example("job.act-direct")["permits"][0]).payload
+    assert MAX_LIFETIME_SECONDS == 10800
+    assert verify(signer.sign(dict(payload, exp=payload["iat"] + 10800)), ring).payload["exp"] == payload["iat"] + 10800
+    for exp in (payload["iat"] + 10801, payload["iat"]):
+        with pytest.raises(PermitError, match="permit_bad_signature"):
+            verify(signer.sign(dict(payload, exp=exp)), ring)
 
 
 def test_a_token_has_one_encoding_and_a_changed_payload_fails():

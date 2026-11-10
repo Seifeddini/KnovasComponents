@@ -8,7 +8,9 @@ and switches the suite uses: a cut listing, a crash after the next write, a fail
 source that alters the next written value.
 
 ``ExampleRecordsConnector`` declares two actions: ``set_fields`` (atomic, both stagings, inverse itself) and
-``transition`` (one step per job, both stagings, no inverse).
+``transition`` (one step per job, both stagings, no inverse). Every change, difference and conflict it answers names its
+step (the index into the job's ``args.steps``); the source keeps the step with each permit's marker, so a ``reread`` or
+``review_outcome`` names the step the permit had in its ``act`` job.
 """
 from __future__ import annotations
 
@@ -35,7 +37,7 @@ class FakeRecordSource:
         self.deleted: set[str] = set()
         self.clock = 0
         self.writes: dict[str, int] = {}
-        self.marks: dict[str, dict] = {}          # permit id -> {target, before, version_before, version_after}
+        self.marks: dict[str, dict] = {}          # permit id -> {target, step, before, version_before, version_after}
         self.staged: dict[str, dict] = {}         # stage ref -> {steps, permit_ids, state, before}
         self.cut_listing = False
         self.crash_after_next_write = False
@@ -71,7 +73,7 @@ class FakeRecordSource:
         self.items.pop(target)
         self.deleted.add(target)
 
-    def write(self, target: str, changes: dict, permit_id: str) -> None:
+    def write(self, target: str, changes: dict, permit_id: str, step: int = 0) -> None:
         self._check()
         item = self.items[target]
         before = {k: item["fields"].get(k) for k in changes}
@@ -82,8 +84,8 @@ class FakeRecordSource:
         item["fields"].update(changes, updated=self._tick())
         item["version"] += 1
         self.writes[target] = self.writes.get(target, 0) + 1
-        self.marks[permit_id] = {"target": target, "before": before, "version_before": f"v-{version_before}",
-                                 "version_after": f"v-{item['version']}"}
+        self.marks[permit_id] = {"target": target, "step": step, "before": before,
+                                 "version_before": f"v-{version_before}", "version_after": f"v-{item['version']}"}
         if self.crash_after_next_write:
             self.crash_after_next_write = False
             raise SourceCrashed()
@@ -98,8 +100,8 @@ class FakeRecordSource:
         """The source's own reviewer decides; on acceptance the source applies the staged change."""
         staged = self.staged[ref]
         if accept:
-            for step, pid in zip(staged["steps"], staged["permit_ids"]):
-                self.write(step["target"], step["changes"], pid)
+            for index, (step, pid) in enumerate(zip(staged["steps"], staged["permit_ids"])):
+                self.write(step["target"], step["changes"], pid, index)
         staged["state"] = "accepted" if accept else "declined"
 
 
@@ -172,7 +174,7 @@ class ExampleRecordsConnector(Connector):
 
     def preview(self, source, steps, staging, at_version):
         changes, versions, exact, code = [], [], True, None
-        for step in steps:
+        for index, step in enumerate(steps):
             bad = self._invalid(step)
             if bad:
                 return outcome("refused", bad)
@@ -181,14 +183,15 @@ class ExampleRecordsConnector(Connector):
                 return outcome("refused", "target_not_found")
             if at_version is not None and item["version"] != at_version:
                 return outcome("conflict", "version_changed",
-                               conflict={"target": step["target"], "expected_version": at_version,
+                               conflict={"step": index, "target": step["target"], "expected_version": at_version,
                                          "found_version": item["version"]})
-            versions.append({"target": step["target"], "version": item["version"]})
+            if not any(v["target"] == step["target"] for v in versions):
+                versions.append({"target": step["target"], "version": item["version"]})
             for field, after in self._changes(step).items():
                 if field in self.COMPUTED:
                     exact, code = False, "computed_field"
-                changes.append({"target": step["target"], "field": field, "before": item["fields"].get(field),
-                                "after": after})
+                changes.append({"step": index, "target": step["target"], "field": field,
+                                "before": item["fields"].get(field), "after": after})
         grouping = "atomic" if all(self.declared_action(s["action"])["grouping"] == "atomic" for s in steps) else "none"
         preview = {"exact": exact, "read_versions": versions, "changes": [] if not exact else changes,
                    "grouping": grouping}
@@ -197,12 +200,12 @@ class ExampleRecordsConnector(Connector):
         return outcome("ok", None if exact else "preview_inexact", preview=preview)
 
     def _receipt(self, permit: dict, target: str, before: dict, version_before: str, previewed: dict,
-                 outcome_name: str = "written", source_ref: Optional[str] = None) -> dict:
+                 outcome_name: str = "written", source_ref: Optional[str] = None, step: int = 0) -> dict:
         item = self.src.get(target)
-        values = [{"target": target, "field": f, "before": before.get(f), "after": item["fields"].get(f)}
-                  for f in previewed]
-        differences = [{"target": target, "field": f, "previewed": previewed[f], "found": item["fields"].get(f)}
-                       for f in previewed if item["fields"].get(f) != previewed[f]]
+        values = [{"step": step, "target": target, "field": f, "before": before.get(f),
+                   "after": item["fields"].get(f)} for f in previewed]
+        differences = [{"step": step, "target": target, "field": f, "previewed": previewed[f],
+                        "found": item["fields"].get(f)} for f in previewed if item["fields"].get(f) != previewed[f]]
         return {"permit_id": permit["permit_id"], "outcome": outcome_name, "expected_version": version_before,
                 "version_after": item["version"], "reread_at": "2026-11-10T12:00:00Z", "values": values,
                 "differences": differences,
@@ -217,10 +220,10 @@ class ExampleRecordsConnector(Connector):
         # A repeat finds its earlier write by the permit id the source keeps with the change: no second write.
         if all(p["permit_id"] in self.src.marks for p in permits):
             receipts = []
-            for step, p in zip(steps, permits):
+            for index, (step, p) in enumerate(zip(steps, permits)):
                 mark = self.src.marks[p["permit_id"]]
                 receipts.append(self._receipt(p, step["target"], mark["before"], mark["version_before"],
-                                              self._changes(step)))
+                                              self._changes(step), step=index))
             return outcome("ok", receipts=receipts)
         for ref, staged in self.src.staged.items():
             if any(p["permit_id"] in staged["permit_ids"] for p in permits):
@@ -229,13 +232,13 @@ class ExampleRecordsConnector(Connector):
                      "version_after": None, "reread_at": "2026-11-10T12:00:00Z", "values": [], "differences": [],
                      "side_effects": [], "source_ref": ref} for p in permits])
         items = [(step, p, self.src.get(step["target"])) for step, p in zip(steps, permits)]
-        for step, p, item in items:
+        for index, (step, p, item) in enumerate(items):
             if item is None:
                 return outcome("refused", "target_not_found")
             if item["version"] != p["expected_version"]:
                 return outcome("conflict", "version_changed",
-                               conflict={"target": step["target"], "expected_version": p["expected_version"],
-                                         "found_version": item["version"]})
+                               conflict={"step": index, "target": step["target"],
+                                         "expected_version": p["expected_version"], "found_version": item["version"]})
             if set(self._changes(step)) & set(self.COMPUTED):
                 return outcome("refused", "computed_field")
         if staging == "native_review":
@@ -247,11 +250,11 @@ class ExampleRecordsConnector(Connector):
                          "differences": [], "side_effects": [], "source_ref": ref} for _s, p, _i in items]
             return outcome("ok", receipts=receipts)
         receipts = []
-        for step, p, item in items:
+        for index, (step, p, item) in enumerate(items):
             changes = self._changes(step)
             before = {f: item["fields"].get(f) for f in changes}
-            self.src.write(step["target"], changes, p["permit_id"])
-            receipts.append(self._receipt(p, step["target"], before, item["version"], changes))
+            self.src.write(step["target"], changes, p["permit_id"], index)
+            receipts.append(self._receipt(p, step["target"], before, item["version"], changes, step=index))
         return outcome("ok", receipts=receipts)
 
     def reread(self, source, targets, fields, permit_ids):
@@ -269,7 +272,7 @@ class ExampleRecordsConnector(Connector):
             if mark is not None:
                 receipts.append(self._receipt({"permit_id": pid}, mark["target"], mark["before"],
                                               mark["version_before"], {k: self.src.get(mark["target"])["fields"].get(k)
-                                                                       for k in mark["before"]}))
+                                                                       for k in mark["before"]}, step=mark["step"]))
         return outcome("ok", read=read, **({"receipts": receipts} if receipts else {}))
 
     def review_outcome(self, source, stage_ref, permit_ids):
@@ -279,11 +282,11 @@ class ExampleRecordsConnector(Connector):
         review = {"state": staged["state"], "stage_ref": stage_ref}
         if staged["state"] == "accepted":
             review["receipts"] = []
-            for step, pid, before in zip(staged["steps"], staged["permit_ids"], staged["before"]):
+            for index, (step, pid, before) in enumerate(zip(staged["steps"], staged["permit_ids"], staged["before"])):
                 mark = self.src.marks[pid]
                 review["receipts"].append(self._receipt({"permit_id": pid}, step["target"], before,
                                                         mark["version_before"], step["changes"],
-                                                        source_ref=stage_ref))
+                                                        source_ref=stage_ref, step=index))
         return outcome("ok", review=review)
 
     def unstage(self, source, stage_ref, permit_ids):
@@ -312,6 +315,10 @@ class ExampleHarness:
                  "params": {"owner": "person-7", "due_date": "2026-12-01"}},
                 {"action": "transition", "target": "items/matter-2", "params": {"state": "closed"}},
                 {"action": "set_fields", "target": "items/matter-3", "params": {"owner": "person-8"}}]
+
+    def same_item_steps(self) -> list[dict]:
+        return [{"action": "set_fields", "target": "items/matter-5", "params": {"owner": "person-9"}},
+                {"action": "set_fields", "target": "items/matter-5", "params": {"due_date": "2026-12-24"}}]
 
     def computed_step(self) -> dict:
         return {"action": "set_fields", "target": "items/matter-4", "params": {"updated": "2026-11-11T00:00:00Z"}}

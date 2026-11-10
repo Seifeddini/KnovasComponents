@@ -1,0 +1,40 @@
+{
+  "schema": "result.schema.json",
+  "description": "Every change names its step; without it two actions on one item cannot be told apart.",
+  "breaks": [
+    "preview",
+    "changes",
+    1,
+    "step"
+  ],
+  "instance": {
+    "status": "ok",
+    "code": null,
+    "duration_ms": 640,
+    "preview": {
+      "exact": true,
+      "read_versions": [
+        {
+          "target": "items/matter-17",
+          "version": "v-4811"
+        }
+      ],
+      "changes": [
+        {
+          "step": 0,
+          "target": "items/matter-17",
+          "field": "owner",
+          "before": "person-example-3",
+          "after": "person-example-7"
+        },
+        {
+          "target": "items/matter-17",
+          "field": "state",
+          "before": "open",
+          "after": "closed"
+        }
+      ],
+      "grouping": "none"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "schema": "job.schema.json",
+  "description": "Preview two actions on one item, an owner and a state: each change the connector answers names its step, so the two can be told apart.",
+  "instance": {
+    "id": "11111111-2222-4333-8444-666666666666",
+    "kind": "preview",
+    "protocol": "2.0",
+    "source": "records-main",
+    "target_serial": "731948205517",
+    "deadline": "2026-11-10T14:10:00Z",
+    "actor": {
+      "kind": "agent",
+      "id": "agent-example",
+      "on_behalf_of": {
+        "kind": "user",
+        "id": "person-example-proposer"
+      }
+    },
+    "args": {
+      "steps": [
+        {
+          "action": "set_fields",
+          "target": "items/matter-17",
+          "params": {
+            "owner": "person-example-7"
+          }
+        },
+        {
+          "action": "transition",
+          "target": "items/matter-17",
+          "params": {
+            "state": "closed"
+          }
+        }
+      ],
+      "staging": "direct"
+    }
+  }
+}

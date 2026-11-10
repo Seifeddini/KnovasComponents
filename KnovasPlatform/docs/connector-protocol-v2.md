@@ -1,7 +1,8 @@
 # Connector protocol v2: reading and writing any source of truth
 
 **Status: v2.0, approved by the founder on 2026-11-10** (D-7: "approved. Withdrawing a change is not necessary for
-V1 (undo not required)"; D-8: the permit signing key in Key Vault; D-9: signed conformance reports later). Written on
+V1 (undo not required)"; D-8: the permit signing key in Key Vault; D-9: signed conformance reports later), amended the
+same day before any release (D-14, D-15: see "Change notes"). Written on
 2026-11-10 for BET-2026-11-write-back, item WB-10 (feature plan FEAT-2026-11-10-write-back, Phase A); its five design
 choices were decided before (D-4, DEC-0071). Built behind switches that are off by default: the connector kit and
 its conformance suite, Knovas Link (`LINK_PROTOCOL_V2`), the first connector (`SYNC_PROTOCOL_V2`); the Brain's side
@@ -23,7 +24,7 @@ The machine-readable contract is in `KnovasComponents/KnovasLink/contracts/v2/`,
    reads, and which **actions** it can carry out. Knovas offers only what was declared.
 3. A change is never a raw edit. It is an **action** with parameters ("set these fields of this item", "move this item
    to the state closed"). Before anyone approves it, the connector computes a **preview** at the site, without
-   writing: exactly what will change, and the version of the item it read.
+   writing: exactly what each action will change, and the version of the item it read.
 4. When a person approves, the Brain signs one **permit** per action: single use, short-lived, bound to this tenant,
    this site, this source, this action, this item, a hash of the parameters and the version the preview read.
 5. Knovas Link checks the permit before the connector sees the job. The connector writes, either **directly** or into
@@ -141,7 +142,7 @@ permit checks below (`permit_missing`, `permit_mismatch`, `permit_bad_signature`
 |---|---|---|
 | `probe` | `{}` | nothing; as in 1.1 |
 | `fetch` | `{external_id, version?, max_bytes}` | reads the original bytes and posts them in parts, as in 1.1 |
-| `preview` | `{steps: [{action, target, params}], staging, at_version?}` | computes, without writing, exactly what the steps would change, in the source's own terms, and the version of each target it read; answers `preview` |
+| `preview` | `{steps: [{action, target, params}], staging, at_version?}` | computes, without writing, exactly what the steps would change, in the source's own terms, each change naming its step, and the version of each target it read; answers `preview` |
 | `act` | `{steps: [{action, target, params, expected_version}], staging}`, with `permits: [token, …]` beside `args` | after Link's permit checks: writes the steps (directly, or into the source's own review step), reads the targets again and answers with one receipt per step |
 | `reread` | `{targets, fields?, permit_ids?}` | reads the targets again and answers what they hold and their versions; with `permit_ids`, the receipt of those permits' earlier write. Writes nothing |
 | `review_outcome` | `{stage_ref, permit_ids}` | reports the state of a staged change in the source's own review: `pending`, `accepted` (with the receipts of a re-read), `declined` or `withdrawn` |
@@ -157,6 +158,12 @@ permit checks below (`permit_missing`, `permit_mismatch`, `permit_bad_signature`
   Silent past the deadline: `unreachable`, as in 1.1.
 - **When the Brain asks for a review outcome.** While a change is staged, every 5 minutes and when a person asks in the
   Builder. A connector never calls in by itself (outbound only).
+- **Every change names its step** (D-14). A preview's `changes`, a receipt's `values` and `differences`, and a
+  `conflict` with its `changes` each carry `step`: the 0-based index of the step they belong to in the job's
+  `args.steps`. For a preview that is the `preview` job's step; for a receipt, the step of its permit in the `act` job
+  that carried it, also when the receipt comes with a `reread` or `review_outcome` result, so a connector keeps the
+  step with its marker of the write. Two actions on one item (an owner and a due date of one record) are told apart
+  by their step, never by the target. The Brain attributes every change to its action through it.
 
 ## The write path, step by step
 
@@ -174,7 +181,7 @@ sequenceDiagram
   B->>L: job preview {steps, staging}
   L->>C: the job (action declared? staging declared?)
   C->>S: read the targets (no write)
-  C-->>B: preview {exact, read_versions, changes, grouping}
+  C-->>B: preview {exact, read_versions, changes by step, grouping}
   P->>B: approve (only an exact preview)
   B->>B: one permit per action, signed
   B->>L: job act {steps with permits, staging}
@@ -247,9 +254,9 @@ the same the Brain's side builds (`knovas-software/app/src/services/write_back_p
   values: a permit is safe to log by its id.
 - **Staging.** `staging` binds how the approved change reaches the source *(addition: a job cannot turn an approved
   review into a direct write, or the reverse, under the same permit)*.
-- **Lifetime.** `exp` is after `iat` and at most 3600 seconds later. A first delivery after it is refused
-  `permit_expired`; a repeat of a permit written before it still gets its first result (SPEC-write-back-10). An unused
-  permit that expired is not signed again: the action fails and a person proposes it again.
+- **Lifetime.** `exp` is after `iat` and at most 10800 seconds later (3 hours, D-15). A first delivery after it is
+  refused `permit_expired`; a repeat of a permit written before it still gets its first result (SPEC-write-back-10). An
+  unused permit that expired is not signed again: the action fails and a person proposes it again.
 - **Approver.** The permit names no person. The approver is the job's declared `actor`, recorded and never trusted for
   a decision until verified identity exists (SPEC-write-back-40). Link's write log keeps a person's id only as a hash.
 
@@ -262,7 +269,7 @@ In this order, for every step and its permit (the order of the Alloy model's `Li
 2. The token is readable and canonical, names `EdDSA` and a pinned key whose validity window holds the permit's `iat`
    (`not_before <= iat < not_after`: checked at the permit's signing time, not at Link's clock, so a repeat that
    arrives after an old key's `not_after` still reaches step 5 and gets its first result), `exp` is after `iat` and at
-   most 3600 seconds later, and the signature verifies: else `refused permit_bad_signature`. A permit signed with an
+   most 10800 seconds later, and the signature verifies: else `refused permit_bad_signature`. A permit signed with an
    old key and an old `iat` is still refused at step 6 as expired.
 3. `site` is the serial of Link's own certificate: else `refused permit_wrong_site`.
 4. `tenant` is the tenant of Link's certificate, and `source`, `action`, `params_hash` (over the step's `target` and
@@ -287,9 +294,10 @@ The answer to an `act` carries one **receipt** per step (`result.schema.json`, `
 
 - `permit_id`, `outcome` (`written`, `partly_written`, `not_written`, `staged`), `expected_version`, `version_after`
   (null when nothing was written or the change is only staged), `reread_at`;
-- `values`: per previewed field the value before (at `expected_version`) and after (as read again);
-- `differences`: every previewed field whose re-read value is not the approved one. Not empty: the Brain marks the
-  change set differing and holds that action on that source until a person clears it (SPEC-write-back-08);
+- `values`: per previewed field, with its `step`, the value before (at `expected_version`) and after (as read again);
+- `differences`: every previewed field whose re-read value is not the approved one, with its `step`. Not empty: the
+  Brain marks the change set differing and holds that action on that source until a person clears it
+  (SPEC-write-back-08);
 - `side_effects`: fields the source changed by itself that the preview did not show, by name only;
 - `source_ref`: an address of the change in the source, if it has one.
 
@@ -315,10 +323,12 @@ The **permit id is the idempotency key** of the write, end to end (SPEC-write-ba
 ## Conflicts
 
 When a target is not at the permit's `expected_version`, the connector writes nothing and answers `status: conflict`,
-`code: version_changed`, with `conflict {target, expected_version, found_version, changes?}`: the previewed fields'
-values at the expected version and now (SPEC-write-back-32). The Brain sets the change set to `conflict` and shows the
-approver what changed. A reversal is previewed with `at_version` set to the version its original's receipt recorded,
-never at the current one, and is a conflict when the source changed since (SPEC-write-back-33, -34).
+`code: version_changed`, with `conflict {step, target, expected_version, found_version, changes?}`: `step` is the first
+step (lowest index) whose target it found at another version, and `changes` the previewed fields' values at the
+expected version and now, each with its own step (SPEC-write-back-32). The Brain sets the change set to `conflict`
+and shows the approver what changed. A reversal is previewed with `at_version` set to the version its original's
+receipt recorded, never at the current one, and is a conflict when the source changed since (SPEC-write-back-33, -34).
+A `preview` whose `at_version` the target is no longer at answers the same `conflict`, its `step` the preview job's.
 
 ## Undo and reversal: not in V1
 
@@ -393,7 +403,7 @@ source where one is available.
 |---|---|
 | `replay_changes_nothing` | Reading the same source twice yields the same stream; an apply of a replayed stream changes nothing (GI-CONN-01) |
 | `deletion_guard` | Absence is reported only through a complete `generation` or a `tombstone`; a cut listing yields neither (GI-CONN-02) |
-| `preview_equals_receipt` | For every declared action with `preview: exact`, the receipt's values equal the preview's changes on an unchanged source; a computed field makes the preview inexact |
+| `preview_equals_receipt` | For every declared action with `preview: exact`, the receipt's values equal the preview's changes on an unchanged source; a computed field makes the preview inexact; every change, value, difference and conflict names its step, and two steps on one item each show their own changes (D-14) |
 | `exactly_once` | A repeated `act` with the same permit, also after a simulated loss of the result between the write and Link, writes once and answers with the first receipt |
 | `permit_refusals` | Every refusal in "What Knovas Link checks" is produced for its case, and nothing is written (run against the kit's Link) |
 | `no_credential_leaves_site` | No result, part, stream message, log line or error carries the source's credential (the kit plants a canary credential) |
@@ -421,8 +431,22 @@ and two details go beyond them; the founder approved both with the full text (D-
    /secured/connector/v2/permit-keys`, beside the work channel's routes; the Brain's side adopts it.
 3. **Who vouches for a conformance report** (decided 2026-11-10, D-9: signed reports come later): in this draft the connector's declaration states the properties it
    passed. Later a Knovas-signed report per package digest could be required before the Builder offers writing.
-4. **Defaults**: permit lifetime 60 minutes (the Brain's `WRITE_BACK_PERMIT_TTL_SECONDS = 3600`), review polling every
-   5 minutes, Link's used-permit store kept 30 days after expiry.
+4. **Defaults**: permit lifetime 3 hours, the protocol's maximum (decided 2026-11-10, D-15 from B2-Q2: the Brain's
+   `WRITE_BACK_PERMIT_TTL_SECONDS = 10800`), review polling every 5 minutes, Link's used-permit store kept 30 days
+   after expiry.
+
+## Change notes
+
+- **v2.0, amended 2026-11-10** (the founder's decisions of 2026-11-10; nothing of v2 had been released, so this
+  amends v2.0 and is not a v2.1; the lock stays `2.0.0-draft` with new digests):
+  - **D-14** (from D-B1-3): a preview's `changes`, a receipt's `values` and `differences`, and a `conflict` with its
+    `changes` each name their `step`, the 0-based index into the job's `args.steps` (for a receipt, the step of its
+    permit in the `act` job). Required wherever one belongs to a step, so two actions on one item can be told apart
+    (`result.schema.json`, `$defs/step`; the examples `job.preview-two-actions-one-item`,
+    `result.preview-two-actions-one-item`; the conformance property `preview_equals_receipt` checks it).
+  - **D-15** (from B2-Q2, "3 hours"): a permit may be valid up to 3 hours. The maximum `exp - iat` is 10800 seconds
+    instead of 3600, in the permit schema, in Knovas Link's check (step 2) and in the connector kit's.
+- **v2.0, 2026-11-10**: approved by the founder (D-7, D-8, D-9).
 
 ## Examples (informative)
 
@@ -444,7 +468,8 @@ part of the protocol: the GitHub, Jira and file-share connectors are WB-12, WB-0
 - **Jira.** A connector declares `source_kind: "jira"`, streams `record`, `tombstone`, `generation`, `state`, and
   actions such as `set_assignee`, `transition_issue` and `set_due_date` (`staging: [direct]`, `grouping: none`). An
   item is an issue (`external_id` its key, `version` its `updated` time or change-log id); a field an automation
-  computes is in `computed`, so a preview that would set it is inexact.
+  computes is in `computed`, so a preview that would set it is inexact. An assignee and a due date of one issue are
+  two steps on one item; each change of the preview, the receipts and a conflict names its step (D-14).
 - **A file share.** A connector for a mounted folder declares documents and an action that replaces a file through a
   temporary file and a rename, with the file's hash as its version.
 

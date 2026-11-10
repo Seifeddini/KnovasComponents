@@ -7,6 +7,10 @@ fake of their source, as the kit's ``example`` does):
 - ``credential``: the canary credential the connector was configured with (the suite looks for it everywhere);
 - ``sample_steps()``: steps ``{action, target, params}`` valid now, at least one per declared action with exact
   preview, each on its own target;
+- ``same_item_steps()`` (optional): two steps of actions declared with exact preview and ``direct`` staging, on one
+  item, each changing other fields, or ``None``; without it the suite pairs the first direct sample step with itself.
+  The suite checks that every change names its own step (D-14), and writes the two together when both actions
+  declare ``grouping: atomic``;
 - ``computed_step()``: a step that would set a field the source computes, or ``None``;
 - ``change_behind(target)``: someone else edits the item; ``delete_behind(target)``: the item goes away;
 - ``set_cut_listing(on)``: the next reads see an incomplete listing (as a source that cut its answer);

@@ -15,12 +15,14 @@
       ],
       "changes": [
         {
+          "step": 0,
           "target": "items/matter-17",
           "field": "owner",
           "before": "person-example-3",
           "after": "person-example-7"
         },
         {
+          "step": 0,
           "target": "items/matter-17",
           "field": "due_date",
           "before": null,
