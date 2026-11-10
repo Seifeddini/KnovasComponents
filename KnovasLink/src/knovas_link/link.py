@@ -450,7 +450,8 @@ class Link:
     def site(self) -> dict:
         """The site's telemetry for the heartbeat: codes, counts, versions and times only."""
         return {"certificate": self.certificate, "work_channel": self.channel.state, "probe": dict(self.channel.probe),
-                "components": self.registry.telemetry(), "sources": self.telemetry.sources_list(self.sources()),
+                "components": self.registry.telemetry(declarations=self.v2 is not None),
+                "sources": self.telemetry.sources_list(self.sources()),
                 "jobs": self.telemetry.jobs_snapshot()}
 
     def heartbeat_body(self) -> dict:

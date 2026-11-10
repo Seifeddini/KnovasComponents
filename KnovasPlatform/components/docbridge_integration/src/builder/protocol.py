@@ -72,6 +72,7 @@ import uuid
 from typing import Any, Callable, Mapping, Optional
 
 from builder import components as C
+from builder import protocol_v2 as V2
 
 logger = logging.getLogger(__name__)
 VERSION = "v1"
@@ -571,9 +572,14 @@ def check_site(raw: Any) -> dict:
         caps = item.get("capabilities") or []
         if not isinstance(caps, list) or len(caps) > 30 or not all(isinstance(x, str) and CAPABILITY.match(x) for x in caps):
             raise _bad("components.capabilities", "up to 30 codes such as write:github")
-        out["components"].append({"name": name, "kind": kind, "version": version, "state": item["state"],
-                                  "capabilities": list(caps),
-                                  "local_ping_ms": _site_int(item.get("local_ping_ms"), "components.local_ping_ms")})
+        entry = {"name": name, "kind": kind, "version": version, "state": item["state"], "capabilities": list(caps),
+                 "local_ping_ms": _site_int(item.get("local_ping_ms"), "components.local_ping_ms")}
+        if item.get("declaration") is not None:          # connector protocol 2.0 (draft): what it declared
+            try:
+                entry["declaration"] = V2.check_declaration(item["declaration"])
+            except ValueError as exc:
+                raise _bad("components." + str(exc), "a connector declaration as protocol 2.0 has it") from None
+        out["components"].append(entry)
     sources = raw.get("sources") or []
     if not isinstance(sources, list) or len(sources) > MAX_SITE_SOURCES:
         raise _bad("sources", f"a list of up to {MAX_SITE_SOURCES}")
@@ -628,7 +634,8 @@ def _keep_site(store: Any, link: Mapping[str, Any], site: Mapping[str, Any], now
                                       name=f"{link.get('name')} · {item['name']}"[:120])
         fields = {"version": item["version"], "capabilities": item["capabilities"],
                   "reported_state": "degraded" if item["state"] == "degraded" else "online",
-                  "telemetry": {"state": item["state"], "local_ping_ms": item["local_ping_ms"], "at": now.isoformat()}}
+                  "telemetry": {"state": item["state"], "local_ping_ms": item["local_ping_ms"], "at": now.isoformat(),
+                                **({"declaration": item["declaration"]} if item.get("declaration") else {})}}
         if item["state"] != "offline":
             fields["last_heartbeat_at"] = now.isoformat()   # seen by Link on the site just now
         store.update_component(child_id, **fields)

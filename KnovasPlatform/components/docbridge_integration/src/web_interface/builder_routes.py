@@ -2487,6 +2487,8 @@ def create_builder_blueprint(
                           "write_published": source_kinds.write_of(published.get(s.get("key")) or {}),
                           "fetch_reason": source_kinds.fetch_offered(s.get("kind")),
                           "write_reason": source_kinds.write_offered(s.get("kind"), c),
+                          # Connector protocol 2.0 (draft, BUILDER_PROTOCOL_V2): the actions the component declared.
+                          "v2_actions": _v2_actions(s.get("kind"), c),
                           **({"credential_line": site_rules.credential_line(s.get("key")), "site_name": c.get("site"),
                               "check_url": url_for("builder.component_check", component_id=c["id"])} if on_site else {})})
         kinds = {k: {"label": v["label"], "component": v["component"], "components": [v["component"], *v.get("also_on", ())],
@@ -2563,6 +2565,10 @@ def create_builder_blueprint(
                 raise editing.EditError(SITE_BINDING_REFUSED, 403)
             return changes
         return run
+
+    def _v2_actions(kind, component) -> list:
+        from builder import protocol_v2
+        return protocol_v2.actions_of(kind, component) if protocol_v2.enabled() else []
 
     def _check_switch_op(store, current, op) -> None:
         """Writing back is switched on only where the component serving the source can write to its kind (MVP-25)."""

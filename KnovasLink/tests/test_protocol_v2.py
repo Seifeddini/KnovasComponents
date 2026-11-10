@@ -335,3 +335,14 @@ def test_logs_carry_no_permit_token_or_value(world, v2, caplog):
     outcome(world, job["id"])
     text = "\n".join(r.getMessage() for r in caplog.records)
     assert job["permits"][0] not in text and "person-7" not in text and "items/matter-1" not in text
+
+
+def test_the_heartbeat_carries_each_connectors_declaration_only_with_the_switch_on(world, v2):
+    client, link, brain, connector, src = v2
+    components = {c["name"]: c for c in link.site()["components"]}
+    assert components[CONNECTOR]["declaration"] == connector.declaration()
+    link.v2, saved = None, link.v2
+    try:
+        assert "declaration" not in {c["name"]: c for c in link.site()["components"]}[CONNECTOR]
+    finally:
+        link.v2 = saved

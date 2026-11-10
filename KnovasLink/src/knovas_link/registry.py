@@ -143,8 +143,16 @@ class Registry:
     def components(self) -> list[Component]:
         return [self._components[n] for n in sorted(self._components)]
 
-    def telemetry(self) -> list[dict]:
+    def telemetry(self, *, declarations: bool = False) -> list[dict]:
+        """Each component for the heartbeat; with ``declarations`` (protocol 2.0 on) also its connector declaration,
+        which the Platform checks and keeps so that the Builder offers only what was declared."""
         now = self.clock()
-        return [{"name": c.name, "kind": c.kind, "version": c.version, "state": c.state(now),
-                 "capabilities": list(c.capabilities), "local_ping_ms": c.local_ping_ms if "probe" in c.job_kinds else None}
-                for c in self.components()]
+        out = []
+        for c in self.components():
+            entry = {"name": c.name, "kind": c.kind, "version": c.version, "state": c.state(now),
+                     "capabilities": list(c.capabilities),
+                     "local_ping_ms": c.local_ping_ms if "probe" in c.job_kinds else None}
+            if declarations and c.declaration is not None:
+                entry["declaration"] = c.declaration
+            out.append(entry)
+        return out

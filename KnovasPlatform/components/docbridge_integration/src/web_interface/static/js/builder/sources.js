@@ -178,6 +178,25 @@
                 });
             });
         });
+        if (s.v2_actions && s.v2_actions.length) box.appendChild(v2ActionsBox(s));
+        return box;
+    }
+
+    /* Connector protocol 2.0 (draft, BUILDER_PROTOCOL_V2): the actions the component serving the source declared, and
+       how each can write - directly after the approval in Knovas, or as a change for the source's own review. */
+    function v2ActionsBox(s) {
+        var box = el('div', 'b-src-v2-actions');
+        box.setAttribute('data-src-v2-actions', '');
+        box.appendChild(el('p', 'b-small', 'Aktionen der Komponente (Protokoll 2):'));
+        var list = el('ul', 'b-small');
+        s.v2_actions.forEach(function (a) {
+            var item = el('li', null, a.name + ': ' + a.staging_labels.join(' oder ') +
+                (a.approvable ? '' : ' (keine genaue Vorschau: nicht freigebbar)') + (a.undo ? '' : '; nicht umkehrbar'));
+            item.setAttribute('data-src-v2-action', a.name);
+            list.appendChild(item);
+        });
+        box.appendChild(list);
+        box.appendChild(el('p', 'b-small b-muted', 'Standard für die Quellen von Knovas: direkt nach der Freigabe (D-3).'));
         return box;
     }
 

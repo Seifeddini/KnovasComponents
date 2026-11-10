@@ -121,7 +121,13 @@ def fetch_offered(kind: Any) -> Optional[str]:
 
 def write_offered(kind: Any, component: Optional[Mapping[str, Any]]) -> Optional[str]:
     """Why the write switch is not offered for a source of ``kind`` read through ``component``, or None when it is:
-    the kind declares that it can be written, and the component that serves the source has ``write:<kind>``."""
+    the kind declares that it can be written, and the component that serves the source has ``write:<kind>``. With
+    BUILDER_PROTOCOL_V2 on, also when the component declared actions for the kind under connector protocol 2.0 and
+    passed the conformance suite's write properties (builder/protocol_v2.py)."""
+    from builder import protocol_v2
+
+    if protocol_v2.enabled() and protocol_v2.write_reason(kind, component) is None:
+        return None
     if not SOURCE_KINDS.get(kind, {}).get("write"):
         return "In diese Art von Quelle kann noch nichts zurückgeschrieben werden."
     if component is None:

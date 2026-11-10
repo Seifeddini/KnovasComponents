@@ -820,8 +820,9 @@ contract:
         - test_when_the_write_log_cannot_be_written_nothing_goes_on
     - id: L3-KNOVAS-LINK/work-channel/P-6
       statement: With LINK_PROTOCOL_V2 on, Link pins the Brain's permit keys from GET /secured/connector/v2/permit-keys
-        only (keeping a key the Brain dropped until 30 days after its not_after) and declares its site with PUT
-        /secured/connector/v2/site, listing per connector only the assigned sources of the kind it declared.
+        only (keeping a key the Brain dropped until 30 days after its not_after), declares its site with PUT
+        /secured/connector/v2/site, listing per connector only the assigned sources of the kind it declared, and
+        reports each connector's declaration to the Platform in its heartbeat.
       risk_class: critical
       evidence:
       - kind: test
@@ -829,10 +830,10 @@ contract:
         checks:
         - test_link_pins_the_brains_permit_keys_on_its_volume
         - test_link_declares_its_site_with_each_connectors_declaration_and_its_sources_of_that_kind
+        - test_the_heartbeat_carries_each_connectors_declaration_only_with_the_switch_on
     limits:
     - id: L3-KNOVAS-LINK/work-channel/L-2
-      statement: Protocol 2.0 is a draft behind LINK_PROTOCOL_V2, off by default; the declarations do not reach the
-        Platform's heartbeat yet (Phase C, C-1).
+      statement: Protocol 2.0 is a draft behind LINK_PROTOCOL_V2, off by default.
       risk_class: standard
     - id: L3-KNOVAS-LINK/work-channel/L-1
       statement: One long-poll of 25 s for at most 32 of the site's sources; backoff from 1 s doubling to 60 s.
@@ -981,3 +982,6 @@ review:
 - at: L3-KNOVAS-LINK/*/A-2
   why: Statement extended for the v2 contracts' own lock (A-5); a compatible addition, to be marked compatible by a
     person who reviews it.
+- at: L3-KNOVAS-LINK/work-channel/P-6
+  why: Statement extended by C-1 (the declarations in the heartbeat); a compatible addition, to be marked compatible
+    by a person who reviews it.
