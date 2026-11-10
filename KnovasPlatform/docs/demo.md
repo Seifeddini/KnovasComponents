@@ -1,5 +1,11 @@
 # Demo (mock API)
 
+**Showing the processes, boards and documentation (Ansichten) of a client?** Use the offline
+Lumora demo instead: `python serve_views_demo.py` in `components/docbridge_integration/`, then
+<http://127.0.0.1:5077/views>. A fictional software company run the way Knovas runs itself, no
+tenant or Docker needed. See
+[components/docbridge_integration/demo_data/lumora/README.md](../components/docbridge_integration/demo_data/lumora/README.md).
+
 This is the **offline mock API**, not the lawyer file corpus. Client pack for the generated Kanzlei: [../../docs/client/](../../docs/client/).
 
 Use this only when you do not have a Knovas tenant yet. Do not expose mock services on production networks.

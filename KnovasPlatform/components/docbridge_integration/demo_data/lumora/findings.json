@@ -1,0 +1,8 @@
+[
+ {
+  "rule": "R4",
+  "severity": "violation",
+  "node_key": "RISK-3",
+  "message": "open risk with neither mitigation nor explicit acceptance"
+ }
+]

@@ -7,15 +7,17 @@ edges (has_step, transitions_to, part_of a ValueStream). This module puts them
 back into the shape of process-definitions.json / spine-definitions.json and
 validates the result against KnowledgeBase's schemas.
 
-What the tenant does not hold (on 2026-10-27: the P-rules, governing_fact,
-step owner_role and descriptions, transition rework flags) is taken from the
+What the tenant does not hold (a loader older than KnowledgeBase P8: the
+P-rules, governing_fact, step owner_role, transition rework flags; older than
+the change-class and step-description facts: those two) is taken from the
 bundle (``bundle.py``, KnowledgeBase KB-7) and listed as a gap, for KnowledgeBase
 to close — never invented. When the tenant cannot be read, or its definitions do
 not validate, the bundle is used whole and the page says so.
 
 The schemas under ``schemas/`` are KnowledgeBase's (c325397d) as the reader of
 bundle format version 1 needs them: a bundle's ``report_rules`` carry no
-``computed_by`` and may carry KnowledgeBase's data-quality fields (d1a18b1f), and
+``computed_by`` and may carry KnowledgeBase's data-quality fields (d1a18b1f) and
+its rules as configuration (``checks``, ``not_evaluable``; KB-12), and
 a company's processes may be version 1 and its process or spine list empty.
 """
 from __future__ import annotations
@@ -167,8 +169,11 @@ def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Li
         elif "status_map" in ref:
             proc["status_map"] = ref["status_map"]
             gaps.append(("status_map", key))
-        # The loader does not write change classes (DEC-0024) to the tenant yet.
-        if "change_classes" in ref:
+        # Change classes (DEC-0024) are a Process fact; a tenant loaded before that keeps the bundle's.
+        change_classes = _json(v.get("change_classes"), f"{key}.change_classes", errors)
+        if change_classes is not None:
+            proc["change_classes"] = change_classes
+        elif "change_classes" in ref:
             proc["change_classes"] = ref["change_classes"]
             gaps.append(("change_classes", key))
 
@@ -201,7 +206,9 @@ def from_tenant(ctx: Any) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Li
             elif rs.get("owner_role"):
                 step["owner_role"] = rs["owner_role"]
                 gaps.append(("owner_role der Schritte", key))
-            if rs.get("description"):           # the node's description is a generated summary
+            if sv.get("description"):           # the node's description is a generated summary; the prose is a fact
+                step["description"] = sv["description"]
+            elif rs.get("description"):
                 step["description"] = rs["description"]
                 gaps.append(("Schrittbeschreibungen", key))
             steps.append(step)
