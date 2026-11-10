@@ -54,7 +54,8 @@ responsible_for:
   - KnovasPlatform/components/docbridge_integration/src/builder/mappings.py
   - KnovasPlatform/components/docbridge_integration/src/builder/mapping_edits.py
 - id: L2-BRAIN-BUILDER/R-5
-  statement: '«Betrieb»: «Freigaben» for write proposals and «Verbindung», one health card per site.'
+  statement: '«Betrieb»: «Freigaben» for write proposals and, with BUILDER_PROTOCOL_V2 on, change sets with their
+    previews (write back v2, approved only on exact previews), and «Verbindung», one health card per site.'
   code:
   - KnovasPlatform/components/docbridge_integration/src/builder/approvals.py
   - KnovasPlatform/components/docbridge_integration/src/builder/connection.py
@@ -71,7 +72,7 @@ responsible_for:
   statement: 'Connector protocol 2.0 (draft, BUILDER_PROTOCOL_V2, off by default): the connector declarations Knovas
     Link reports, checked and kept on each component; writing back offered where the serving component declared
     actions for the source''s kind and passed the conformance suite''s write properties; the declared actions listed
-    with the ways each can write.'
+    with the ways each can write; the staging per source (direct unless set, plan C-Q1), sent with each approval.'
   code:
   - KnovasPlatform/components/docbridge_integration/src/builder/protocol_v2.py
   - KnovasPlatform/components/docbridge_integration/src/builder/protocol.py
@@ -85,6 +86,8 @@ terms:
 - 'workspace (one company''s model: a draft and published versions)'
 - site (one machine at a company running Knovas Link)
 - write proposal (a change of a fact an agent proposed, decided in «Freigaben»)
+- change set (named actions of the tenant's ontology with the connector's preview, approved or rejected in «Freigaben»; write back v2)
+- staging (how an approved write reaches a source - direct, or native_review in the source's own review step; kept per source)
 - digest (the hash of everything a publish changes, which an approval holds)
 operations:
 - id: home
@@ -283,6 +286,14 @@ operations:
   name: POST /builder/api/freigaben/{proposal_id}/reject
   entrance: http
   ref: POST /builder/api/freigaben/{proposal_id}/reject
+- id: change-set-approve
+  name: POST /builder/api/freigaben/change-sets/{change_set_id}/approve - «Freigeben» of a change set (write back v2)
+  entrance: http
+  ref: POST /builder/api/freigaben/change-sets/{change_set_id}/approve
+- id: change-set-reject
+  name: POST /builder/api/freigaben/change-sets/{change_set_id}/reject - «Ablehnen» of a change set (write back v2)
+  entrance: http
+  ref: POST /builder/api/freigaben/change-sets/{change_set_id}/reject
 - id: connection-page
   name: 'GET /builder/betrieb/verbindung - «Verbindung»: one health card per site'
   entrance: http
@@ -784,6 +795,19 @@ contract:
         checks:
         - TestWhoMayBindASourceToASite::test_a_consultant_with_a_grant_on_one_workspace_cannot
         - TestWhoMayBindASourceToASite::test_who_manages_the_sites_can
+    - id: L2-BRAIN-BUILDER/ontology-edit/P-2
+      statement: 'With BUILDER_PROTOCOL_V2 on, the switch edit source.switches takes staging (direct or native_review):
+        kept on the source in the draft, refused (409) where the component serving the source did not declare it for
+        the source''s kind, and refused (409) with the switch off; the sources page shows the draft''s and the
+        published staging, direct where none is set (plan C-Q1).'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_the_staging_is_chosen_per_source_and_shown
+        - test_a_staging_the_component_does_not_offer_is_refused
+        - test_without_the_switch_no_staging_is_chosen
   undo:
     needs:
     - id: L2-BRAIN-BUILDER/undo/N-1
@@ -1614,6 +1638,27 @@ contract:
         checks:
         - test_the_open_proposals_with_what_they_change
         - test_without_a_tenant_client_the_page_says_so
+    - id: L2-BRAIN-BUILDER/approvals-page/P-2
+      statement: With BUILDER_PROTOCOL_V2 on (off by default), also the tenant's open change sets, each action with its
+        type, source item, parameters and the connector's preview (before and after per field, the version read,
+        exact or not with the reason in German), and the last 50 decided ones with their state and receipts; «Freigeben»
+        is offered only where every action's preview is exact, no type is held, the Brain says approvable and the
+        sources give one staging the connectors declared; otherwise the reasons are shown. With the switch off nothing
+        of it is read.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_with_the_switch_off_nothing_of_change_sets_is_read_or_offered
+        - test_an_open_change_set_shows_each_action_with_its_preview
+        - test_the_whole_content_shows_its_diff
+        - test_changes_that_name_their_step_are_shown_per_step
+        - test_an_action_without_an_exact_preview_is_never_offered_nor_approved
+        - test_what_the_brain_does_not_approve_is_not_offered
+        - test_a_staging_the_connector_did_not_declare_is_not_offered
+        - test_without_a_tenant_client_the_page_says_so
+        - test_a_brain_that_cannot_be_read_is_said_not_shown_as_empty
   approvals-count:
     needs:
     - id: L2-BRAIN-BUILDER/approvals-count/N-1
@@ -1630,13 +1675,18 @@ contract:
         - test_a_consultant_with_a_grant_sees_no_proposals
     promises:
     - id: L2-BRAIN-BUILDER/approvals-count/P-1
-      statement: Answers how many proposals wait; 0 without a line to the tenant, null when the Brain could not be read.
+      statement: Answers how many proposals wait, with BUILDER_PROTOCOL_V2 on open change sets included; 0 without a
+        line to the tenant, null when the Brain could not be read.
       risk_class: low
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
         checks:
         - test_the_badge_counts_open_proposals
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_the_badge_counts_open_change_sets_too
   approval-accept:
     needs:
     - id: L2-BRAIN-BUILDER/approval-accept/N-1
@@ -1695,6 +1745,85 @@ contract:
         checks:
         - test_rejecting_needs_a_reason
         - test_the_brain_connection_calls_the_routes
+  change-set-approve:
+    needs:
+    - id: L2-BRAIN-BUILDER/change-set-approve/N-1
+      statement: BUILDER_PROTOCOL_V2 is on; otherwise 404 and nothing is read or sent.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_with_the_switch_off_nothing_of_change_sets_is_read_or_offered
+    - id: L2-BRAIN-BUILDER/change-set-approve/N-2
+      statement: The caller holds the Builder permission «publish» from a Platform role; a grant on one workspace is not
+        enough (the page is the tenant's); otherwise 403 and nothing is read or sent.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_deciding_needs_publish
+        - test_a_consultant_with_a_grant_sees_no_change_sets
+    - id: L2-BRAIN-BUILDER/change-set-approve/N-3
+      statement: 'The change set, read again from the Brain, is open and approvable as the page shows it: every action
+        has a preview the connector marked exact and that read a version (GI-CONN-10; Alloy
+        write_back_actions.als::approvalNeedsExactPreview), the Brain names no reason and no held type, and its sources
+        give one published staging that every action''s connector declared; otherwise 409 not_approvable with the
+        reasons in German and nothing is sent to the Brain.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_an_action_without_an_exact_preview_is_never_offered_nor_approved
+        - test_what_the_brain_does_not_approve_is_not_offered
+        - test_a_staging_the_connector_did_not_declare_is_not_offered
+        - test_sources_that_write_differently_are_not_approved_together
+        - test_a_change_set_decided_meanwhile_is_not_approved
+    promises:
+    - id: L2-BRAIN-BUILDER/change-set-approve/P-1
+      statement: Approves the change set in the Brain once (no retry) with the signed-in person as the declared actor
+        and the staging of its sources as published (direct unless set, plan C-Q1), and answers the new state in
+        German; a refusal of the Brain is said in German with its code.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_approving_sends_the_person_and_the_default_staging_direct
+        - test_a_source_published_with_native_review_is_approved_so
+        - test_a_refusal_of_the_brain_is_said_in_german
+        - test_the_brain_connection_calls_the_change_set_routes
+  change-set-reject:
+    needs:
+    - id: L2-BRAIN-BUILDER/change-set-reject/N-1
+      statement: BUILDER_PROTOCOL_V2 is on (else 404); the caller holds «publish» from a Platform role (else 403); a
+        reason of 3 to 500 characters (else 400); nothing is sent otherwise.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_with_the_switch_off_nothing_of_change_sets_is_read_or_offered
+        - test_deciding_needs_publish
+        - test_rejecting_needs_a_reason_and_sends_it_as_the_note
+    promises:
+    - id: L2-BRAIN-BUILDER/change-set-reject/P-1
+      statement: Rejects the change set in the Brain with the signed-in person as the declared actor and the reason as
+        its note, also one whose preview is not exact.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_rejecting_needs_a_reason_and_sends_it_as_the_note
+        - test_an_inexact_change_set_can_still_be_rejected
+        - test_the_brain_connection_calls_the_change_set_routes
   connection-page:
     needs:
     - id: L2-BRAIN-BUILDER/connection-page/N-1
@@ -2602,13 +2731,17 @@ contract:
   call.brain-connection:
     promises:
     - id: L2-BRAIN-BUILDER/call.brain-connection/P-1
-      statement: Calls the source-writes and job-stats routes once each (no retry, no body in a log) with the signed-in person's assertion; a refusal is raised with the Brain's status and code; an answer not in the route's shape is 502 bad_answer.
+      statement: Calls the source-writes, change-set and job-stats routes once each (no retry, no body in a log) with the signed-in person's assertion; a refusal is raised with the Brain's status and code; an answer not in the route's shape is 502 bad_answer.
       risk_class: critical
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
         checks:
         - test_the_brain_connection_calls_the_routes
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_the_brain_connection_calls_the_change_set_routes
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_monitoring_mvp.py
         checks:
@@ -2750,6 +2883,10 @@ uses:
   - source-writes
   - source-write-accept
   - source-write-reject
+  - change-sets
+  - change-set
+  - change-set-approve
+  - change-set-reject
   - connector-job-stats
   - sign-certificate
   - graph-routes
@@ -2759,6 +2896,10 @@ uses:
   - EXT-BRAIN-API/source-writes/P-1
   - EXT-BRAIN-API/source-write-accept/P-1
   - EXT-BRAIN-API/source-write-reject/P-1
+  - EXT-BRAIN-API/change-sets/P-1
+  - EXT-BRAIN-API/change-set/P-1
+  - EXT-BRAIN-API/change-set-approve/P-1
+  - EXT-BRAIN-API/change-set-reject/P-1
   - EXT-BRAIN-API/connector-job-stats/P-1
   - EXT-BRAIN-API/sign-certificate/P-1
   - EXT-BRAIN-API/graph-routes/P-1
@@ -2797,9 +2938,13 @@ decisions:
   statement: 'A site''s certificate: Knovas''s client CA signs Link''s request; the Builder records it and from then on requires its fingerprint (option A, A1).'
 - id: CL-4
   statement: Accepting or rejecting a write proposal needs «publish»; «Freigaben» and «Verbindung» are read with a Platform role.
+- id: C-Q1
+  statement: 'Write back v2 (FEAT-2026-11-10-write-back, decided A by the founder on 2026-11-10): the Builder keeps the
+    staging per source (direct unless set, D-3) and sends it with each approval; the Brain refuses a mode the
+    connector did not declare.'
 risks:
 - id: L2-BRAIN-BUILDER/RISK-01
-  statement: The Builder records who accepted a proposal, but the Brain does not yet bind the accept to a verified person (I2).
+  statement: The Builder records who accepted a proposal or approved a change set, but the Brain does not yet bind the accept or the approval to a verified person (I2, WB-40).
   mitigation: The declared actor is recorded; verification comes with I2 (connection-layer.md, "What is built and what is not").
 review:
 - at: /owner

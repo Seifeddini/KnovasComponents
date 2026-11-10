@@ -43,6 +43,23 @@ operations:
   name: POST /secured/source-writes/{id}/reject - reject a write proposal, with the declared actor and a reason
   entrance: http
   ref: POST /secured/source-writes/{id}/reject
+- id: change-sets
+  name: GET /secured/change-sets?state=STATE - the tenant's change sets with their latest previews (write back v2, 404
+    until WRITE_BACK_V2_ENABLED)
+  entrance: http
+  ref: GET /secured/change-sets
+- id: change-set
+  name: GET /secured/change-sets/{id} - one change set with its history
+  entrance: http
+  ref: GET /secured/change-sets/{id}
+- id: change-set-approve
+  name: POST /secured/change-sets/{id}/approve - approve with the declared actor and the staging
+  entrance: http
+  ref: POST /secured/change-sets/{id}/approve
+- id: change-set-reject
+  name: POST /secured/change-sets/{id}/reject - reject with the declared actor and a note
+  entrance: http
+  ref: POST /secured/change-sets/{id}/reject
 - id: sign-certificate
   name: POST /secured/sign_certificate - sign a component's request for the Platform's tenant
   entrance: http
@@ -112,6 +129,35 @@ contract:
     promises:
     - id: EXT-BRAIN-API/source-write-reject/P-1
       statement: Rejecting records the declared actor and the reason, and answers the proposal's new status.
+      risk_class: standard
+  change-sets:
+    promises:
+    - id: EXT-BRAIN-API/change-sets/P-1
+      statement: 'Answers {"change_sets": [...]} of the tenant, newest first, of one state or all (50 by default); each
+        action carries its type, node, source item, parameters and its latest preview (exact, inexact_code,
+        read_version, stagings, changes before and after per field) and receipt; the change set says approvable and
+        not_approvable per action. Answers 404 like an unknown route while WRITE_BACK_V2_ENABLED is off.'
+      risk_class: standard
+  change-set:
+    promises:
+    - id: EXT-BRAIN-API/change-set/P-1
+      statement: 'Answers {"change_set": {...}} in the listing''s shape, with its history; 404 for one the caller may
+        not see.'
+      risk_class: standard
+  change-set-approve:
+    promises:
+    - id: EXT-BRAIN-API/change-set-approve/P-1
+      statement: 'Approves a proposed change set only when every action has an exact preview of exactly its parameters,
+        no type is held and each node still names its source item (409 not_proposed, not_approvable,
+        action_type_held, source_ref_missing); refuses a staging an action''s connector did not declare (422
+        staging_not_declared); binds each action to its latest exact preview and the staging, records the declared
+        actor and answers {"change_set": {...}}.'
+      risk_class: critical
+  change-set-reject:
+    promises:
+    - id: EXT-BRAIN-API/change-set-reject/P-1
+      statement: 'Rejects a proposed change set (refused, state_code rejected) with the declared actor and the note,
+        and answers {"change_set": {...}}; 409 not_proposed otherwise.'
       risk_class: standard
   sign-certificate:
     promises:

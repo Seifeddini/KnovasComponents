@@ -8,12 +8,22 @@ changes only with the next sync.
 The rows are read when the page opens and shown, never stored or logged by the Platform (names of nodes, files and
 people stay on the page). Who proposed for whom is shown as declared: the Brain records it, nothing verifies it yet
 (section 5 of the plan: accepting is not bound to a person until I2).
+
+**Change sets (write back v2, FEAT-2026-11-10-write-back C-2; behind BUILDER_PROTOCOL_V2, off).** A change set holds
+named actions of the tenant's ontology (``set_status``, …), each with the preview the connector at the site computed
+without writing: per field the value before and after, at the source version it read, and whether it is exact. The
+page shows them; «Freigeben» approves with the staging of the sources the actions write (``direct`` unless the
+source says otherwise, plan C-Q1), «Ablehnen» rejects with a reason. **An action whose preview is missing or not
+exact makes the change set not approvable** (GI-CONN-10; Alloy ``write_back_actions.als::approvalNeedsExactPreview``):
+the page offers no «Freigeben» and the route refuses before it calls the Brain, which refuses again. Minimal: no
+filters and no history view (plan §5.L, L-8).
 """
 from __future__ import annotations
 
 from typing import Any, Iterable, Mapping, Optional
 
 from builder import codes
+from builder import protocol_v2
 
 #: A proposal's status, in German.
 STATUS_TEXTS = {
@@ -87,3 +97,158 @@ def rows(open_rows: Iterable[Mapping[str, Any]], every: Iterable[Mapping[str, An
     decided = sorted((row(p, allowed_by) for p in every if p.get("status") != "proposed"),
                      key=lambda r: str(r["at"] or ""), reverse=True)[:DECIDED_SHOWN]
     return {"open": opened, "decided": decided}
+
+
+
+# ------------------------------------------------------------------ change sets (write back v2, C-2)
+
+#: A change set's state, in German (the Brain's states, Change Sets API).
+CHANGE_SET_STATES = {
+    "proposed": "Offen",
+    "approved": "Freigegeben: wird geschrieben",
+    "applied": "Geschrieben",
+    "partly_applied": "Teilweise geschrieben",
+    "differing": "Abweichung: die Quelle hält etwas anderes als freigegeben",
+    "conflict": "Konflikt: die Quelle hat sich geändert, nichts geschrieben",
+    "refused": "Abgelehnt",
+    "failed": "Fehlgeschlagen",
+    "withdrawn": "Zurückgezogen",
+    "reversed": "Rückgängig gemacht",
+}
+CHANGE_SET_TONES = {"proposed": "warning", "approved": "", "applied": "good", "partly_applied": "critical",
+                    "differing": "critical", "conflict": "critical", "refused": "", "failed": "critical",
+                    "withdrawn": "", "reversed": ""}
+#: A receipt's outcome, in German.
+OUTCOME_TEXTS = {"written": "geschrieben", "partly_written": "teilweise geschrieben", "not_written": "nicht geschrieben"}
+
+
+def change_set_state_text(state: Any) -> str:
+    return CHANGE_SET_STATES.get(str(state), f"Unbekannt ({state})")
+
+
+def _preview_code(action: Mapping[str, Any], brain_code: Optional[str]) -> Optional[str]:
+    """Why the action's preview does not allow an approval, or None: there is one, the connector marked it exact, it
+    read a version, and the Brain names no reason (it also checks that it was computed for these parameters)."""
+    preview = action.get("preview") if isinstance(action.get("preview"), Mapping) else None
+    if preview is None:
+        return "preview_missing"
+    if preview.get("exact") is not True or not preview.get("read_version"):
+        return str(preview.get("inexact_code") or "preview_not_exact")
+    return brain_code
+
+
+def _change_lines(changes: Any) -> list:
+    """Before and after per field, as the connector computed them (``field`` null: the item's whole content, with its
+    diff), in the order of their step where a change names it (protocol 2.0's ``step``, the founder's D-14: two actions
+    on one item are told apart by it)."""
+    out = []
+    for c in changes if isinstance(changes, list) else []:
+        if not isinstance(c, Mapping):
+            continue
+        step = c.get("step") if isinstance(c.get("step"), int) and not isinstance(c.get("step"), bool) else None
+        out.append({"field": c.get("field"), "whole": c.get("field") is None, "before": c.get("before"),
+                    "after": c.get("after"), "diff": c.get("diff") if isinstance(c.get("diff"), str) else None,
+                    "step": step})
+    return sorted(out, key=lambda c: -1 if c["step"] is None else c["step"])
+
+
+def change_set_action(action: Mapping[str, Any], brain_code: Optional[str] = None) -> dict:
+    """One action as the page shows it: what it is, where it writes, and its preview."""
+    atype = action.get("action_type") if isinstance(action.get("action_type"), Mapping) else {}
+    preview = action.get("preview") if isinstance(action.get("preview"), Mapping) else None
+    receipt = action.get("receipt") if isinstance(action.get("receipt"), Mapping) else None
+    code = _preview_code(action, brain_code)
+    params = action.get("params") if isinstance(action.get("params"), Mapping) else {}
+    return {
+        "id": str(action.get("id")), "action": str(atype.get("key") or ""), "risk_class": atype.get("risk_class"),
+        "node_id": action.get("node_id"), "source": action.get("source"), "item": action.get("external_id"),
+        "params": [{"name": k, "value": v} for k, v in params.items()],
+        "preview": None if preview is None else {
+            "exact": preview.get("exact") is True and bool(preview.get("read_version")),
+            "read_version": preview.get("read_version"), "changes": _change_lines(preview.get("changes")),
+            "computed": [str(f) for f in preview.get("computed") or []],
+            "stagings": preview.get("stagings") if isinstance(preview.get("stagings"), list) else None},
+        "exact": code is None, "code": code, "code_text": codes.describe(code) if code else None,
+        "receipt": None if receipt is None else {
+            "outcome": receipt.get("outcome"), "outcome_text": OUTCOME_TEXTS.get(str(receipt.get("outcome")), ""),
+            "new_version": receipt.get("new_version"), "code": receipt.get("code"),
+            "differences": len(receipt.get("differences") or []) if isinstance(receipt.get("differences"), list) else 0},
+    }
+
+
+def change_set_staging(actions: Iterable[Mapping[str, Any]], staging_by_source: Mapping[str, str]) -> tuple:
+    """(staging, None) the approval sends: the published staging of the sources the actions write (``direct``
+    unless set, C-Q1); or (None, why in German) when the sources differ or a connector did not declare the mode."""
+    actions = list(actions)
+    modes = {staging_by_source.get(str(a.get("source")), protocol_v2.DEFAULT_STAGING) for a in actions}
+    if len(modes) != 1:
+        return None, ("Die Quellen dieses Änderungssatzes schreiben auf verschiedene Weise; ein Änderungssatz wird "
+                      "auf eine Weise freigegeben.")
+    mode = modes.pop()
+    if mode not in protocol_v2.STAGINGS:
+        return None, ("Arbeitsbereiche geben einer Quelle dieses Änderungssatzes verschiedene Schreibweisen; "
+                      "zuerst eine veröffentlichen.")
+    for a in actions:
+        declared = (a.get("preview") or {}).get("stagings")
+        if declared is not None and mode not in declared:
+            return None, (f"Die Komponente der Quelle {a.get('source')} schreibt nicht "
+                          f"«{protocol_v2.STAGING_LABELS[mode]}»: in «Quellen» die Schreibweise der Quelle ändern.")
+    return mode, None
+
+
+def change_set_row(cs: Mapping[str, Any], staging_by_source: Mapping[str, str]) -> dict:
+    """One change set as the page shows it, and whether «Freigeben» is offered. Approvable only when the Brain says
+    so, it is open, no action type is held, the staging is clear, and **every action has an exact preview**
+    (GI-CONN-10): the Builder checks the last itself, so an inexact preview is never offered for approval."""
+    brain_codes = {str(n.get("action_id")): str(n.get("code")) for n in cs.get("not_approvable") or []
+                   if isinstance(n, Mapping) and n.get("code")}
+    raw = [a for a in cs.get("actions") or [] if isinstance(a, Mapping)]
+    actions = [change_set_action(a, brain_codes.get(str(a.get("id")))) for a in raw]
+    state = str(cs.get("state") or "")
+    staging, staging_why = change_set_staging(raw, staging_by_source) if raw else (None, None)
+    why = []
+    if state == "proposed":
+        if not actions:
+            why.append("Der Änderungssatz hat keine Aktion.")
+        if any(not a["exact"] for a in actions):
+            why.append("Nicht jede Aktion hat eine genaue Vorschau der Komponente; freigegeben wird nur, was genau "
+                       "berechnet ist.")
+        if cs.get("held"):
+            why.append("Eine Aktionsart dieses Änderungssatzes ist auf ihrer Quelle angehalten, bis eine Person den "
+                       "Halt aufhebt.")
+        if staging_why:
+            why.append(staging_why)
+        if not why and cs.get("approvable") is not True:
+            why.append("Das Brain gibt diesen Änderungssatz noch nicht frei.")
+    return {
+        "id": str(cs.get("id")), "state": state, "state_text": change_set_state_text(state),
+        "tone": CHANGE_SET_TONES.get(state, ""), "state_code": cs.get("state_code"),
+        "state_code_text": codes.describe(cs.get("state_code")) if cs.get("state_code") else None,
+        "actor": actor_text(cs.get("proposer")), "at": cs.get("created_at"), "reason": cs.get("reason") or "",
+        "evidence_missing": cs.get("evidence_missing") is True, "irreversible": cs.get("irreversible") is True,
+        "writes_individually": cs.get("writes_individually") is True,
+        "actions": actions, "staging": staging if state == "proposed" else cs.get("staging"),
+        "staging_text": protocol_v2.STAGING_LABELS.get(str(staging if state == "proposed" else cs.get("staging")), ""),
+        "approvable": state == "proposed" and not why, "not_approvable": why,
+    }
+
+
+def change_set_rows(open_sets: Iterable[Mapping[str, Any]], every: Iterable[Mapping[str, Any]],
+                    staging_by_source: Mapping[str, str]) -> dict:
+    """The open change sets, oldest first, and the decided ones, newest first."""
+    opened = sorted((change_set_row(c, staging_by_source) for c in open_sets),
+                    key=lambda r: str(r["at"] or ""))
+    decided = sorted((change_set_row(c, staging_by_source) for c in every if c.get("state") != "proposed"),
+                     key=lambda r: str(r["at"] or ""), reverse=True)[:DECIDED_SHOWN]
+    return {"open": opened, "decided": decided}
+
+
+def staging_by_source(models: Iterable[Mapping[str, Any]]) -> dict[str, str]:
+    """{source key: its published staging} over the published models (C-Q1). A key two workspaces give different
+    modes is left out, so its change sets are not approvable until one mode is published."""
+    found: dict[str, set] = {}
+    for model in models:
+        for source in (model or {}).get("sources") or []:
+            if isinstance(source, Mapping) and source.get("key"):
+                found.setdefault(str(source["key"]), set()).add(protocol_v2.staging_of(source))
+    return {key: next(iter(modes)) if len(modes) == 1 else "ambiguous" for key, modes in found.items()}

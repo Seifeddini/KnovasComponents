@@ -196,8 +196,42 @@
             list.appendChild(item);
         });
         box.appendChild(list);
-        box.appendChild(el('p', 'b-small b-muted', 'Standard für die Quellen von Knovas: direkt nach der Freigabe (D-3).'));
+        box.appendChild(stagingChooser(s));
         return box;
+    }
+
+    /* How approved writes reach the source (plan C-Q1): «Freigaben» sends this with each approval. Direct unless set
+       (D-3); only the ways the component declared are offered. An edit of the draft, effective once published. */
+    function stagingChooser(s) {
+        var labels = { direct: 'direkt nach der Freigabe in Knovas', native_review: 'als Vorschlag zur Prüfung in der Quelle' };
+        var offered = [];
+        s.v2_actions.forEach(function (a) {
+            a.staging.forEach(function (m) { if (offered.indexOf(m) < 0) offered.push(m); });
+        });
+        var wrap = el('div', 'b-src-staging');
+        wrap.setAttribute('data-src-staging', '');
+        var label = el('label', 'b-small', 'Schreibweise nach der Freigabe: ');
+        var select = el('select');
+        ['direct', 'native_review'].forEach(function (m) {
+            if (offered.indexOf(m) < 0 && m !== s.staging) return;
+            var option = el('option', null, labels[m]);
+            option.value = m;
+            option.selected = m === (s.staging || 'direct');
+            select.appendChild(option);
+        });
+        label.appendChild(select);
+        wrap.appendChild(label);
+        wrap.appendChild(el('p', 'b-small b-muted', s.staging === s.staging_published
+            ? 'Veröffentlicht. Standard: direkt nach der Freigabe.'
+            : 'Geändert im Entwurf: wirkt nach Prüfen & Veröffentlichen.'));
+        select.addEventListener('change', function () {
+            post(root.dataset.editUrl, { op: 'source.switches', key: s.key, staging: select.value }).then(function (payload) {
+                if (!payload.success) { select.value = s.staging || 'direct'; toast(payload.error, null, 'critical'); return; }
+                toast('Schreibweise im Entwurf geändert', 'Wirkt nach Prüfen & Veröffentlichen.');
+                load(payload.sources, s.key);
+            });
+        });
+        return wrap;
     }
 
     /* A source on a site (connection layer MVP-24): its credential is a line of knovas-sources.env at the company, typed

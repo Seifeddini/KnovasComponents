@@ -340,6 +340,75 @@ CODES: Mapping[str, Mapping[str, str]] = {
         "explanation": "Ein angenommener Vorschlag wurde von der Komponente oder der Quelle abgelehnt.",
         "fix": "Den Code beim Vorschlag nachschlagen (Betrieb › Freigaben).",
     },
+    # Change sets and previews (write back v2, FEAT-2026-11-10-write-back C-2): the Brain's Change Sets API; the
+    # connector's own preview codes (preview_inexact, computed_field, …) are protocol 2.0's, in V2_CODES below
+    "preview_missing": {
+        "title": "Keine Vorschau",
+        "explanation": "Die Komponente am Standort hat für diese Aktion noch keine Vorschau berechnet; ohne sie wird "
+                       "nichts freigegeben.",
+        "fix": "Warten, bis Knovas Link und die Komponente online sind (Betrieb › Verbindung); die Vorschau kommt "
+               "von selbst. Bleibt sie aus, den Änderungssatz ablehnen und neu stellen lassen.",
+    },
+    "preview_not_exact": {
+        "title": "Vorschau nicht genau",
+        "explanation": "Die Komponente konnte die Änderung nicht genau berechnen; freigegeben wird nur, was genau "
+                       "berechnet ist.",
+        "fix": "Den Änderungssatz ablehnen; die Änderung in der Quelle selbst machen.",
+    },
+    "connector_inexact": {
+        "title": "Vorschau nicht genau",
+        "explanation": "Die Komponente hat ihre Vorschau als nicht genau gekennzeichnet; freigegeben wird nur, was "
+                       "genau berechnet ist.",
+        "fix": "Den Änderungssatz ablehnen; die Änderung in der Quelle selbst machen.",
+    },
+    "preview_stale": {
+        "title": "Vorschau veraltet",
+        "explanation": "Die Vorschau wurde für andere Angaben berechnet als die der Aktion.",
+        "fix": "Warten, bis die Komponente die Vorschau neu berechnet hat, dann die Seite neu laden.",
+    },
+    "params_differ": {
+        "title": "Vorschau für andere Angaben",
+        "explanation": "Die Komponente hat die Vorschau für einen anderen Schritt berechnet als den der Aktion.",
+        "fix": "Den Änderungssatz ablehnen und neu stellen lassen.",
+    },
+    "version_moved": {
+        "title": "Quelle geändert",
+        "explanation": "Die Datei hat sich seit der Version geändert, auf der die Vorschau beruhen muss; eine spätere "
+                       "Änderung wird nie überschrieben.",
+        "fix": "Den Änderungssatz ablehnen; nach der nächsten Synchronisation neu stellen lassen.",
+    },
+    "not_approvable": {
+        "title": "Nicht freigebbar",
+        "explanation": "Mindestens eine Aktion hat keine genaue Vorschau für genau ihre Angaben.",
+        "fix": "Die Gründe bei den Aktionen ansehen; ablehnen, was keine genaue Vorschau bekommt.",
+    },
+    "not_proposed": {
+        "title": "Nicht mehr offen",
+        "explanation": "Der Änderungssatz wurde schon entschieden oder zurückgezogen.",
+        "fix": "Die Seite neu laden.",
+    },
+    "staging_not_declared": {
+        "title": "Schreibweise nicht angeboten",
+        "explanation": "Die Komponente der Quelle schreibt nicht auf die Weise, die für die Quelle gewählt ist.",
+        "fix": "Quellen & Zuordnung › Quelle: eine Schreibweise wählen, die die Komponente anbietet, prüfen lassen "
+               "und veröffentlichen.",
+    },
+    "action_type_held": {
+        "title": "Aktionsart angehalten",
+        "explanation": "Ein früheres Schreiben dieser Aktionsart ergab in der Quelle etwas anderes als freigegeben; "
+                       "bis eine Person den Halt aufhebt, wird sie auf dieser Quelle nicht freigegeben.",
+        "fix": "Die Abweichung in der Quelle ansehen und den Halt im Brain aufheben lassen.",
+    },
+    "rejected": {
+        "title": "Abgelehnt",
+        "explanation": "Eine Person hat den Änderungssatz abgelehnt; geschrieben wurde nichts.",
+        "fix": "Nichts zu tun.",
+    },
+    "document_purged": {
+        "title": "Dokumente gelöscht",
+        "explanation": "Die Dokumente des Mandanten wurden gelöscht; offene Änderungssätze wurden dabei abgelehnt.",
+        "fix": "Nach dem nächsten Einlesen neu stellen lassen.",
+    },
 }
 
 

@@ -80,6 +80,8 @@ ENDPOINT_PERMISSIONS = {
     "site_probe": "manage", "site_certificate": "manage",
     "connection_page": "view", "approvals_page": "view", "approvals_count": "view",
     "approval_accept": "publish", "approval_reject": "publish",
+    # Write back v2 (FEAT-2026-11-10-write-back C-2): approving or rejecting a change set needs publish, as above.
+    "change_set_approve": "publish", "change_set_reject": "publish",
 }
 #: Endpoints about the workspace chosen in the session rather than one in the address.
 SESSION_ENDPOINTS = frozenset({"stage", "mapping_page", "access_page", "access_preview", "access_apply",
@@ -1822,9 +1824,101 @@ def create_builder_blueprint(
                 logger.warning("Builder: write proposals not read (%s)", type(exc).__name__)
                 error = f"Das Brain war nicht erreichbar ({type(exc).__name__})."
         logger.info("Builder Freigaben: %d open, %d decided shown", len(found["open"]), len(found["decided"]))
+        change_sets, change_set_error = _change_set_rows(client)
         stage = STAGES_BY_SLUG["betrieb"]
         return _render("builder/approvals.html", stage=stage, stage_number=STAGES.index(stage) + 1,
-                       proposals=found, error=error, may_decide=g.builder_access.may("publish"))
+                       proposals=found, error=error, may_decide=g.builder_access.may("publish"),
+                       change_sets=change_sets, change_set_error=change_set_error)
+
+    # Write back v2 (FEAT-2026-11-10-write-back C-2; BUILDER_PROTOCOL_V2, off by default): change sets of named actions
+    # with the connector's preview, approved with the source's staging (plan C-Q1) or rejected.
+
+    def _published_models(store) -> list:
+        """The published models of the tenant's workspaces: a source's staging counts once published, like its
+        switches (served_source)."""
+        if store is None or not hasattr(store, "published_model"):
+            return []
+        tenant = _platform_tenant()
+        return [store.published_model(w.id) or {} for w in store.list() if not w.tenant or w.tenant == tenant]
+
+    def _change_set_rows(client):
+        """({open, decided} or None when the switch is off, an error text or None)."""
+        from builder import approvals as approval_rules
+        from builder import protocol_v2
+        from builder.connection_api import ConnectionApiError
+
+        if not protocol_v2.enabled():
+            return None, None
+        if client is None:
+            return {"open": [], "decided": []}, "Diese Plattform liest keine Änderungssätze des Mandanten (kein Zertifikat)."
+        try:
+            found = approval_rules.change_set_rows(client.change_sets("proposed"), client.change_sets(),
+                                                   approval_rules.staging_by_source(_published_models(_store())))
+        except ConnectionApiError as exc:
+            logger.warning("Builder: change sets not read (HTTP %s, %s)", exc.status, exc.code or "-")
+            return {"open": [], "decided": []}, \
+                f"Das Brain hat die Änderungssätze nicht geliefert ({codes_text(exc.code) or f'HTTP {exc.status}'})."
+        except Exception as exc:  # noqa: BLE001 - the page says it could not read
+            logger.warning("Builder: change sets not read (%s)", type(exc).__name__)
+            return {"open": [], "decided": []}, f"Das Brain war nicht erreichbar ({type(exc).__name__})."
+        logger.info("Builder Freigaben: %d open change sets, %d decided shown", len(found["open"]), len(found["decided"]))
+        return found, None
+
+    def _decide_change_set(change_set_id: str, approve: bool):
+        """«Freigeben» or «Ablehnen» of one change set. «Freigeben» reads the change set again and refuses (409,
+        nothing sent) unless the page's rule offers it: open, every action with an exact preview (GI-CONN-10), no held
+        type, one staging the connectors declared; the Brain checks again and binds each action to its preview."""
+        from builder import approvals as approval_rules
+        from builder import codes
+        from builder import protocol_v2
+        from builder.connection_api import ConnectionApiError
+
+        if not protocol_v2.enabled():
+            return jsonify({"success": False, "error": "Nicht gefunden."}), 404
+        refusal = _tenant_wide_or_refuse()
+        if refusal:
+            return refusal
+        client = _tenant_client()
+        if client is None:
+            return jsonify({"success": False, "error": "Diese Plattform erreicht die Änderungssätze des Mandanten nicht."}), 503
+        reason = str((request.get_json(silent=True) or {}).get("reason") or "").strip()
+        if not approve and not 3 <= len(reason) <= 500:
+            return jsonify({"success": False, "error": "Warum wird abgelehnt? Ein Grund ist nötig (3 bis 500 Zeichen)."}), 400
+        # The person deciding, as the declared actor; the Brain records it (verified only with WB-40).
+        actor = {"kind": "user", "id": str(gate.current_user().id)}
+        try:
+            if approve:
+                row = approval_rules.change_set_row(client.change_set(change_set_id),
+                                                    approval_rules.staging_by_source(_published_models(_store())))
+                if not row["approvable"]:
+                    logger.info("Builder: change set %s not offered for approval (%d reasons)", change_set_id,
+                                len(row["not_approvable"]))
+                    text = " ".join(row["not_approvable"]) or "Nur ein offener Änderungssatz wird freigegeben."
+                    return jsonify({"success": False, "error": text, "code": "not_approvable"}), 409
+                result = client.approve_change_set(change_set_id, actor, row["staging"])
+            else:
+                result = client.reject_change_set(change_set_id, actor, reason)
+        except ConnectionApiError as exc:
+            logger.info("Builder: change set %s not %s (HTTP %s, %s)", change_set_id,
+                        "approved" if approve else "rejected", exc.status, exc.code or "-")
+            found = codes.describe(exc.code) if exc.code else None
+            text = f"{found['title']}: {found['explanation']} {found['fix']}" if found else f"Das Brain hat abgelehnt (HTTP {exc.status})."
+            return jsonify({"success": False, "error": text, "code": exc.code}), exc.status if 400 <= exc.status < 500 else 502
+        except Exception as exc:  # noqa: BLE001 - said on the page
+            logger.warning("Builder: change set decision failed (%s)", type(exc).__name__)
+            return jsonify({"success": False, "error": "Das Brain war nicht erreichbar."}), 502
+        state = str(result.get("state") or ("approved" if approve else "refused"))
+        logger.info("Builder: change set %s %s, now %s", change_set_id, "approved" if approve else "rejected", state)
+        return jsonify({"success": True, "state": state, "status_text": approval_rules.change_set_state_text(state),
+                        "staging": result.get("staging")})
+
+    @bp.route("/api/freigaben/change-sets/<change_set_id>/approve", methods=["POST"])
+    def change_set_approve(change_set_id: str):
+        return _decide_change_set(change_set_id, True)
+
+    @bp.route("/api/freigaben/change-sets/<change_set_id>/reject", methods=["POST"])
+    def change_set_reject(change_set_id: str):
+        return _decide_change_set(change_set_id, False)
 
     def codes_text(code) -> Optional[str]:
         from builder import codes
@@ -1837,9 +1931,14 @@ def create_builder_blueprint(
         refusal = _tenant_wide_or_refuse()
         if refusal:
             return refusal
+        from builder import protocol_v2
+
         client = _tenant_client()
         try:
-            return jsonify({"open": len(client.source_writes("proposed")) if client is not None else 0})
+            waiting = len(client.source_writes("proposed")) if client is not None else 0
+            if client is not None and protocol_v2.enabled():
+                waiting += len(client.change_sets("proposed"))      # write back v2 (C-2)
+            return jsonify({"open": waiting})
         except Exception as exc:  # noqa: BLE001 - the badge stays empty
             logger.info("Builder: open proposals not counted (%s)", type(exc).__name__)
             return jsonify({"open": None})
@@ -2487,8 +2586,10 @@ def create_builder_blueprint(
                           "write_published": source_kinds.write_of(published.get(s.get("key")) or {}),
                           "fetch_reason": source_kinds.fetch_offered(s.get("kind")),
                           "write_reason": source_kinds.write_offered(s.get("kind"), c),
-                          # Connector protocol 2.0 (draft, BUILDER_PROTOCOL_V2): the actions the component declared.
+                          # Connector protocol 2.0 (draft, BUILDER_PROTOCOL_V2): the actions the component declared,
+                          # and how approved writes reach the source (C-Q1: direct unless set), draft and published.
                           "v2_actions": _v2_actions(s.get("kind"), c),
+                          "staging": _v2_staging(s), "staging_published": _v2_staging(published.get(s.get("key"))),
                           **({"credential_line": site_rules.credential_line(s.get("key")), "site_name": c.get("site"),
                               "check_url": url_for("builder.component_check", component_id=c["id"])} if on_site else {})})
         kinds = {k: {"label": v["label"], "component": v["component"], "components": [v["component"], *v.get("also_on", ())],
@@ -2570,8 +2671,24 @@ def create_builder_blueprint(
         from builder import protocol_v2
         return protocol_v2.actions_of(kind, component) if protocol_v2.enabled() else []
 
+    def _v2_staging(source) -> Optional[str]:
+        from builder import protocol_v2
+        return protocol_v2.staging_of(source) if protocol_v2.enabled() and source is not None else None
+
     def _check_switch_op(store, current, op) -> None:
-        """Writing back is switched on only where the component serving the source can write to its kind (MVP-25)."""
+        """Writing back is switched on only where the component serving the source can write to its kind (MVP-25); a
+        staging (protocol 2, C-Q1) is chosen only where that component declared it for the kind."""
+        if isinstance(op, Mapping) and op.get("op") == "source.switches" and "staging" in op:
+            from builder import protocol_v2
+
+            source = next((s for s in (store.model(current.id) or {}).get("sources") or []
+                           if s.get("key") == op.get("key")), None)
+            tenant = _platform_tenant()
+            if source is not None and protocol_v2.enabled():
+                component = store.component(tenant, str(source.get("component"))) if tenant else None
+                why = protocol_v2.staging_reason(source.get("kind"), component, op.get("staging"))
+                if why:
+                    raise editing.EditError(why, 409)
         if not isinstance(op, Mapping) or op.get("op") != "source.switches" or op.get("access") != "read_write":
             return
         source = next((s for s in (store.model(current.id) or {}).get("sources") or [] if s.get("key") == op.get("key")), None)

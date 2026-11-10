@@ -111,10 +111,22 @@ def _source_switches(edit: _Edit, op: Mapping[str, Any]) -> None:
     """The source's switches (connection layer MVP-25): ``fetch`` -- agents may fetch its originals -- and ``access``
     -- read, or read_write so that accepted changes are written back. Both off until switched on here; like every
     edit, a switch is reviewed and published before the component sees it (store.served_source). Whether the
-    component serving the source can write is the route's check: it knows the register."""
+    component serving the source can write is the route's check: it knows the register.
+
+    With BUILDER_PROTOCOL_V2 on also ``staging`` (plan C-Q1): how approved writes reach the source, ``direct`` or
+    ``native_review``; «Freigaben» sends the published value with each approval. Whether the component declared that
+    mode is the route's check too."""
+    from builder import protocol_v2
+
     old, new = _source(edit, op.get("key"))
-    if "fetch" not in op and "access" not in op:
-        raise EditError("Schalter: fetch oder access angeben.")
+    if "fetch" not in op and "access" not in op and "staging" not in op:
+        raise EditError("Schalter: fetch, access oder staging angeben.")
+    if "staging" in op:
+        if not protocol_v2.enabled():
+            raise EditError("Die Schreibweise wird erst mit Protokoll 2 gewählt.", 409)
+        if op["staging"] not in protocol_v2.STAGINGS:
+            raise EditError("Schreibweise: direkt (direct) oder als Vorschlag zur Prüfung in der Quelle (native_review).")
+        new["staging"] = op["staging"]
     if "fetch" in op:
         if not isinstance(op["fetch"], bool):
             raise EditError(f"«{S.SWITCHES['fetch']}»: an oder aus.")

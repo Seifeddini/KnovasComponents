@@ -9,6 +9,11 @@ source kind's value (GI-CONN-08). A Link or Platform without protocol 2.0 neithe
 
 A declaration is kept only in the checked form below: codes, kinds and short values, never free text. A field this
 Platform does not know is dropped, so a newer Link still beats.
+
+**The staging per source** (plan C-Q1, decided A by the founder on 2026-11-10): the Builder keeps how a source's
+writes reach it as the source's ``staging`` in the workspace model, ``direct`` unless set (D-3), changed with the
+switch edit ``source.switches`` (``staging``) and, like every switch, effective once published. «Freigaben» sends the
+published value with each approval (C-2); the Brain refuses a mode the connector did not declare.
 """
 from __future__ import annotations
 
@@ -26,6 +31,8 @@ WRITE_PROPERTIES = ("preview_equals_receipt", "exactly_once", "permit_refusals",
 STREAMS = ("document", "record", "tombstone", "generation", "state", "principal", "group", "membership", "permission")
 STAGING_LABELS = {"direct": "direkt nach der Freigabe in Knovas",
                   "native_review": "als Vorschlag zur Prüfung in der Quelle"}
+#: A source's staging when none is set (D-3: ``direct`` for the Knovas tenant's own repositories).
+DEFAULT_STAGING = "direct"
 _VALUE = re.compile(r"^[^\x00-\x1f\x7f]{1,200}$")
 
 
@@ -113,3 +120,22 @@ def actions_of(kind: Any, component: Optional[Mapping[str, Any]]) -> list:
              "staging_labels": [STAGING_LABELS[s] for s in a["staging"]],
              "params": [p["name"] for p in a["params"]], "approvable": a["preview"] == "exact",
              "undo": a["inverse"] is not None} for a in found.get("actions") or []]
+
+
+def staging_of(source: Optional[Mapping[str, Any]]) -> str:
+    """How a source's approved writes reach it: its ``staging``, ``direct`` unless set (C-Q1, D-3)."""
+    found = (source or {}).get("staging")
+    return found if found in STAGINGS else DEFAULT_STAGING
+
+
+def staging_reason(kind: Any, component: Optional[Mapping[str, Any]], staging: Any) -> Optional[str]:
+    """Why ``staging`` cannot be chosen for a source of ``kind`` served by ``component``, or None: the component
+    declared it for at least one of its actions for the kind."""
+    if staging not in STAGINGS:
+        return "Schreibweise: direkt (direct) oder als Vorschlag zur Prüfung in der Quelle (native_review)."
+    found = declaration_of(component)
+    if found is None or found.get("source_kind") != kind:
+        return "Die Komponente dieser Quelle hat sich nicht mit Protokoll 2 für diese Art von Quelle angemeldet."
+    if not any(staging in a.get("staging", []) for a in found.get("actions") or []):
+        return f"Die Komponente dieser Quelle bietet die Schreibweise «{STAGING_LABELS[staging]}» nicht an."
+    return None
