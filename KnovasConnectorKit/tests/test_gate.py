@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from knovas_connector_kit.conformance.suite import EXPIRED_IAT, NOW, SERIAL, Brain
 from knovas_connector_kit.example import make_harness
-from knovas_connector_kit.permits import Signer
+from knovas_connector_kit.permits import Signer, permit_id_unverified
 
 
 def _setup():
@@ -55,3 +55,19 @@ def test_every_delivery_with_a_permit_is_in_the_write_log():
     assert outcomes == ["accepted", "executed", "repeated", "refused"]
     assert all(set(e) == {"permit_id", "job_id", "outcome", "code", "at"} for e in gate.log)
     assert SERIAL == "424242"
+
+
+def test_every_refusal_is_in_the_write_log_also_before_the_permit_verified():
+    """As Link logs them (verifier, Phase A, L2): a permit that did not verify under the id it names, unverified; a
+    delivery that carried no readable permit as one line without an id."""
+    h, brain, step, v = _setup()
+    gate = brain.gate(h.connector)
+    forged = brain.act([step], [v], signer=Signer())
+    gate.deliver(forged)
+    gate.deliver(dict(brain.act([step], [v]), permits=[]))
+    gate.deliver(dict(brain.act([step], [v]), permits=["not-a-token"]))
+    assert [(e["permit_id"], e["outcome"], e["code"]) for e in gate.log] == [
+        (permit_id_unverified(forged["permits"][0]), "refused", "permit_bad_signature"),
+        (None, "refused", "permit_missing"), (None, "refused", "permit_bad_signature")]
+    assert permit_id_unverified(forged["permits"][0]) is not None and h.writes(step["target"]) == 0
+

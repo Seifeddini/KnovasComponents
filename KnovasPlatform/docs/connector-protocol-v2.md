@@ -417,9 +417,9 @@ source where one is available.
 |---|---|
 | `replay_changes_nothing` | Reading the same source twice yields the same stream; an apply of a replayed stream changes nothing (GI-CONN-01) |
 | `deletion_guard` | Absence is reported only through a complete `generation` or a `tombstone`; a cut listing yields neither (GI-CONN-02) |
-| `preview_equals_receipt` | For every declared action with `preview: exact`, the receipt's values equal the preview's changes on an unchanged source; a computed field makes the preview inexact; every change, value, difference and conflict names its step, and two steps on one item each show their own changes (D-14) |
-| `exactly_once` | A repeated `act` with the same permit, also after a simulated loss of the result between the write and Link, writes once and answers with the first receipt |
-| `permit_refusals` | Every refusal in "What Knovas Link checks" is produced for its case, and nothing is written (run against the kit's Link) |
+| `preview_equals_receipt` | For every declared action with `preview: exact` and each staging it declares, the receipt's values equal the preview's changes on an unchanged source (for `native_review`, the receipts of the accepted review), and an item that moved since the preview is a conflict, nothing written or staged; a computed field makes the preview inexact; every change, value, difference and conflict names its step, and two steps on one item each show their own changes (D-14) |
+| `exactly_once` | A repeated `act` with the same permit, also after a simulated loss of the result between the write and Link, writes once and answers with the first receipt; a repeated staging `act` answers the same stage, and the source's review holds that one change |
+| `permit_refusals` | Every refusal in "What Knovas Link checks" is produced for its case, and nothing is written (run against the kit's Link); the connector's own check refuses, for each staging it declares, a permit that does not bind its step, its staging or this site |
 | `no_credential_leaves_site` | No result, part, stream message, log line or error carries the source's credential (the kit plants a canary credential) |
 | `review_outcome` | For `native_review`: staged, then accepted gives receipts, declined gives no write, `unstage` withdraws |
 

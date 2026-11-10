@@ -1,10 +1,12 @@
 """Permits (connector protocol 2.0, "Permits"; permit format 1, the same the Brain builds).
 
 A permit is a JWS compact token, ``base64url(header) "." base64url(payload) "." base64url(signature)``. Header and
-payload are each the canonical JSON of their object, so one permit has exactly one encoding; the signature is Ed25519
-over the ASCII of ``header "." payload``. ``kid`` is ``wbp-`` and the first 16 hex digits of SHA-256 over the raw public
-key. This module decodes and verifies tokens, holds the pinned key ring, and signs (only the suite's stand-in for the
-Brain and tests sign; at a site nothing does).
+payload are each the canonical JSON of their object, and each part is base64url without padding in its one canonical
+spelling (no unused bits set), so one permit has exactly one encoding; the signature is Ed25519 over the ASCII of
+``header "." payload``. ``kid`` is ``wbp-`` and the first 16 hex digits of SHA-256 over the raw public key. A token is
+untrusted input: whatever it holds (a time past the year 9999, a deeply nested part), decoding and verifying refuse it
+with ``PermitError`` and raise nothing else. This module decodes and verifies tokens, holds the pinned key ring, and
+signs (only the suite's stand-in for the Brain and tests sign; at a site nothing does).
 """
 from __future__ import annotations
 
@@ -12,6 +14,7 @@ import base64
 import binascii
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -25,6 +28,9 @@ from knovas_connector_kit.canonical import CanonicalError, canonical
 HEADER_TYP = "knovas-permit+jws"
 #: The protocol's maximum ``exp - iat``: 3 hours (v2.0 as amended 2026-11-10, D-15; it was 3600 s).
 MAX_LIFETIME_SECONDS = 10800
+#: The longest token read (the Brain's bound and the job schema's ``permits`` items).
+MAX_TOKEN_CHARS = 8192
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 class PermitError(Exception):
@@ -40,12 +46,18 @@ def b64e(raw: bytes) -> str:
 
 
 def b64d(text: str) -> bytes:
-    if not text or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for c in text):
+    """base64url without padding in its one canonical spelling: a length of 1 modulo 4, or unused bits that are not
+    zero (another spelling of the same bytes), is refused."""
+    if not text or len(text) % 4 == 1 or any(
+            c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for c in text):
         raise PermitError("permit_bad_signature")
     try:
-        return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+        raw = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
     except (binascii.Error, ValueError):
         raise PermitError("permit_bad_signature") from None
+    if b64e(raw) != text:
+        raise PermitError("permit_bad_signature")
+    return raw
 
 
 def kid_for(public_raw: bytes) -> str:
@@ -99,36 +111,64 @@ class Decoded:
 
 
 def decode(token: object) -> Decoded:
-    """Split and parse a token, refusing anything that is not exactly one canonical encoding. Does not verify."""
-    if not isinstance(token, str) or token.count(".") != 2:
+    """Split and parse a token, refusing anything that is not exactly one canonical encoding. Does not verify. Raises
+    nothing but ``PermitError``, whatever the token holds."""
+    try:
+        return _decode(token)
+    except PermitError:
+        raise
+    except Exception:  # noqa: BLE001 - an untrusted token never raises past a refusal (deep nesting, huge numbers)
+        raise PermitError("permit_bad_signature") from None
+
+
+def _decode(token: object) -> Decoded:
+    if not isinstance(token, str) or len(token) > MAX_TOKEN_CHARS or token.count(".") != 2:
         raise PermitError("permit_bad_signature")
     h, p, s = token.split(".")
     try:
         header, payload = json.loads(b64d(h)), json.loads(b64d(p))
         if canonical(header) != b64d(h) or canonical(payload) != b64d(p):
             raise PermitError("permit_bad_signature")
-    except (ValueError, CanonicalError):
+    except (ValueError, CanonicalError, RecursionError):
         raise PermitError("permit_bad_signature") from None
     if not contracts.valid("permit.schema.json", {"header": header, "payload": payload}):
         raise PermitError("permit_bad_signature")
     return Decoded(header, payload, f"{h}.{p}".encode("ascii"), b64d(s))
 
 
-def _iso(ts: int) -> str:
+def permit_id_unverified(token: object) -> Optional[str]:
+    """The ``permit_id`` a token names, not verified: for a write log only, so a refused permit is logged under the id
+    it names. None when it names none; never raises."""
+    try:
+        if not isinstance(token, str) or len(token) > MAX_TOKEN_CHARS or token.count(".") != 2:
+            return None
+        payload = json.loads(b64d(token.split(".")[1]))
+        value = payload.get("permit_id") if isinstance(payload, dict) else None
+        return value if isinstance(value, str) and _UUID.match(value) else None
+    except Exception:  # noqa: BLE001 - an untrusted token has no id rather than an error
+        return None
+
+
+def _iso(ts: int) -> Optional[str]:
+    """``ts`` as the UTC time a key's window is written in; None for a time no calendar date holds (past 9999)."""
     import datetime as dt
-    return dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        return dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, OverflowError, OSError):
+        return None
 
 
 def verify(token: object, ring: KeyRing) -> Decoded:
     """Decode and verify: ``alg`` EdDSA, a pinned key whose window holds the permit's ``iat`` (checked at the signing
     time, not at the verifier's clock, so a repeat after a key's retirement still gets its first result), ``exp``
     after ``iat`` and at most ``MAX_LIFETIME_SECONDS`` (10800 s) later, and a valid signature; else
-    ``permit_bad_signature``."""
+    ``permit_bad_signature``. Raises nothing but ``PermitError``."""
     d = decode(token)
     iat, exp = d.payload["iat"], d.payload["exp"]
     if not (iat < exp <= iat + MAX_LIFETIME_SECONDS):
         raise PermitError("permit_bad_signature")
-    key = ring.get(d.header["kid"], _iso(iat))
+    signed_at = _iso(iat)
+    key = ring.get(d.header["kid"], signed_at) if signed_at is not None else None
     if key is None or d.header["alg"] != "EdDSA":
         raise PermitError("permit_bad_signature")
     try:

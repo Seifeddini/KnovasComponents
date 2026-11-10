@@ -14,9 +14,9 @@ runner or the Platform (SPEC-write-back-13).
 |---|---|
 | `knovas_connector_kit.contracts` | The v2 schemas and codes (a byte-for-byte copy of `KnovasLink/contracts/v2`, checked against its lock) and validators |
 | `knovas_connector_kit.canonical` | Canonical JSON (RFC 8785, for the values the protocol allows) and the parameter hash a permit binds |
-| `knovas_connector_kit.permits` | Decoding and verifying permits (JWS compact, Ed25519, the key's window checked at the permit's `iat`), the pinned key ring |
+| `knovas_connector_kit.permits` | Decoding and verifying permits (JWS compact, Ed25519, the key's window checked at the permit's `iat`; only the one canonical encoding; an unreadable token is `permit_bad_signature`, never an error), the pinned key ring |
 | `knovas_connector_kit.connector` | `Connector`: the base class; `handle(job)` checks the job and the answer against the contract, re-checks that each permit binds its own step, and turns an exception into `failed internal` logged by its type only |
-| `knovas_connector_kit.gate` | `LinkGate`: a reference of Knovas Link's checks in the Alloy model's order, with the used-permit store and the write log, for tests and the suite (Link has its own implementation) |
+| `knovas_connector_kit.gate` | `LinkGate`: a reference of Knovas Link's checks in the Alloy model's order, with the used-permit store (a permit reserved before the connector runs, its first result never replaced) and the write log (every refusal too), for tests and the suite (Link has its own implementation) |
 | `knovas_connector_kit.example` | A fake source of records and an example connector over it, with its harness |
 | `knovas_connector_kit.conformance` | The conformance suite: seven properties, a report with its SHA-256 |
 
@@ -59,9 +59,16 @@ Builder offers a source for reading only with `replay_changes_nothing`, `deletio
 cd KnovasConnectorKit && pip install -r requirements.txt "pytest>=7.4,<9" && python -m pytest -q tests
 ```
 
-`tests/test_conformance_suite.py` runs the suite on the example connector (every property passes) and on one mutant
-per property (`tests/mutants.py`), each of which fails exactly its own property; the further mutants (`EXTRA`: one
-writes past the preview's version, one names changes by their item instead of their step) fail only theirs.
+`tests/test_conformance_suite.py` runs the suite on the example connector (every property passes, also when its actions
+declare only `native_review`) and on one mutant per property (`tests/mutants.py`), each of which fails exactly its own
+property; the further mutants (`EXTRA`: one writes past the preview's version, one names changes by their item instead
+of their step, one stages a repeat a second time, one stages past the preview's version, one's own permit check
+ignores the staging and the site) fail only theirs.
+
+The write properties check each staging the connector's actions declare (the verifier's finding M3 on Phase A): a
+connector that only stages passes them, its receipts taken from the accepted review; `exactly_once` delivers a staging
+`act` twice and wants the same stage back; `permit_refusals` checks the connector's own binding of the staging and the
+site.
 
 A permit lives at most 3 hours (`permits.MAX_LIFETIME_SECONDS = 10800`, D-15); the suite's stand-in for the Brain signs
 for that long.

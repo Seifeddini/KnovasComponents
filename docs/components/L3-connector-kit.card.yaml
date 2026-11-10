@@ -31,8 +31,10 @@ responsible_for:
   code:
   - KnovasConnectorKit/src/knovas_connector_kit/connector.py
 - id: L3-CONNECTOR-KIT/R-3
-  statement: The conformance suite - seven properties on a connector's harness, with a reproducible report, and a
-    reference of Link's permit checks (in the order of the Alloy model) that the suite plays Link with.
+  statement: The conformance suite - seven properties on a connector's harness, the write properties for each staging
+    the connector declares, with a reproducible report, and a reference of Link's permit checks (in the order of the
+    Alloy model, a permit reserved before the connector runs, every refusal in the write log) that the suite plays
+    Link with.
   code:
   - KnovasConnectorKit/src/knovas_connector_kit/conformance
   - KnovasConnectorKit/src/knovas_connector_kit/gate.py
@@ -91,9 +93,10 @@ contract:
         checks:
         - test_the_kits_contracts_are_links_v2_contracts_byte_for_byte
     - id: L3-CONNECTOR-KIT/*/A-3
-      statement: A permit verifies only when it is the one canonical encoding, names EdDSA and a pinned key whose
-        window holds the permit's iat, lives at most 10800 seconds (3 hours, D-15), and its signature verifies; else
-        permit_bad_signature.
+      statement: A permit verifies only when it is the one canonical encoding (canonical JSON, each part in
+        base64url's one spelling), names EdDSA and a pinned key whose window holds the permit's iat, lives at most
+        10800 seconds (3 hours, D-15), and its signature verifies; else permit_bad_signature. An unreadable token (a
+        time past the year 9999, deep nesting) is permit_bad_signature too, never another error.
       risk_class: critical
       evidence:
       - kind: test
@@ -103,6 +106,8 @@ contract:
         - test_a_permit_lives_up_to_three_hours_and_not_a_second_longer
         - test_a_token_has_one_encoding_and_a_changed_payload_fails
         - test_the_examples_permits_verify_and_bind_their_steps
+        - test_an_untrusted_token_is_refused_and_never_raises
+        - test_a_part_spelled_another_way_is_refused
   call.knovas_connector_kit.connector.Connector:
     promises:
     - id: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.Connector/P-1
@@ -134,20 +139,25 @@ contract:
     needs:
     - id: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/N-1
       statement: A harness factory that gives a fresh connector over a source the suite may change, as
-        conformance/harness.py describes (same_item_steps optional; without it the suite pairs a step with itself).
+        conformance/harness.py describes (same_item_steps optional; without it the suite pairs a step with itself;
+        the sample steps' actions may declare direct, native_review or both).
       risk_class: standard
       evidence:
       - kind: test
         ref: KnovasConnectorKit/tests/test_conformance_suite.py
         checks:
         - test_the_example_connector_passes_every_property
+        - test_a_connector_that_only_stages_can_pass_every_property
     promises:
     - id: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/P-1
       statement: Reports each of the seven properties as passed, failed (with a code, never a value) or not
         applicable, with the report's SHA-256, and exits 1 when one failed; a connector that breaks one property
         fails exactly that one. preview_equals_receipt also checks that every change, value, difference and conflict
         names its own step, with two steps on one item (D-14); the suite signs permits for the longest lifetime, 3
-        hours (D-15).
+        hours (D-15). The write properties check each staging the connector declares, so a connector that only
+        stages can pass them - preview_equals_receipt with the accepted review's receipts and a stale item never
+        staged, exactly_once with a repeated staging act answering its one stage, permit_refusals with the
+        connector's own binding of the staging and the site.
       risk_class: critical
       evidence:
       - kind: test
@@ -158,6 +168,9 @@ contract:
         - test_a_connector_that_names_changes_by_item_fails_on_two_actions_on_one_item
         - test_the_report_is_reproducible
         - test_a_read_only_connector_is_not_offered_for_writing
+        - test_a_connector_that_only_stages_can_pass_every_property
+        - test_a_connector_that_only_stages_fails_each_staging_mutant_on_its_property_only
+        - test_a_repeated_staging_act_answers_its_stage_and_never_stages_twice
     limits:
     - id: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/L-1
       statement: The report is the connector package's own statement; nothing signs it yet (an open question of the
@@ -184,15 +197,20 @@ review:
 - at: L3-CONNECTOR-KIT/*/A-3
   why: Changed 2026-11-10 by the amendment of protocol v2.0 (D-15, the founder - a permit may live 3 hours); the
     kit now accepts permits up to 10800 s instead of 3600 s, a looser rule. map-check reports the line as changed and
-    not marked compatible; a person confirms it (compatible, reviewed_by).
+    not marked compatible; a person confirms it (compatible, reviewed_by). Tightened the same day after the
+    independent verification of Phase A (L1, L5) - another base64url spelling of a part is refused, and an
+    unreadable token is refused instead of raising.
 - at: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.Connector/P-1
   why: Extended 2026-11-10 by the amendment of protocol v2.0 (D-14) - an answer whose changes do not name the job's
     steps leaves as failed internal; a connector built before the amendment, which names no step, now fails. A person
     confirms whether that is compatible (nothing of v2 was released).
 - at: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/N-1
-  why: Extended 2026-11-10 (D-14) by the optional same_item_steps of a harness; a compatible addition, to be marked
-    compatible by a person who reviews it.
+  why: Extended 2026-11-10 (D-14) by the optional same_item_steps of a harness, and after the verification of Phase A
+    (M3) by harnesses whose steps only stage; compatible additions, to be marked compatible by a person who reviews
+    them.
 - at: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/P-1
   why: Extended 2026-11-10 by the amendment of protocol v2.0 (D-14, D-15) - preview_equals_receipt also checks each
-    change's step, so a connector that passed before may fail now. A person confirms whether that is compatible
-    (nothing of v2 was released).
+    change's step, so a connector that passed before may fail now. Extended again the same day after the independent
+    verification of Phase A (M3) - the write properties check each declared staging (a connector that only stages can
+    pass; one that stages twice, stages a stale item or ignores the staging or site binding now fails). A person
+    confirms whether that is compatible (nothing of v2 was released; the example, GitHub and Jira connectors pass).

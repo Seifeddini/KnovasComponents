@@ -10,7 +10,7 @@ import pytest
 from knovas_connector_kit import contracts
 from knovas_connector_kit.canonical import CanonicalError, canonical, params_hash
 from knovas_connector_kit.permits import (MAX_LIFETIME_SECONDS, KeyRing, PermitError, Signer, b64e, decode,
-                                          verify)
+                                          permit_id_unverified, verify)
 
 KIT_V2 = Path(contracts.FOLDER)
 LINK_V2 = Path(__file__).resolve().parents[2] / "KnovasLink" / "contracts" / "v2"
@@ -89,3 +89,48 @@ def test_a_token_has_one_encoding_and_a_changed_payload_fails():
     with pytest.raises(PermitError, match="permit_bad_signature"):
         verify(f"{h}.{changed}.{s}", ring)
     assert hashlib.sha256(signer.public_raw).hexdigest()[:16] == signer.kid[4:]
+
+
+def _unsigned(header, payload) -> str:
+    def part(value):
+        return value if isinstance(value, str) else b64e(canonical(value))
+    return part(header) + "." + part(payload) + "." + "A" * 86
+
+
+@pytest.mark.parametrize("case", ["an iat past the year 9999", "a deeply nested header", "a deeply nested payload",
+                                  "longer than any token"])
+def test_an_untrusted_token_is_refused_and_never_raises(case):
+    """Verifier, Phase A, L1: an unsigned token whose iat no calendar date holds, or whose header or payload nests
+    deeper than the parser goes, is permit_bad_signature (it raised ValueError or RecursionError before)."""
+    signer = Signer()
+    ring = KeyRing.from_document(signer.keys_document())
+    header = {"alg": "EdDSA", "kid": signer.kid, "typ": "knovas-permit+jws"}
+    payload = decode(_example("job.act-direct")["permits"][0]).payload
+    token = {
+        "an iat past the year 9999": lambda: _unsigned(header, dict(payload, iat=2 ** 53 - 100, exp=2 ** 53 - 50)),
+        "a deeply nested header": lambda: _unsigned(b64e(b"[" * 2000 + b"]" * 2000), payload),
+        "a deeply nested payload": lambda: _unsigned(header, b64e(b"[" * 1500 + b"]" * 1500)),
+        "longer than any token": lambda: "A" * 9000 + ".B.C",
+    }[case]()
+    with pytest.raises(PermitError, match="permit_bad_signature"):
+        verify(token, ring)
+    permit_id_unverified(token)                                  # never raises either
+
+
+@pytest.mark.parametrize("part", [0, 1, 2])
+def test_a_part_spelled_another_way_is_refused(part):
+    """Verifier, Phase A, L5: a part whose length is not a multiple of 4 has unused bits in its last character; setting
+    them spells the same bytes another way. The signature's last character could be changed so before, and the token
+    still verified; now only the one canonical encoding is read."""
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    signer = Signer()
+    ring = KeyRing.from_document(signer.keys_document())
+    payload = decode(_example("job.act-direct")["permits"][0]).payload
+    tokens = [signer.sign(dict(payload, source=payload["source"] + "x" * k)) for k in range(3)]
+    token = next(t for t in tokens if len(t.split(".")[part]) % 4)
+    verify(token, ring)
+    parts = token.split(".")
+    other = parts[part][:-1] + alphabet[alphabet.index(parts[part][-1]) ^ 1]
+    for bad in (other, parts[part][:len(parts[part]) - len(parts[part]) % 4] + "A"):
+        with pytest.raises(PermitError, match="permit_bad_signature"):
+            verify(".".join(parts[:part] + [bad] + parts[part + 1:]), ring)
