@@ -38,6 +38,11 @@ class JiraHarness:
                 {"action": "transition_issue", "target": f"{PROJECT}-2", "params": {"status": "In Progress"}},
                 {"action": "set_due_date", "target": f"{PROJECT}-3", "params": {"due_date": "2026-12-01"}}]
 
+    def same_item_steps(self) -> list[dict]:
+        """Two field edits of one issue: one edit call, one receipt per step (both declare grouping atomic)."""
+        return [{"action": "set_assignee", "target": f"{PROJECT}-1", "params": {"assignee": "acct-7"}},
+                {"action": "set_due_date", "target": f"{PROJECT}-1", "params": {"due_date": "2026-12-01"}}]
+
     def computed_step(self) -> dict:
         return {"action": "set_due_date", "target": f"{PROJECT}-4", "params": {"due_date": "2026-12-01"}}
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from harness import SOURCE, JiraHarness
-from knovas_connector_jira.connector import MARK_PREFIX, steps_in_results
+from knovas_connector_jira.connector import MARK_PREFIX
 from knovas_connector_kit import contracts
 from knovas_connector_kit.conformance.suite import Brain
 
@@ -39,18 +39,21 @@ def version(result, target):
 
 
 def plain(entries):
-    """Changes without their step index (present once the protocol's schema carries it, D-14)."""
+    """Changes without their step index (every one names it, D-14; the tests that are about steps check it)."""
+    assert all(isinstance(e["step"], int) for e in entries)
     return [{k: v for k, v in e.items() if k != "step"} for e in entries]
 
 
 # ------------------------------------------------------------------ the declaration
 
-def test_three_direct_actions_one_step_per_job_no_inverse(h):
+def test_three_direct_actions_field_edits_atomic_a_transition_alone_no_inverse(h):
     decl = h.connector.declaration()
     assert contracts.valid("declaration.schema.json", decl)
     assert [a["name"] for a in decl["actions"]] == ["set_assignee", "transition_issue", "set_due_date"]
-    assert all(a["staging"] == ["direct"] and a["grouping"] == "none" and a["inverse"] is None
+    assert all(a["staging"] == ["direct"] and a["inverse"] is None
                and a["preview"] == "exact" and a["target_kind"] == "issue" for a in decl["actions"])
+    assert {a["name"]: a["grouping"] for a in decl["actions"]} == {"set_assignee": "atomic", "set_due_date": "atomic",
+                                                                   "transition_issue": "none"}
     assert decl["source_kind"] == "jira" and decl["fetch"] is False
     assert decl["streams"] == ["record", "tombstone", "generation", "state"]
 
@@ -75,8 +78,15 @@ def test_each_change_names_its_step_so_two_actions_on_one_issue_are_told_apart(h
     got = preview(h, step("set_assignee", "DEMO-1", assignee="acct-7"),
                   step("set_due_date", "DEMO-1", due_date="2026-12-01"))
     assert got["preview"]["read_versions"] == [{"target": "DEMO-1", "version": "0"}]
-    assert [(c["field"], c.get("step")) for c in got["preview"]["changes"]] == (
-        [("assignee", 0), ("duedate", 1)] if steps_in_results() else [("assignee", None), ("duedate", None)])
+    assert [(c["field"], c["step"]) for c in got["preview"]["changes"]] == [("assignee", 0), ("duedate", 1)]
+    assert got["preview"]["grouping"] == "atomic"
+    mixed = preview(h, step("set_assignee", "DEMO-1", assignee="acct-7"), step("transition_issue", "DEMO-2", status="Done"))
+    assert mixed["preview"]["grouping"] == "none"                     # the approver is told: written one by one
+
+
+def test_two_steps_that_set_one_field_of_one_issue_are_refused(h):
+    got = preview(h, step("set_assignee", "DEMO-1", assignee="acct-7"), step("set_assignee", "DEMO-1", assignee="acct-8"))
+    assert (got["status"], got["code"]) == ("refused", "same_field_twice")
 
 
 def test_a_field_missing_from_the_edit_metadata_makes_the_preview_inexact(h):
@@ -179,8 +189,7 @@ def test_a_change_log_that_moved_past_the_expected_version_is_a_conflict_and_not
     assert (conflict["target"], conflict["expected_version"]) == ("DEMO-1", expected)
     assert plain(conflict["changes"]) == [{"target": "DEMO-1", "field": "assignee", "before": "acct-1",
                                            "after": "acct-3"}]
-    if steps_in_results():
-        assert conflict["step"] == 0 and conflict["changes"][0]["step"] == 0
+    assert conflict["step"] == 0 and conflict["changes"][0]["step"] == 0
 
 
 def test_a_repeat_writes_nothing_and_answers_the_receipt(h):
@@ -220,16 +229,51 @@ def test_a_step_on_a_computed_field_is_never_written(h):
     assert (got["status"], got["code"]) == ("refused", "computed_field") and h.jira.writes == {}
 
 
-def test_two_actions_on_one_issue_the_second_is_a_conflict_under_protocol_2_0(h):
-    """Pins today's behaviour (plan §5.D, question J-Q1): with grouping none each action is its own act job; both
-    permits name the version the one preview read, so after the first write the second finds the change log moved."""
+def test_two_field_edits_of_one_issue_are_one_edit_one_change_log_entry_and_one_receipt_per_step(h):
+    """The coordinator's decision (2026-11-10): set_assignee and set_due_date on one issue are written together."""
     brain = Brain(h.source)
-    first, second = step("set_assignee", "DEMO-1", assignee="acct-7"), step("set_due_date", "DEMO-1",
-                                                                            due_date="2026-12-01")
-    expected = version(preview(h, first, second, brain=brain), "DEMO-1")
+    pair = [step("set_assignee", "DEMO-1", assignee="acct-7"), step("set_due_date", "DEMO-1", due_date="2026-12-01")]
+    expected = version(preview(h, *pair, brain=brain), "DEMO-1")
+    job = brain.act(pair, [expected, expected])
+    got = h.connector.handle(job)
+    assert contracts.valid("result.schema.json", got) and got["status"] == "ok"
+    assert [c for c in h.jira.calls if c[0] in ("PUT", "POST") and c[1] != "/search/jql"] == [("PUT", "/issue/DEMO-1")]
+    assert len(h.jira.issues["DEMO-1"]["history"]) == 1 and h.jira.writes == {"DEMO-1": 1}
+    assert [(r["values"][0]["step"], r["values"][0]["field"], r["values"][0]["after"]) for r in got["receipts"]] == [
+        (0, "assignee", "acct-7"), (1, "duedate", "2026-12-01")]
+    assert all(r["side_effects"] == [] and r["differences"] == [] for r in got["receipts"])
+    again = h.connector.handle(job)                                   # a repeat finds both markers
+    assert [r["values"] for r in again["receipts"]] == [r["values"] for r in got["receipts"]] and h.jira.writes == {"DEMO-1": 1}
+
+
+def test_a_transition_goes_alone(h):
+    brain = Brain(h.source)
+    pair = [step("set_assignee", "DEMO-2", assignee="acct-7"), step("transition_issue", "DEMO-2", status="Done")]
+    got = h.connector.handle(brain.act(pair, ["0", "0"]))
+    assert (got["status"], got["code"]) == ("refused", "grouping_unsupported") and h.jira.writes == {}
+
+
+def test_field_edits_of_two_issues_are_never_partly_written(h):
+    brain = Brain(h.source)
+    pair = [step("set_assignee", "DEMO-1", assignee="acct-7"), step("set_due_date", "DEMO-3", due_date="2026-12-01")]
+    prev = preview(h, *pair, brain=brain)
+    got = h.connector.handle(brain.act(pair, [version(prev, "DEMO-1"), version(prev, "DEMO-3")]))
+    assert (got["status"], got["code"]) == ("refused", "grouping_across_items") and h.jira.writes == {}
+    h.jira.edit_by_someone("DEMO-3", summary="Renamed")                 # a moved issue is reported first, with its step
+    got = h.connector.handle(brain.act(pair, [version(prev, "DEMO-1"), version(prev, "DEMO-3")]))
+    assert (got["status"], got["code"], got["conflict"]["step"]) == ("conflict", "version_changed", 1)
+    assert h.jira.writes == {}
+
+
+def test_a_transition_after_an_edit_in_its_own_job_finds_the_change_log_moved(h):
+    """With grouping none for transition_issue, a change set that edits and moves one issue gets two act jobs against
+    the one preview's version: the second is a conflict. The Brain refuses such a change set (the coordinator)."""
+    brain = Brain(h.source)
+    first, second = step("set_assignee", "DEMO-2", assignee="acct-7"), step("transition_issue", "DEMO-2", status="Done")
+    expected = version(preview(h, first, second, brain=brain), "DEMO-2")
     assert act(h, first, expected, brain)["status"] == "ok"
     got = act(h, second, expected, brain)
-    assert (got["status"], got["code"]) == ("conflict", "version_changed") and h.jira.writes == {"DEMO-1": 1}
+    assert (got["status"], got["code"]) == ("conflict", "version_changed") and h.jira.writes == {"DEMO-2": 1}
 
 
 # ------------------------------------------------------------------ reread

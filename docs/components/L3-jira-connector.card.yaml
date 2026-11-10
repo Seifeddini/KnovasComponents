@@ -129,11 +129,12 @@ contract:
         checks:
         - test_the_suite_passes_every_read_and_write_property
     - id: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/P-3
-      statement: A preview writes nothing and names, per step, the field's value before and after and the change-log
-        position it read; a field the edit metadata does not let the account set, or one an automation sets, makes it
-        inexact (computed_field); a step that cannot be carried out is refused with its code (params_invalid,
-        target_not_found, assignee_not_assignable, transition_unavailable, transition_ambiguous,
-        transition_needs_fields, no_change).
+      statement: A preview writes nothing and names, per step and with the step's index, the field's value before and
+        after and the change-log position it read, and grouping atomic only when every step is a field edit; a field
+        the edit metadata does not let the account set, or one an automation sets, makes it inexact (computed_field);
+        a step that cannot be carried out is refused with its code (params_invalid, target_not_found,
+        assignee_not_assignable, transition_unavailable, transition_ambiguous, transition_needs_fields, no_change,
+        same_field_twice).
       risk_class: critical
       evidence:
       - kind: test
@@ -144,11 +145,16 @@ contract:
         - test_a_field_an_automation_computes_makes_the_preview_inexact
         - test_a_step_that_cannot_be_carried_out_is_refused
         - test_two_transitions_to_one_status_are_refused_as_ambiguous
+        - test_each_change_names_its_step_so_two_actions_on_one_issue_are_told_apart
+        - test_two_steps_that_set_one_field_of_one_issue_are_refused
     - id: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/P-4
-      statement: A direct act writes only while the issue's change log is at the permit's expected version (else
-        conflict version_changed with the field's value then and now, nothing written), sends the change and the issue
-        property knovas.permit.<permit id> in one request, and answers the receipt of a re-read - values before and
-        after, every difference from the approved value, the other fields Jira changed by name, the new position.
+      statement: A direct act writes only while each issue's change log is at its permit's expected version (else
+        conflict version_changed naming the first such step, with each step's field then and now, nothing written);
+        it writes one step, or several field edits of one issue in one edit call, with one issue property
+        knovas.permit.<permit id> per step in the same request, and answers one receipt per step from a re-read -
+        values before and after, every difference from the approved value, the other fields Jira changed by name, the
+        new position, each named with its step. A transition goes alone (grouping_unsupported with another step), and
+        steps on several issues are refused grouping_across_items, never partly written.
       risk_class: critical
       evidence:
       - kind: test
@@ -158,6 +164,9 @@ contract:
         - test_a_change_log_that_moved_past_the_expected_version_is_a_conflict_and_nothing_is_written
         - test_the_receipt_is_a_re_read_so_an_automation_that_changes_the_value_is_a_difference
         - test_a_transition_to_done_names_what_jira_set_besides_as_side_effects
+        - test_two_field_edits_of_one_issue_are_one_edit_one_change_log_entry_and_one_receipt_per_step
+        - test_a_transition_goes_alone
+        - test_field_edits_of_two_issues_are_never_partly_written
       - kind: test
         ref: KnovasConnectorJira/tests/test_conformance.py
         checks:
@@ -176,8 +185,9 @@ contract:
         - test_reread_answers_values_versions_and_the_receipt_of_an_earlier_write
     - id: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/P-6
       statement: The declaration names source kind jira, the streams record, tombstone, generation and state, the three
-        actions (preview exact, staging direct, grouping none, inverse null) and exactly the conformance properties the
-        package passed, with the package's own digest.
+        actions (preview exact, staging direct, inverse null; grouping atomic for set_assignee and set_due_date, none
+        for transition_issue) and exactly the conformance properties the package passed, with the package's own
+        digest.
       risk_class: critical
       evidence:
       - kind: test
@@ -188,22 +198,24 @@ contract:
       - kind: test
         ref: KnovasConnectorJira/tests/test_actions.py
         checks:
-        - test_three_direct_actions_one_step_per_job_no_inverse
+        - test_three_direct_actions_field_edits_atomic_a_transition_alone_no_inverse
     limits:
     - id: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-1
       statement: Jira has no conditional edit, so a change that lands between the version check and the write is not
         refused; it shows in the receipt (a side effect, or a difference when it touched the same field).
       risk_class: critical
     - id: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-2
-      statement: Under protocol 2.0 two actions of one change set on one issue are written one per job against the
-        version the one preview read, so the second finds the change log moved and is a conflict (open question
-        J-Q1).
+      statement: Atomic means one issue - field edits of several issues in one act are refused, so a change set that
+        edits two issues cannot be written in one act under v2.0 (open question J-Q2); a transition and an edit of one
+        issue in two acts against the one preview's version make the second a conflict (the Brain refuses such a
+        change set).
       risk_class: standard
       evidence:
       - kind: test
         ref: KnovasConnectorJira/tests/test_actions.py
         checks:
-        - test_two_actions_on_one_issue_the_second_is_a_conflict_under_protocol_2_0
+        - test_field_edits_of_two_issues_are_never_partly_written
+        - test_a_transition_after_an_edit_in_its_own_job_finds_the_change_log_moved
     - id: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-3
       statement: Each write leaves one issue property (knovas.permit.<permit id>, at most 32 KiB) on the issue; nothing
         removes them yet.
@@ -271,6 +283,16 @@ review:
 - at: /status
   why: Built behind no switch because nothing ships it; tested against a fake Jira only. A live smoke on the pilot
     project needs the token at the site (P-3, J-4).
+- at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/P-3
+  why: Changed for the amended protocol (D-14, every change names its step) and the coordinator's grouping decision
+    of 2026-11-10; a person marks it compatible or not.
+- at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/P-4
+  why: Changed - several field edits of one issue in one act (the coordinator's grouping decision of 2026-11-10); a
+    person marks it compatible or not.
+- at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/P-6
+  why: Changed - grouping atomic for the two field edits; a person marks it compatible or not.
+- at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-2
+  why: Changed with the grouping decision; whether atomic may mean one item is the open question J-Q2.
 - at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-1
   why: No evidence; a property of Jira's API (EXT-JIRA-API/*/L-2).
 - at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-3

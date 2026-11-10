@@ -8,8 +8,8 @@ listing Jira marked as its last page is complete: then a ``tombstone`` for every
 a ``generation`` and the new ``state``. A cut listing (a page that is not the last but names no next page, or more
 pages than the bound) yields its records and nothing that reports an absence (GI-CONN-02).
 
-**Three actions**, each ``preview: exact``, ``staging: [direct]``, ``grouping: none``, ``inverse: null`` (no undo in
-V1, the founder's decision of 2026-11-10):
+**Three actions**, each ``preview: exact``, ``staging: [direct]``, ``inverse: null`` (no undo in V1, the founder's
+decision of 2026-11-10):
 
 - ``set_assignee {assignee}``: an account id, or null to unassign; through the edit (``PUT /issue/{key}``), and only
   for someone Jira says may be assigned (``/user/assignable/search``), else ``assignee_not_assignable``;
@@ -18,24 +18,30 @@ V1, the founder's decision of 2026-11-10):
   (``POST /issue/{key}/transitions``); none is ``transition_unavailable``, several ``transition_ambiguous``, one whose
   screen requires a field ``transition_needs_fields``.
 
+The two field edits declare ``grouping: atomic``: several of them on one issue are one edit call and one change-log
+entry, written all or none, with one receipt per step (the coordinator's decision of 2026-11-10). A transition declares
+``grouping: none`` and goes alone; an act that mixes it with an edit is refused ``grouping_unsupported``. An act whose
+steps name several issues is refused ``grouping_across_items`` after their versions are checked: Jira cannot write
+two issues all or none. Two steps that set the same field of one issue are refused ``same_field_twice``.
+
 A field the edit metadata does not let this credential set, or one the settings name as set by an automation
 (``computed_fields``), makes the preview inexact (``computed_field``): it can never be approved (SPEC-write-back-06).
 A value equal to the current one is refused (``no_change``): there is nothing to approve.
 
-**Writing** (``act``, ``direct`` only): the permit's ``expected_version`` is the issue's change-log position the
-approved preview read. The connector reads the issue; when its marker for this permit is there, the write happened
-before (a repeat, or a result lost on the way): it answers the receipt of a fresh read and writes nothing
-(SPEC-write-back-10). When the change log moved past the expected version it answers ``conflict``
-``version_changed`` with the previewed field's value then and now, and writes nothing (SPEC-write-back-32).
-Otherwise it writes the change and, in the same request, the issue property ``knovas.permit.<permit id>`` (the marker;
-Jira sets properties as part of an edit or a transition), reads the issue again and answers the receipt: the value
-before and as read again, every difference from the approved value, the fields Jira changed besides (by name) and the
-new change-log position (SPEC-write-back-07). Jira has no conditional edit: a change that lands between the read and
-the write is not refused, but shows in the receipt (a side effect, or a difference when it touched the same field).
+**Writing** (``act``, ``direct`` only): each permit's ``expected_version`` is the issue's change-log position the
+approved preview read. The connector reads the issue; when its markers for these permits are there, the write happened
+before (a repeat, or a result lost on the way): it answers the receipts of a fresh read and writes nothing
+(SPEC-write-back-10). When the change log moved past an expected version it answers ``conflict`` ``version_changed``
+for the first such step, with each step's field then and now, and writes nothing (SPEC-write-back-32). Otherwise it
+writes the change and, in the same request, one issue property ``knovas.permit.<permit id>`` per step (the marker,
+which keeps the step's index; Jira sets properties as part of an edit or a transition), reads the issue again and
+answers one receipt per step: the value before and as read again, a difference from the approved value, the fields
+Jira changed besides (by name) and the new change-log position (SPEC-write-back-07). Jira has no conditional edit: a
+change that lands between the read and the write is not refused, but shows in the receipt (a side effect, or a
+difference when it touched the same field).
 
-Every ``change``, ``difference`` and ``conflict`` names the ``step`` it belongs to (the index into ``args.steps``)
-where the protocol's result schema has the field (D-14, protocol 2.0 amended); a change set's two actions on one
-issue are told apart by it.
+Every change, difference and conflict names its ``step``, the index into the job's ``args.steps`` (D-14); a receipt
+read again later names the step of its permit in the act job, from the marker.
 
 Logs carry codes and counts only: never an issue key, a value, a site or the credential (GI-DATA-02, GI-DATA-04).
 """
@@ -49,7 +55,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
-from knovas_connector_kit import PROTOCOL, SUITE_VERSION, contracts
+from knovas_connector_kit import PROTOCOL, SUITE_VERSION
 from knovas_connector_kit.canonical import digest
 from knovas_connector_kit.connector import Connector, outcome
 
@@ -67,6 +73,9 @@ DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 #: The action, the Jira field it changes and the parameter that carries the new value.
 ACTIONS = {"set_assignee": ("assignee", "assignee"), "set_due_date": ("duedate", "due_date"),
            "transition_issue": ("status", "status")}
+#: Field edits of one issue are one edit call and one change-log entry, so several of them in one act are written all
+#: or none; a transition is its own call and goes alone (the coordinator's decision of 2026-11-10 on D-14's gap).
+GROUPING = {"set_assignee": "atomic", "set_due_date": "atomic", "transition_issue": "none"}
 #: The conformance properties the package passed (tests/test_conformance.py runs the kit's suite against a fake Jira).
 #: review_outcome is not applicable: no action declares native_review.
 CONFORMANCE_PASSED = ["replay_changes_nothing", "deletion_guard", "preview_equals_receipt", "exactly_once",
@@ -87,17 +96,6 @@ def package_sha256() -> str:
     return digest([[str(p.relative_to(root)), hashlib.sha256(p.read_bytes()).hexdigest()] for p in files])
 
 
-@functools.lru_cache(maxsize=None)
-def steps_in_results() -> bool:
-    """Whether the protocol's result schema names the step of a change, a difference and a conflict (D-14)."""
-    defs = contracts.schemas()["result.schema.json"]["$defs"]
-    return "step" in defs["change"]["properties"] and "step" in defs["conflict"]["properties"]
-
-
-def _with_step(entry: dict, step: int) -> dict:
-    return dict(entry, step=step) if steps_in_results() else entry
-
-
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -116,7 +114,7 @@ class JiraConnector(Connector):
     def declaration(self) -> dict:
         def action(name: str, params: list) -> dict:
             return {"name": name, "target_kind": RECORD_KIND, "params": params, "preview": "exact",
-                    "staging": ["direct"], "grouping": "none", "inverse": None}
+                    "staging": ["direct"], "grouping": GROUPING[name], "inverse": None}
         return {
             "protocol": PROTOCOL,
             "connector": {"name": "jira", "version": VERSION, "package_sha256": package_sha256()},
@@ -185,9 +183,10 @@ class JiraConnector(Connector):
             ok = isinstance(value, str) and 0 < len(value) <= 255 and value.isprintable()
         return None if ok else "params_invalid"
 
-    def _plan(self, client: JiraClient, settings: Settings, step: dict, issue: dict) -> tuple[Any, Any, str, str, dict]:
-        """(before, after, method, path, body) of one step on the issue as read; ``_Inexact`` when it cannot be
-        computed exactly, ``JiraError`` (refused) when it cannot be carried out."""
+    def _plan(self, client: JiraClient, settings: Settings, step: dict, issue: dict) -> tuple[Any, Any, dict]:
+        """(before, after, body part) of one step on the issue as read: ``{"fields": {...}}`` for a field edit,
+        ``{"transition": {...}}`` for a transition; ``_Inexact`` when it cannot be computed exactly, ``JiraError``
+        (refused) when it cannot be carried out."""
         action, key = step["action"], step["target"]
         field, param = ACTIONS[action]
         after = step["params"][param]
@@ -209,7 +208,7 @@ class JiraConnector(Connector):
                 raise JiraError("transition_needs_fields", "refused")
             if before == after:
                 raise JiraError("no_change", "refused")
-            return before, after, "POST", f"/issue/{key}/transitions", {"transition": {"id": str(found[0]["id"])}}
+            return before, after, {"transition": {"id": str(found[0]["id"])}}
         if field not in editable(issue.get("editmeta")):
             raise _Inexact("computed_field")
         if before == after:
@@ -220,8 +219,14 @@ class JiraConnector(Connector):
                                         params={"issueKey": key, "accountId": after, "maxResults": "1"})
                 if not any(isinstance(u, Mapping) and u.get("accountId") == after for u in users or ()):
                     raise JiraError("assignee_not_assignable", "refused")
-            return before, after, "PUT", f"/issue/{key}", {"fields": {"assignee": {"accountId": after} if after else None}}
-        return before, after, "PUT", f"/issue/{key}", {"fields": {"duedate": after}}
+            return before, after, {"fields": {"assignee": {"accountId": after} if after else None}}
+        return before, after, {"fields": {"duedate": after}}
+
+    @staticmethod
+    def _same_field_twice(steps: list) -> bool:
+        """Two steps of one job that set the same field of one issue: their order would decide, so neither is exact."""
+        pairs = [(s["target"], ACTIONS[s["action"]][0]) for s in steps]
+        return len(pairs) != len(set(pairs))
 
     # ------------------------------------------------------------------ reading
 
@@ -270,108 +275,152 @@ class JiraConnector(Connector):
     # ------------------------------------------------------------------ preview
 
     def preview(self, source, steps, staging, at_version):
+        if self._same_field_twice(steps):
+            return outcome("refused", "same_field_twice")
         try:
             client, settings, _src = self._open(source)
             changes, versions, exact, code = [], {}, True, None
+            issues: dict[str, dict] = {}
             for i, step in enumerate(steps):
                 key = issue_key(step["target"], settings)
                 bad = self._params(step)
                 if bad:
                     return outcome("refused", bad)
-                issue = self._issue(client, settings, key) if key else None
+                if key and key not in issues:
+                    found = self._issue(client, settings, key)
+                    if found is not None:
+                        issues[key] = found
+                issue = issues.get(key) if key else None
                 if issue is None:
                     return outcome("refused", "target_not_found")
                 version = version_of(self._histories(issue))
                 if at_version is not None and version != at_version:
-                    return outcome("conflict", "version_changed", conflict=_with_step(
-                        {"target": key, "expected_version": at_version, "found_version": version}, i))
+                    return outcome("conflict", "version_changed", conflict={
+                        "step": i, "target": key, "expected_version": at_version, "found_version": version})
                 versions.setdefault(key, version)
                 try:
-                    before, after, _m, _p, _b = self._plan(client, settings, step, issue)
+                    before, after, _body = self._plan(client, settings, step, issue)
                 except _Inexact as inexact:
                     exact, code = False, inexact.code
                     continue
-                changes.append(_with_step({"target": key, "field": ACTIONS[step["action"]][0], "before": before,
-                                           "after": after}, i))
+                changes.append({"step": i, "target": key, "field": ACTIONS[step["action"]][0], "before": before,
+                                "after": after})
         except JiraError as err:
             return outcome(err.status, err.code)
+        grouping = "atomic" if all(GROUPING[s["action"]] == "atomic" for s in steps) else "none"
         preview = {"exact": exact, "read_versions": [{"target": t, "version": v} for t, v in versions.items()],
-                   "changes": changes if exact else [], "grouping": "none"}
+                   "changes": changes if exact else [], "grouping": grouping}
         if not exact:
             preview["inexact_code"] = code
         return outcome("ok", None if exact else "preview_inexact", preview=preview)
 
     # ------------------------------------------------------------------ act
 
-    def _receipt(self, settings: Settings, issue: dict, *, step: int, permit_id: str, mark: Mapping) -> dict:
-        """The receipt of a write from the issue as read again: the value before (from the marker), as read now,
-        every difference from the approved value, the other fields changed since the expected version."""
-        key, field = issue["key"], mark["field"]
+    def _receipt(self, settings: Settings, issue: dict, *, permit_id: str, mark: Mapping) -> dict:
+        """The receipt of one step's write from the issue as read again: the value before (from the marker), as read
+        now, a difference when it is not the approved value, the fields Jira changed besides since the expected
+        version (the fields written with it excluded). Its step is the step of its permit in the act job."""
+        key, field, step = issue["key"], mark["field"], int(mark.get("step", 0))
         now = value_of(issue, field)
         histories = self._histories(issue)
+        written = set(mark.get("fields") or [field])
         differences = [] if now == mark["after"] else [
-            _with_step({"target": key, "field": field, "previewed": mark["after"], "found": now}, step)]
-        side = [f for f in changed_fields(entries_since(histories, mark["expected_version"])) if f != field][:100]
+            {"step": step, "target": key, "field": field, "previewed": mark["after"], "found": now}]
+        side = [f for f in changed_fields(entries_since(histories, mark["expected_version"])) if f not in written][:100]
         return {"permit_id": permit_id, "outcome": "written", "expected_version": mark["expected_version"],
                 "version_after": version_of(histories), "reread_at": _now(),
-                "values": [_with_step({"target": key, "field": field, "before": mark["before"], "after": now}, step)],
+                "values": [{"step": step, "target": key, "field": field, "before": mark["before"], "after": now}],
                 "differences": differences, "side_effects": [{"target": key, "field": f} for f in side],
                 "source_ref": f"{settings.site}/browse/{key}"}
 
-    def _conflict(self, settings: Settings, issue: dict, step: dict, i: int, expected: str, found: str) -> dict:
-        """What the previewed field held at the expected version (from the change log since) and holds now."""
-        field = ACTIONS[step["action"]][0]
-        now = value_of(issue, field)
-        then = now
-        for entry in entries_since(self._histories(issue), expected):
-            item = next((it for it in entry.get("items") or () if (it or {}).get("fieldId") == field), None)
-            if item is not None:
-                then = item.get("fromString") if field == "status" else item.get("from")
-                break
-        conflict = {"target": issue["key"], "expected_version": expected, "found_version": found,
-                    "changes": [_with_step({"target": issue["key"], "field": field, "before": then, "after": now}, i)]}
-        return outcome("conflict", "version_changed", conflict=_with_step(conflict, i))
+    def _conflict(self, issue: dict, steps: list, first: int, expected: str, found: str) -> dict:
+        """The first step whose issue left its expected version, and per step on that issue what its field held at
+        the expected version (from the change log since) and holds now."""
+        key, changes = issue["key"], []
+        entries = entries_since(self._histories(issue), expected)
+        for i, step in enumerate(steps):
+            if step["target"] != key:
+                continue
+            field = ACTIONS[step["action"]][0]
+            now = then = value_of(issue, field)
+            for entry in entries:
+                item = next((it for it in entry.get("items") or () if (it or {}).get("fieldId") == field), None)
+                if item is not None:
+                    then = item.get("fromString") if field == "status" else item.get("from")
+                    break
+            changes.append({"step": i, "target": key, "field": field, "before": then, "after": now})
+        return outcome("conflict", "version_changed", conflict={"step": first, "target": key,
+                                                                "expected_version": expected, "found_version": found,
+                                                                "changes": changes})
 
     def act(self, source, steps, permits, staging):
-        if len(steps) != 1 or len(permits) != 1:
-            return outcome("refused", "grouping_unsupported")
+        """One step, or several field edits of one issue (grouping atomic): one call writes them all with every
+        step's permit marker, so they are written all or none. Steps on several issues are refused
+        (grouping_across_items) once their versions are checked: Jira cannot write two issues all or none."""
         if staging != "direct":
             return outcome("refused", "staging_unsupported")
-        step, permit = steps[0], permits[0]
-        pid, expected = permit["permit_id"], permit["expected_version"]
-        bad = self._params(step)
-        if bad:
-            return outcome("refused", bad)
+        if not steps or len(steps) != len(permits) or (
+                len(steps) > 1 and any(GROUPING[s["action"]] != "atomic" for s in steps)):
+            return outcome("refused", "grouping_unsupported")
+        for step in steps:
+            bad = self._params(step)
+            if bad:
+                return outcome("refused", bad)
+        if self._same_field_twice(steps):
+            return outcome("refused", "same_field_twice")
         try:
             client, settings, src = self._open(source)
             if src.get("access") != "read_write":
                 return outcome("refused", "write_disabled")
-            key = issue_key(step["target"], settings)
-            mark_key = MARK_PREFIX + pid
-            issue = self._issue(client, settings, key, (mark_key,)) if key else None
-            if issue is None:
+            keys = [issue_key(s["target"], settings) for s in steps]
+            if any(k is None for k in keys):
                 return outcome("refused", "target_not_found")
-            mark = (issue.get("properties") or {}).get(mark_key)
-            if isinstance(mark, Mapping) and mark.get("permit_id") == pid:
-                log.info("jira.act", extra={"outcome": "found_earlier_write"})
-                return outcome("ok", receipts=[self._receipt(settings, issue, step=0, permit_id=pid, mark=mark)])
-            found = version_of(self._histories(issue))
-            if found != expected:
-                return self._conflict(settings, issue, step, 0, expected, found)
-            try:
-                before, after, method, path, body = self._plan(client, settings, step, issue)
-            except _Inexact as inexact:
-                return outcome("refused", inexact.code)
-            mark = {"v": 1, "permit_id": pid, "change_set_id": permit.get("change_set_id"),
-                    "action": step["action"], "field": ACTIONS[step["action"]][0], "expected_version": expected,
-                    "before": before, "after": after}
-            body["properties"] = [{"key": mark_key, "value": mark}]
+            marks = [MARK_PREFIX + p["permit_id"] for p in permits]
+            issues: dict[str, dict] = {}
+            for key in dict.fromkeys(keys):
+                issue = self._issue(client, settings, key, tuple(m for k, m in zip(keys, marks) if k == key))
+                if issue is None:
+                    return outcome("refused", "target_not_found")
+                issues[key] = issue
+            earlier = [(issues[k].get("properties") or {}).get(m) for k, m in zip(keys, marks)]
+            if any(isinstance(e, Mapping) for e in earlier):          # written before: answer, write nothing
+                if not all(isinstance(e, Mapping) and e.get("permit_id") == p["permit_id"]
+                           for e, p in zip(earlier, permits)):
+                    return outcome("failed", "jira.marker_incomplete")
+                log.info("jira.act", extra={"outcome": "found_earlier_write", "steps": len(steps)})
+                return outcome("ok", receipts=[self._receipt(settings, issues[k], permit_id=p["permit_id"], mark=e)
+                                               for k, p, e in zip(keys, permits, earlier)])
+            for i, (key, permit) in enumerate(zip(keys, permits)):
+                found = version_of(self._histories(issues[key]))
+                if found != permit["expected_version"]:
+                    return self._conflict(issues[key], steps, i, permit["expected_version"], found)
+            if len(set(keys)) > 1:
+                return outcome("refused", "grouping_across_items")
+            key, issue = keys[0], issues[keys[0]]
+            body: dict = {}
+            fields = [ACTIONS[s["action"]][0] for s in steps]
+            written = []
+            for i, (step, permit) in enumerate(zip(steps, permits)):
+                try:
+                    before, after, part = self._plan(client, settings, step, issue)
+                except _Inexact as inexact:
+                    return outcome("refused", inexact.code)
+                if "fields" in part:
+                    body.setdefault("fields", {}).update(part["fields"])
+                else:
+                    body.update(part)
+                written.append({"v": 1, "permit_id": permit["permit_id"], "change_set_id": permit.get("change_set_id"),
+                                "step": i, "action": step["action"], "field": fields[i], "fields": fields,
+                                "expected_version": permit["expected_version"], "before": before, "after": after})
+            body["properties"] = [{"key": m, "value": w} for m, w in zip(marks, written)]
+            method, path = ("POST", f"/issue/{key}/transitions") if "transition" in body else ("PUT", f"/issue/{key}")
             client.call(method, path, body=body, ok=(200, 204))
             again = self._issue(client, settings, key)
             if again is None:
                 return outcome("failed", "jira.gone_after_write")
-            log.info("jira.act", extra={"outcome": "written"})
-            return outcome("ok", receipts=[self._receipt(settings, again, step=0, permit_id=pid, mark=mark)])
+            log.info("jira.act", extra={"outcome": "written", "steps": len(steps)})
+            return outcome("ok", receipts=[self._receipt(settings, again, permit_id=w["permit_id"], mark=w)
+                                           for w in written])
         except JiraError as err:
             log.warning("jira.act_failed", extra={"code": err.code})
             return outcome(err.status, err.code)
@@ -395,8 +444,7 @@ class JiraConnector(Connector):
                 for mark_key in marks:
                     mark = (issue.get("properties") or {}).get(mark_key)
                     if isinstance(mark, Mapping) and mark_key == MARK_PREFIX + str(mark.get("permit_id")):
-                        receipts.append(self._receipt(settings, issue, step=0, permit_id=mark["permit_id"],
-                                                      mark=mark))
+                        receipts.append(self._receipt(settings, issue, permit_id=mark["permit_id"], mark=mark))
         except JiraError as err:
             return outcome(err.status, err.code)
         return outcome("ok", read=read, **({"receipts": receipts} if receipts else {}))

@@ -132,8 +132,9 @@ contract:
   issue-edit:
     promises:
     - id: EXT-JIRA-API/issue-edit/P-1
-      statement: An edit sets the fields of its body and the issue properties of its body in one request and answers
-        204; a field the account may not set answers 400 and nothing changes.
+      statement: An edit sets the fields of its body and the issue properties of its body in one request, as one
+        change-log entry for all its fields, and answers 204; a field the account may not set answers 400 and nothing
+        changes.
       risk_class: critical
       evidence:
       - kind: test
@@ -141,6 +142,7 @@ contract:
         checks:
         - test_a_direct_write_sends_the_change_and_the_permit_marker_in_one_request
         - test_a_write_whose_answer_was_lost_is_found_by_its_marker_and_not_written_again
+        - test_two_field_edits_of_one_issue_are_one_edit_one_change_log_entry_and_one_receipt_per_step
   transitions:
     promises:
     - id: EXT-JIRA-API/transitions/P-1
@@ -176,5 +178,8 @@ review:
   why: No evidence; read from the API document (an edit and a transition take no expected version).
 - at: EXT-JIRA-API/search-jql/L-1
   why: No evidence; read from the API document of the enhanced search.
+- at: EXT-JIRA-API/issue-edit/P-1
+  why: Changed - one change-log entry for all the fields of one edit (the connector writes field edits of one issue
+    together); read from the API's behaviour as documented, to be confirmed by the live smoke (J-4).
 - at: /owner
   why: Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4).
