@@ -392,6 +392,113 @@ NOT_INVERTIBLE: Mapping[str, Mapping[str, str]] = {
 }
 
 
+#: Connector protocol 2.0 (draft; KnovasLink/contracts/v2/codes.json): the write path's codes.
+V2_CODES: Mapping[str, Mapping[str, str]] = {
+    "protocol_unsupported": {
+        "title": "Protokoll 2 nicht eingeschaltet",
+        "explanation": "Der Standort oder die Komponente spricht das Verbindungsprotokoll 2 (noch) nicht.",
+        "fix": "Knovas Link mit LINK_PROTOCOL_V2=true und die Komponente mit ihrem Schalter für Protokoll 2 starten.",
+    },
+    "site_not_declared": {
+        "title": "Standort nicht angemeldet",
+        "explanation": "Knovas Link hat sich beim Brain noch nicht mit Protokoll 2 angemeldet.",
+        "fix": "Warten, bis Knovas Link das Brain erreicht; sonst Knovas Link neu starten.",
+    },
+    "action_not_declared": {
+        "title": "Aktion nicht angeboten",
+        "explanation": "Die Komponente der Quelle hat diese Aktion nicht angemeldet; nichts wurde geschrieben.",
+        "fix": "Die Aktion der Komponente prüfen (Betrieb › Verbindung) oder die Abbildung im Ontologie-Typ anpassen.",
+    },
+    "params_invalid": {
+        "title": "Angaben passen nicht",
+        "explanation": "Eine Angabe der Aktion fehlt, ist unbekannt oder hat nicht die angemeldete Art.",
+        "fix": "Die Änderung mit den angemeldeten Angaben neu vorschlagen.",
+    },
+    "staging_unsupported": {
+        "title": "Art des Schreibens nicht angeboten",
+        "explanation": "Die Komponente bietet für diese Aktion weder direktes Schreiben noch die Prüfung in der Quelle "
+                       "in der verlangten Art an.",
+        "fix": "Bei der Quelle eine angebotene Art des Schreibens wählen.",
+    },
+    "grouping_unsupported": {
+        "title": "Nur einzeln schreibbar",
+        "explanation": "Die Quelle kann mehrere Schritte nicht gemeinsam schreiben; der Auftrag hatte mehrere.",
+        "fix": "Nichts zu tun: das Brain schickt die Schritte einzeln.",
+    },
+    "preview_inexact": {
+        "title": "Vorschau nicht möglich",
+        "explanation": "Die Komponente kann nicht genau sagen, was sich in der Quelle ändern würde; die Änderung kann "
+                       "nicht freigegeben werden.",
+        "fix": "Die Änderung ohne berechnete Felder neu vorschlagen.",
+    },
+    "computed_field": {
+        "title": "Feld wird berechnet",
+        "explanation": "Die Änderung würde ein Feld setzen, das die Quelle selbst berechnet.",
+        "fix": "Dieses Feld nicht ändern; es folgt aus anderen Feldern der Quelle.",
+    },
+    "target_not_found": {
+        "title": "Eintrag nicht gefunden",
+        "explanation": "Der Eintrag, den die Aktion ändern soll, gibt es in der Quelle nicht (mehr).",
+        "fix": "Den nächsten Abgleich abwarten; das Brain folgt der Quelle.",
+    },
+    "version_changed": {
+        "title": "Quelle hat sich geändert",
+        "explanation": "Der Eintrag wurde nach der Vorschau in der Quelle geändert; nichts wurde geschrieben.",
+        "fix": "Die Änderung ansehen und neu vorschlagen; die Vorschau zeigt dann den aktuellen Stand.",
+    },
+    "permit_missing": {
+        "title": "Freigabe fehlt",
+        "explanation": "Ein Schritt kam ohne seine unterschriebene Freigabe; Knovas Link hat nichts geschrieben.",
+        "fix": "Melden: das Brain schickt jede Aktion nur mit ihrer Freigabe.",
+    },
+    "permit_mismatch": {
+        "title": "Freigabe passt nicht",
+        "explanation": "Die Freigabe nennt eine andere Quelle, Aktion, Angabe, Fassung oder Art des Schreibens als der "
+                       "Auftrag; Knovas Link hat nichts geschrieben.",
+        "fix": "Die Änderung neu freigeben. Häuft sich das, melden.",
+    },
+    "permit_bad_signature": {
+        "title": "Freigabe ungültig",
+        "explanation": "Die Unterschrift der Freigabe ließ sich mit den Schlüsseln des Brains nicht prüfen; Knovas Link "
+                       "hat nichts geschrieben.",
+        "fix": "Knovas Link neu starten, damit es die Schlüssel des Brains neu liest. Bleibt es so, melden.",
+    },
+    "permit_expired": {
+        "title": "Freigabe abgelaufen",
+        "explanation": "Die Freigabe kam nach ihrem Ablauf (eine Stunde) an; nichts wurde geschrieben.",
+        "fix": "Die Änderung neu vorschlagen und freigeben.",
+    },
+    "permit_wrong_site": {
+        "title": "Freigabe für einen anderen Standort",
+        "explanation": "Die Freigabe nennt einen anderen Standort; nur der Standort mit dem Zugang zur Quelle schreibt.",
+        "fix": "Prüfen, welcher Standort die Quelle bedient (Betrieb › Verbindung).",
+    },
+    "permit_used": {
+        "title": "Schon geschrieben",
+        "explanation": "Diese Freigabe wurde schon ausgeführt; die Antwort ist die erste Quittung, nichts wurde "
+                       "noch einmal geschrieben.",
+        "fix": "Nichts zu tun.",
+    },
+    "partly_written": {
+        "title": "Teilweise geschrieben",
+        "explanation": "Einige Schritte wurden geschrieben, andere nicht; jede Quittung sagt, welche.",
+        "fix": "Die Quittungen ansehen und die fehlenden Schritte neu vorschlagen.",
+    },
+    "not_staged": {
+        "title": "Prüfung in der Quelle unbekannt",
+        "explanation": "Die Quelle kennt die angefragte Prüfung (zum Beispiel einen Änderungsvorschlag) nicht.",
+        "fix": "In der Quelle nachsehen, ob die Prüfung gelöscht wurde.",
+    },
+    "write_log_unavailable": {
+        "title": "Schreibprotokoll nicht schreibbar",
+        "explanation": "Knovas Link konnte die Freigabe nicht in sein Protokoll am Standort schreiben; nichts wurde "
+                       "geschrieben.",
+        "fix": "Den Speicherplatz und das Volume von Knovas Link am Standort prüfen.",
+    },
+}
+CODES = {**CODES, **V2_CODES}
+
+
 def not_invertible(reason: Any) -> dict:
     """«Nicht umkehrbar» with the sub-reason's explanation and fix; an unknown sub-reason is named as itself."""
     found = NOT_INVERTIBLE.get(str(reason or ""))

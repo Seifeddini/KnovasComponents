@@ -17,6 +17,8 @@ from builder import codes
 COMPONENTS = Path(__file__).resolve().parents[2]
 COMPONENT_SRC = COMPONENTS / "sync_component" / "src" / "sync_component"
 CONTRACT = Path(__file__).resolve().parents[4] / "KnovasLink" / "contracts" / "codes.json"
+#: Connector protocol 2.0 (draft): the codes v2 adds; 1.x's stay valid beside them.
+CONTRACT_V2 = Path(__file__).resolve().parents[4] / "KnovasLink" / "contracts" / "v2" / "codes.json"
 FAMILY = re.compile(r"^github\.http_[1-5][0-9]{2}$")
 EMITTERS = {"Outcome", "result"}
 
@@ -40,7 +42,7 @@ def test_the_scan_finds_the_component_s_codes():
 
 
 def test_every_code_the_component_answers_is_in_the_contract():
-    listed = {c["code"] for c in json.loads(CONTRACT.read_text(encoding="utf-8"))["codes"]}
+    listed = {c["code"] for f in (CONTRACT, CONTRACT_V2) for c in json.loads(f.read_text(encoding="utf-8"))["codes"]}
     missing = {c: sorted(f) for c, f in emitted_codes().items() if c not in listed and not FAMILY.fullmatch(c)}
     assert missing == {}, f"add these to KnovasLink/contracts/codes.json and local-api.md: {missing}"
 
@@ -51,7 +53,8 @@ def test_every_code_the_component_answers_has_a_german_text():
 
 
 def test_every_code_of_the_contract_has_a_german_text():
-    listed = [c["code"] for c in json.loads(CONTRACT.read_text(encoding="utf-8"))["codes"]]
+    listed = [c["code"] for f in (CONTRACT, CONTRACT_V2) for c in json.loads(f.read_text(encoding="utf-8"))["codes"]]
+    assert {"permit_used", "version_changed"} <= set(listed)
     assert {"waiting_for_certificate", "certificate.wrong_key", "certificate.not_client_auth"} <= set(listed)
     unknown = [c for c in listed if codes.describe(c)["title"] == "Unbekannter Code"]
     assert unknown == [], f"add these to builder/codes.py: {unknown}"

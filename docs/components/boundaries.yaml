@@ -74,11 +74,14 @@ components:
       - KnovasConnectorKit/src/knovas_connector_kit
       - KnovasConnectorKit/pyproject.toml
       - KnovasConnectorKit/requirements.txt
+      - KnovasPlatform/components/sync_component/src/knovas_connector_kit
     why: >-
       KnovasConnectorKit/ is one installable package (knovas-connector-kit) that every connector of protocol v2 is
       built on, with the conformance suite; it imports nothing from the rest of the repository. Its copy of the v2
       contracts (src/knovas_connector_kit/contracts/v2) is part of it, as Link's contract files are part of Link. Its
-      tests, the mutant connectors and the README are evidence and documentation, not the component.
+      tests, the mutant connectors and the README are evidence and documentation, not the component. The copy under
+      sync_component/src/ is the kit too (byte for byte, tested): the sync component's image is built from its own
+      folder.
   L3-SYNC-COMPONENT:
     card: L3-sync-component.card.yaml
     paths:

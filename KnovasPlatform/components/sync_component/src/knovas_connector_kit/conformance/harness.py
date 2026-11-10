@@ -1,0 +1,18 @@
+"""What a connector package gives the conformance suite: one fresh connector over a source the suite may change.
+
+A harness is any object with these members (a real source may implement them against a sandbox; most packages use a
+fake of their source, as the kit's ``example`` does):
+
+- ``connector``: the ``Connector`` under test; ``source``: the source key the suite's jobs name;
+- ``credential``: the canary credential the connector was configured with (the suite looks for it everywhere);
+- ``sample_steps()``: steps ``{action, target, params}`` valid now, at least one per declared action with exact
+  preview, each on its own target;
+- ``computed_step()``: a step that would set a field the source computes, or ``None``;
+- ``change_behind(target)``: someone else edits the item; ``delete_behind(target)``: the item goes away;
+- ``set_cut_listing(on)``: the next reads see an incomplete listing (as a source that cut its answer);
+- ``writes(target)``: how many writes reached the source for the item;
+- ``crash_after_next_write()``: the next write lands in the source but the connector never finishes the job;
+- ``fail_next_call_with_secret()``: the next source call fails with an error whose text quotes the credential;
+- ``alter_next_write()``: the source stores something other than what was written (a trigger, a normalisation);
+- ``review(stage_ref, accept)``: the source's own reviewer accepts or declines a staged change.
+"""

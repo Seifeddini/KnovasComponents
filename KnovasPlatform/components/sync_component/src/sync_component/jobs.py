@@ -24,6 +24,9 @@ from sync_component.fetchers import credential_for
 log = logging.getLogger("sync_component.jobs")
 
 JOB_KINDS = ["fetch", "write", "probe"]
+#: Connector protocol 2.0 (draft), with SYNC_PROTOCOL_V2 on: the job kinds the GitHub connector answers (no unstage
+#: in V1).
+V2_JOB_KINDS = ["preview", "act", "reread", "review_outcome"]
 #: (job kind, source kind) → the function that answers it.
 HANDLERS: dict[tuple[str, str], Callable[..., dict]] = {
     ("fetch", "github"): github_jobs.fetch_original,
@@ -44,7 +47,8 @@ class JobWorker:
     def __init__(self, client: Any, engine: RunnerEngine, *, environ: Optional[Mapping[str, str]] = None,
                  handlers: Optional[Mapping[tuple[str, str], Callable[..., dict]]] = None, session: Any = None,
                  workers: int = 4, clock: Callable[[], float] = time.monotonic,
-                 register: Optional[Callable[[], Any]] = None):
+                 register: Optional[Callable[[], Any]] = None, protocol_v2: bool = False,
+                 data_dir: Optional[Any] = None):
         self.client = client
         self.register = register                      # registers with Link again (link mode's start registers first)
         self._registered_at = clock()
@@ -56,6 +60,15 @@ class JobWorker:
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=workers, thread_name_prefix="job")
         self._sources: dict[str, dict] = {}
         self._sources_at: Optional[float] = None
+        #: Protocol 2.0 (draft): the GitHub connector on the connector kit, only with SYNC_PROTOCOL_V2 on.
+        self.v2 = None
+        if protocol_v2:
+            from pathlib import Path
+
+            from sync_component.github_v2 import GitHubConnector, writable_facts
+            self.v2 = GitHubConnector(source=self.source, credential=self.credential, compile=self.compile_change,
+                                      facts=lambda: writable_facts(self.client.package()),
+                                      data_dir=Path(data_dir or "/data") / "v2", session=session)
 
     # -------------------------------------------------------- sources, credentials and the package
 
@@ -93,6 +106,8 @@ class JobWorker:
         kind = job.get("kind")
         if kind == "probe":
             return github_jobs.result("ok", None)
+        if kind in V2_JOB_KINDS and self.v2 is not None:
+            return self.v2.handle(dict(job))
         if kind not in ("fetch", "write"):
             return github_jobs.result("unsupported", "unsupported")
         source = self.source(job.get("source"))
@@ -122,7 +137,7 @@ class JobWorker:
     def handle(self, job: Mapping[str, Any]) -> Optional[dict]:
         """Answer one job and post its result to Link; the result as posted (None when the job ended at Link)."""
         started = self.clock()
-        kind = job.get("kind") if job.get("kind") in JOB_KINDS else "unknown"
+        kind = job.get("kind") if job.get("kind") in JOB_KINDS + V2_JOB_KINDS else "unknown"
         jid = str(job.get("id") or "")
         try:
             out = self.answer(job)

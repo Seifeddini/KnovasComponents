@@ -219,3 +219,16 @@ def edit(data: bytes, values: Mapping[str, Any]) -> bytes:
         raise EditError("edit_unsupported")
     out = text[:start] + fm + text[end:]
     return (BOM if bom else b"") + out.encode("utf-8")
+
+
+def read(data: bytes) -> dict:
+    """The front matter's top-level values as the runner reads them (``shown``), or {} for a file without one; for
+    previews and receipts, which name only the keys a change concerns."""
+    bom = data.startswith(BOM)
+    try:
+        text = data[len(BOM) if bom else 0:].decode("utf-8")
+        start, end, _eol = _block(text)
+        loaded = _load(text[start:end])
+    except (UnicodeDecodeError, EditError):
+        return {}
+    return {str(k): shown(v) for k, v in loaded.items()} if isinstance(loaded, dict) else {}

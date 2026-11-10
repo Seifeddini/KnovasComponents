@@ -38,6 +38,10 @@ class FakeGitHub:
         self.rate_limited = False
         self.deny_with = 403
         self.faults: dict[str, int] = {}
+        #: Connector protocol 2.0 tests: called after a contents PUT committed (a trigger that edits the file again);
+        #: the next read answers 500 (a connector that never finishes its job).
+        self.after_put = None
+        self.fail_next_read = False
         self.lock = threading.Lock()
         self.app = self._app()
 
@@ -57,6 +61,17 @@ class FakeGitHub:
         self.commits[sha] = {"tree": tree, "parent": parent, "message": message}
         self.branches[branch] = sha
         return sha
+
+    def review(self, number: int, accept: bool) -> None:
+        """The repository's reviewer merges the pull request (its head's files onto its base) or closes it."""
+        pull = next(p for p in self.pulls if p["number"] == number)
+        if accept:
+            head = self.commits[self.branches[pull["head"]]]["tree"]
+            base = self.commits[self.branches[pull["base"]]]["tree"]
+            self.commit({f: self.blobs[s] for f, s in head.items() if base.get(f) != s}, branch=pull["base"],
+                        message=f"Merge pull request #{number}")
+            pull["merged"] = True
+        pull["state"] = "closed"
 
     def file_at(self, ref: str, path: str) -> bytes | None:
         commit = self.branches.get(ref, ref)
@@ -78,6 +93,9 @@ class FakeGitHub:
             gh.calls.append((request.method, request.path))
             if access() is None:
                 return jsonify({"message": "Bad credentials"}), 401
+            if gh.fail_next_read:
+                gh.fail_next_read = False
+                return jsonify({"message": "Server Error"}), 500
             return None
 
         def write(step: str):
@@ -214,7 +232,11 @@ class FakeGitHub:
                 return jsonify({"message": "does not match"}), 409
             data = base64.b64decode(body["content"])
             sha = gh.commit({path: data}, branch=branch, message=body["message"])
-            return jsonify({"content": {"sha": blob_sha(data)}, "commit": {"sha": sha}}), 200
+            if gh.after_put is not None:
+                hook, gh.after_put = gh.after_put, None
+                hook(path, branch)
+            return jsonify({"content": {"sha": blob_sha(data)},
+                            "commit": {"sha": sha, "html_url": f"https://github.example.test/{gh.repo}/commit/{sha}"}}), 200
 
         @app.post(prefix + "/pulls")
         def open_pull():
@@ -228,9 +250,38 @@ class FakeGitHub:
                 return jsonify({"message": "A pull request already exists"}), 422
             n = len(gh.pulls) + 1
             pull = {"number": n, "html_url": f"https://github.example.test/{gh.repo}/pull/{n}", "head": body["head"],
-                    "base": body["base"], "title": body["title"], "body": body["body"]}
+                    "base": body["base"], "title": body["title"], "body": body["body"], "state": "open",
+                    "merged": False}
             gh.pulls.append(pull)
             return jsonify(pull), 201
+
+        @app.get(prefix + "/commits")
+        def list_commits():
+            """The commits reachable from ``sha`` (a branch) that changed ``path``, newest first, as GitHub lists them."""
+            denied = read()
+            if denied:
+                return denied
+            at = gh.branches.get(request.args.get("sha") or gh.default_branch)
+            path, out = request.args.get("path"), []
+            while at is not None:
+                c = gh.commits[at]
+                before = (gh.commits.get(c["parent"]) or {}).get("tree", {}).get(path) if c["parent"] else None
+                if path is None or c["tree"].get(path) != before:
+                    out.append({"sha": at, "commit": {"message": c["message"]},
+                                "html_url": f"https://github.example.test/{gh.repo}/commit/{at}",
+                                "parents": [{"sha": c["parent"]}] if c["parent"] else []})
+                at = c["parent"]
+            return jsonify(out[:int(request.args.get("per_page") or 30)])
+
+        @app.get(prefix + "/pulls/<int:number>")
+        def get_pull(number):
+            denied = read()
+            if denied:
+                return denied
+            found = [p for p in gh.pulls if p["number"] == number]
+            if not found:
+                return jsonify({"message": "Not Found"}), 404
+            return jsonify(found[0])
 
         @app.get(prefix + "/pulls")
         def list_pulls():

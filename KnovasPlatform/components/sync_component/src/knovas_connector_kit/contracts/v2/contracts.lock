@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0-draft",
+  "status": "draft",
+  "files": {
+    "codes.json": "53c0ae90c93983a88160c8b4a6960e63a0ce2c2722904bd86998181319afd735",
+    "declaration.schema.json": "f79d0996076dfec55a60c163d4408ec45abc840ff973c1c3236738db93bb7dd3",
+    "job.schema.json": "3dd093c5335d04819b599bb245fc149053b3ced770f78e0ea1da113d30490f69",
+    "permit-keys.schema.json": "63f89fe17ac5f06fdd2cfbd3b313cae4cca48c4d93bdbdf47e88b0ab9c89ebbb",
+    "permit.schema.json": "3355336bf26b3cca124b1e0dabfe6ef9bb5e4f0115f4c530bb3f4f7f29f0381e",
+    "result.schema.json": "d48b67d2d0c9263284ca99f41247da0b67b419f7a12886140bf4cff9fe7b101b",
+    "site.schema.json": "a47521e296ff4aeb4faca8b45d87b899ea82a134240799b7b571894afccdb435",
+    "stream-message.schema.json": "b18797f197754910a9223328536e03da5bd7ada1742606bf142671c593ed223c"
+  }
+}

@@ -13,6 +13,7 @@ source_paths:
 - KnovasConnectorKit/src/knovas_connector_kit
 - KnovasConnectorKit/pyproject.toml
 - KnovasConnectorKit/requirements.txt
+- KnovasPlatform/components/sync_component/src/knovas_connector_kit
 purpose: The base every connector of protocol v2 is built on, and the conformance suite a connector package passes
   before its declaration may name a property, so that a new kind of source is one connector package and no change to
   the Brain, Knovas Link, the runner or the Platform.
@@ -50,6 +51,22 @@ terms:
 - permit (a single-use, signed approval of one action, bound to tenant, site, source, action, parameters, version)
 - harness (what a connector package gives the suite - a fresh connector over a source the suite may change)
 operations:
+- id: call.knovas_connector_kit.PROTOCOL
+  name: PROTOCOL
+  entrance: call
+  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/__init__.py#PROTOCOL
+- id: call.knovas_connector_kit.SUITE_VERSION
+  name: SUITE_VERSION
+  entrance: call
+  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/__init__.py#SUITE_VERSION
+- id: call.knovas_connector_kit.connector.Connector
+  name: Connector - the base class a connector subclasses; handle(job) answers one job
+  entrance: call
+  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/connector.py#Connector
+- id: call.knovas_connector_kit.connector.outcome
+  name: outcome - a result without its duration
+  entrance: call
+  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/connector.py#outcome
 - id: cli.knovas_connector_kit.conformance.__main__
   name: python -m knovas_connector_kit.conformance MODULE:FACTORY - run the suite on a connector's harness
   entrance: cli
@@ -85,6 +102,31 @@ contract:
         - test_a_key_is_checked_at_the_permits_iat_not_at_the_verifiers_clock
         - test_a_token_has_one_encoding_and_a_changed_payload_fails
         - test_the_examples_permits_verify_and_bind_their_steps
+  call.knovas_connector_kit.connector.Connector:
+    promises:
+    - id: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.Connector/P-1
+      statement: handle(job) answers every job with one result that is valid against v2's result.schema.json - a job
+        that is not valid is failed invalid_job, an action or staging the declaration lacks is refused, an act whose
+        permits do not bind their own steps is refused permit_mismatch (or permit_missing), and an exception is
+        failed internal, logged by its type only.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasConnectorKit/tests/test_conformance_suite.py
+        checks:
+        - test_the_suite_fails_the_mutant_on_its_property_only
+        - test_the_example_connector_passes_every_property
+  call.knovas_connector_kit.connector.outcome:
+    promises:
+    - id: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.outcome/P-1
+      statement: A result with its status, code and the given fields; Connector.handle adds duration_ms and checks it
+        against the contract before it leaves.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasConnectorKit/tests/test_conformance_suite.py
+        checks:
+        - test_the_example_connector_passes_every_property
   cli.knovas_connector_kit.conformance.__main__:
     needs:
     - id: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/N-1

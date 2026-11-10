@@ -42,6 +42,13 @@ responsible_for:
   - KnovasPlatform/components/sync_component/src/sync_component/jobs.py
   - KnovasPlatform/components/sync_component/src/sync_component/github_jobs.py
   - KnovasPlatform/components/sync_component/src/sync_component/front_matter_edit.py
+- id: L3-SYNC-COMPONENT/R-5
+  statement: Connector protocol 2.0 (draft, SYNC_PROTOCOL_V2, off by default) - the GitHub connector on the connector
+    kit - its declaration (one action set_front_matter, staging direct and native_review, no inverse) and the jobs
+    preview, act, reread and review_outcome; direct writes one commit with the expected blob sha and the permit id.
+  code:
+  - KnovasPlatform/components/sync_component/src/sync_component/github_v2.py
+  - KnovasPlatform/components/sync_component/src/sync_component/jobs.py
 not_responsible_for:
 - Transferring documents (the Knovas Connector does); it moves records through the mapping runner.
 - Fetch and write for sources other than GitHub; writing to YAML or JSON files or below the front matter's top level.
@@ -95,6 +102,10 @@ operations:
   name: A write job - a write proposal as a GitHub pull request
   entrance: queue
   ref: KnovasPlatform/components/sync_component/src/sync_component/github_jobs.py#write_proposal
+- id: job.v2
+  name: A protocol 2.0 job (preview, act, reread, review_outcome) for a GitHub source, with SYNC_PROTOCOL_V2 on
+  entrance: queue
+  ref: KnovasPlatform/components/sync_component/src/sync_component/github_v2.py#GitHubConnector
 contract:
   '*':
     always:
@@ -548,7 +559,67 @@ contract:
         - TestATokenThatCannotWrite::test_a_404_on_a_read_keeps_the_reads_code
         - TestNothingIsWritten::test_a_rate_limit_is_not_taken_for_a_token_that_cannot_write
         - TestNothingIsWritten::test_a_file_gone_from_the_branch_is_not_found
+  job.v2:
+    needs:
+    - id: L3-SYNC-COMPONENT/job.v2/N-1
+      statement: SYNC_PROTOCOL_V2 is on and Knovas Link speaks protocol 2.0; an act carries the permits Link checked,
+        each bound to its own step (else refused permit_mismatch), and the source is switched to read_write (else
+        refused write_disabled).
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_github_v2.py
+        checks:
+        - test_the_github_connector_passes_the_conformance_suite
+        - test_a_source_that_only_reads_is_never_written
+    promises:
+    - id: L3-SYNC-COMPONENT/job.v2/P-1
+      statement: A preview reads the file at the branch head, writes nothing, and shows before and after per front
+        matter key with a diff and the blob sha it read; a computed fact makes it inexact.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_github_v2.py
+        checks:
+        - test_the_github_connector_passes_the_conformance_suite
+        - test_a_direct_write_is_one_commit_on_the_branch_with_the_permit_and_no_pull_request
+    - id: L3-SYNC-COMPONENT/job.v2/P-2
+      statement: A direct act is one commit on the source's branch through the contents API with the expected blob sha
+        and the trailer Knovas-Permit - a changed file is conflict version_changed and nothing is written, a repeat
+        finds its commit and answers its receipt without writing again, and the receipt comes from reading the file
+        again. No pull request.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_github_v2.py
+        checks:
+        - test_a_direct_write_is_one_commit_on_the_branch_with_the_permit_and_no_pull_request
+        - test_a_file_changed_after_the_preview_is_a_conflict_and_nothing_is_written
+        - test_the_github_connector_passes_the_conformance_suite
+    - id: L3-SYNC-COMPONENT/job.v2/P-3
+      statement: A native_review act opens today's pull request on knovas/write-<permit id>; review_outcome answers
+        pending, accepted with receipts once merged, or declined once closed. unstage is not offered in V1.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_github_v2.py
+        checks:
+        - test_native_review_opens_a_pull_request_and_follows_its_outcome
+        - test_unstage_is_not_offered_in_v1
+    limits:
+    - id: L3-SYNC-COMPONENT/job.v2/L-1
+      statement: One file per step (grouping none); reading stays protocol 1.x's (no stream declared); no inverse.
+      risk_class: standard
 uses:
+- component: L3-CONNECTOR-KIT
+  operations:
+  - cli.knovas_connector_kit.conformance.__main__
+  expects:
+  - L3-CONNECTOR-KIT/*/A-1
+  - L3-CONNECTOR-KIT/*/A-2
+  - L3-CONNECTOR-KIT/*/A-3
+  method: the kit's base class and permits, imported from the copy beside the component (the image's build context
+    is the component's folder); the conformance suite in the tests
 - component: L3-KNOVAS-LINK
   operations:
   - local.register
@@ -646,3 +717,5 @@ review:
 - at: /operations
   why: The code reader sees only the three programs; the commands, the schedule and the jobs are listed by hand (the
     long-poll calls LinkClient.next_job, which no receive setting names).
+- at: L3-SYNC-COMPONENT/job.v2/L-1
+  why: No evidence; a known limit of the V1 draft (FEAT-2026-11-10-write-back C-3).

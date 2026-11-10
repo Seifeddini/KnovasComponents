@@ -6,6 +6,9 @@ Link mode (MVP-20), when the site runs Knovas Link:
     SYNC_LINK_TOKEN_FILE  the token Link wrote for this component (default /link/token: its folder, mounted read only)
     SYNC_NAME             the component's name, as Link knows it and wrote its token for (default sync-component)
     SYNC_DATA_DIR, SYNC_INTERVAL_SECONDS, SYNC_CREDENTIAL_<KEY>, SYNC_CREDENTIAL_GITHUB, SYNC_FILES_ROOT  as below
+    SYNC_PROTOCOL_V2      true: also connector protocol 2.0 (draft): the component registers the GitHub connector's
+                          declaration and answers preview, act, reread and review_outcome (github_v2.py). Off by
+                          default; needs Knovas Link with LINK_PROTOCOL_V2 on.
 
   In link mode the component does not enrol and holds no certificate: it registers with Link, sends its heartbeat
   there (commands come back with it), reads its configuration and package from Link, reports there, answers Link's
@@ -60,13 +63,17 @@ def enrolled(client: PlatformClient, store: Store, token: str, name: str) -> Cre
 REGISTER_RETRY_SECONDS = 15.0
 
 
-def register(client, *, once: bool = False, sleep=time.sleep) -> bool:
+def register(client, *, once: bool = False, sleep=time.sleep, declaration=None) -> bool:
     """Register with Link (a later registration replaces the earlier one). While Link has no configuration from the
-    Platform yet (503) or is not up, try again, unless ``once``."""
-    from sync_component.jobs import JOB_CAPABILITIES, JOB_KINDS
+    Platform yet (503) or is not up, try again, unless ``once``. ``declaration``: a callable giving the protocol 2.0
+    declaration (SYNC_PROTOCOL_V2), read at each registration because it names the facts the package writes."""
+    from sync_component.jobs import JOB_CAPABILITIES, JOB_KINDS, V2_JOB_KINDS
     while True:
         try:
-            sources = client.register(CAPABILITIES + JOB_CAPABILITIES, JOB_KINDS)
+            if declaration is not None:
+                sources = client.register(CAPABILITIES + JOB_CAPABILITIES, JOB_KINDS + V2_JOB_KINDS, declaration())
+            else:
+                sources = client.register(CAPABILITIES + JOB_CAPABILITIES, JOB_KINDS)
             logging.info("registered with Knovas Link, sources %d", len(sources))
             return True
         except Refused as exc:
@@ -101,13 +108,16 @@ def link_main(args: argparse.Namespace, environ=os.environ) -> int:
                       "or set SYNC_LINK_TOKEN_FILE.", type(exc).__name__)
         return 2
     client = LinkClient(url, name, token)
-    if not register(client, once=args.once):
-        return 2
     data = Path(environ.get("SYNC_DATA_DIR") or "/data")
+    v2 = str(environ.get("SYNC_PROTOCOL_V2") or "").strip().lower() in ("1", "true", "yes", "on")
     engine = RunnerEngine(data / "sources", {"BRAIN_API_URL": url + "/local/v1/brain", "BRAIN_LOCAL_TOKEN": token,
                                              "BRAIN_COMPONENT_NAME": name}, keep_stream=True)
     agent = Agent(client, engine, writable_kinds=WRITABLE_KINDS, capabilities=CAPABILITIES + JOB_CAPABILITIES)
-    worker = JobWorker(client, engine, register=lambda: register(client, once=True))
+    worker = JobWorker(client, engine, protocol_v2=v2, data_dir=data)
+    declaration = worker.v2.declaration if worker.v2 is not None else None
+    worker.register = lambda: register(client, once=True, declaration=declaration)
+    if not register(client, once=args.once, declaration=declaration):
+        return 2
     logging.info("sync component %s running behind Knovas Link", VERSION)
     if args.once:
         agent.tick()

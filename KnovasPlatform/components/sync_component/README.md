@@ -89,6 +89,25 @@ A new kind of source answers jobs with one function and one entry in `HANDLERS` 
 - **Behind Knovas Link** the component follows its own schedule and pause, as its page in the Builder sets them (Link
   1.2 passes them; an older Link gives Link's own).
 
+## Connector protocol 2.0: GitHub on the connector kit (draft, `SYNC_PROTOCOL_V2`, off by default)
+
+FEAT-2026-11-10-write-back C-3 ([the protocol](../../docs/connector-protocol-v2.md)). With `SYNC_PROTOCOL_V2=true`
+(and Knovas Link's `LINK_PROTOCOL_V2=true`) the component also registers the GitHub connector's declaration and
+answers `preview`, `act`, `reread` and `review_outcome` (`src/sync_component/github_v2.py`), built on the connector kit
+(a byte-for-byte copy under `src/knovas_connector_kit/`, because the image is built from this folder):
+
+- one action, `set_front_matter`: parameter `mapping` plus one optional parameter per fact a published mapping
+  `writes`; brain-runner's compile-write decides what may change, as for the 1.x write job;
+- `direct` (the default for the Knovas tenant): one commit on the source's branch through the contents API with the
+  expected blob sha, so a file changed since the preview is a conflict and nothing is written; the commit carries
+  `Knovas-Permit: <id>`, so a repeat finds it and answers its receipt without writing again; no pull request. The token
+  needs `Contents: write`, and the branch's protection must let it push;
+- `native_review`: today's pull request on `knovas/write-<permit id>` (then also `Pull requests: write`);
+  `review_outcome` follows its merge or close;
+- no `unstage` and no inverse in V1 (the founder, 2026-11-10); reading stays protocol 1.x's.
+
+The kit's conformance suite runs against it in `docbridge_integration/tests/test_sync_component_github_v2.py`.
+
 ## Getting the image to a company
 
 **Behind Knovas Link:** the release workflow builds, signs and pushes the image to GHCR, and the site's install package names it by digest (`SYNC_COMPONENT_DIGEST`): [release-images.md](../../docs/deployment/release-images.md). A copied image (`docker save` / `docker load`) has no digest and cannot start the package.

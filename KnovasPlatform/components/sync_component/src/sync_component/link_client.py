@@ -68,10 +68,14 @@ class LinkClient:
 
     # ------------------------------------------------------------------ registration and the control plane
 
-    def register(self, capabilities: list[str], job_kinds: list[str]) -> list[dict]:
-        """The sources Link assigns to this component's name; no credential among them."""
-        found = self._call("POST", "/register", {"component": self.name, "kind": KIND, "version": VERSION,
-                                                 "capabilities": capabilities, "job_kinds": job_kinds})
+    def register(self, capabilities: list[str], job_kinds: list[str], declaration: Optional[dict] = None) -> list[dict]:
+        """The sources Link assigns to this component's name; no credential among them. ``declaration``: the
+        connector declaration of protocol 2.0 (draft), sent only with SYNC_PROTOCOL_V2 on."""
+        body = {"component": self.name, "kind": KIND, "version": VERSION, "capabilities": capabilities,
+                "job_kinds": job_kinds}
+        if declaration is not None:
+            body["declaration"] = declaration
+        found = self._call("POST", "/register", body)
         return list((found or {}).get("sources") or [])
 
     def heartbeat(self, *, state: str, lag_seconds: Optional[int], open_errors: int, capabilities: list[str],
