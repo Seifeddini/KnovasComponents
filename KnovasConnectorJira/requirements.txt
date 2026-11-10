@@ -1,0 +1,4 @@
+# The Jira connector's dependencies as a connector image would install them (pyproject.toml has the ranges); the
+# connector kit comes from ../KnovasConnectorKit (tests put its src/ on the path).
+-r ../KnovasConnectorKit/requirements.txt
+requests==2.32.3

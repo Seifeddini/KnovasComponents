@@ -6,7 +6,7 @@
 glob: "**/*.py"
 options:
   tracked_only: true
-  roots: [KnovasLink/src, KnovasConnectorKit/src, KnovasPlatform/components/sync_component/src,
+  roots: [KnovasLink/src, KnovasConnectorKit/src, KnovasConnectorJira/src, KnovasPlatform/components/sync_component/src,
           KnovasPlatform/components/docbridge_integration/src, KnovasConnector/src,
           KnovasPlatform/components/experiments_runner, KnovasPlatform/experiments-sdk/python,
           KnovasPlatform/mock_knovas_api]

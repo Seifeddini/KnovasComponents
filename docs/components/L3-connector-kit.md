@@ -123,6 +123,7 @@ None.
 
 | Component | Operations | Expects |
 |---|---|---|
+| `L3-JIRA-CONNECTOR` | `call.knovas_connector_kit.connector.Connector`; `call.knovas_connector_kit.connector.outcome`; `call.knovas_connector_kit.PROTOCOL`; `call.knovas_connector_kit.SUITE_VERSION`; `cli.knovas_connector_kit.conformance.__main__` | `L3-CONNECTOR-KIT/*/A-2`; `L3-CONNECTOR-KIT/*/A-3`; `L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.Connector/P-1`; `L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/P-1` |
 | `L3-SYNC-COMPONENT` | `cli.knovas_connector_kit.conformance.__main__` | `L3-CONNECTOR-KIT/*/A-1`; `L3-CONNECTOR-KIT/*/A-2`; `L3-CONNECTOR-KIT/*/A-3` |
 
 ## Hides

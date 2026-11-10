@@ -82,6 +82,17 @@ components:
       tests, the mutant connectors and the README are evidence and documentation, not the component. The copy under
       sync_component/src/ is the kit too (byte for byte, tested): the sync component's image is built from its own
       folder.
+  L3-JIRA-CONNECTOR:
+    card: L3-jira-connector.card.yaml
+    paths:
+      - KnovasConnectorJira/src/knovas_connector_jira
+      - KnovasConnectorJira/pyproject.toml
+      - KnovasConnectorJira/requirements.txt
+    why: >-
+      KnovasConnectorJira/ is one installable package (knovas-connector-jira), a connector of protocol v2 on the
+      connector kit; it imports nothing from the rest of the repository but the kit. Its tests, the fake Jira, the
+      conformance harness and the README are evidence and documentation, not the component. Nothing ships it yet (no
+      image, deployment or Builder offer; FEAT-2026-11-10-write-back J-4).
   L3-SYNC-COMPONENT:
     card: L3-sync-component.card.yaml
     paths:
