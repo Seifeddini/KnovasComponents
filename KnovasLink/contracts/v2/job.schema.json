@@ -47,7 +47,8 @@
         "null"
       ],
       "minLength": 1,
-      "description": "The serial (decimal) of the site certificate the job is addressed to: required for preview, act, reread, review_outcome and unstage, and on probes from the Brain, as in 1.1. Only that certificate claims the job (finding F5)."
+      "description": "The serial (decimal, 1 to 49 digits, no leading zero) of the site certificate the job is addressed to: required for preview, act, reread, review_outcome and unstage, and on probes from the Brain, as in 1.1. Only that certificate claims the job (finding F5).",
+      "pattern": "^[1-9][0-9]{0,48}$"
     },
     "deadline": {
       "type": "string",
@@ -147,7 +148,7 @@
           },
           "target_serial": {
             "type": "string",
-            "pattern": "^[0-9]{1,40}$"
+            "pattern": "^[1-9][0-9]{0,48}$"
           }
         }
       }
@@ -178,7 +179,7 @@
           },
           "target_serial": {
             "type": "string",
-            "pattern": "^[0-9]{1,40}$"
+            "pattern": "^[1-9][0-9]{0,48}$"
           }
         }
       }
@@ -208,7 +209,7 @@
           },
           "target_serial": {
             "type": "string",
-            "pattern": "^[0-9]{1,40}$"
+            "pattern": "^[1-9][0-9]{0,48}$"
           }
         }
       }
@@ -238,7 +239,7 @@
           },
           "target_serial": {
             "type": "string",
-            "pattern": "^[0-9]{1,40}$"
+            "pattern": "^[1-9][0-9]{0,48}$"
           }
         }
       }
@@ -268,7 +269,7 @@
           },
           "target_serial": {
             "type": "string",
-            "pattern": "^[0-9]{1,40}$"
+            "pattern": "^[1-9][0-9]{0,48}$"
           }
         }
       }

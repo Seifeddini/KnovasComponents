@@ -4,11 +4,18 @@
   "title": "Change permit, decoded (connector protocol 2.0, draft)",
   "description": "A single-use permit the Brain signs for one approved action of a change set (SPEC-write-back-21, GI-CONN-05), permit format 1. It travels as a JWS compact token (RFC 7515), base64url(header) '.' base64url(payload) '.' base64url(signature), in the act job's permits list; this schema is the token decoded, {header, payload}. Header and payload are each the canonical JSON (RFC 8785) of their object; a verifier refuses a token whose parts are not in that form, so one permit has exactly one encoding. The signature is Ed25519 over the ASCII of header '.' payload as they appear in the token. A permit carries no credential, no value of the change and no item name: only the hash of the target and the parameters. Closed.",
   "type": "object",
-  "required": ["header", "payload"],
+  "required": [
+    "header",
+    "payload"
+  ],
   "additionalProperties": false,
   "properties": {
-    "header": {"$ref": "#/$defs/header"},
-    "payload": {"$ref": "#/$defs/payload"}
+    "header": {
+      "$ref": "#/$defs/header"
+    },
+    "payload": {
+      "$ref": "#/$defs/payload"
+    }
   },
   "$defs": {
     "token": {
@@ -16,35 +23,117 @@
       "pattern": "^[A-Za-z0-9_-]{16,1024}\\.[A-Za-z0-9_-]{16,4096}\\.[A-Za-z0-9_-]{86}$",
       "description": "The compact token: three base64url parts without padding; the last is the 64-byte Ed25519 signature."
     },
-    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
     "header": {
       "type": "object",
-      "required": ["alg", "kid", "typ"],
+      "required": [
+        "alg",
+        "kid",
+        "typ"
+      ],
       "additionalProperties": false,
       "properties": {
-        "alg": {"const": "EdDSA"},
-        "kid": {"type": "string", "pattern": "^wbp-[0-9a-f]{16}$", "description": "wbp- and the first 16 hex digits of SHA-256 over the raw 32-byte public key: the key id depends on the key alone, so keys can rotate."},
-        "typ": {"const": "knovas-permit+jws"}
+        "alg": {
+          "const": "EdDSA"
+        },
+        "kid": {
+          "type": "string",
+          "pattern": "^wbp-[0-9a-f]{16}$",
+          "description": "wbp- and the first 16 hex digits of SHA-256 over the raw 32-byte public key: the key id depends on the key alone, so keys can rotate."
+        },
+        "typ": {
+          "const": "knovas-permit+jws"
+        }
       }
     },
     "payload": {
       "type": "object",
-      "required": ["v", "permit_id", "tenant", "site", "source", "action_id", "change_set_id", "action", "params_hash", "expected_version", "staging", "iat", "exp"],
+      "required": [
+        "v",
+        "permit_id",
+        "tenant",
+        "site",
+        "source",
+        "action_id",
+        "change_set_id",
+        "action",
+        "params_hash",
+        "expected_version",
+        "staging",
+        "iat",
+        "exp"
+      ],
       "additionalProperties": false,
       "properties": {
-        "v": {"const": 1, "description": "The permit format."},
-        "permit_id": {"$ref": "#/$defs/uuid", "description": "Single use. Also the idempotency key of the write: every repeat of a written permit is answered with its first result (SPEC-write-back-10)."},
-        "tenant": {"$ref": "#/$defs/uuid", "description": "The tenant of the approved change set; Link compares it with the tenant of its own certificate."},
-        "site": {"type": "string", "pattern": "^[0-9]{1,40}$", "description": "The serial (decimal) of the site certificate of the Link whose connector computed the approved preview, which proves that site holds the source's credential. Only that certificate claims the job, and Link refuses a permit naming another serial (SPEC-write-back-23)."},
-        "source": {"type": "string", "minLength": 1, "maxLength": 200, "description": "The workspace source key."},
-        "action_id": {"$ref": "#/$defs/uuid", "description": "The action of the change set this permit carries out."},
-        "change_set_id": {"$ref": "#/$defs/uuid"},
-        "action": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,62}$", "description": "The connector's action name, as its declaration names it: what the ontology's action type maps to for this source's kind. The ontology's key stays in the Brain, linked by action_id."},
-        "params_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "SHA-256 over the canonical JSON of {\"target\": <the step's target>, \"params\": <the step's params>}."},
-        "expected_version": {"type": "string", "minLength": 1, "maxLength": 200, "description": "The item's version the approved preview read. A source at another version is a conflict; nothing is written (SPEC-write-back-32)."},
-        "staging": {"type": "string", "enum": ["direct", "native_review"], "description": "How the approved change reaches the source; a job with another staging does not match."},
-        "iat": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Signed at, seconds since 1970 (UTC)."},
-        "exp": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Expiry, seconds since 1970 (UTC), after iat and at most 3600 s later. A first delivery after it is refused; a repeat of a permit written before it still gets its first result."}
+        "v": {
+          "const": 1,
+          "description": "The permit format."
+        },
+        "permit_id": {
+          "$ref": "#/$defs/uuid",
+          "description": "Single use. Also the idempotency key of the write: every repeat of a written permit is answered with its first result (SPEC-write-back-10)."
+        },
+        "tenant": {
+          "$ref": "#/$defs/uuid",
+          "description": "The tenant of the approved change set; Link compares it with the tenant of its own certificate."
+        },
+        "site": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,48}$",
+          "description": "The serial (decimal, 1 to 49 digits, no leading zero: an X.509 serial has up to 20 octets) of the site certificate of the Link whose connector computed the approved preview, which proves that site holds the source's credential. Only that certificate claims the job, and Link refuses a permit naming another serial (SPEC-write-back-23)."
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "The workspace source key."
+        },
+        "action_id": {
+          "$ref": "#/$defs/uuid",
+          "description": "The action of the change set this permit carries out."
+        },
+        "change_set_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "action": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{0,62}$",
+          "description": "The connector's action name, as its declaration names it: what the ontology's action type maps to for this source's kind. The ontology's key stays in the Brain, linked by action_id."
+        },
+        "params_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "SHA-256 over the canonical JSON of {\"target\": <the step's target>, \"params\": <the step's params>}."
+        },
+        "expected_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "The item's version the approved preview read. A source at another version is a conflict; nothing is written (SPEC-write-back-32)."
+        },
+        "staging": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "native_review"
+          ],
+          "description": "How the approved change reaches the source; a job with another staging does not match."
+        },
+        "iat": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Signed at, seconds since 1970 (UTC). Link checks the key's validity window at this time (not_before <= iat < not_after), not at its own clock, so a repeat after a key's retirement still gets its first result."
+        },
+        "exp": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Expiry, seconds since 1970 (UTC), after iat and at most 3600 s later (Link refuses a longer one as permit_bad_signature). A first delivery after it is refused; a repeat of a permit written before it still gets its first result."
+        }
       }
     }
   }

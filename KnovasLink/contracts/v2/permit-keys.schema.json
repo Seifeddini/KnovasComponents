@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://knovas.ch/connector/v2/permit-keys.schema.json",
   "title": "Permit keys (connector protocol 2.0, draft)",
-  "description": "The Brain's answer to GET /secured/connector/v2/permit-keys, over Link's mTLS channel only: the public keys Link verifies permits with. Link pins them; it accepts a new key only from this route, and never from the Platform or a job. A key past not_after verifies nothing. Closed.",
+  "description": "The Brain's answer to GET /secured/connector/v2/permit-keys, over Link's mTLS channel only: the public keys Link verifies permits with. Link pins them; it accepts a new key only from this route, and never from the Platform or a job. A key verifies a permit only when the permit's iat lies in its window (not_before <= iat < not_after), checked at the permit's iat and not at Link's clock, so a repeat delivered after a key's not_after still gets its first result (SPEC-write-back-10). Closed.",
   "type": "object",
   "required": [
     "keys"

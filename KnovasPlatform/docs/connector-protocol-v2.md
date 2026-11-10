@@ -227,10 +227,13 @@ the same the Brain's side builds (`knovas-software/app/src/services/write_back_p
   the key alone and keys can rotate. The Brain answers `GET /secured/connector/v2/permit-keys`
   (`permit-keys.schema.json`) over Link's mTLS channel: up to four keys, each with `kid`, the public key, `not_before`
   and `not_after`. Link pins them and accepts a new key only from that route, never from the Platform or a job. The
-  Brain signs with the newest key and keeps the old one valid until every permit it signed has expired. The private key
+  Brain signs with the newest key and keeps the old one valid until every permit it signed has expired. A key's
+  window is checked at the permit's `iat` (see "What Knovas Link checks", step 2). The private key
   stays in the Brain (where exactly is an open question below).
-- **Site.** `site` is the serial (decimal) of the site certificate of the Link whose connector computed the approved
-  preview: that preview proves the site holds the source's credential.
+- **Site.** `site` is the serial of the site certificate of the Link whose connector computed the approved preview:
+  that preview proves the site holds the source's credential. It is written in decimal, 1 to 49 digits without a
+  leading zero, because an X.509 serial may have up to 20 octets (Knovas's certificates use random serials of up to
+  159 bits); `target_serial` on a job has the same form.
 - **Action.** `action` is the connector's action name from its declaration, which the ontology's action type maps to
   for this source's kind *(addition: the Brain's draft named the ontology's key; Link and the connector know only the
   connector's names, and `action_id` links the permit to the ontology's action in the Brain)*.
@@ -251,8 +254,11 @@ In this order, for every step and its permit (the order of the Alloy model's `Li
 `network/write_back_permits.als`); the first that fails answers for the whole job, and nothing is written:
 
 1. The step has its permit (as many permits as steps): else `refused permit_missing`.
-2. The token is readable and canonical, names a pinned key inside its validity and `EdDSA`, and its signature
-   verifies: else `refused permit_bad_signature`.
+2. The token is readable and canonical, names `EdDSA` and a pinned key whose validity window holds the permit's `iat`
+   (`not_before <= iat < not_after`: checked at the permit's signing time, not at Link's clock, so a repeat that
+   arrives after an old key's `not_after` still reaches step 5 and gets its first result), `exp` is after `iat` and at
+   most 3600 seconds later, and the signature verifies: else `refused permit_bad_signature`. A permit signed with an
+   old key and an old `iat` is still refused at step 6 as expired.
 3. `site` is the serial of Link's own certificate: else `refused permit_wrong_site`.
 4. `tenant` is the tenant of Link's certificate, and `source`, `action`, `params_hash` (over the step's `target` and
    `params`), `expected_version` and `staging` equal the job's: else `refused permit_mismatch`.
