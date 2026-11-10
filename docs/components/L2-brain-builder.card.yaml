@@ -72,7 +72,9 @@ responsible_for:
   statement: 'Connector protocol 2.0 (draft, BUILDER_PROTOCOL_V2, off by default): the connector declarations Knovas
     Link reports, checked and kept on each component; writing back offered where the serving component declared
     actions for the source''s kind and passed the conformance suite''s write properties; the declared actions listed
-    with the ways each can write; the staging per source (direct unless set, plan C-Q1), sent with each approval.'
+    with the ways each can write (native_review only with review_outcome passed); with the switch on, the declaration
+    decides whether a source of a kind can be written, never the Platform''s catalogue of kinds (SPEC-write-back-13);
+    the staging per source (direct unless set, plan C-Q1), sent with each approval.'
   code:
   - KnovasPlatform/components/docbridge_integration/src/builder/protocol_v2.py
   - KnovasPlatform/components/docbridge_integration/src/builder/protocol.py
@@ -1643,7 +1645,8 @@ contract:
         type, source item, parameters and the connector's preview (before and after per field, the version read,
         exact or not with the reason in German), and the last 50 decided ones with their state and receipts; «Freigeben»
         is offered only where every action's preview is exact, no type is held, the Brain says approvable and the
-        sources give one staging the connectors declared; otherwise the reasons are shown. With the switch off nothing
+        sources give one staging the connectors declared and their components offer (native_review only with
+        review_outcome passed); otherwise the reasons are shown. With the switch off nothing
         of it is read.
       risk_class: critical
       evidence:
@@ -1785,6 +1788,7 @@ contract:
         - test_a_staging_the_connector_did_not_declare_is_not_offered
         - test_sources_that_write_differently_are_not_approved_together
         - test_a_change_set_decided_meanwhile_is_not_approved
+        - test_native_review_without_review_outcome_is_not_approved
     promises:
     - id: L2-BRAIN-BUILDER/change-set-approve/P-1
       statement: Approves the change set in the Brain once (no retry) with the signed-in person as the declared actor
@@ -2446,18 +2450,26 @@ contract:
         - TestTheSyncStatus::test_a_source_without_a_sync_status_keeps_the_1_1_shape
         - TestTheSyncStatus::test_a_direct_component_reports_it_in_its_own_heartbeat
     - id: L2-BRAIN-BUILDER/protocol-heartbeat/P-2
-      statement: 'Protocol 2.0 (draft): a component in Link''s site may carry its connector declaration; it is kept on
-        the component only in its checked form (protocol, source kind, streams, actions with their parameters,
-        preview, staging, grouping and inverse, the conformance properties passed), and one the protocol does not
-        allow refuses the heartbeat with 400 bad_field. With BUILDER_PROTOCOL_V2 on it offers writing back for its kind
-        when it declared actions and passed every write property.'
+      statement: 'Protocol 2.0 (draft): a component in Link''s site may carry its connector declaration; every
+        declaration the protocol''s schema allows (KnovasLink/contracts/v2/declaration.schema.json, a byte-identical
+        copy in builder/contracts, limits from the schema only) is kept on the component in its checked form
+        (protocol, source kind, streams, actions with their parameters, preview, staging, grouping and inverse, the
+        conformance properties passed); one the schema does not allow is not kept and named by its field
+        (declaration_refused), and the rest of the heartbeat is kept. With BUILDER_PROTOCOL_V2 on it offers writing
+        back for its kind when it declared actions and passed every write property, native_review only with
+        review_outcome passed.'
       risk_class: critical
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_protocol_v2.py
         checks:
         - test_the_platform_keeps_a_checked_declaration_from_the_heartbeat
-        - test_a_declaration_the_protocol_does_not_allow_refuses_the_heartbeat
+        - test_a_declaration_the_protocol_does_not_allow_is_dropped_and_the_heartbeat_kept
+        - test_every_declaration_the_schema_allows_is_kept
+        - test_the_platform_checks_against_the_protocols_own_schema
+        - test_native_review_is_offered_only_with_review_outcome
+        - test_a_refused_declaration_is_named_where_writing_is_not_offered
+        - test_a_kind_the_catalogue_does_not_write_is_written_where_the_declaration_says_so
         - test_with_the_switch_on_a_declared_and_conformant_connector_is_offered_writing
         - test_with_the_switch_off_the_declaration_offers_nothing
         - test_a_connector_that_did_not_pass_the_write_properties_is_not_offered_writing

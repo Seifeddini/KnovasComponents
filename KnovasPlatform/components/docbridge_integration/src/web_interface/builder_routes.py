@@ -1841,6 +1841,27 @@ def create_builder_blueprint(
         tenant = _platform_tenant()
         return [store.published_model(w.id) or {} for w in store.list() if not w.tenant or w.tenant == tenant]
 
+    def _source_stagings(store) -> dict:
+        """{source key: its published staging} (C-Q1), or ``not_offered`` where the component serving the source does
+        not offer it (another kind, no declaration, or native_review without review_outcome: Phase A verification
+        M4), so the change sets of that source are not approvable until the source says otherwise."""
+        from builder import approvals as approval_rules
+        from builder import protocol_v2
+
+        models = _published_models(store)
+        found = approval_rules.staging_by_source(models)
+        tenant = _platform_tenant()
+        if not tenant or store is None or not hasattr(store, "component"):
+            return found
+        for model in models:
+            for source in model.get("sources") or []:
+                key = source.get("key")
+                if found.get(key) in protocol_v2.STAGINGS:
+                    component = store.component(tenant, str(source.get("component")))
+                    if protocol_v2.staging_reason(source.get("kind"), component, found[key]):
+                        found[key] = "not_offered"
+        return found
+
     def _change_set_rows(client):
         """({open, decided} or None when the switch is off, an error text or None)."""
         from builder import approvals as approval_rules
@@ -1853,7 +1874,7 @@ def create_builder_blueprint(
             return {"open": [], "decided": []}, "Diese Plattform liest keine Änderungssätze des Mandanten (kein Zertifikat)."
         try:
             found = approval_rules.change_set_rows(client.change_sets("proposed"), client.change_sets(),
-                                                   approval_rules.staging_by_source(_published_models(_store())))
+                                                   _source_stagings(_store()))
         except ConnectionApiError as exc:
             logger.warning("Builder: change sets not read (HTTP %s, %s)", exc.status, exc.code or "-")
             return {"open": [], "decided": []}, \
@@ -1888,8 +1909,7 @@ def create_builder_blueprint(
         actor = {"kind": "user", "id": str(gate.current_user().id)}
         try:
             if approve:
-                row = approval_rules.change_set_row(client.change_set(change_set_id),
-                                                    approval_rules.staging_by_source(_published_models(_store())))
+                row = approval_rules.change_set_row(client.change_set(change_set_id), _source_stagings(_store()))
                 if not row["approvable"]:
                     logger.info("Builder: change set %s not offered for approval (%d reasons)", change_set_id,
                                 len(row["not_approvable"]))
@@ -2694,8 +2714,12 @@ def create_builder_blueprint(
         source = next((s for s in (store.model(current.id) or {}).get("sources") or [] if s.get("key") == op.get("key")), None)
         if source is None:
             return          # the edit itself says that the source does not exist
-        if not source_kinds.SOURCE_KINDS.get(source.get("kind"), {}).get("write"):
+        from builder import protocol_v2
+
+        if not protocol_v2.enabled() and not source_kinds.SOURCE_KINDS.get(source.get("kind"), {}).get("write"):
             return          # the edit itself refuses a kind that cannot be written
+        # With protocol 2.0 the serving component's declaration decides, never the Platform's catalogue of kinds
+        # (SPEC-write-back-13; Phase A verification M4): write_offered asks the declaration first.
         tenant = _platform_tenant()
         component = store.component(tenant, str(source.get("component"))) if tenant else None
         why = source_kinds.write_offered(source.get("kind"), component)

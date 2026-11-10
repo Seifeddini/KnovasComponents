@@ -8,12 +8,13 @@ import datetime as dt
 import io
 import json
 import zipfile
+from pathlib import Path
 
 import pytest
 
 from builder import package
 from builder import protocol_v2 as V2
-from builder.protocol import ProtocolError, check_site
+from builder.protocol import check_site
 from builder_harness import (SAMPLE_PACKAGE, FakeEngine, MemorySecrets, MemoryWorkspaceStore, ProtocolClient, StandInUser,
                              make_app)
 
@@ -91,10 +92,54 @@ def test_the_platform_keeps_a_checked_declaration_from_the_heartbeat():
                   "staging": ["direct"], "grouping": "none"}]},
     {"conformance": {"passed": ["trust_me"]}},
 ])
-def test_a_declaration_the_protocol_does_not_allow_refuses_the_heartbeat(change):
-    with pytest.raises(ProtocolError):
-        check_site({"components": [{"name": "sync-component", "kind": "sync_component", "version": "0.4.0",
-                                    "state": "online", "capabilities": [], "declaration": {**declaration(), **change}}]})
+def test_a_declaration_the_protocol_does_not_allow_is_dropped_and_the_heartbeat_kept(change):
+    """Phase A verification L3: one connector's bad declaration never refuses Link's whole heartbeat; that connector
+    offers nothing through protocol 2.0 and the field is named."""
+    site = check_site({"components": [{"name": "sync-component", "kind": "sync_component", "version": "0.4.0",
+                                       "state": "online", "capabilities": [], "declaration": {**declaration(), **change}},
+                                      {"name": "other", "kind": "sync_component", "version": "0.4.0", "state": "online",
+                                       "capabilities": [], "declaration": declaration()}]})
+    bad, good = site["components"]
+    assert "declaration" not in bad and bad["declaration_refused"].startswith("declaration")
+    assert good["declaration"]["source_kind"] == "github"
+
+
+def test_every_declaration_the_schema_allows_is_kept():
+    """Limits from the protocol's schema only (L3): 31 actions, an enum of 150 values, a value with a line break."""
+    action = {"name": "set_front_matter", "target_kind": "file",
+              "params": [{"name": "status", "kind": "enum", "required": False,
+                          "values": [f"v{i}" for i in range(149)] + ["zwei\nZeilen"]}],
+              "preview": "exact", "staging": ["direct"], "grouping": "none", "inverse": None}
+    actions = [dict(action, name=f"action_{i}") for i in range(31)]
+    site = check_site({"components": [{"name": "sync-component", "kind": "sync_component", "version": "0.4.0",
+                                       "state": "online", "capabilities": [],
+                                       "declaration": declaration(actions=actions)}]})
+    kept = site["components"][0]["declaration"]
+    assert len(kept["actions"]) == 31 and len(kept["actions"][0]["params"][0]["values"]) == 150
+
+
+def test_the_platform_checks_against_the_protocols_own_schema():
+    """The Platform's image is built from its own folder, so it carries a copy of the schema; any drift fails here."""
+    mine = Path(V2.SCHEMA).read_bytes()
+    protocol = (Path(__file__).resolve().parents[4] / "KnovasLink" / "contracts" / "v2" / "declaration.schema.json").read_bytes()
+    assert mine == protocol
+
+
+def test_native_review_is_offered_only_with_review_outcome():
+    """Phase A verification M4: the protocol needs review_outcome for native_review."""
+    component = {"telemetry": {"declaration": check_site({"components": [{
+        "name": "sync-component", "kind": "sync_component", "version": "0.4.0", "state": "online", "capabilities": [],
+        "declaration": declaration(passed=WRITE)}]})["components"][0]["declaration"]}}
+    [action] = V2.actions_of("github", component)
+    assert action["staging"] == ["direct"] and action["staging_withheld"] == ["native_review"]
+    assert V2.write_reason("github", component) is None
+    assert "review_outcome" in V2.staging_reason("github", component, "native_review")
+    assert V2.staging_reason("github", component, "direct") is None
+    only_review = declaration(passed=WRITE, actions=[dict(declaration()["actions"][0], staging=["native_review"])])
+    component["telemetry"]["declaration"] = V2.check_declaration(only_review)
+    assert "review_outcome" in V2.write_reason("github", component)
+    component["telemetry"]["declaration"] = V2.check_declaration(declaration(passed=WRITE + ["review_outcome"]))
+    assert V2.staging_reason("github", component, "native_review") is None
 
 
 def test_with_the_switch_on_a_declared_and_conformant_connector_is_offered_writing(monkeypatch):
@@ -131,4 +176,28 @@ def test_the_sources_page_lists_the_declared_actions_and_how_each_writes(monkeyp
     assert akten["write_reason"] is None
     assert akten["v2_actions"] == [{"name": "set_front_matter", "staging": ["direct", "native_review"],
                                     "staging_labels": [V2.STAGING_LABELS["direct"], V2.STAGING_LABELS["native_review"]],
-                                    "params": ["mapping", "status"], "approvable": True, "undo": False}]
+                                    "staging_withheld": [], "params": ["mapping", "status"], "approvable": True,
+                                    "undo": False}]
+
+
+def test_a_refused_declaration_is_named_where_writing_is_not_offered(monkeypatch):
+    world = _world(monkeypatch, {**declaration(), "source_kind": "GitHub!"})
+    assert _switch(world, key="akten", access="read_write").status_code == 409
+    why = V2.write_reason("github", world["store"].component(TENANT, world["writer"]["id"]))
+    assert "entspricht dem Protokoll nicht (declaration.source_kind)" in why
+
+
+def test_a_kind_the_catalogue_does_not_write_is_written_where_the_declaration_says_so(monkeypatch):
+    """SPEC-write-back-13 (Phase A verification M4): with protocol 2.0 the serving component's declaration decides,
+    not the Platform's catalogue of kinds."""
+    world = _world(monkeypatch, declaration(kind="http_json"))
+    made = world["http"].post(f"/builder/api/w/{world['workspace']}/ontology?view=sources",
+                              json={"op": "source.create", "key": "register", "name": "Register", "kind": "http_json",
+                                    "component": world["writer"]["id"],
+                                    "settings": {"url": "https://register.example/api"}})
+    assert made.status_code == 200, made.get_json()
+    assert _switch(world, key="register", access="read_write").status_code == 200
+    monkeypatch.delenv("BUILDER_PROTOCOL_V2")
+    assert _switch(world, key="register", access="read").status_code == 200
+    refused = _switch(world, key="register", access="read_write")
+    assert refused.status_code in (400, 409)

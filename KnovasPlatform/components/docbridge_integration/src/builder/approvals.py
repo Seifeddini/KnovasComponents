@@ -99,7 +99,6 @@ def rows(open_rows: Iterable[Mapping[str, Any]], every: Iterable[Mapping[str, An
     return {"open": opened, "decided": decided}
 
 
-
 # ------------------------------------------------------------------ change sets (write back v2, C-2)
 
 #: A change set's state, in German (the Brain's states, Change Sets API).
@@ -185,6 +184,9 @@ def change_set_staging(actions: Iterable[Mapping[str, Any]], staging_by_source: 
         return None, ("Die Quellen dieses Änderungssatzes schreiben auf verschiedene Weise; ein Änderungssatz wird "
                       "auf eine Weise freigegeben.")
     mode = modes.pop()
+    if mode == "not_offered":
+        return None, ("Die Komponente einer Quelle dieses Änderungssatzes bietet deren Schreibweise nicht an oder hat "
+                      "deren Prüfung nicht bestanden: in «Quellen» die Schreibweise der Quelle ändern.")
     if mode not in protocol_v2.STAGINGS:
         return None, ("Arbeitsbereiche geben einer Quelle dieses Änderungssatzes verschiedene Schreibweisen; "
                       "zuerst eine veröffentlichen.")

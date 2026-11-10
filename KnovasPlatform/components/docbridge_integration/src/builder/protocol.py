@@ -578,7 +578,10 @@ def check_site(raw: Any) -> dict:
             try:
                 entry["declaration"] = V2.check_declaration(item["declaration"])
             except ValueError as exc:
-                raise _bad("components." + str(exc), "a connector declaration as protocol 2.0 has it") from None
+                # One connector's declaration the protocol's schema does not allow: that connector offers nothing
+                # through protocol 2.0 and the Builder names the field; the rest of the heartbeat is kept (L3).
+                entry["declaration_refused"] = str(exc)
+                logger.warning("Heartbeat: a connector declaration the protocol does not allow (%s), not kept", exc)
         out["components"].append(entry)
     sources = raw.get("sources") or []
     if not isinstance(sources, list) or len(sources) > MAX_SITE_SOURCES:
@@ -635,7 +638,9 @@ def _keep_site(store: Any, link: Mapping[str, Any], site: Mapping[str, Any], now
         fields = {"version": item["version"], "capabilities": item["capabilities"],
                   "reported_state": "degraded" if item["state"] == "degraded" else "online",
                   "telemetry": {"state": item["state"], "local_ping_ms": item["local_ping_ms"], "at": now.isoformat(),
-                                **({"declaration": item["declaration"]} if item.get("declaration") else {})}}
+                                **({"declaration": item["declaration"]} if item.get("declaration") else {}),
+                                **({"declaration_refused": item["declaration_refused"]}
+                                   if item.get("declaration_refused") else {})}}
         if item["state"] != "offline":
             fields["last_heartbeat_at"] = now.isoformat()   # seen by Link on the site just now
         store.update_component(child_id, **fields)

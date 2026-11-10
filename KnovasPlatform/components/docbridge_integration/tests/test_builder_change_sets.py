@@ -97,7 +97,8 @@ class FakeTenant:
 
 
 def _declaration(stagings=("direct", "native_review")):
-    return {"protocol": "2.0", "source_kind": "github", "streams": [], "fetch": True,
+    return {"protocol": "2.0", "connector": {"name": "github", "version": "0.1.0", "package_sha256": "0" * 64},
+            "source_kind": "github", "streams": [], "fetch": True,
             "actions": [{"name": "set_front_matter", "target_kind": "file",
                          "params": [{"name": "mapping", "kind": "string", "required": True},
                                     {"name": "status", "kind": "string", "required": False}],
@@ -418,3 +419,14 @@ def test_changes_that_name_their_step_are_shown_per_step(monkeypatch):
     assert row.index("Schritt 1:") < row.index("Schritt 2:")
     assert [c["step"] for c in approvals.change_set_row(_change_set("c2", actions=[_action(preview=stepped)]), {})
             ["actions"][0]["preview"]["changes"]] == [0, 1]
+
+
+def test_native_review_without_review_outcome_is_not_approved(monkeypatch):
+    """Phase A verification M4: a source published with native_review whose component did not pass review_outcome."""
+    decl = _declaration()
+    decl["conformance"]["passed"] = WRITE
+    world = _world(monkeypatch, [_change_set("c1")], staging="native_review", decl=decl)
+    row = _row(world["http"].get("/builder/betrieb/freigaben").get_data(as_text=True), "c1")
+    assert 'data-approvable="false"' in row and "Prüfung nicht bestanden" in row
+    assert world["http"].post("/builder/api/freigaben/change-sets/c1/approve").status_code == 409
+    assert _approve_calls(world) == []

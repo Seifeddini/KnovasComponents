@@ -138,7 +138,10 @@ def _source_switches(edit: _Edit, op: Mapping[str, Any]) -> None:
     if "access" in op:
         if op["access"] not in S.ACCESS:
             raise EditError(f"«{S.SWITCHES['write']}»: {', '.join(S.ACCESS.values())}.")
-        if op["access"] == "read_write" and not S.SOURCE_KINDS.get(new.get("kind"), {}).get("write"):
+        # With protocol 2.0 the serving component's declaration decides whether a kind can be written (the route's
+        # check, SPEC-write-back-13), never this catalogue; without it, the catalogue's kinds that write.
+        if op["access"] == "read_write" and not protocol_v2.enabled() \
+                and not S.SOURCE_KINDS.get(new.get("kind"), {}).get("write"):
             raise EditError("In diese Art von Quelle kann noch nichts zurückgeschrieben werden.")
         new["access"] = op["access"]
     edit.write(SOURCES, old, new)
