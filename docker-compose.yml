@@ -337,6 +337,28 @@ services:
       secrets:
         - kb_read_token
 
+  # The Jira connector (connector protocol 2.0). It runs at a company's site beside Knovas Link, with the site's own
+  # compose file (KnovasConnectorJira/deploy/docker-compose.jira.yml); here only to build it and to dump one Jira
+  # source's record stream without Link (KnovasConnectorJira/README.md, "dump-stream"). Off unless its profile is named:
+  #   docker compose --env-file knovas.env --profile jira-connector build jira-connector
+  #   docker compose --env-file knovas.env --profile jira-connector run --rm -T \
+  #     -v "$PWD/jira-settings.json:/settings.json:ro" jira-connector \
+  #     dump-stream --source <source key> --settings /settings.json --out - > <source key>.jsonl
+  # The credential comes only from the file JIRA_CONNECTOR_SOURCES_ENV names (a site's knovas-sources.env:
+  # SYNC_CREDENTIAL_<KEY> and SYNC_CREDENTIAL_<KEY>_HOST), never from knovas.env; unset, the service has none.
+  jira-connector:
+    profiles: ["jira-connector"]
+    image: jira-connector:0.1.0
+    build:
+      context: ./KnovasConnectorJira
+    env_file:
+      - ${JIRA_CONNECTOR_SOURCES_ENV:-/dev/null}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
 networks:
   knovas-internal:
     driver: bridge

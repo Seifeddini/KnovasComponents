@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/connector/v2/result.schema.json",
+  "title": "Job result (connector protocol 2.0, draft)",
+  "description": "A connector's answer to one v2 job, which Knovas Link passes on unchanged after its own checks. The status and code set is 1.1's; v2 adds the preview, the receipts, the review outcome and the conflict. Every change, difference and conflict names its step, the 0-based index into the job's args.steps, so two actions on one item are told apart (v2.0 as amended 2026-11-10, D-14). Those carry the values of the change (before and after), so a v2 result travels only on the work channel to the Brain: never into Link's logs, the Platform's reports, a heartbeat or a metric label (GI-DATA-02, GI-DATA-04). Closed.",
+  "type": "object",
+  "required": ["status", "duration_ms"],
+  "additionalProperties": false,
+  "properties": {
+    "status": {"type": "string", "enum": ["ok", "refused", "conflict", "unsupported", "unreachable", "failed"]},
+    "code": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9_.]{1,60}$", "description": "A code from v1.1's or v2's codes.json, or a connector's own of the same shape; never a sentence."},
+    "duration_ms": {"type": "integer", "minimum": 0},
+    "repeat": {"type": "boolean", "description": "True when this answers a repeated delivery of a permit already carried out: the result is the first one, unchanged, and nothing was written again (SPEC-write-back-10)."},
+    "version": {"type": ["string", "null"], "minLength": 1, "description": "fetch: as in 1.1."},
+    "bytes_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "mime": {"type": ["string", "null"], "minLength": 1},
+    "bytes": {"type": ["integer", "null"], "minimum": 0, "maximum": 26214400},
+    "parts": {"type": ["integer", "null"], "minimum": 0},
+    "preview": {"$ref": "#/$defs/preview"},
+    "receipts": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/receipt"}},
+    "review": {"$ref": "#/$defs/review"},
+    "conflict": {"$ref": "#/$defs/conflict"},
+    "read": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/read_item"}, "description": "reread: what each target holds now."}
+  },
+  "$defs": {
+    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "utc": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?Z$"},
+    "external_id": {"type": "string", "minLength": 1, "maxLength": 1024},
+    "step": {"type": "integer", "minimum": 0, "maximum": 49, "description": "The 0-based index of the step this belongs to in a job's args.steps: of the preview job for a preview's changes and its conflict; of the act job that carried the permit for a receipt's values and differences (also when the receipt comes with a reread or review_outcome result) and for an act's conflict. Two actions on one item are told apart by it, never by the target (D-14)."},
+    "version": {"type": "string", "minLength": 1, "maxLength": 200},
+    "value": {
+      "oneOf": [
+        {"type": ["string", "integer", "boolean", "null"], "maxLength": 65536},
+        {"type": "array", "maxItems": 100, "items": {"type": ["string", "integer", "boolean", "null"], "maxLength": 65536}}
+      ]
+    },
+    "change": {
+      "type": "object",
+      "description": "One change in the source's own terms: a field's value before and after, or, for a whole item's content (field null), the content's hashes and a unified diff; with the step it belongs to.",
+      "required": ["step", "target", "field", "before", "after"],
+      "additionalProperties": false,
+      "properties": {
+        "step": {"$ref": "#/$defs/step"},
+        "target": {"$ref": "#/$defs/external_id"},
+        "field": {"type": ["string", "null"], "minLength": 1, "maxLength": 200},
+        "before": {"$ref": "#/$defs/value"},
+        "after": {"$ref": "#/$defs/value"},
+        "diff": {"type": "string", "maxLength": 262144, "description": "Optional, for field null: a unified diff of the content."}
+      }
+    },
+    "preview": {
+      "type": "object",
+      "description": "preview: what the steps would change, computed without writing. exact false means the connector could not compute it exactly (a field the source computes, an automation, an unknown side effect); such a preview can never be approved, and code says why (SPEC-write-back-06).",
+      "required": ["exact", "read_versions", "changes", "grouping"],
+      "additionalProperties": false,
+      "properties": {
+        "exact": {"type": "boolean"},
+        "inexact_code": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9_.]{1,60}$"},
+        "read_versions": {
+          "type": "array", "minItems": 1, "maxItems": 50,
+          "items": {"type": "object", "required": ["target", "version"], "additionalProperties": false,
+                    "properties": {"target": {"$ref": "#/$defs/external_id"}, "version": {"$ref": "#/$defs/version"}}},
+          "description": "The version of each target the preview read: the permit's expected_version."
+        },
+        "changes": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/change"}},
+        "grouping": {"type": "string", "enum": ["atomic", "item", "none"], "description": "Whether the steps will be written all or none: atomic all together, item all or none per item (one act job per item), none one by one; the approver is told before approving when not all together (SPEC-write-back-31; item: v2.0 as amended 2026-11-10, D-24)."}
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "description": "What the source holds after the write, from a re-read by the connector in the same job (or, for native_review, when the source accepted the change): written, partly written, not written, or staged for review. Differences from the approved preview are listed; the receipt never changes afterwards (SPEC-write-back-07, GI-CONN-06).",
+      "required": ["permit_id", "outcome", "expected_version", "version_after", "reread_at", "values", "differences", "side_effects"],
+      "additionalProperties": false,
+      "properties": {
+        "permit_id": {"$ref": "#/$defs/uuid"},
+        "outcome": {"type": "string", "enum": ["written", "partly_written", "not_written", "staged"]},
+        "expected_version": {"$ref": "#/$defs/version"},
+        "version_after": {"oneOf": [{"$ref": "#/$defs/version"}, {"type": "null"}], "description": "The target's version after the write; null when not written or only staged."},
+        "reread_at": {"$ref": "#/$defs/utc"},
+        "values": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/change"}, "description": "Per previewed field, with its step: before (at expected_version) and after (as re-read)."},
+        "differences": {
+          "type": "array", "maxItems": 500,
+          "items": {"type": "object", "required": ["step", "target", "field", "previewed", "found"], "additionalProperties": false,
+                    "properties": {"step": {"$ref": "#/$defs/step"}, "target": {"$ref": "#/$defs/external_id"}, "field": {"type": ["string", "null"]},
+                                   "previewed": {"$ref": "#/$defs/value"}, "found": {"$ref": "#/$defs/value"}}},
+          "description": "Every previewed field whose re-read value is not the approved one. Not empty: the change set becomes differing and the action is held on that source (SPEC-write-back-08)."
+        },
+        "side_effects": {
+          "type": "array", "maxItems": 100,
+          "items": {"type": "object", "required": ["target", "field"], "additionalProperties": false,
+                    "properties": {"target": {"$ref": "#/$defs/external_id"}, "field": {"type": "string", "minLength": 1, "maxLength": 200}}},
+          "description": "Fields the source changed by itself that the preview did not show (names only)."
+        },
+        "source_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048, "description": "An address of the change in the source, if it has one; for native_review the stage_ref."}
+      }
+    },
+    "review": {
+      "type": "object",
+      "description": "review_outcome and unstage: the state of a staged change in the source's own review. accepted carries the receipts from the re-read at acceptance.",
+      "required": ["state", "stage_ref"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {"type": "string", "enum": ["pending", "accepted", "declined", "withdrawn"]},
+        "stage_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "receipts": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/receipt"}}
+      },
+      "allOf": [{"if": {"properties": {"state": {"const": "accepted"}}}, "then": {"required": ["receipts"]}}]
+    },
+    "conflict": {
+      "type": "object",
+      "description": "status conflict: the target is no longer at the expected version; nothing was written. step is the first step (lowest index) whose target the connector found at another version. What changed is shown to the approver, each change with its own step (SPEC-write-back-32, -34).",
+      "required": ["step", "target", "expected_version", "found_version"],
+      "additionalProperties": false,
+      "properties": {
+        "step": {"$ref": "#/$defs/step"},
+        "target": {"$ref": "#/$defs/external_id"},
+        "expected_version": {"$ref": "#/$defs/version"},
+        "found_version": {"$ref": "#/$defs/version"},
+        "changes": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/change"}, "description": "Optional: the previewed fields' values at expected_version (before) and now (after)."}
+      }
+    },
+    "read_item": {
+      "type": "object",
+      "required": ["target", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "target": {"$ref": "#/$defs/external_id"},
+        "version": {"oneOf": [{"$ref": "#/$defs/version"}, {"type": "null"}], "description": "null: the target does not exist (any more)."},
+        "values": {"type": "object", "maxProperties": 50, "additionalProperties": {"$ref": "#/$defs/value"}}
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 # Released images (release-images workflow)
 
-How the Platform, Knovas Link and the sync component are built, signed and published from a branch, and how a
-deployment takes them by digest (V1-G10). The workflow is `.github/workflows/release-images.yml`; its helper
+How the Platform, Knovas Link, the sync component and the Jira connector are built, signed and published from a
+branch, and how a deployment takes them by digest (V1-G10; the Jira connector since FEAT-2026-11-10-write-back J-4). The workflow is `.github/workflows/release-images.yml`; its helper
 `scripts/ci/release_image.sh` names the images; `tests/test_release_images_workflow.py` (Platform suite) pins both.
 
 ## What it builds
@@ -11,15 +11,17 @@ deployment takes them by digest (V1-G10). The workflow is `.github/workflows/rel
 | `platform` | `ghcr.io/<owner>/docbridge-web-clientbundle` | `KnovasPlatform/components/docbridge_integration/Dockerfile` | `docker-compose.yml`, service `docbridge-web` (`DOCBRIDGE_WEB_IMAGE`) |
 | `knovas-link` | `ghcr.io/<owner>/knovas-link` | `KnovasLink/Dockerfile` | the Builder's site package (`KNOVAS_LINK_DIGEST`) |
 | `sync-component` | `ghcr.io/<owner>/sync-component` | `KnovasPlatform/components/sync_component/Dockerfile` | the Builder's site package (`SYNC_COMPONENT_DIGEST`) |
+| `jira-connector` | `ghcr.io/<owner>/jira-connector` | `KnovasConnectorJira/Dockerfile` | `KnovasConnectorJira/deploy/docker-compose.jira.yml` beside the site package (`JIRA_CONNECTOR_IMAGE`, `JIRA_CONNECTOR_DIGEST`) |
 
-`all` builds the three, `site` the last two. `<owner>` is the repository's owner in lower case. The package names are
+`all` builds the four, `site` the last three. `<owner>` is the repository's owner in lower case. The package names are
 the image names the deployment already uses.
 
 - **Tags:** the first 12 characters of the commit, and the branch name made into a tag (`cl/x-y` → `cl-x-y`). Tags
   move with the next run; a deployment always names the **digest**.
 - **brain-runner:** the Platform (Brain Builder, Sync von GitHub) and the sync component install it from the private
   knowledge base while they are built. The workflow hands the repository secret `KB_READ_TOKEN` to that build as a
-  BuildKit secret (no image layer, no log) and refuses to release either image without it.
+  BuildKit secret (no image layer, no log) and refuses to release either image without it. Knovas Link and the Jira
+  connector need no token; their check imports the image's own package (`module` in `release_image.sh`).
 - **Signature:** each pushed digest is signed keylessly (cosign, sigstore) by the run itself and verified at once
   against the run's identity:
   `https://github.com/<owner>/<repository>/.github/workflows/release-images.yml@refs/heads/<branch>`, issuer
@@ -45,7 +47,8 @@ the image names the deployment already uses.
 2. **Secret `KB_READ_TOKEN`** (Settings → Secrets and variables → Actions → Repository secrets): a fine-grained token,
    **Contents: read** on the knowledge-base repository only. The CI job `knovas-platform` uses the same secret.
 3. **Variable `CI_EPHEMERAL_RUNNER`** (same page, Variables) is set, so the jobs run on the single-use runners.
-4. **The three packages, private, before the first run.** A package the workflow's token creates takes the
+4. **The packages, private, before the first run** (four since the Jira connector; a repository that already has the
+   first three creates only `jira-connector` the same way). A package the workflow's token creates takes the
    repository's visibility, so in a public repository the first run would publish the images. The Platform and
    sync-component images contain brain-runner from the private knowledge base; they must never be public. So a
    person creates each package first, from a workstation with Docker:
@@ -60,13 +63,13 @@ the image names the deployment already uses.
 
      ```bash
      docker pull busybox:1.36.1
-     for n in docbridge-web-clientbundle knovas-link sync-component; do
+     for n in docbridge-web-clientbundle knovas-link sync-component jira-connector; do
        docker tag busybox:1.36.1 ghcr.io/<owner>/$n:placeholder && docker push ghcr.io/<owner>/$n:placeholder
      done
      docker logout ghcr.io
      ```
 
-   - On GitHub, your profile → Packages → each of the three → Package settings: **Manage Actions access** → Add
+   - On GitHub, your profile → Packages → each of them → Package settings: **Manage Actions access** → Add
      repository → this repository → role **Write**; check that the visibility under "Danger zone" says **Private**.
    - Delete the token, then set the repository variable **`GHCR_PACKAGES_PRIVATE` = `confirmed`** (Settings → Secrets
      and variables → Actions → Variables). Without it the workflow stops before it logs in or pushes anything.
@@ -90,6 +93,7 @@ the branch, the commit, the tags, the signer, and the line to paste:
 DOCBRIDGE_WEB_IMAGE=ghcr.io/<owner>/docbridge-web-clientbundle@sha256:…   (platform: knovas.env)
 KNOVAS_LINK_DIGEST=sha256:…                                                (knovas-link: the site's .env)
 SYNC_COMPONENT_DIGEST=sha256:…                                             (sync-component: the site's .env)
+JIRA_CONNECTOR_DIGEST=sha256:…                                             (jira-connector: the site's .env)
 ```
 
 **Stop if** a job fails at "Build and check the image" with `KB_READ_TOKEN is not set` (step 2 above), at "Push" with
@@ -127,8 +131,8 @@ You should see `/tmp/cosign: OK` from the checksum, then cosign's lines ending w
   `docker compose --env-file knovas.env pull docbridge-web` and
   `docker compose --env-file knovas.env up -d --no-build docbridge-web-nginx`. Never `--build` or `start.sh` while
   `DOCBRIDGE_WEB_IMAGE` is set.
-- **A site:** the Builder's package names `knovas-link` and `sync-component` by digest variable; see
-  [../connect-a-site.md](../connect-a-site.md).
+- **A site:** the Builder's package names `knovas-link` and `sync-component` by digest variable; the Jira connector's
+  file `docker-compose.jira.yml` names `jira-connector` the same way; see [../connect-a-site.md](../connect-a-site.md).
 - **Roll back:** put the previous digest back (the earlier run's summary has it), check out its commit, pull, `up -d
   --no-build`. Database migrations only move forward: before a rollback across a release that migrated the database,
   restore the backup taken before it.

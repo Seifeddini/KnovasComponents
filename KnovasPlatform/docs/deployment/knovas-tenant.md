@@ -955,3 +955,74 @@ checkout. Then 5.5 with the new digests.
 KnowledgeBase); within a minute the component page shows a dry run of only the mappings that file concerns, then, with
 the switch on and nothing to decide, an apply marked «automatisch», and the site page shows the new commit.
 
+
+### 5.7 Protocol 2 at the site: write back to the brain repository, and the Jira connector (FEAT-2026-11-10-write-back)
+
+Generic reference: [../connect-a-site.md](../connect-a-site.md) § 6. Everything below is off until you set it; each
+part can be turned back by removing its line and `up -d` again.
+
+**0. Images.** One release run from the branch with `images=all` (4.1): it now builds four images. Note the four lines
+of its summary (`DOCBRIDGE_WEB_IMAGE=…`, `KNOVAS_LINK_DIGEST=…`, `SYNC_COMPONENT_DIGEST=…`, `JIRA_CONNECTOR_DIGEST=…`).
+The first run that pushes `jira-connector` needs that package created private first (release-images.md, "Once per
+repository", step 4, with `jira-connector` only).
+
+**1. The Platform** (4.11 with the new platform line; the image carries migration 0025, applied at start). Add to
+`knovas.env` before `./scripts/setup.sh`:
+
+```bash
+BUILDER_PROTOCOL_V2=true
+```
+
+**2. The site** (machine), new digests and the protocol 2 switches:
+
+```bash
+cd ~/knovas-site
+cp ~/knovas-platform/KnovasConnectorJira/deploy/docker-compose.jira.yml .   # from the checkout at the release commit
+nano .env      # the three digests from step 0, and:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.override.yml:docker-compose.jira.yml
+#   JIRA_CONNECTOR_IMAGE=ghcr.io/seifeddini/jira-connector
+#   JIRA_CONNECTOR_DIGEST=sha256:<from step 0>
+nano docker-compose.override.yml   # under sync-component add:  environment: {SYNC_PROTOCOL_V2: "1"}
+nano knovas-sources.env            # the Jira source's two lines (step 4), when you have the token
+docker compose config --images
+docker compose pull && docker compose up -d
+docker compose ps
+docker compose logs --tail 20 knovas-link jira-connector sync-component
+```
+
+You should see four images by digest, four containers running, and in the logs `site.registered` (jira-connector) and
+`registered with Knovas Link` (sync-component); Link logs `v2.site_declared, connectors 2` once secure-api takes site
+declarations (the KnowledgeBase release with protocol 2; before that `v2.site_not_declared`, harmless). `docker-compose.jira.yml`
+already sets `LINK_PROTOCOL_V2=true` and `LINK_COMPONENTS=jira-connector` on knovas-link. **Stop if** jira-connector
+logs `Knovas Link refused this component's token`: Link was not recreated with `LINK_COMPONENTS` (`docker compose up -d
+--force-recreate knovas-link jira-connector`).
+
+**3. The brain repository's source on protocol 2 (C-5).** The source's write token needs **Contents: write** and the
+target branch's protection must let it push (5.4). Builder → Betrieb → Freigaben: settle every open proposal of that
+source first. Then Quellen & Zuordnung → the source → «Änderungen dürfen zurückgeschrieben werden» on, «Aktionen der
+Komponente»: **direkt nach der Freigabe in Knovas** → Prüfen & Veröffentlichen. Reading, «bei neuen Commits» and
+automatic apply stay as in 5.6.
+
+**4. The Jira source.** Builder → Quellen & Zuordnung → Quelle hinzufügen → «Von einem Connector am Standort
+angemeldet»: kind `jira`, the site's component `jira-connector`, key (for example `jira-pilot`), settings `site`
+`https://<site>.atlassian.net` and `project` `<project key>` → create. In `~/knovas-site/knovas-sources.env`:
+
+```bash
+SYNC_CREDENTIAL_JIRA_PILOT=<account email>:<API token>
+SYNC_CREDENTIAL_JIRA_PILOT_HOST=<site>.atlassian.net
+```
+
+then `docker compose up -d --force-recreate jira-connector`, Prüfen & Veröffentlichen, «Verbindung prüfen» on the
+component: `source.ok`. To write back: «Änderungen dürfen zurückgeschrieben werden» on the source, publish again.
+
+**5. The record stream for the Brain mapping** (machine; the KnowledgeBase side's `brain_mapping_local.sh jira` reads
+this file):
+
+```bash
+cd ~/knovas-site
+docker compose run --rm -T jira-connector dump-stream --source jira-pilot --out - > jira-pilot.jsonl
+```
+
+You should see `dump-stream: <n> records, generation g-…, <n+2> messages` and exit code 0. **Stop if** it prints a
+code instead (`jira.unauthorized`: the token; `jira.no_credential`: the two lines; `dump.unknown_source`: the source is
+not published on this component yet).

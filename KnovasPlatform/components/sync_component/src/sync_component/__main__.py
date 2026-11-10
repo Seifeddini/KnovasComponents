@@ -89,6 +89,12 @@ def register(client, *, once: bool = False, sleep=time.sleep, declaration=None) 
         sleep(REGISTER_RETRY_SECONDS)
 
 
+def protocol_v2(environ=os.environ) -> bool:
+    """SYNC_PROTOCOL_V2 (1, true, yes or on): the GitHub connector's write path of protocol 2.0 besides 1.x. Reading,
+    fetch and 1.x write jobs stay as they are (FEAT-2026-11-10-write-back C-5, C-Q3)."""
+    return str(environ.get("SYNC_PROTOCOL_V2") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def link_main(args: argparse.Namespace, environ=os.environ) -> int:
     """Link mode: everything through Knovas Link's local API; no enrolment, no certificate."""
     from sync_component.jobs import JOB_CAPABILITIES, WRITABLE_KINDS, JobWorker
@@ -109,7 +115,7 @@ def link_main(args: argparse.Namespace, environ=os.environ) -> int:
         return 2
     client = LinkClient(url, name, token)
     data = Path(environ.get("SYNC_DATA_DIR") or "/data")
-    v2 = str(environ.get("SYNC_PROTOCOL_V2") or "").strip().lower() in ("1", "true", "yes", "on")
+    v2 = protocol_v2(environ)
     engine = RunnerEngine(data / "sources", {"BRAIN_API_URL": url + "/local/v1/brain", "BRAIN_LOCAL_TOKEN": token,
                                              "BRAIN_COMPONENT_NAME": name}, keep_stream=True)
     agent = Agent(client, engine, writable_kinds=WRITABLE_KINDS, capabilities=CAPABILITIES + JOB_CAPABILITIES)

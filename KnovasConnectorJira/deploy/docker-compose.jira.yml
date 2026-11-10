@@ -1,0 +1,48 @@
+# The Jira connector at a company's site, beside Knovas Link (connector protocol 2.0; KnovasConnectorJira/README.md,
+# "At a site"). Added to the Builder's install package, never instead of it: copy this file next to the package's
+# docker-compose.yml and name it in the site's .env, with the image released by the release-images workflow:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.override.yml:docker-compose.jira.yml
+#   JIRA_CONNECTOR_IMAGE=ghcr.io/<owner, lower case>/jira-connector
+#   JIRA_CONNECTOR_DIGEST=sha256:<from the release run's summary>
+#
+# (without a docker-compose.override.yml: COMPOSE_FILE=docker-compose.yml:docker-compose.jira.yml). Then
+# `docker compose up -d`. What it changes:
+#   - knovas-link speaks connector protocol 2.0 (LINK_PROTOCOL_V2) and writes a token for the component
+#     jira-connector (LINK_COMPONENTS), before any source names it, so the connector can register and declare itself;
+#   - jira-connector runs as its own component: it reaches Link on the internal network, Jira on the egress network,
+#     reads only its own folder of Link's token volume, holds no Knovas certificate or token, and reads the sources'
+#     credentials from knovas-sources.env only (SYNC_CREDENTIAL_<KEY> and SYNC_CREDENTIAL_<KEY>_HOST). Its site and
+#     project come from the Builder, through Link.
+# A source's record stream for the Brain mapping, from the same settings and credential:
+#   docker compose run --rm -T jira-connector dump-stream --source <source key> --out - > <source key>.jsonl
+services:
+  knovas-link:
+    environment:
+      LINK_PROTOCOL_V2: "true"
+      LINK_COMPONENTS: jira-connector
+  jira-connector:
+    image: ${JIRA_CONNECTOR_IMAGE:?JIRA_CONNECTOR_IMAGE in .env}@${JIRA_CONNECTOR_DIGEST:?JIRA_CONNECTOR_DIGEST in .env}
+    restart: unless-stopped
+    env_file:
+      - knovas-sources.env
+    environment:
+      SYNC_LINK_URL: http://knovas-link:8460
+      SYNC_NAME: jira-connector
+    volumes:
+      - type: volume
+        source: link-tokens
+        target: /link
+        read_only: true
+        volume:
+          subpath: jira-connector
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - knovas-site
+      - knovas-egress
+    depends_on:
+      - knovas-link

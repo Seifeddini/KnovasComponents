@@ -1,4 +1,6 @@
-# The Jira connector's dependencies as a connector image would install them (pyproject.toml has the ranges); the
-# connector kit comes from ../KnovasConnectorKit (tests put its src/ on the path).
--r ../KnovasConnectorKit/requirements.txt
+# The Jira connector's dependencies as its image installs them (pyproject.toml has the ranges). The image is built from
+# this folder alone, so the connector kit's own pins (../KnovasConnectorKit/requirements.txt) are repeated here, and
+# tests/test_image.py fails when they drift; the kit itself is the copy under vendor/.
+jsonschema==4.26.0
+cryptography>=42,<50
 requests==2.32.3

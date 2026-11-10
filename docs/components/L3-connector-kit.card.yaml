@@ -14,6 +14,7 @@ source_paths:
 - KnovasConnectorKit/pyproject.toml
 - KnovasConnectorKit/requirements.txt
 - KnovasPlatform/components/sync_component/src/knovas_connector_kit
+- KnovasConnectorJira/vendor/knovas_connector_kit
 purpose: The base every connector of protocol v2 is built on, and the conformance suite a connector package passes
   before its declaration may name a property, so that a new kind of source is one connector package and no change to
   the Brain, Knovas Link, the runner or the Platform.
@@ -224,3 +225,6 @@ review:
     pass; one that stages twice, stages a stale item or ignores the staging or site binding now fails). A person
     confirms whether that is compatible (nothing of v2 was released; the example, GitHub and Jira connectors pass).
     Extended again by the amendment D-24 - the grouping checks of preview_equals_receipt (grouping item).
+- at: /source_paths
+  why: Added 2026-11-10 for FEAT-2026-11-10-write-back J-4 - the copy under KnovasConnectorJira/vendor/ for the Jira
+    connector's image, byte for byte (KnovasConnectorJira/tests/test_image.py), as the sync component's copy.

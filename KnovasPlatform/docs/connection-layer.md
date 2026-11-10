@@ -30,6 +30,7 @@ entry point; it links to the pages that own each detail and repeats none of them
 |---|---|---|---|---|
 | Knovas Link | the site | enrolment, the site's key and certificate, heartbeat, the components' Brain calls on an allow-list, the work channel (jobs) and probes, its local API | [`KnovasLink/`](../../KnovasLink/) | [Link README](../../KnovasLink/README.md); local API: [`KnovasLink/contracts/local-api.md`](../../KnovasLink/contracts/local-api.md) |
 | Sync component, link mode | the site, beside Link | reads GitHub, HTTP/JSON and file shares; runs brain-runner; answers `fetch` (a GitHub blob) and `write` (a pull request) jobs | [`components/sync_component/`](../components/sync_component/) | [sync component README](../components/sync_component/README.md) |
+| Jira connector (protocol 2, draft) | the site, beside Link, as its own component (kind `jira`) | registers its declaration; answers `preview`, `act`, `reread` for a Jira project's issues; `dump-stream` writes a source's record stream for a mapping run; it runs no mappings itself | [`KnovasConnectorJira/`](../../KnovasConnectorJira/) | [Jira connector README](../../KnovasConnectorJira/README.md); site file `deploy/docker-compose.jira.yml` |
 | Brain Builder: sites | the Platform | the site page, its install package, «Token erneuern», the certificate step, «Jetzt prüfen»; per source «Quellen und Abgleich»: the last synced commit, the last run's counts, the next check, the switch «automatisch anwenden» (KG-2) | `components/docbridge_integration/src/builder/sites.py`, `builder/components.py` (`sync_rows`, `auto_apply_of`) | [connect-a-site.md](connect-a-site.md) §§ 1–2, 5 |
 | Brain Builder: a component's schedule | the Platform | manual, regularly (from 1 minute), in a window, or «bei neuen Commits» (poll every 15–3600 s); each component behind Link has its own | `builder/components.py` (`check_schedule`), `builder/protocol.py` (`components_of`) | [connect-a-site.md](connect-a-site.md) § 5 |
 | Brain Builder: sources and switches | the Platform | per source «Agenten dürfen Originale abrufen» and «Änderungen dürfen zurückgeschrieben werden», both off until switched on and published; with `BUILDER_PROTOCOL_V2` (off) also a source of a kind a connector at a site declared and the Builder has no form for, created with the generic settings form (names and values, never a credential) and served to the site as entered (SPEC-write-back-13) | `builder/sources.py`, `builder/source_edits.py`, `builder/protocol_v2.py` | [connect-a-site.md](connect-a-site.md) § 3 |
@@ -79,6 +80,9 @@ network is closed (`builder/sites.py`).
 | A component's schedule «Bei neuen Commits» | it asks each GitHub source for its head every `poll_seconds` and plans only the mappings new commits concern (KG-2) | manual |
 | Source switch «Automatisch anwenden, wenn nichts zur Freigabe ansteht» (whoever manages sites) | the component applies a scheduled plan of that source right after it is made, only when nothing in it needs a person; a guard hold, drift or retire entry still waits | off |
 | `BUILDER_PROTOCOL_V2` | the Builder decides on the connectors' protocol 2 declarations: writing back and the staging per source where a connector declared actions and passed the conformance checks, change sets in «Freigaben», and a source of a kind the Builder has no form for, with the generic settings form, where a connector declared that kind and passed the read checks | off |
+| `LINK_PROTOCOL_V2` (Link) | Link takes connectors' declarations, declares its site to the Brain, checks permits and routes the jobs of protocol 2 | off |
+| `LINK_COMPONENTS` (Link) | further component names Link writes a token for from its start (a connector of its own kind, e.g. `jira-connector`) | none |
+| `SYNC_PROTOCOL_V2` (sync component) | the GitHub connector's write path of protocol 2 besides 1.x; reading, `fetch` and 1.x write jobs stay ([connect-a-site.md](connect-a-site.md) § 6.2) | off |
 | `BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT` | the Platform requires the terminator's fingerprint on connector calls | `true` |
 | `BUILDER_CONNECTOR_ISSUE_CERTIFICATES` | the Platform asks the Brain to sign a component's certificate at enrolment. Where the Brain cannot sign, set `false`: Knovas Link then waits for a certificate an admin signed | `true` |
 | `BUILDER_CONNECTOR_CLIENT_CA` | the client CA Link learns at enrolment and a recorded site certificate must chain to | empty |
@@ -93,6 +97,10 @@ network is closed (`builder/sites.py`).
   Commits», the switch «automatisch anwenden» per source, each component's own schedule and pause behind Link, and the
   last synced commit and run per source on «Verbinden» and the site page. None of it runs anywhere until an image
   release carries it.
+- **Protocol 2 at a site (2026-11-10, J-4, C-5):** the Jira connector has its image (`jira-connector`, release
+  workflow) and a compose file beside the site package; Link writes its token from its start (`LINK_COMPONENTS`); the
+  sync component serves a GitHub source on protocol 2 with `SYNC_PROTOCOL_V2` while its reads stay 1.x
+  ([connect-a-site.md](connect-a-site.md) § 6).
 - **No image is released yet.** GitHub offers the release workflow only once its file is on the default branch
   ([release-images.md](deployment/release-images.md), "Once per repository").
 - **Images behind Link need brain-runner 0.3.2 or later.** The Platform's and the sync component's Dockerfiles pin

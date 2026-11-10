@@ -44,6 +44,16 @@ def test_settings_come_from_the_environment_only():
     assert s.test_only_shared_certificate is False
 
 
+def test_link_components_adds_names_link_writes_a_token_for_from_its_start():
+    base = {"LINK_PLATFORM_URL": "https://p.test"}
+    s = Settings.from_env(dict(base, LINK_COMPONENTS=" jira-connector, sync-component,records_2 ,"))
+    assert s.default_components == ("sync-component", "knovas-connector", "jira-connector", "records_2")
+    assert Settings.from_env(dict(base, LINK_COMPONENTS="")).default_components == ("sync-component", "knovas-connector")
+    for bad in ("../etc", "jira connector", "a/b", ".hidden", ",".join(f"c{n}" for n in range(21))):
+        with pytest.raises(StartupError, match="settings.link_components"):
+            Settings.from_env(dict(base, LINK_COMPONENTS=bad))
+
+
 def test_settings_refuse_a_missing_platform_url():
     with pytest.raises(StartupError, match="settings.link_platform_url"):
         Settings.from_env({})

@@ -20,6 +20,8 @@ Stand: MVP des Verbindungsteils (MVP-23 bis MVP-28). Wie Knovas Link sein Zertif
        image: ghcr.io/<owner>/sync-component@${SYNC_COMPONENT_DIGEST:?SYNC_COMPONENT_DIGEST in .env}
    ```
 
+   Einen Jira-Connector (Protokoll 2) baut derselbe Workflow als `jira-connector` (`JIRA_CONNECTOR_DIGEST=sha256:…`); er kommt mit einer eigenen Datei neben das Paket (Abschnitt 6).
+
    Der Rechner meldet sich mit einem eigenen, widerrufbaren Lese-Token bei GHCR an (`docker login ghcr.io`, Token (classic) nur mit `read:packages`). Ein mit `docker load` kopiertes Abbild hat keinen Digest und startet das Paket nicht.
 
    **brain-runner 0.3.2 oder neuer:** Hinter Knovas Link braucht die Sync-Komponente diese Version; die Dockerfiles pinnen sie seit dem 10. November 2026 (`BRAIN_RUNNER_GIT_REF`), und der Bau bricht bei einer anderen ab. Mit 0.3.1 plant «bei neuen Commits» bei jedem neuen Commit alle Zuordnungen; mit einer älteren Version (etwa 0.1.1) kann die Komponente hinter Knovas Link weder Probeläufe noch Anwenden noch Schreibaufträge ausführen. Der Release-Lauf nennt die Version im Schritt «Build and check the image» (`brain-runner …`). Steht dort eine ältere Version, das Abbild nicht verwenden (README der Sync-Komponente, «Release coupling»).
@@ -129,6 +131,94 @@ Dann wie immer: **Prüfen & Veröffentlichen** (Probelauf, Freigabe, Veröffentl
 - **«Automatisch anwenden, wenn nichts zur Freigabe ansteht»** (Seite des Standorts › Quellen und Abgleich, je Quelle; Berechtigung «Zugänge verwalten»; Standard aus): Ein geplanter Lauf wird gleich angewendet, nur wenn nichts darin auf eine Person wartet. Was der Löschschutz anhält, Abweichungen im Brain, Einträge zum Stilllegen, Freigaben von Zuordnungen und angehaltene oder gemeldete Dokumente bleiben bei der Komponente unter «Zurückgehaltene Pläne» und «Jetzt anwenden». Ein Probelauf, den jemand startet, wird nie von selbst angewendet. Jede Änderung steht als Ereignis bei der Komponente und im Zugriffsprotokoll.
 - **Seite des Standorts › Quellen und Abgleich** (und die Liste «Standorte» unter «Verbinden»): je Quelle der zuletzt abgeglichene Commit (kurz, mit Link auf GitHub), wann, was der letzte Lauf schrieb (nur Zahlen), die nächste Prüfung, der Zeitplan und ob automatisch angewendet wird.
 - **Betrieb › Verbindung:** je Standort eine Karte. Grün nur, wenn in den letzten 10 Minuten eine Probe über den Arbeitskanal ging; was die Plattform nicht weiss, steht als «unbekannt» da. Darunter die letzten 24 Stunden und die Alarme, jeder mit dem, was zu tun ist. Die Karte liest sich alle 30 Sekunden neu.
+
+## 6. Protokoll 2 am Standort (Entwurf): Jira-Connector und Zurückschreiben nach GitHub
+
+Drei Schalter, alle aus, bis jemand sie setzt: `BUILDER_PROTOCOL_V2=true` in der Plattform (der Builder nimmt die
+Anmeldungen der Connectoren, bietet an, was sie angemeldet haben, und zeigt Änderungssätze in «Freigaben»),
+`LINK_PROTOCOL_V2=true` bei Knovas Link (es nimmt die Anmeldungen, meldet den Standort beim Brain an, prüft Freigaben
+und leitet die Aufträge `preview`, `act`, `reread` weiter) und je Komponente ihr eigener Schalter. Knovas Link bekommt
+seine Schalter über eine Datei neben dem Paket, nie in `knovas-link.env` (das Paket überschreibt sie beim nächsten
+Herunterladen).
+
+### 6.1 Den Jira-Connector hinzufügen
+
+1. **Abbild:** `jira-connector` aus dem Release-Lauf (Abschnitt 1), Digest notieren.
+2. **Datei neben das Paket:** `KnovasConnectorJira/deploy/docker-compose.jira.yml` in den Ordner des Standorts kopieren
+   und in der `.env` des Standorts ergänzen (ohne eigene `docker-compose.override.yml` den mittleren Namen weglassen):
+
+   ```bash
+   COMPOSE_FILE=docker-compose.yml:docker-compose.override.yml:docker-compose.jira.yml
+   JIRA_CONNECTOR_IMAGE=ghcr.io/<owner>/jira-connector
+   JIRA_CONNECTOR_DIGEST=sha256:<aus dem Release-Lauf>
+   ```
+
+   Die Datei setzt bei `knovas-link` `LINK_PROTOCOL_V2=true` und `LINK_COMPONENTS=jira-connector` (Knovas Link schreibt
+   das Token dieser Komponente gleich beim Start, noch bevor eine Quelle sie nennt) und startet `jira-connector` als
+   eigene Komponente: auf `knovas-site` zu Knovas Link, auf `knovas-egress` zu Jira, nur ihr eigener Ordner des
+   Token-Volumes, die Zugänge nur aus `knovas-sources.env`. `docker compose config --images` zeigt die drei Abbilder,
+   dann `docker compose up -d`.
+3. **Im Builder** erscheint unter dem Standort die Komponente `jira-connector` (Art `jira`), sobald Knovas Link sie
+   im Herzschlag meldet. Die Quelle legt man wie in Abschnitt 3 an («Von einem Connector am Standort angemeldet»,
+   Art `jira`, Einstellungen `site` und `project`), trägt die zwei Zeilen in `knovas-sources.env` ein,
+   `docker compose up -d --force-recreate jira-connector`, dann Prüfen & Veröffentlichen und «Verbindung prüfen»: die
+   Komponente meldet je Quelle `source.ok` oder den Grund (etwa `jira.unauthorized`, `jira.no_credential`,
+   `jira.bad_settings`).
+4. **Zurückschreiben:** «Änderungen dürfen zurückgeschrieben werden» auf der Quelle, Prüfen & Veröffentlichen; die
+   Aktionen (`set_assignee`, `set_due_date`, `transition_issue`) erscheinen als Änderungssätze unter «Betrieb ›
+   Freigaben» (Abschnitt 5). Das Jira-Konto braucht «Browse projects», «Edit issues», «Assign issues» und «Transition
+   issues».
+
+**Den Datenstrom einer Quelle fürs Brain holen:** Der Jira-Connector liest selbst nichts ins Brain; die Zuordnung der
+Datensätze läuft ausserhalb mit dem brain-runner. Den vollständigen Datenstrom einer Quelle schreibt, mit denselben
+Einstellungen (vom Builder über Knovas Link) und demselben Zugang:
+
+```bash
+docker compose run --rm -T jira-connector dump-stream --source <Schlüssel der Quelle> --out - > <Schlüssel>.jsonl
+```
+
+Eine Zeile je Nachricht: je Vorgang ein `record`, dann `generation` (vollständig) und `state`. Exit-Code 0 bei Erfolg;
+sonst nennt die eine Zeile auf dem Fehlerkanal den Code, und es wird nichts geschrieben
+(`KnovasConnectorJira/README.md`, «dump-stream»).
+
+### 6.2 Eine GitHub-Quelle auf Protokoll 2 umstellen (Zurückschreiben direkt oder als Pull Request)
+
+Was sich am Standort ändert:
+
+- In derselben Art Datei neben dem Paket (oder in `docker-compose.override.yml`):
+
+  ```yaml
+  services:
+    knovas-link:
+      environment:
+        LINK_PROTOCOL_V2: "true"
+    sync-component:
+      environment:
+        SYNC_PROTOCOL_V2: "1"
+  ```
+
+  dann `docker compose up -d`. Die Sync-Komponente meldet sich danach zusätzlich mit der Anmeldung des
+  GitHub-Connectors (Aktion `set_front_matter`, Schreibweisen `direct` und `native_review`) und den Aufträgen
+  `preview`, `act`, `reread`, `review_outcome` an.
+- **Der Zugang** der Quelle, die zurückschreibt: «Contents: Read and write»; bei «direkt nach der Freigabe in Knovas»
+  muss der Schutz des Ziel-Branches das Pushen mit diesem Token erlauben; «Pull requests: Read and write» nur bei «als
+  Vorschlag zur Prüfung in der Quelle».
+- **Vor dem Umstellen** alle offenen Vorschläge dieser Quelle unter «Betrieb › Freigaben» annehmen oder ablehnen.
+  Dann im Builder (Plattform mit `BUILDER_PROTOCOL_V2=true`) auf der Quelle «Änderungen dürfen zurückgeschrieben
+  werden» und unter «Aktionen der Komponente» die Schreibweise wählen (Standard «direkt nach der Freigabe in Knovas»),
+  Prüfen & Veröffentlichen. Änderungen kommen danach als Änderungssätze in «Freigaben»; geschrieben wird mit der
+  Schreibweise der Quelle: ein Commit auf dem Branch mit `Knovas-Permit: <id>` in der Nachricht, oder ein Pull Request.
+
+Was bleibt, wie es ist:
+
+- **Das Lesen:** Probeläufe, Anwenden, «Bei neuen Commits», «Automatisch anwenden» und der Abgleichstand je Quelle
+  laufen wie bisher über den brain-runner; der GitHub-Connector meldet keinen Datenstrom an.
+- **Originale abrufen** (`fetch`) und die Schreibaufträge von Protokoll 1 (Pull Requests aus angenommenen
+  Vorschlägen) beantwortet die Komponente weiter, für jede Quelle, die nicht umgestellt ist.
+- Name, Token, Daten-Volume und Zeitplan der Komponente, das Zertifikat von Knovas Link.
+
+**Zurück:** die zwei Zeilen entfernen und `docker compose up -d`; die Komponente meldet sich ohne die Anmeldung von
+Protokoll 2, und der Builder bietet dafür nichts mehr an.
 
 ## Wenn etwas rot ist
 

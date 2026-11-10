@@ -17,6 +17,10 @@ Optional, with defaults that the install package keeps:
                         takes only a certificate whose OU Semantix-Customer-<id> names it
     LINK_CLIENT_CA      a file with Knovas's client CA (PEM), when the Platform's enrolment answer has none:
                         install-certificate takes only a certificate it signed
+    LINK_COMPONENTS     further component names Link writes a token for from its start, beside sync-component and
+                        knovas-connector, comma separated (e.g. jira-connector): a connector of its own kind registers
+                        and declares itself before any source names it. Each name is also a folder name (letters,
+                        digits, - and _); any other value stops Link (settings.link_components)
 
 Connector protocol 2.0 (draft, BET-2026-11-write-back WB-10/WB-11; KnovasPlatform/docs/connector-protocol-v2.md):
 
@@ -32,6 +36,7 @@ Only to test on one's own machine, never for a company (DEC-0056; see README):
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional
@@ -40,6 +45,17 @@ from knovas_link.errors import StartupError
 
 #: The component names Link writes a token for even before the Platform's configuration names any.
 DEFAULT_COMPONENTS = ("sync-component", "knovas-connector")
+#: A component name in LINK_COMPONENTS: the registry's own rule (registry.NAME), since it is a folder name too.
+_COMPONENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
+MAX_EXTRA_COMPONENTS = 20
+
+
+def _components(raw: Optional[str]) -> tuple:
+    """DEFAULT_COMPONENTS and the names LINK_COMPONENTS adds, each once, in that order."""
+    names = [n.strip() for n in str(raw or "").split(",") if n.strip()]
+    if len(names) > MAX_EXTRA_COMPONENTS or not all(_COMPONENT_NAME.match(n) for n in names):
+        raise StartupError("settings.link_components")
+    return tuple(dict.fromkeys(DEFAULT_COMPONENTS + tuple(names)))
 
 
 def _flag(value: Optional[str]) -> bool:
@@ -99,4 +115,5 @@ class Settings:
             brain_cert=environ.get("LINK_BRAIN_CERT") or None,
             brain_key=environ.get("LINK_BRAIN_KEY") or None,
             protocol_v2=_flag(environ.get("LINK_PROTOCOL_V2")),
+            default_components=_components(environ.get("LINK_COMPONENTS")),
         )

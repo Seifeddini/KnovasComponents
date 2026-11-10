@@ -76,24 +76,29 @@ components:
       - KnovasConnectorKit/pyproject.toml
       - KnovasConnectorKit/requirements.txt
       - KnovasPlatform/components/sync_component/src/knovas_connector_kit
+      - KnovasConnectorJira/vendor/knovas_connector_kit
     why: >-
       KnovasConnectorKit/ is one installable package (knovas-connector-kit) that every connector of protocol v2 is
       built on, with the conformance suite; it imports nothing from the rest of the repository. Its copy of the v2
       contracts (src/knovas_connector_kit/contracts/v2) is part of it, as Link's contract files are part of Link. Its
       tests, the mutant connectors and the README are evidence and documentation, not the component. The copy under
       sync_component/src/ is the kit too (byte for byte, tested): the sync component's image is built from its own
-      folder.
+      folder; so is the copy under KnovasConnectorJira/vendor/, for the Jira connector's image (J-4).
   L3-JIRA-CONNECTOR:
     card: L3-jira-connector.card.yaml
     paths:
       - KnovasConnectorJira/src/knovas_connector_jira
       - KnovasConnectorJira/pyproject.toml
       - KnovasConnectorJira/requirements.txt
+      - KnovasConnectorJira/Dockerfile
+      - KnovasConnectorJira/deploy/docker-compose.jira.yml
     why: >-
       KnovasConnectorJira/ is one installable package (knovas-connector-jira), a connector of protocol v2 on the
-      connector kit; it imports nothing from the rest of the repository but the kit. Its tests, the fake Jira, the
-      conformance harness and the README are evidence and documentation, not the component. Nothing ships it yet (no
-      image, deployment or Builder offer; FEAT-2026-11-10-write-back J-4).
+      connector kit; it imports nothing from the rest of the repository but the kit. Its image (Dockerfile) and the
+      site file that runs it beside Knovas Link are its own (FEAT-2026-11-10-write-back J-4). vendor/ is a
+      byte-for-byte copy of the kit's code for the image (its own folder is the build context) and belongs to the
+      kit, as the sync component's copy does; the tests, the fakes, the conformance harness and the README are
+      evidence and documentation, not the component.
   L3-SYNC-COMPONENT:
     card: L3-sync-component.card.yaml
     paths:

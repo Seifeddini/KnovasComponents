@@ -112,6 +112,12 @@ answers `preview`, `act`, `reread` and `review_outcome` (`src/sync_component/git
 
 The kit's conformance suite runs against it in `docbridge_integration/tests/test_sync_component_github_v2.py`.
 
+**Switching a GitHub source over at a site** (C-5): `SYNC_PROTOCOL_V2` takes `1`, `true`, `yes` or `on`
+(`__main__.protocol_v2`). The registration then carries the declaration and the v2 job kinds besides everything it
+carried before: the reading capabilities, `fetch:github`, `write:github` and the 1.x jobs, so dry runs, applies,
+«bei neuen Commits», originals and 1.x pull requests go on as before. What changes at the site and what stays:
+[connect-a-site.md](../../docs/connect-a-site.md) § 6.2.
+
 ## Getting the image to a company
 
 **Behind Knovas Link:** the release workflow builds, signs and pushes the image to GHCR, and the site's install package names it by digest (`SYNC_COMPONENT_DIGEST`): [release-images.md](../../docs/deployment/release-images.md). A copied image (`docker save` / `docker load`) has no digest and cannot start the package.

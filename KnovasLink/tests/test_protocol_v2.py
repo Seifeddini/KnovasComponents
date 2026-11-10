@@ -165,6 +165,29 @@ def test_link_declares_its_site_with_each_connectors_declaration_and_its_sources
     assert site["connectors"][0]["sources"] == [SOURCE], "only the assigned sources whose kind the connector declared"
 
 
+def test_a_connector_named_in_link_components_registers_and_declares_itself_before_any_source_names_it(world):
+    """LINK_COMPONENTS (FEAT-2026-11-10-write-back J-4): Link writes the token of a connector of its own kind from its
+    start, so the connector registers with its declaration and reaches the Platform's heartbeat, where the Builder
+    can offer its kind, before the Platform's configuration names a source for it."""
+    from knovas_link.settings import DEFAULT_COMPONENTS
+
+    brain = Brain(world)
+    name = "own-kind-connector"
+    assert not any(s.get("component") == name for s in world.platform.config["sources"])
+    with world.running(loops=("channel",), protocol_v2=True,
+                       default_components=DEFAULT_COMPONENTS + (name,)) as (client, link):
+        assert (world.tokens_dir / name / "token").is_file()
+        declaration = ExampleRecordsConnector(FakeRecordSource()).declaration()
+        assert register(world, client, name, kind="own_kind", capabilities=["source_checks"],
+                        job_kinds=["probe", "preview", "act", "reread"], declaration=declaration) == {"sources": []}
+        beat = client.post("/local/v1/heartbeat", headers=world.headers(name), json={"state": "online"})
+        assert beat.status_code == 200, beat.text
+        [entry] = [c for c in link.site()["components"] if c["name"] == name]
+        assert (entry["kind"], entry["state"], entry["declaration"]) == ("own_kind", "online", declaration)
+        site = eventually(lambda: next((s for s in reversed(brain.sites) if s["connectors"]), None))
+        assert site["connectors"] == [{"declaration": declaration, "sources": []}]
+
+
 def test_link_pins_the_brains_permit_keys_on_its_volume(world, v2):
     client, link, brain, connector, src = v2
     eventually(lambda: brain.signer.kid in link.v2.ring.keys)

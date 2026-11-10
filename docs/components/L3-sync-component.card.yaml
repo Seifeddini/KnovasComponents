@@ -613,6 +613,17 @@ contract:
         checks:
         - test_native_review_opens_a_pull_request_and_follows_its_outcome
         - test_unstage_is_not_offered_in_v1
+    - id: L3-SYNC-COMPONENT/job.v2/P-4
+      statement: SYNC_PROTOCOL_V2 (1, true, yes or on) adds the GitHub connector's declaration (no stream) and the v2
+        job kinds to the registration and keeps everything it carried before - the reading capabilities (dry runs,
+        applies, «bei neuen Commits»), fetch:github, write:github and the 1.x jobs - so a source switched over at a
+        site keeps being read as before (C-5, the site's half); without it nothing of v2 is registered.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_github_v2.py
+        checks:
+        - test_sync_protocol_v2_adds_the_write_path_and_keeps_reading_fetch_and_the_1x_jobs
     limits:
     - id: L3-SYNC-COMPONENT/job.v2/L-1
       statement: One file per step (grouping none); reading stays protocol 1.x's (no stream declared); no inverse.
@@ -735,3 +746,6 @@ review:
     same day after the independent verification of Phase A (L4) - a repeat's receipt is read at the commit of its
     permit, found in the file's whole history (the search failing explicitly past 10 000 commits) instead of the last
     50; a person confirms it is compatible.
+- at: L3-SYNC-COMPONENT/job.v2/P-4
+  why: New 2026-11-10 for FEAT-2026-11-10-write-back C-5 (the site's half) - what SYNC_PROTOCOL_V2 adds and keeps,
+    pinned; the switch-over at a site is in connect-a-site.md section 6.2. A person confirms it as an addition.

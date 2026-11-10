@@ -43,6 +43,8 @@ Settings come from the environment only; the install package's `knovas-link.env`
 | `LINK_DATA_DIR`, `LINK_TOKENS_DIR` | `/data` and `/link` (the two volumes) |
 | `LINK_PORT` | `8460` |
 | `LINK_HEARTBEAT_SECONDS`, `LINK_PROBE_SECONDS` | `30` and `300` |
+| `LINK_COMPONENTS` | further component names Link writes a token for from its start, comma separated (e.g. `jira-connector`): a connector of its own kind can register and declare itself before any source names it. Letters, digits, `-` and `_`; any other value stops Link (`settings.link_components`) |
+| `LINK_PROTOCOL_V2` | `true`: connector protocol 2.0 (draft): Link takes connectors' declarations, declares its site, checks permits and routes `preview`, `act`, `reread`, `review_outcome`, `unstage`; off by default |
 
 Volumes and network, as the Builder's install package lays them out (MVP-23,
 `KnovasPlatform/components/docbridge_integration/src/builder/sites.py`):
@@ -50,7 +52,8 @@ Volumes and network, as the Builder's install package lays them out (MVP-23,
 - **`/data`**: the site's key, certificate, control token and the last configuration and package. The key is made
   here at the first start and never leaves; every file is readable by Link's user (10460) only.
 - **`/link`**: Link writes one random token per component to `/link/<component>/token`: for `sync-component` and
-  `knovas-connector` always, and for every component the Platform's configuration names. A token file already there is
+  `knovas-connector` always, for every name in `LINK_COMPONENTS`, and for every component the Platform's configuration
+  names. A token file already there is
   kept, so a restart does not lock components out. Each component mounts **only its own folder**, at `/link`, and
   reads `/link/token`.
 - **Network:** the local API listens on 8460 on the site's internal network `knovas-site` (`internal: true`) with **no

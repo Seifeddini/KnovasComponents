@@ -306,3 +306,43 @@ def test_the_vendored_kit_is_the_kit_byte_for_byte():
     assert files(copy) == files(kit)
     for rel in files(kit):
         assert (copy / rel).read_bytes() == (kit / rel).read_bytes(), rel
+
+
+def test_sync_protocol_v2_adds_the_write_path_and_keeps_reading_fetch_and_the_1x_jobs(tmp_path):
+    """C-5, the site's half (FEAT-2026-11-10-write-back; BET-2026-11-write-back WB-12): SYNC_PROTOCOL_V2=1 at the site
+    adds the GitHub connector's declaration and the v2 job kinds to the component's registration and keeps everything
+    it registered before: its reading capabilities (dry runs, applies, «bei neuen Commits»), fetch and the 1.x write
+    jobs. The declaration names no stream (C-Q3): reading stays protocol 1.x's. Without the switch, nothing of v2."""
+    from sync_component import __main__ as main_module
+    from sync_component.agent import CAPABILITIES
+    from sync_component.jobs import JOB_CAPABILITIES, JOB_KINDS, V2_JOB_KINDS, JobWorker
+
+    assert all(main_module.protocol_v2({"SYNC_PROTOCOL_V2": v}) for v in ("1", "true", " TRUE ", "yes", "on"))
+    assert not any(main_module.protocol_v2(env) for env in ({}, {"SYNC_PROTOCOL_V2": "0"}, {"SYNC_PROTOCOL_V2": "no"}))
+
+    class Client:
+        def __init__(self):
+            self.registered = []
+
+        def register(self, capabilities, job_kinds, declaration=None):
+            self.registered.append((list(capabilities), list(job_kinds), declaration))
+            return []
+
+        def package(self):
+            return {"workspaces": []}
+
+    for on in (False, True):
+        client = Client()
+        worker = JobWorker(client, None, protocol_v2=on, data_dir=tmp_path / str(on))
+        try:
+            assert main_module.register(client, once=True,
+                                        declaration=worker.v2.declaration if worker.v2 is not None else None)
+        finally:
+            worker.close()
+        [(capabilities, job_kinds, declaration)] = client.registered
+        assert capabilities == CAPABILITIES + JOB_CAPABILITIES
+        assert {"dry_run", "apply", "poll_commits", "fetch:github", "write:github"} <= set(capabilities)
+        assert job_kinds == JOB_KINDS + (V2_JOB_KINDS if on else [])
+        assert (declaration is not None) is on
+        if on:
+            assert declaration["source_kind"] == "github" and declaration["streams"] == []

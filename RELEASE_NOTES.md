@@ -1,5 +1,34 @@
 # Unreleased
 
+## Zurückschreiben in die Quelle (Protokoll 2, Entwurf): Jira-Connector am Standort, GitHub auf Protokoll 2
+
+Alles hinter Schaltern, die aus sind, bis jemand sie setzt (FEAT-2026-11-10-write-back; BET-2026-11-write-back WB-07,
+WB-10, WB-11, WB-12).
+
+- **Connector-Protokoll 2.0** (`KnovasPlatform/docs/connector-protocol-v2.md`) und der **Connector-Bausatz**
+  (`KnovasConnectorKit/`, mit Konformitätsprüfung): ein Vertrag fürs Lesen und Schreiben jeder Quelle; geschrieben
+  wird nur nach einer genauen Vorschau, die eine Person freigegeben hat, mit einer Freigabe (Permit) je Schritt.
+- **Knovas Link 1.2 mit Protokoll 2** (`LINK_PROTOCOL_V2=true`): nimmt die Anmeldungen der Connectoren, meldet den
+  Standort beim Brain an, prüft jede Freigabe vor dem Connector, führt jede genau einmal aus und schreibt jede
+  Ablehnung ins Protokoll. Neu: `LINK_COMPONENTS` nennt weitere Komponenten, für die Knovas Link gleich beim Start ein
+  Token schreibt (etwa `jira-connector`).
+- **GitHub auf Protokoll 2** in der Sync-Komponente (`SYNC_PROTOCOL_V2=1`): Aktion `set_front_matter`, «direkt nach der
+  Freigabe in Knovas» (ein Commit auf dem Branch, mit `Knovas-Permit` in der Nachricht) oder als Pull Request. Lesen,
+  Originale und die Pull Requests von Protokoll 1 bleiben, wie sie sind. Umstellen am Standort:
+  `KnovasPlatform/docs/connect-a-site.md` Abschnitt 6.2.
+- **Jira-Connector** (`KnovasConnectorJira/`, neues Abbild `jira-connector`): liest ein Jira-Projekt als Datensätze und
+  führt `set_assignee`, `set_due_date` und `transition_issue` aus. Läuft am Standort als eigene Komponente neben
+  Knovas Link (`KnovasConnectorJira/deploy/docker-compose.jira.yml`); der Zugang nur aus `knovas-sources.env`, an
+  genau den Host, den die Zeile daneben nennt. `knovas-connector-jira dump-stream` schreibt den vollständigen
+  Datenstrom einer Quelle als JSON Lines für die Zuordnung ins Brain.
+- **Brain Builder** (`BUILDER_PROTOCOL_V2=true`): bietet je Quelle an, was ihr Connector angemeldet und geprüft hat;
+  Quellen einer Art ohne eigenes Formular (etwa `jira`) mit einem allgemeinen Einstellungsformular; «Freigaben»
+  zeigt Änderungssätze mit ihrer Vorschau und gibt nur genaue frei.
+- **Beim Update:** Der Release-Lauf baut jetzt vier Abbilder (`all`); das Paket `jira-connector` in GHCR einmal privat
+  anlegen (`KnovasPlatform/docs/deployment/release-images.md`, «Once per repository»). Die Plattform wendet
+  **Migration 0025** beim Start an (nur hinzufügend: eine Komponente hinter Knovas Link darf eine eigene Art haben).
+  Ohne die Schalter ändert sich am Standort nichts.
+
 ## Automatisch abgleichen: bei neuen Commits, auf Wunsch ohne Klick (KG-2)
 
 - **Zeitplan «Bei neuen Commits».** Auf der Seite einer Sync-Komponente neben «Manuell», «Regelmäßig» (jetzt ab

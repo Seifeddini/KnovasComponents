@@ -648,6 +648,21 @@ contract:
         ref: KnovasLink/tests/test_enrolment.py
         checks:
         - test_link_writes_a_token_per_component_and_keeps_it_across_restarts
+    - id: L3-KNOVAS-LINK/cli.knovas_link.__main__/P-5
+      statement: LINK_COMPONENTS names, comma separated, further components Link writes a token for from its start,
+        beside sync-component and knovas-connector, so a connector of its own kind registers and declares itself
+        before any source names it; a name that cannot be a folder (letters, digits, - and _) or more than 20 stop
+        Link with settings.link_components.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasLink/tests/test_enrolment.py
+        checks:
+        - test_link_components_adds_names_link_writes_a_token_for_from_its_start
+      - kind: test
+        ref: KnovasLink/tests/test_protocol_v2.py
+        checks:
+        - test_a_connector_named_in_link_components_registers_and_declares_itself_before_any_source_names_it
     - id: L3-KNOVAS-LINK/cli.knovas_link.__main__/P-4
       statement: The tenant's own certificate (LINK_BRAIN_CERT, LINK_BRAIN_KEY) is used only with
         LINK_TEST_ONLY_SHARED_CERTIFICATE=true and while the Platform issued none, with a warning at start and in every
@@ -1042,3 +1057,6 @@ review:
   why: Tightened 2026-11-10 by the amendment of protocol v2.0 (D-14) - a v2 result whose changes, differences or
     conflict name no step is refused 400 bad_field; the connectors on this branch (the kit's example, GitHub) name
     them. A person confirms whether that is compatible (nothing of v2 was released).
+- at: L3-KNOVAS-LINK/cli.knovas_link.__main__/P-5
+  why: New 2026-11-10 for FEAT-2026-11-10-write-back J-4 (LINK_COMPONENTS, unset by default, so nothing changes
+    without it); a person confirms it as an addition.

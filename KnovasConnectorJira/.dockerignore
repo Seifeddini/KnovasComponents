@@ -1,0 +1,5 @@
+# The image needs requirements.txt, src/ and vendor/ only.
+tests/
+**/__pycache__/
+*.pyc
+.pytest_cache/

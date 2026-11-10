@@ -2,8 +2,10 @@
 
 **Status: draft, for connector protocol 2.0 (v2.0, approved by the founder on 2026-11-10, amended the same day: D-14,
 D-15).** BET-2026-11-write-back, item
-WB-11; feature plan FEAT-2026-11-10-write-back, Phase A (tasks A-3, A-4). Nothing at a site runs it yet: Knovas Link
-speaks v2 from task A-5, the GitHub connector moves onto the kit in Phase C, Jira follows in Phase D.
+WB-11; feature plan FEAT-2026-11-10-write-back, Phase A (tasks A-3, A-4). Knovas Link speaks v2 from task A-5 (behind
+`LINK_PROTOCOL_V2`), the GitHub connector is on the kit since C-3 (behind `SYNC_PROTOCOL_V2`), and the Jira connector
+runs at a site as its own component since J-4 (its image carries a byte-for-byte copy of this kit, as the sync
+component's does).
 
 A **connector** reads one kind of source at a company's site and carries out the actions it declares, behind the
 site's Knovas Link ([connector protocol v2](../KnovasPlatform/docs/connector-protocol-v2.md)). This kit is what every

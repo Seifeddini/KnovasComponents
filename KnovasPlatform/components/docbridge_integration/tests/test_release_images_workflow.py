@@ -1,4 +1,5 @@
-"""The release workflow builds, signs and pushes the images from any branch (V1-G10, FEAT-2026-11-05-knovas-brain-v1).
+"""The release workflow builds, signs and pushes the images from any branch (V1-G10, FEAT-2026-11-05-knovas-brain-v1; the
+Jira connector's image since FEAT-2026-11-10-write-back J-4).
 
 Static checks on ``.github/workflows/release-images.yml`` and its helper ``scripts/ci/release_image.sh``: started by
 hand only, on any branch; single-use runners, never the shared box; minimal permissions; every action pinned by SHA;
@@ -52,7 +53,7 @@ def test_started_by_hand_only_with_a_choice_of_images():
     assert list(on) == ["workflow_dispatch"]
     images = on["workflow_dispatch"]["inputs"]["images"]
     assert images["type"] == "choice" and images["default"] == "all"
-    assert set(images["options"]) == {"all", "platform", "site", "knovas-link", "sync-component"}
+    assert set(images["options"]) == {"all", "platform", "site", "knovas-link", "sync-component", "jira-connector"}
 
 
 def test_any_branch_and_every_choice_maps_to_images():
@@ -66,8 +67,9 @@ def test_any_branch_and_every_choice_maps_to_images():
     mapping = json.loads(table.group(1))
     options = _wf().get("on", _wf().get(True))["workflow_dispatch"]["inputs"]["images"]["options"]
     assert set(mapping) == set(options)
-    assert mapping["all"] == ["platform", "knovas-link", "sync-component"]
-    assert mapping["site"] == ["knovas-link", "sync-component"]
+    assert mapping["all"] == ["platform", "knovas-link", "sync-component", "jira-connector"]
+    assert mapping["site"] == ["knovas-link", "sync-component", "jira-connector"]
+    assert mapping["jira-connector"] == ["jira-connector"]
     assert all(set(v) <= set(mapping["all"]) and v for v in mapping.values())
     assert job["strategy"]["fail-fast"] is False
 
@@ -166,20 +168,39 @@ def test_the_summary_names_digest_branch_and_commit():
     run = _step("Summary")["run"]
     for part in ("${IMAGE}@${DIGEST}", "${REF_NAME}", "${GITHUB_SHA}", "$GITHUB_STEP_SUMMARY"):
         assert part in run, part
-    for line in ("DOCBRIDGE_WEB_IMAGE=${IMAGE}@${DIGEST}", "KNOVAS_LINK_DIGEST=${DIGEST}", "SYNC_COMPONENT_DIGEST=${DIGEST}"):
+    for line in ("DOCBRIDGE_WEB_IMAGE=${IMAGE}@${DIGEST}", "KNOVAS_LINK_DIGEST=${DIGEST}", "SYNC_COMPONENT_DIGEST=${DIGEST}",
+                 "JIRA_CONNECTOR_DIGEST=${DIGEST}"):
         assert line in run, line
+
+
+def test_an_image_without_brain_runner_is_checked_by_importing_its_own_package():
+    run = _step("Build and check the image")["run"]
+    assert _step("Build and check the image")["env"]["MODULE"] == "${{ steps.what.outputs.module }}"
+    other = run[run.index("else\n", run.index("docker history")):]
+    assert "importlib.import_module(os.environ['MODULE'])" in other and '-e MODULE="$MODULE"' in other
+    modules = {k: _helper(k, "Example-Org", "main", COMMIT)["module"]
+               for k in ("platform", "knovas-link", "sync-component", "jira-connector")}
+    assert modules == {"platform": "brain_runner", "knovas-link": "knovas_link", "sync-component": "brain_runner",
+                       "jira-connector": "knovas_connector_jira.connector"}
 
 
 def test_the_image_names_are_the_ones_the_deployment_uses():
     from builder import sites
 
-    owner_free = {k: _helper(k, "Example-Org", "main", COMMIT) for k in ("platform", "knovas-link", "sync-component")}
+    owner_free = {k: _helper(k, "Example-Org", "main", COMMIT)
+                  for k in ("platform", "knovas-link", "sync-component", "jira-connector")}
     assert owner_free["knovas-link"]["package"] == sites.CONTAINERS["knovas-link"]["image"]
     assert owner_free["sync-component"]["package"] == sites.CONTAINERS["sync-component"]["image"]
     compose = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
     default = re.fullmatch(r"\$\{DOCBRIDGE_WEB_IMAGE:-([\w.-]+):latest\}", compose["docbridge-web"]["image"])
     assert default and owner_free["platform"]["package"] == default.group(1)
     assert compose["sync-component"]["image"].split(":")[0] == owner_free["sync-component"]["package"]
+    assert compose["jira-connector"]["image"].split(":")[0] == owner_free["jira-connector"]["package"]
+    assert compose["jira-connector"]["build"]["context"] == "./" + owner_free["jira-connector"]["context"]
+    site_file = yaml.safe_load((REPO / "KnovasConnectorJira" / "deploy" / "docker-compose.jira.yml")
+                               .read_text(encoding="utf-8"))["services"]
+    assert site_file["jira-connector"]["image"].startswith("${JIRA_CONNECTOR_IMAGE:?")
+    assert "${JIRA_CONNECTOR_DIGEST:?" in site_file["jira-connector"]["image"]
     for key, out in owner_free.items():
         assert out["repository"] == "ghcr.io/example-org/" + out["package"]      # GHCR wants lower case
         dockerfile = REPO / out["context"] / "Dockerfile"

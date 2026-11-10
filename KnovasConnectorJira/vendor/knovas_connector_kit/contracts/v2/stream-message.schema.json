@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/connector/v2/stream-message.schema.json",
+  "title": "Stream message (connector protocol 2.0, draft)",
+  "description": "One message of a stream, as in 1.1, with the type record defined: an item of a source that is a set of fields rather than a document. principal, group, membership and permission stay reserved (SA-05). Open: a receiver ignores fields it does not know. A connector declares the types it produces (declaration.streams).",
+  "type": "object",
+  "required": ["type", "source"],
+  "properties": {
+    "type": {"type": "string", "enum": ["document", "record", "tombstone", "generation", "state", "principal", "group", "membership", "permission"]},
+    "source": {"type": "string", "minLength": 1, "description": "The workspace source key."},
+    "external_id": {"type": "string", "minLength": 1, "maxLength": 1024, "description": "The item's key in the source."},
+    "version": {"type": "string", "minLength": 1, "maxLength": 200, "description": "The source's own version of the item: what a preview reads and a permit's expected_version names."},
+    "content_hash": {"type": "string", "minLength": 1},
+    "payload": {"type": "object"},
+    "state": {"type": "object"}
+  },
+  "allOf": [
+    {"if": {"properties": {"type": {"const": "document"}}, "required": ["type"]},
+     "then": {"required": ["external_id", "version", "payload"],
+              "properties": {"payload": {"type": "object", "required": ["title", "path", "text"],
+                                         "properties": {"title": {"type": "string"}, "path": {"type": "string"}, "text": {"type": "string"}}}}}},
+    {"if": {"properties": {"type": {"const": "record"}}, "required": ["type"]},
+     "then": {"required": ["external_id", "version", "payload"],
+              "properties": {"payload": {"type": "object", "required": ["record_kind", "fields"], "additionalProperties": false,
+                                         "properties": {
+                                           "record_kind": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,62}$", "description": "Opaque, the connector's name of the kind of record (a declaration's target_kind)."},
+                                           "fields": {"type": "object", "maxProperties": 500,
+                                                      "additionalProperties": {"oneOf": [{"type": ["string", "integer", "boolean", "null"]},
+                                                                                         {"type": "array", "maxItems": 500, "items": {"type": ["string", "integer", "boolean", "null"]}}]},
+                                                      "description": "The record's fields by the source's names; decimals as strings."},
+                                           "computed": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}, "description": "The fields the source computes: never writable, never previewed as exact."},
+                                           "links": {"type": "array", "maxItems": 500, "items": {"type": "object", "required": ["relation", "external_id"], "additionalProperties": false,
+                                                     "properties": {"relation": {"type": "string", "minLength": 1, "maxLength": 200}, "external_id": {"type": "string", "minLength": 1, "maxLength": 1024}}}}
+                                         }}}}},
+    {"if": {"properties": {"type": {"const": "tombstone"}}, "required": ["type"]},
+     "then": {"required": ["external_id"]}},
+    {"if": {"properties": {"type": {"const": "generation"}}, "required": ["type"]},
+     "then": {"required": ["payload"],
+              "properties": {"payload": {"type": "object", "required": ["id", "complete", "counts"],
+                                         "properties": {"id": {"type": "string", "minLength": 1}, "complete": {"const": true},
+                                                        "counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}}}}}},
+    {"if": {"properties": {"type": {"const": "state"}}, "required": ["type"]},
+     "then": {"required": ["state"]}}
+  ]
+}
