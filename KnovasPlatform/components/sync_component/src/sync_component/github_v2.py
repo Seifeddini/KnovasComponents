@@ -16,12 +16,13 @@ Everything specific to GitHub lives here, none of it in the protocol (SPEC-write
   makes the preview inexact (``computed_field``); nothing is written.
 - **act, ``direct``** (the default for the Knovas tenant, D-3): one commit on the source's branch through the
   contents API with the expected blob sha, so a file that changed since the preview is a ``conflict`` and nothing is
-  written. The commit message carries ``Knovas-Permit: <permit id>``; a repeat finds that commit and answers its
-  receipt without writing again. The receipt comes from reading the file again.
+  written. The commit message carries ``Knovas-Permit: <permit id>``; a repeat finds that commit, however many
+  commits on the file came after it, and answers its receipt without writing again, read at that commit (a later
+  edit by someone else is not a difference of the Knovas write). The receipt comes from reading the file again.
 - **act, ``native_review``**: today's pull request (``github_jobs.GitHub.propose``) on branch
   ``knovas/write-<permit id>``; ``stage_ref`` is the pull request's address. ``review_outcome`` answers pending,
   accepted (merged; receipts from the branch's file) or declined (closed without merge). No ``unstage`` in V1.
-- **reread** reads files again and finds earlier writes by their permit ids.
+- **reread** reads files again and finds earlier writes by their permit ids (each receipt read at its commit).
 - **Steps** (v2.0 as amended 2026-11-10, D-14): every change, difference and conflict names its step, the index into
   the job's ``args.steps``. A preview may hold several steps, also two on one file; an ``act`` holds one (grouping
   none), so a receipt's step is always 0, also in a ``reread`` or ``review_outcome`` result.
@@ -56,6 +57,10 @@ TRAILER = "Knovas-Permit: "
 _SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _NAME = re.compile(r"^[a-z][a-z0-9_.-]{0,62}$")
 _PULL = re.compile(r"/pull/([0-9]{1,9})$")
+#: How the commits on a file are searched for a permit's marker: pages of this size, newest first, up to this many
+#: pages (10 000 commits on one file). Past that the act fails (failed internal, logged) rather than write again.
+COMMITS_PER_PAGE = 100
+MAX_COMMIT_PAGES = 100
 #: The conformance properties this connector's suite run passed (tests/test_sync_component_github_v2.py runs it).
 #: Reading stays protocol 1.x's for now (brain-runner reads the repository, GI-CONN-01/02 hold there), so the
 #: connector declares no stream and the read properties are not applicable.
@@ -158,15 +163,26 @@ class GitHubConnector(Connector):
         return sha, gh.blob(sha, MAX_BYTES)
 
     def _commit_of(self, gh: GitHub, branch: str, path: str, permit_id: str) -> Optional[dict]:
-        """The commit on the branch that carries this permit id, if any (the repeat's marker)."""
-        answer = gh.call("GET", "/commits", params={"sha": branch, "path": path, "per_page": "50"})
-        if answer.status_code != 200:
-            raise gh.failed(answer)
-        for c in gh.json(answer) or []:
-            message = str(((c or {}).get("commit") or {}).get("message") or "")
-            if (TRAILER + permit_id) in message.splitlines():
-                return c
-        return None
+        """The commit on the branch that carries this permit id, if any (the repeat's marker): every commit that
+        changed the file, page by page, newest first. None only when the whole history was read; a history longer
+        than ``MAX_COMMIT_PAGES`` pages is ``failed internal`` (logged as an incomplete search), never a second
+        write."""
+        for page in range(1, MAX_COMMIT_PAGES + 1):
+            answer = gh.call("GET", "/commits", params={"sha": branch, "path": path, "per_page": str(COMMITS_PER_PAGE),
+                                                        "page": str(page)})
+            if answer.status_code != 200:
+                raise gh.failed(answer)
+            commits = gh.json(answer) or []
+            if not isinstance(commits, list):
+                raise Outcome("failed", "github.bad_answer")
+            for c in commits:
+                message = str(((c or {}).get("commit") or {}).get("message") or "")
+                if (TRAILER + permit_id) in message.splitlines():
+                    return c
+            if len(commits) < COMMITS_PER_PAGE:
+                return None
+        log.warning("github_v2.marker_search_incomplete pages %d", MAX_COMMIT_PAGES)
+        raise Outcome("failed", "internal")
 
     def _receipt(self, gh: GitHub, *, permit_id: str, path: str, ref: str, before: dict, expected: str,
                  previewed: dict, outcome_name: str = "written", source_ref: Optional[str] = None,
@@ -249,7 +265,10 @@ class GitHubConnector(Connector):
                 parent = ((done.get("parents") or [{}])[0] or {}).get("sha")
                 before = front_matter_edit.read(gh.blob(gh.file(path, parent)["sha"], MAX_BYTES)) if parent else {}
                 values = self._shown(self._values(src, step, expected, pid))
-                return outcome("ok", receipts=[self._receipt(gh, permit_id=pid, path=path, ref=branch, before=before,
+                # Read at the commit that carries the permit, not at the branch's head: what the Knovas write left,
+                # whatever was committed on the file since.
+                at = done.get("sha") or branch
+                return outcome("ok", receipts=[self._receipt(gh, permit_id=pid, path=path, ref=at, before=before,
                                                              expected=expected, previewed=values,
                                                              source_ref=done.get("html_url"))])
             found, data = self._file(gh, path, branch)
@@ -369,7 +388,8 @@ class GitHubConnector(Connector):
                         before = front_matter_edit.read(old)
                         _sha, data = self._file(gh, path, done.get("sha") or branch)
                         changed = {k: v for k, v in front_matter_edit.read(data).items() if before.get(k) != v}
-                        receipts.append(self._receipt(gh, permit_id=pid, path=path, ref=branch, before=before,
+                        receipts.append(self._receipt(gh, permit_id=pid, path=path, ref=done.get("sha") or branch,
+                                                      before=before,
                                                       expected=gh.file(path, parent)["sha"] if parent else "unknown",
                                                       previewed=changed, source_ref=done.get("html_url")))
         except Outcome as out:

@@ -271,7 +271,8 @@ class FakeGitHub:
                                 "html_url": f"https://github.example.test/{gh.repo}/commit/{at}",
                                 "parents": [{"sha": c["parent"]}] if c["parent"] else []})
                 at = c["parent"]
-            return jsonify(out[:int(request.args.get("per_page") or 30)])
+            per_page, page = int(request.args.get("per_page") or 30), int(request.args.get("page") or 1)
+            return jsonify(out[(page - 1) * per_page:page * per_page])
 
         @app.get(prefix + "/pulls/<int:number>")
         def get_pull(number):

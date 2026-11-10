@@ -222,6 +222,65 @@ def test_two_steps_on_one_file_are_told_apart_by_their_step():
     assert h.connector.handle(stale)["conflict"]["step"] == 0
 
 
+def _written(h, brain):
+    step = h.sample_steps()[0]
+    _prev, job, res = _preview_and_act(h, brain, step)
+    assert res["status"] == "ok" and res["receipts"][0]["outcome"] == "written"
+    return step, job, res["receipts"][0]
+
+
+def test_a_repeat_answers_the_receipt_read_at_the_commit_of_its_permit():
+    """Verifier, Phase A, L4: the result of a write was lost and someone else changed the file since; the repeat's
+    receipt is what the Knovas write left (read at the commit that carries the permit), not the branch's head."""
+    h = make_harness()
+    brain = Brain(h.source)
+    step, job, first = _written(h, brain)
+    knovas_blob = blob_sha(h.gh.file_at("main", "pages/a.md"))
+    data = h.gh.file_at("main", "pages/a.md")
+    h.gh.commit({"pages/a.md": data.replace(b"owner: person-7", b"owner: someone-else")})
+    head = h.gh.branches["main"]
+    again = h.connector.handle(job)
+    receipt = again["receipts"][0]
+    assert again["status"] == "ok" and h.gh.branches["main"] == head, "nothing written again"
+    assert receipt["values"] == first["values"] and receipt["differences"] == []
+    assert receipt["version_after"] == knovas_blob != blob_sha(h.gh.file_at("main", "pages/a.md"))
+    reread = h.connector.handle(brain.job("reread", {"targets": ["pages/a.md"], "permit_ids": [first["permit_id"]]}))
+    assert reread["receipts"][0]["version_after"] == knovas_blob
+    assert reread["read"][0]["values"]["owner"] == "someone-else"
+
+
+def test_a_repeat_finds_its_commit_behind_more_than_fifty_later_commits():
+    """Before L4's fix only the last 50 commits on the file were searched: the repeat then wrote again (here: a
+    conflict, the file having moved)."""
+    h = make_harness()
+    brain = Brain(h.source)
+    step, job, first = _written(h, brain)
+    for n in range(60):
+        data = h.gh.file_at("main", "pages/a.md")
+        h.gh.commit({"pages/a.md": data.replace(b"Body text", b"Body text " + str(n).encode(), 1)})
+    head = h.gh.branches["main"]
+    again = h.connector.handle(job)
+    assert again["status"] == "ok" and again["receipts"][0]["values"] == first["values"]
+    assert h.gh.branches["main"] == head
+
+
+def test_a_history_longer_than_the_search_fails_explicitly_and_writes_nothing(monkeypatch, caplog):
+    monkeypatch.setattr(github_v2, "COMMITS_PER_PAGE", 2)
+    monkeypatch.setattr(github_v2, "MAX_COMMIT_PAGES", 2)
+    h = make_harness()
+    brain = Brain(h.source)
+    step, job, first = _written(h, brain)
+    for n in range(5):
+        data = h.gh.file_at("main", "pages/a.md")
+        h.gh.commit({"pages/a.md": data.replace(b"Body text", b"Body text " + str(n).encode(), 1)})
+    head = h.gh.branches["main"]
+    with caplog.at_level("WARNING", logger="sync_component.github_v2"):
+        again = h.connector.handle(job)
+    assert (again["status"], again["code"]) == ("failed", "internal")
+    assert any("marker_search_incomplete" in r.getMessage() for r in caplog.records)
+    assert h.gh.branches["main"] == head
+
+
 def test_unstage_is_not_offered_in_v1():
     h = make_harness()
     res = h.connector.handle(Brain(h.source).job("unstage", {"stage_ref": "x", "permit_ids": [str(uuid.uuid4())]}))

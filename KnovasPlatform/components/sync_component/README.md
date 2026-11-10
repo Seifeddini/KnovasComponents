@@ -100,8 +100,10 @@ answers `preview`, `act`, `reread` and `review_outcome` (`src/sync_component/git
   `writes`; brain-runner's compile-write decides what may change, as for the 1.x write job;
 - `direct` (the default for the Knovas tenant): one commit on the source's branch through the contents API with the
   expected blob sha, so a file changed since the preview is a conflict and nothing is written; the commit carries
-  `Knovas-Permit: <id>`, so a repeat finds it and answers its receipt without writing again; no pull request. The token
-  needs `Contents: write`, and the branch's protection must let it push;
+  `Knovas-Permit: <id>`, so a repeat finds it (searching every commit on the file, page by page; a history of more than
+  10 000 commits on one file fails `internal` rather than write again) and answers its receipt, read at that commit,
+  without writing again; no pull request. The token needs `Contents: write`, and the branch's protection must let it
+  push;
 - `native_review`: today's pull request on `knovas/write-<permit id>` (then also `Pull requests: write`);
   `review_outcome` follows its merge or close;
 - no `unstage` and no inverse in V1 (the founder, 2026-11-10); reading stays protocol 1.x's;
