@@ -124,6 +124,11 @@ components:
     card: EXT-github-api.card.yaml
     paths: []
     why: External - GitHub's REST API, read and written with a source's own credential.
+  EXT-JIRA-API:
+    card: EXT-jira-api.card.yaml
+    paths: []
+    why: External - Jira Cloud's REST API (version 3) on a company's own site, read and written with a source's own
+      credential at the site.
 # Code that no card holds yet. The first group was changed by the work these cards were written for (the Brain v1
 # feature and the connection layer, from 2026-11-04 on), but only by a cross-cutting or maintenance change; the code
 # reader reports what it offers as held by no card (map-check's `unowned`).

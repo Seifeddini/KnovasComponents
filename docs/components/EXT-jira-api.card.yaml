@@ -1,0 +1,120 @@
+# Component card (format 2) of EXT-JIRA-API; written for FEAT-2026-11-10-write-back J-0 (BET-2026-11-write-back WB-07,
+# DEC-0068: the map grows per project). What the Jira connector (L3-JIRA-CONNECTOR) relies on in Jira Cloud's REST API,
+# version 3, as Atlassian's OpenAPI document of the platform API describes it (read 2026-11-10). Edit this file, then
+# `brain-runner card render`; the page beside it is generated.
+card: 2
+id: EXT-JIRA-API
+name: Jira Cloud REST API (external)
+kind: external
+owner: ROLE-ENGINE-OWNER
+status: planned
+purpose: Jira Cloud's REST API (version 3) on a company's own site, as far as the Jira connector reads a project's
+  issues through it and changes an issue's assignee, due date and status, always with the source's own credential at
+  the site.
+not_responsible_for:
+- Holding a credential; each call carries the source's credential from the site's environment.
+- Deciding what may be written; the Brain's permits and Knovas Link do (connector protocol 2.0).
+terms:
+- change log (an issue's list of change entries; each change to a tracked field adds one with a new id)
+- edit metadata (the fields of an issue the calling account may set, and how)
+- transition (a workflow step that moves an issue to another status)
+- entity property (a JSON value an app stores on an issue under a key; not part of the change log)
+operations:
+- id: search-jql
+  name: POST /rest/api/3/search/jql - the enhanced JQL search, paged with nextPageToken and isLast, with the change
+    log and the edit metadata expanded
+  entrance: http
+  ref: /rest/api/3/search/jql
+- id: issue-read
+  name: GET /rest/api/3/issue/{issueIdOrKey} with fields, expand=changelog,editmeta and properties - one issue, its
+    newest change-log entries, its edit metadata and the properties asked for
+  entrance: http
+  ref: /rest/api/3/issue/{issueIdOrKey}
+- id: editmeta
+  name: GET /rest/api/3/issue/{issueIdOrKey}/editmeta - the fields the account may set on the issue
+  entrance: http
+  ref: /rest/api/3/issue/{issueIdOrKey}/editmeta
+- id: issue-edit
+  name: PUT /rest/api/3/issue/{issueIdOrKey} with fields and properties - set fields and issue properties in one
+    request
+  entrance: http
+  ref: /rest/api/3/issue/{issueIdOrKey}
+- id: transitions
+  name: GET /rest/api/3/issue/{issueIdOrKey}/transitions (expand=transitions.fields) and POST with transition and
+    properties - the transitions available from the issue's status, and carrying one out
+  entrance: http
+  ref: /rest/api/3/issue/{issueIdOrKey}/transitions
+- id: assignable-users
+  name: GET /rest/api/3/user/assignable/search?issueKey=&accountId= - whether an account may be assigned the issue
+  entrance: http
+  ref: /rest/api/3/user/assignable/search
+contract:
+  '*':
+    always:
+    - id: EXT-JIRA-API/*/A-1
+      statement: A call is authenticated by its Authorization header - basic with an account's email and API token, or
+        a bearer token; a wrong or missing credential answers 401. The site is the company's own host.
+      risk_class: critical
+    limits:
+    - id: EXT-JIRA-API/*/L-1
+      statement: Jira limits the rate of calls and answers 429 with Retry-After when the limit is reached.
+      risk_class: standard
+    - id: EXT-JIRA-API/*/L-2
+      statement: There is no conditional edit (no expected version or ETag on an edit or a transition); a change that
+        lands between a read and a write is not refused by Jira.
+      risk_class: critical
+  search-jql:
+    promises:
+    - id: EXT-JIRA-API/search-jql/P-1
+      statement: A bounded query (project = KEY) answers the issues the account may browse, page by page; a page names
+        the next one by nextPageToken until the page marked isLast true; expand changelog lists each issue's recent
+        change-log entries newest first, expand editmeta its edit metadata.
+      risk_class: critical
+    limits:
+    - id: EXT-JIRA-API/search-jql/L-1
+      statement: The search is eventually consistent ("recent updates might not be immediately visible"); a listing
+        may lag a change made a moment before.
+      risk_class: standard
+  issue-read:
+    promises:
+    - id: EXT-JIRA-API/issue-read/P-1
+      statement: Every change to a tracked field (assignee, due date, status, resolution, links) adds a change-log entry
+        whose id is an integer larger than every earlier entry's; setting an issue property adds none.
+      risk_class: critical
+    - id: EXT-JIRA-API/issue-read/P-2
+      statement: An issue read with properties answers the properties asked for that exist; an issue that does not
+        exist or the account may not see answers 404.
+      risk_class: critical
+  editmeta:
+    promises:
+    - id: EXT-JIRA-API/editmeta/P-1
+      statement: The edit metadata lists the fields visible to and editable by the account on that issue, with the
+        operations each allows (set among them); a field it does not list cannot be set through the edit.
+      risk_class: critical
+  issue-edit:
+    promises:
+    - id: EXT-JIRA-API/issue-edit/P-1
+      statement: An edit sets the fields of its body and the issue properties of its body in one request and answers
+        204; a field the account may not set answers 400 and nothing changes.
+      risk_class: critical
+  transitions:
+    promises:
+    - id: EXT-JIRA-API/transitions/P-1
+      statement: The transitions listed are those available from the issue's current status, each with its target
+        status (to.name) and, with transitions.fields, the fields its screen requires; carrying one out moves the
+        status, may set other fields by the workflow's post functions (the resolution), and sets the issue properties
+        of its body in the same request.
+      risk_class: critical
+  assignable-users:
+    promises:
+    - id: EXT-JIRA-API/assignable-users/P-1
+      statement: Asked with an issue key and an account id, it answers that account when the account may be assigned
+        the issue, else an empty list.
+      risk_class: standard
+uses: []
+review:
+- at: /contract
+  why: No evidence yet; the Jira connector's tests against a fake Jira bring it (J-1, J-2). The statements are read
+    from Atlassian's OpenAPI document of the REST API version 3, not from a call to a real site.
+- at: /owner
+  why: Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4).
