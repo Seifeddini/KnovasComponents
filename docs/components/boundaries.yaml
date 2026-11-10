@@ -30,6 +30,7 @@ components:
       - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0022_builder_sites.sql
       - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0023_builder_review_binding.sql
       - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0024_builder_site_certificate.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0025_builder_declared_component_kind.sql
     why: >-
       src/builder/ is the Builder's Python package. Its pages are one Flask blueprint file (builder_routes.py) with
       their own templates, scripts and styles in the builder/ folders under web_interface/. connector_protocol.py

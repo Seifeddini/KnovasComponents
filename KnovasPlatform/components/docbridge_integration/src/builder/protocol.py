@@ -622,14 +622,23 @@ def check_site(raw: Any) -> dict:
 
 def _keep_site(store: Any, link: Mapping[str, Any], site: Mapping[str, Any], now: dt.datetime,
                tenant: Optional[str]) -> None:
-    """Link's telemetry on its row; its components as child rows, made the first time Link reports them."""
+    """Link's telemetry on its row; its components as child rows, made the first time Link reports them.
+
+    A component of a kind this Platform does not know is not stored, only counted -- unless, with BUILDER_PROTOCOL_V2
+    on, it carries a connector declaration the protocol's schema allows (check_site kept it): then it is kept under
+    its own kind, so a source of the kind it declared can be read through it without a Platform change
+    (SPEC-write-back-13; migration 0025). Link's own kind and the adapter-only kind are never a child's."""
     store.update_component(link["id"], telemetry={**{k: v for k, v in site.items() if k != "components"},
                                                   "components": [c["name"] for c in site["components"]],
                                                   "at": now.isoformat()})
     unknown = 0
     for item in site["components"]:
-        known = C.KINDS.get(item["kind"]) or {}
-        if not known or known.get("site_only") or known.get("adapter_only"):
+        known = C.KINDS.get(item["kind"])
+        if known is None:
+            keep = V2.enabled() and bool(item.get("declaration"))
+        else:
+            keep = not (known.get("site_only") or known.get("adapter_only"))
+        if not keep:
             unknown += 1              # a kind this Platform does not know: not stored, counted
             continue
         child_id = store.upsert_child(tenant or "", parent_id=link["id"], site_id=link.get("site_id"),

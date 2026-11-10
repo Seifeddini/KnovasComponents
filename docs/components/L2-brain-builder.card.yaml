@@ -25,6 +25,7 @@ source_paths:
 - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0022_builder_sites.sql
 - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0023_builder_review_binding.sql
 - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0024_builder_site_certificate.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0025_builder_declared_component_kind.sql
 purpose: Where a person sets up a company's Brain in the Platform - workspaces, ontology, processes, sources and mappings, views and access - reviews and publishes it, and connects and watches the company's sites and components.
 responsible_for:
 - id: L2-BRAIN-BUILDER/R-1
@@ -2546,6 +2547,23 @@ contract:
         - test_a_connector_that_did_not_pass_the_write_properties_is_not_offered_writing
         - test_a_declaration_for_another_kind_offers_nothing_for_this_one
         - test_the_sources_page_lists_the_declared_actions_and_how_each_writes
+    - id: L2-BRAIN-BUILDER/protocol-heartbeat/P-3
+      statement: 'With BUILDER_PROTOCOL_V2 on, a component in Link''s site of a kind this Platform does not know is
+        kept under its own kind when it carries a declaration the protocol''s schema allows, so a source of the kind it
+        declared is read through it without a Platform change (SPEC-write-back-13; migration 0025 lets only a child
+        behind Link take such a kind). One without such a declaration, and one of Link''s own or the adapter-only kind,
+        is not stored and is counted (site.component_unknown_kind) as before; with the switch off nothing changes
+        (C-8, decided by the programme''s coordinator on 2026-11-10).'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_generic_kind.py
+        checks:
+        - test_a_component_of_the_connectors_own_kind_is_kept_and_shown
+        - test_a_component_of_an_unknown_kind_without_a_valid_declaration_is_dropped_as_before
+        - test_link_s_own_kind_is_never_a_child_s_even_with_a_declaration
+        - test_with_the_switch_off_a_component_of_an_unknown_kind_is_dropped_as_before
+        - test_the_migration_lets_only_a_child_take_its_connector_s_kind
     limits:
     - id: L2-BRAIN-BUILDER/protocol-heartbeat/L-1
       statement: A body is at most 256 KiB (413 too_large); a Platform that does not know its tenant answers 503 no_tenant; this holds for every call of the protocol.
@@ -3028,7 +3046,8 @@ decisions:
 - id: C-8
   statement: 'A source kind the Builder has no form for gets one generic settings form (names and values), not a
     protocol change (option B, the programme''s coordinator, 2026-11-10; SPEC-write-back-13). The declaration
-    describes no settings, so no field is typed from it.'
+    describes no settings, so no field is typed from it (typed fields deferred to WB-20). A component behind Link
+    whose declaration the schema allows is kept whatever its component kind (the coordinator, 2026-11-10, Q1).'
 risks:
 - id: L2-BRAIN-BUILDER/RISK-01
   statement: The Builder records who accepted a proposal or approved a change set, but the Brain does not yet bind the accept or the approval to a verified person (I2, WB-40).

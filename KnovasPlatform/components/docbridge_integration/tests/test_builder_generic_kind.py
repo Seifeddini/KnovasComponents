@@ -10,6 +10,7 @@ declaration as for a known kind. Known kinds keep their forms; with the switch o
 The company, its site and its Jira project are made up.
 """
 import datetime as dt
+import importlib
 import io
 import json
 import sys
@@ -44,7 +45,8 @@ def jira_declaration(kind="jira", passed=READ + WRITE, fetch=False):
 
 
 def _site(http, store, components, site="Büro Basel"):
-    """Knovas Link at a site with its components, each as Link's heartbeat reports it."""
+    """Knovas Link at a site with its components, each as Link's heartbeat reports it: (name, declaration) or
+    (name, declaration, component kind), the kind ``sync_component`` unless given."""
     made = http.post("/builder/api/sites", json={"name": site, "options": ["github"]}).get_json()
     env = zipfile.ZipFile(io.BytesIO(http.post(f"/builder/api/sites/{made['id']}/package", json={}).data)) \
         .read("knovas-link.env").decode()
@@ -52,9 +54,10 @@ def _site(http, store, components, site="Büro Basel"):
     link.enrol(next(line.split("=", 1)[1] for line in env.splitlines() if line.startswith("LINK_ENROL_TOKEN=")))
     link.heartbeat(site={"certificate": "present", "work_channel": "connected",
                          "probe": {"last_at": dt.datetime.now(dt.timezone.utc).isoformat(), "ok": True},
-                         "components": [{"name": name, "kind": "sync_component", "version": "0.1.0", "state": "online",
-                                         "capabilities": [], **({"declaration": d} if d is not None else {})}
-                                        for name, d in components]})
+                         "components": [{"name": name, "kind": kind[0] if kind else "sync_component", "version": "0.1.0",
+                                         "state": "online", "capabilities": [],
+                                         **({"declaration": d} if d is not None else {})}
+                                        for name, d, *kind in components]})
     return {c["local_name"]: c for c in store.children(link.component)}, link
 
 
@@ -358,3 +361,70 @@ def test_with_the_switch_off_the_generic_form_is_hidden(monkeypatch):
     unchanged = _edit(world, op="source.update", key="jira-projekte", fields={"settings": {**SETTINGS, "project": "KB"}})
     assert unchanged.status_code == 409 and _source(world)["settings"]["project"] == "SS"
     assert _edit(world, op="source.switches", key="jira-projekte", fetch=True).status_code == 400
+
+
+# ------------------------------------------------------------------ a component of the connector's own kind (C-8, Q1)
+#
+# Decided by the programme's coordinator on 2026-11-10: with the switch on, the Platform keeps a component behind Knovas
+# Link whose declaration the protocol's schema allows, whatever its component kind; one without such a declaration is
+# dropped and counted as before, and with the switch off nothing changes.
+
+def test_a_component_of_the_connectors_own_kind_is_kept_and_shown(monkeypatch):
+    world = _world(monkeypatch, components=[("jira", jira_declaration(), "jira")])
+    child = world["children"]["jira"]
+    assert child["kind"] == "jira" and child["telemetry"]["declaration"]["source_kind"] == "jira"
+    _, data = _page(world)
+    assert data["kinds"]["jira"]["component_ids"] == [child["id"]]
+    assert world["http"].get(f"/builder/komponenten/{child['id']}").status_code == 200
+    site = world["http"].get(f"/builder/standorte/{child['site_id']}")
+    assert site.status_code == 200 and child["name"] in site.get_data(as_text=True)
+    assert not any(e["code"] == "site.component_unknown_kind" for e in world["store"].events(world["link"].component))
+    assert _create(world).status_code == 200
+    publish_as_reviewed(world["store"], world["workspace"], world["admin"].id)
+    [served] = world["link"].config().get_json()["sources"]
+    assert served["component"] == "jira" and served["settings"] == SETTINGS
+
+
+def test_a_component_of_an_unknown_kind_without_a_valid_declaration_is_dropped_as_before(monkeypatch):
+    world = _world(monkeypatch, components=[("plain", None, "jira"),
+                                            ("refused", {**jira_declaration(), "source_kind": "Jira!"}, "jira"),
+                                            ("jira", jira_declaration(), "jira")])
+    assert sorted(world["children"]) == ["jira"]
+    [event] = [e for e in world["store"].events(world["link"].component) if e["code"] == "site.component_unknown_kind"]
+    assert event["counts"] == {"components": 2}
+
+
+def test_link_s_own_kind_is_never_a_child_s_even_with_a_declaration(monkeypatch):
+    world = _world(monkeypatch, components=[("fake-link", jira_declaration(), "knovas_link"),
+                                            ("jira", jira_declaration(), "jira")])
+    assert sorted(world["children"]) == ["jira"]
+
+
+def test_with_the_switch_off_a_component_of_an_unknown_kind_is_dropped_as_before(monkeypatch):
+    world = _world(monkeypatch, on=False, components=[("jira", jira_declaration(), "jira"),
+                                                      ("sync-component", jira_declaration(kind="github"))])
+    assert sorted(world["children"]) == ["sync-component"]
+    assert any(e["code"] == "site.component_unknown_kind" for e in world["store"].events(world["link"].component))
+
+
+@pytest.mark.skipif(not importlib.import_module("conftest").platform_db_reachable(),
+                    reason="No PostgreSQL for the migration test (PLATFORM_DB_TEST_DSN)")
+def test_the_migration_lets_only_a_child_take_its_connector_s_kind(platform_db):
+    """0025 on PostgreSQL: a child behind Link may have the connector's own kind; a component enrolled on its own keeps
+    the list, and a kind not of a heartbeat's shape is refused."""
+    from builder.store import WorkspaceStore
+
+    store = WorkspaceStore(platform_db)
+    site_id = store.create_site(TENANT, name="Büro Basel", owner="IT", options=["github"], actor_id=None)
+    link_id = store.create_component(TENANT, kind="knovas_link", name="Knovas Link · Büro Basel", site="Büro Basel",
+                                     owner="IT", actor_id=None,
+                                     enrol_expires_at=dt.datetime.now(dt.timezone.utc).isoformat(), site_id=site_id)
+    child_id = store.upsert_child(TENANT, parent_id=link_id, site_id=site_id, local_name="jira", kind="jira",
+                                  name="Knovas Link · Büro Basel · jira")
+    [child] = store.children(link_id)
+    assert child["id"] == child_id and child["kind"] == "jira"
+    with pytest.raises(Exception):
+        store.register_component(TENANT, kind="jira", name="Für sich", site="", owner="", settings={}, actor_id=None)
+    with pytest.raises(Exception):
+        store.upsert_child(TENANT, parent_id=link_id, site_id=site_id, local_name="falsch", kind="Jira!",
+                           name="Knovas Link · Büro Basel · falsch")

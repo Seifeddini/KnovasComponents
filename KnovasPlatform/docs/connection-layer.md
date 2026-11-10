@@ -108,8 +108,11 @@ network is closed (`builder/sites.py`).
   write comes from its connector's declaration, and a kind the Builder has no form for is created with one generic
   settings form. The declaration describes no settings, so the form takes names and values (text, number, yes/no, list
   of texts) and a connector's documentation says which; the form refuses what looks like a credential by its form,
-  not every secret. Typed fields from the connector would need an addition to the declaration: an open question, not
-  decided.
+  not every secret (the credential scan, WB-23, is the real guard). The connector behind Link may register under its
+  own component kind: the Platform keeps it when its declaration is one the protocol's schema allows (migration 0025),
+  and drops it as before when it is not. Typed fields from the connector would need an addition to the declaration:
+  deferred to WB-20. **Open:** a source of such a kind cannot be mapped in the Builder yet; brain-runner reads
+  records (J-3), the Builder's record-mapping path is part of J-4.
 - **Known limits:** jobs of one tenant are not yet bound to one site, so add a second site only after that item; Link
   relays every method below `secured/graph/` ([connector-protocol-v1.md](connector-protocol-v1.md), "Sites and Knovas
   Link").
