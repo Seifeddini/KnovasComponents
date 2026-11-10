@@ -128,7 +128,9 @@ def test_job_kinds_keep_probe_and_fetch_and_add_the_write_path():
     assert set(branches) == set(JOB_KINDS), "every job kind has its args"
     for kind in WRITE_PATH_KINDS:
         assert {"source", "target_serial"} <= set(branches[kind]["required"]), f"{kind} is addressed to one site (F5)"
-    assert "permits" in branches["act"]["required"], "an act carries its permits beside args"
+    permits = s["properties"]["permits"]
+    assert "permits" not in branches["act"]["required"] and permits["items"] == {"type": "string", "maxLength": 8192}, \
+        "a missing or unreadable permit is Link's permit check (permit_missing, permit_bad_signature), not invalid_job"
     assert "write" not in s["properties"]["kind"]["enum"], "the 1.x write job stays a 1.x job"
 
 

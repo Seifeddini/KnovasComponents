@@ -70,12 +70,12 @@
     },
     "permits": {
       "type": "array",
-      "minItems": 1,
       "maxItems": 50,
       "items": {
-        "$ref": "permit.schema.json#/$defs/token"
+        "type": "string",
+        "maxLength": 8192
       },
-      "description": "act only: one permit token per step of args.steps, in the same order."
+      "description": "act only: one permit token per step of args.steps, in the same order (permit.schema.json describes a token). Deliberately loose here: a missing, extra or unreadable permit is answered by Link's permit checks with permit_missing, permit_mismatch or permit_bad_signature, in the Alloy model's order, never as invalid_job."
     }
   },
   "allOf": [
@@ -167,8 +167,7 @@
       "then": {
         "required": [
           "source",
-          "target_serial",
-          "permits"
+          "target_serial"
         ],
         "properties": {
           "source": {

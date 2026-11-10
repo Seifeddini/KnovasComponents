@@ -1,8 +1,9 @@
 {
   "schema": "job.schema.json",
-  "description": "An act carries its permits beside args.",
+  "description": "A permit travels as a token, a string.",
   "breaks": [
-    "permits"
+    "permits",
+    0
   ],
   "instance": {
     "id": "22222222-3333-4444-8555-666666666666",
@@ -28,6 +29,11 @@
         }
       ],
       "staging": "direct"
-    }
+    },
+    "permits": [
+      {
+        "payload": "x"
+      }
+    ]
   }
 }

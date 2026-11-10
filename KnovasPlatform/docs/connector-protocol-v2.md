@@ -132,7 +132,9 @@ Knovas asks a site for work on 1.1's work channel: Link long-polls `GET /secured
 posts parts and results to `POST /secured/connector/jobs/<id>/part?n=` and `…/result`, with the lease in
 `X-Knovas-Lease`, as in 1.1. A v2 job (`job.schema.json`) carries `protocol: "2.x"`; every write-path job is addressed
 to one site certificate by `target_serial` (the decimal serial, as 1.1's probes are), and an `act` job carries its
-permits beside `args`, one token per step in the same order, so Link checks them before it reads `args`.
+permits beside `args`, one token per step in the same order, so Link checks them before it reads `args`. The schema
+keeps `permits` loose on purpose (a list of strings): a missing, extra or unreadable permit is answered by Link's
+permit checks below (`permit_missing`, `permit_mismatch`, `permit_bad_signature`), never as `invalid_job`.
 
 | Kind | Args | What the connector does |
 |---|---|---|
