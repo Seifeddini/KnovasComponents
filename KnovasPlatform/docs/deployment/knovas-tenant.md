@@ -904,12 +904,13 @@ Generate new token), resource owner `Seifeddini`, **Only select repositories**, 
 
 | Token | Repositories | Repository permissions |
 |---|---|---|
-| read | `KnowledgeBase`, `KnovasComponents` | **Contents: Read-only** (Metadata: read-only is added by itself) |
-| write | `knovas-brain` only | **Contents: Read and write**, **Pull requests: Read and write** |
+| read | the repositories whose sources only read | **Contents: Read-only** (Metadata: read-only is added by itself) |
+| write | only the repository of a source that writes back | **Contents: Read and write**; **Pull requests: Read and write** only where that source's changes arrive as pull requests (protocol 1.x write jobs, or staging `native_review`). A `direct` source commits on its branch, so that branch's protection must let the token push |
 
-For each source, the Builder shows the exact line for `knovas-sources.env` (`SYNC_CREDENTIAL_<KEY>=`, with «Kopieren»).
-Put the read token behind the lines of the KnowledgeBase and KnovasComponents sources, the write token behind the
-knovas-brain source's line, then:
+Which source writes back, and into which repository and branch, is the tenant's decision and changes with it; this
+table states only what each token needs. For each source, the Builder shows the exact line for `knovas-sources.env`
+(`SYNC_CREDENTIAL_<KEY>=`, with «Kopieren»). Put the write token behind the line of the source that writes back and
+the read token behind the others' lines (never `SYNC_CREDENTIAL_GITHUB`, which every GitHub source would use), then:
 
 ```bash
 cd ~/knovas-site
