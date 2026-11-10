@@ -1,0 +1,126 @@
+{
+  "schema": "site.schema.json",
+  "description": "A site declaration names its site.",
+  "breaks": [
+    "site"
+  ],
+  "instance": {
+    "protocol": "2.0",
+    "link_version": "2.0.0",
+    "connectors": [
+      {
+        "declaration": {
+          "protocol": "2.0",
+          "connector": {
+            "name": "example-records",
+            "version": "0.1.0",
+            "package_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source_kind": "example-records",
+          "streams": [
+            "record",
+            "tombstone",
+            "generation",
+            "state"
+          ],
+          "fetch": false,
+          "actions": [
+            {
+              "name": "set_fields",
+              "target_kind": "matter",
+              "params": [
+                {
+                  "name": "owner",
+                  "kind": "reference",
+                  "required": false
+                },
+                {
+                  "name": "due_date",
+                  "kind": "date",
+                  "required": false
+                }
+              ],
+              "preview": "exact",
+              "staging": [
+                "direct",
+                "native_review"
+              ],
+              "grouping": "atomic",
+              "inverse": "set_fields"
+            },
+            {
+              "name": "transition",
+              "target_kind": "matter",
+              "params": [
+                {
+                  "name": "state",
+                  "kind": "enum",
+                  "required": true,
+                  "values": [
+                    "open",
+                    "waiting",
+                    "closed"
+                  ]
+                }
+              ],
+              "preview": "exact",
+              "staging": [
+                "direct",
+                "native_review"
+              ],
+              "grouping": "none",
+              "inverse": null
+            }
+          ],
+          "conformance": {
+            "suite": "2.0.0",
+            "passed": [
+              "replay_changes_nothing",
+              "deletion_guard",
+              "preview_equals_receipt",
+              "exactly_once",
+              "permit_refusals",
+              "no_credential_leaves_site",
+              "review_outcome"
+            ],
+            "report_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        },
+        "sources": [
+          "records-main"
+        ]
+      },
+      {
+        "declaration": {
+          "protocol": "2.0",
+          "connector": {
+            "name": "example-files",
+            "version": "1.0.0",
+            "package_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          },
+          "source_kind": "example-files",
+          "streams": [
+            "document",
+            "tombstone",
+            "generation",
+            "state"
+          ],
+          "fetch": true,
+          "actions": [],
+          "conformance": {
+            "suite": "2.0.0",
+            "passed": [
+              "replay_changes_nothing",
+              "deletion_guard",
+              "no_credential_leaves_site"
+            ],
+            "report_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+        },
+        "sources": [
+          "files-share"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "job.schema.json",
+  "description": "A probe, as in 1.1.",
+  "instance": {
+    "id": "88888888-9999-4aaa-8bbb-cccccccccccc",
+    "kind": "probe",
+    "protocol": "2.0",
+    "target_serial": "4471",
+    "deadline": "2026-11-10T14:01:00Z",
+    "actor": {
+      "kind": "system",
+      "id": "brain"
+    },
+    "args": {}
+  }
+}

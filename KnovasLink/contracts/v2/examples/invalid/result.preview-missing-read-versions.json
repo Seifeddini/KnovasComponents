@@ -1,0 +1,31 @@
+{
+  "schema": "result.schema.json",
+  "description": "A preview names the versions it read.",
+  "breaks": [
+    "preview",
+    "read_versions"
+  ],
+  "instance": {
+    "status": "ok",
+    "code": null,
+    "duration_ms": 640,
+    "preview": {
+      "exact": true,
+      "changes": [
+        {
+          "target": "items/matter-17",
+          "field": "owner",
+          "before": "person-example-3",
+          "after": "person-example-7"
+        },
+        {
+          "target": "items/matter-17",
+          "field": "due_date",
+          "before": null,
+          "after": "2026-12-01"
+        }
+      ],
+      "grouping": "atomic"
+    }
+  }
+}

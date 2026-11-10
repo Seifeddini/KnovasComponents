@@ -1,0 +1,56 @@
+{
+  "schema": "job.schema.json",
+  "description": "A v2 job names its protocol.",
+  "breaks": [
+    "protocol"
+  ],
+  "instance": {
+    "id": "22222222-3333-4444-8555-666666666666",
+    "kind": "act",
+    "source": "records-main",
+    "site": "8a1e4b2c-7d3f-4e5a-b6c9-0f1d2e3a4b5c",
+    "deadline": "2026-11-10T14:10:00Z",
+    "actor": {
+      "kind": "user",
+      "id": "person-example-approver"
+    },
+    "args": {
+      "steps": [
+        {
+          "action": "set_fields",
+          "target": "items/matter-17",
+          "params": {
+            "owner": "person-example-7",
+            "due_date": "2026-12-01"
+          },
+          "permit": {
+            "claims": {
+              "v": 2,
+              "permit_id": "6e5d4c3b-2a19-4f08-8e7d-6c5b4a392817",
+              "tenant": "3f0c2a8e-5b1d-4c7a-9e21-6d4b8a0f1c55",
+              "site": "8a1e4b2c-7d3f-4e5a-b6c9-0f1d2e3a4b5c",
+              "source": "records-main",
+              "change_set": "c5d6e7f8-0a1b-4c2d-8e3f-4a5b6c7d8e9f",
+              "action_id": "0f1e2d3c-4b5a-4968-8776-655443322110",
+              "action": "set_fields",
+              "target": "items/matter-17",
+              "params_sha256": "e1fbd138b97e485dfe0025d2bce69dfb97e9a9c7f4989e66667e4ffceb392584",
+              "expected_version": "v-4811",
+              "staging": "direct",
+              "issued_at": "2026-11-10T14:00:00Z",
+              "expires_at": "2026-11-10T15:00:00Z",
+              "approved_by": {
+                "kind": "user",
+                "id": "person-example-approver"
+              }
+            },
+            "alg": "EdDSA",
+            "kid": "example-2026-11",
+            "sig": "KFIBXh3BUhWThc4XnlOfXiHhu8J7sGej-nJtBkTP8TYMcBYl_EyzfaAKNJ5NpsCSA-D3Jlcuz8Z8o3wZvd2MAA"
+          }
+        }
+      ],
+      "staging": "direct"
+    }
+  }
+}

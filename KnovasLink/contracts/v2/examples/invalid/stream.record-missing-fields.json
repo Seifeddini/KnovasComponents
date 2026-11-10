@@ -1,0 +1,26 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "A record carries its fields.",
+  "breaks": [
+    "payload",
+    "fields"
+  ],
+  "instance": {
+    "type": "record",
+    "source": "records-main",
+    "external_id": "items/matter-17",
+    "version": "v-4812",
+    "payload": {
+      "record_kind": "matter",
+      "computed": [
+        "updated"
+      ],
+      "links": [
+        {
+          "relation": "parent",
+          "external_id": "items/client-3"
+        }
+      ]
+    }
+  }
+}

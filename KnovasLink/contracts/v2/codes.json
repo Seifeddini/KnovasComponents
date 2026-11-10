@@ -1,0 +1,24 @@
+{
+  "codes": [
+    {"code": "protocol_unsupported", "meaning": "The site or the connector does not speak the job's protocol version; the Brain queues v2 jobs only for a site that declared protocol 2."},
+    {"code": "site_not_declared", "meaning": "The Brain has no site declaration for this certificate; Link sends PUT /secured/connector/v2/site first."},
+    {"code": "action_not_declared", "meaning": "The connector serving the job's source did not declare this action; nothing is previewed or written."},
+    {"code": "params_invalid", "meaning": "A parameter is missing, unknown or not of the kind the declaration states."},
+    {"code": "staging_unsupported", "meaning": "The action did not declare the job's staging (direct or native_review)."},
+    {"code": "grouping_unsupported", "meaning": "Several steps in one act job for an action whose grouping is none."},
+    {"code": "preview_inexact", "meaning": "The connector cannot compute the change exactly; the preview says exact false and the action cannot be approved."},
+    {"code": "computed_field", "meaning": "The change would set a field the source computes; the preview is inexact."},
+    {"code": "target_not_found", "meaning": "The target item does not exist in the source."},
+    {"code": "version_changed", "meaning": "The target is no longer at the permit's expected version; nothing was written (status conflict)."},
+    {"code": "permit_missing", "meaning": "An act step without a permit; nothing is written."},
+    {"code": "permit_mismatch", "meaning": "The permit's tenant, source, action, target, params_sha256 or staging differs from the job's; nothing is written."},
+    {"code": "permit_bad_signature", "meaning": "The permit's signature does not verify with the key its kid names."},
+    {"code": "permit_unknown_key", "meaning": "The permit names a key Link has not pinned from the Brain, or one outside its validity."},
+    {"code": "permit_expired", "meaning": "The permit's expiry passed before its first delivery; nothing is written."},
+    {"code": "permit_wrong_site", "meaning": "The permit names another site than this Link's; nothing is written."},
+    {"code": "permit_used", "meaning": "The permit was used for a different job content before; a repeat of the same content gets the first result instead."},
+    {"code": "partly_written", "meaning": "Some steps of an act on a source that cannot group writes were written and some not; each receipt says which."},
+    {"code": "not_staged", "meaning": "review_outcome or unstage for a stage_ref the source does not know."},
+    {"code": "write_log_unavailable", "meaning": "Link could not record the permit in its write log before acting; nothing is written."}
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "result.schema.json",
+  "description": "An accepted review carries its receipts.",
+  "breaks": [
+    "review",
+    "receipts"
+  ],
+  "instance": {
+    "status": "ok",
+    "code": null,
+    "duration_ms": 900,
+    "review": {
+      "state": "accepted",
+      "stage_ref": "stage-example-41"
+    }
+  }
+}

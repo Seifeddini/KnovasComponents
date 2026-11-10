@@ -1,0 +1,33 @@
+{
+  "schema": "result.schema.json",
+  "description": "An exact preview: before and after per field, and the version read.",
+  "instance": {
+    "status": "ok",
+    "code": null,
+    "duration_ms": 640,
+    "preview": {
+      "exact": true,
+      "read_versions": [
+        {
+          "target": "items/matter-17",
+          "version": "v-4811"
+        }
+      ],
+      "changes": [
+        {
+          "target": "items/matter-17",
+          "field": "owner",
+          "before": "person-example-3",
+          "after": "person-example-7"
+        },
+        {
+          "target": "items/matter-17",
+          "field": "due_date",
+          "before": null,
+          "after": "2026-12-01"
+        }
+      ],
+      "grouping": "atomic"
+    }
+  }
+}

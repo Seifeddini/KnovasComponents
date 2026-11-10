@@ -1,0 +1,31 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "A record with fields, a computed field and a link.",
+  "instance": {
+    "type": "record",
+    "source": "records-main",
+    "external_id": "items/matter-17",
+    "version": "v-4812",
+    "payload": {
+      "record_kind": "matter",
+      "fields": {
+        "owner": "person-example-7",
+        "due_date": "2026-12-01",
+        "labels": [
+          "fiduciary",
+          "2026"
+        ],
+        "updated": "2026-11-10T14:05:01Z"
+      },
+      "computed": [
+        "updated"
+      ],
+      "links": [
+        {
+          "relation": "parent",
+          "external_id": "items/client-3"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "schema": "result.schema.json",
+  "description": "The staged change still waits for the source's review.",
+  "instance": {
+    "status": "ok",
+    "code": null,
+    "duration_ms": 300,
+    "review": {
+      "state": "pending",
+      "stage_ref": "stage-example-41"
+    }
+  }
+}

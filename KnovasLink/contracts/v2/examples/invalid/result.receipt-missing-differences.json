@@ -1,0 +1,44 @@
+{
+  "schema": "result.schema.json",
+  "description": "A receipt always lists its differences, empty or not.",
+  "breaks": [
+    "receipts",
+    0,
+    "differences"
+  ],
+  "instance": {
+    "status": "ok",
+    "code": null,
+    "duration_ms": 1830,
+    "receipts": [
+      {
+        "permit_id": "6e5d4c3b-2a19-4f08-8e7d-6c5b4a392817",
+        "outcome": "written",
+        "expected_version": "v-4811",
+        "version_after": "v-4812",
+        "reread_at": "2026-11-10T14:05:03Z",
+        "values": [
+          {
+            "target": "items/matter-17",
+            "field": "owner",
+            "before": "person-example-3",
+            "after": "person-example-7"
+          },
+          {
+            "target": "items/matter-17",
+            "field": "due_date",
+            "before": null,
+            "after": "2026-12-01"
+          }
+        ],
+        "side_effects": [
+          {
+            "target": "items/matter-17",
+            "field": "last_modified_by"
+          }
+        ],
+        "source_ref": null
+      }
+    ]
+  }
+}

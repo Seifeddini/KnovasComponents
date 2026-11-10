@@ -1,0 +1,9 @@
+{
+  "schema": "result.schema.json",
+  "description": "A used permit with different content: refused.",
+  "instance": {
+    "status": "refused",
+    "code": "permit_used",
+    "duration_ms": 3
+  }
+}
