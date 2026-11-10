@@ -11,6 +11,7 @@ Customer-hosted components for the Knovas platform.
 | [KnovasPlatform/](KnovasPlatform/) | Search web app (Docker) — query indexed documents; with the Brain Builder |
 | [Knovas Connector](KnovasConnector/) — folder `KnovasConnector/` | Discover and sync local files into Knovas |
 | [Knovas Link](KnovasLink/) — folder `KnovasLink/` | The one door of a company's site to Knovas: the components beside it (the sync component) reach the Brain only through it |
+| [Connector kit](KnovasConnectorKit/) — folder `KnovasConnectorKit/` | Draft: the base every connector of protocol v2 is built on, and its conformance suite ([connector-protocol-v2.md](KnovasPlatform/docs/connector-protocol-v2.md)) |
 
 **Connecting a company's sources to its Brain** (Knovas Link, the sync component, the Brain Builder's sites and
 approvals; fetching originals and writing changes back as pull requests): start with

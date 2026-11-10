@@ -1,0 +1,3 @@
+# The connector kit's dependencies as a connector image installs them (pyproject.toml has the ranges).
+jsonschema==4.26.0
+cryptography>=42,<50

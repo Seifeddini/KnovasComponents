@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knovas-connector-kit"
+version = "0.1.0"
+description = "Knovas connector kit: the base for a connector at a company's site (connector protocol 2.0, draft) and its conformance suite"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "jsonschema>=4.26,<5",
+    "cryptography>=42,<50",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4,<9"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+knovas_connector_kit = ["contracts/v2/*.json", "contracts/v2/contracts.lock"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

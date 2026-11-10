@@ -59,6 +59,17 @@ components:
       repository. The contract files are part of it: Link refuses to start when the ones it uses do not match
       contracts.lock. The test vectors (contracts/vectors/) and the tests are evidence, not the component, and stay
       outside so that the reading budget measures the code.
+  L3-CONNECTOR-KIT:
+    card: L3-connector-kit.card.yaml
+    paths:
+      - KnovasConnectorKit/src/knovas_connector_kit
+      - KnovasConnectorKit/pyproject.toml
+      - KnovasConnectorKit/requirements.txt
+    why: >-
+      KnovasConnectorKit/ is one installable package (knovas-connector-kit) that every connector of protocol v2 is
+      built on, with the conformance suite; it imports nothing from the rest of the repository. Its copy of the v2
+      contracts (src/knovas_connector_kit/contracts/v2) is part of it, as Link's contract files are part of Link. Its
+      tests, the mutant connectors and the README are evidence and documentation, not the component.
   L3-SYNC-COMPONENT:
     card: L3-sync-component.card.yaml
     paths:

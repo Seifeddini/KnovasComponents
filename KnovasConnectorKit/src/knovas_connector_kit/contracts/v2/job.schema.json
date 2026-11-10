@@ -1,0 +1,561 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/connector/v2/job.schema.json",
+  "title": "Job on the work channel (connector protocol 2.0, draft)",
+  "description": "A job the Brain queues for a site and Knovas Link hands to the connector that serves its source. Version 2 keeps probe and fetch as in 1.1 and adds preview, act, reread, review_outcome and unstage. The Brain queues these only for a site whose Link declared protocol 2; a 1.x Link never receives one. Every write-path job is addressed to one site certificate by target_serial. An act job carries its permits beside args, one compact token per step in the same order, so Link checks them before it reads args. The job object is open; actor, args and steps are closed.",
+  "type": "object",
+  "required": [
+    "id",
+    "kind",
+    "protocol",
+    "deadline",
+    "actor",
+    "args"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "probe",
+        "fetch",
+        "preview",
+        "act",
+        "reread",
+        "review_outcome",
+        "unstage"
+      ]
+    },
+    "protocol": {
+      "type": "string",
+      "pattern": "^2\\.[0-9]{1,3}$"
+    },
+    "source": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "The workspace source key: required for every kind but probe."
+    },
+    "target_serial": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "description": "The serial (decimal, 1 to 49 digits, no leading zero) of the site certificate the job is addressed to: required for preview, act, reread, review_outcome and unstage, and on probes from the Brain, as in 1.1. Only that certificate claims the job (finding F5).",
+      "pattern": "^[1-9][0-9]{0,48}$"
+    },
+    "deadline": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]{1,9})?(Z|\\+00:00)$"
+    },
+    "actor": {
+      "$ref": "#/$defs/actor"
+    },
+    "args": {
+      "type": "object"
+    },
+    "lease": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128,
+      "pattern": "^[!-~]+$",
+      "description": "As in 1.1: opaque, sent back as X-Knovas-Lease, removed by Link before a connector sees the job."
+    },
+    "permits": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "$ref": "permit.schema.json#/$defs/token"
+      },
+      "description": "act only: one permit token per step of args.steps, in the same order."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "probe"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "$ref": "#/$defs/probe_args"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "fetch"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "source"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "args": {
+            "$ref": "#/$defs/fetch_args"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "preview"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "source",
+          "target_serial"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "args": {
+            "$ref": "#/$defs/preview_args"
+          },
+          "target_serial": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,48}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "act"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "source",
+          "target_serial",
+          "permits"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "args": {
+            "$ref": "#/$defs/act_args"
+          },
+          "target_serial": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,48}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "reread"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "source",
+          "target_serial"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "args": {
+            "$ref": "#/$defs/reread_args"
+          },
+          "target_serial": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,48}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "review_outcome"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "source",
+          "target_serial"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "args": {
+            "$ref": "#/$defs/stage_args"
+          },
+          "target_serial": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,48}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "unstage"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "source",
+          "target_serial"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "args": {
+            "$ref": "#/$defs/stage_args"
+          },
+          "target_serial": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,48}$"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.-]{0,62}$"
+    },
+    "external_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "scalar": {
+      "type": [
+        "string",
+        "integer",
+        "boolean",
+        "null"
+      ],
+      "maxLength": 65536
+    },
+    "params": {
+      "type": "object",
+      "maxProperties": 50,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_.-]{0,62}$"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/scalar"
+          },
+          {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/$defs/scalar"
+            }
+          }
+        ]
+      },
+      "description": "The action's parameters by the declaration's names: strings, integers, booleans, null, or lists of them. No floating-point numbers, so the canonical JSON has one spelling (a decimal travels as a string)."
+    },
+    "actor": {
+      "type": "object",
+      "description": "As in 1.1: who asked, as declared; recorded, never trusted for a decision. Closed.",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent",
+            "component",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "on_behalf_of": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "minLength": 1
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "probe_args": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "No arguments. Closed."
+    },
+    "fetch_args": {
+      "type": "object",
+      "description": "As in 1.1: read the original bytes of one item. Closed.",
+      "required": [
+        "external_id",
+        "max_bytes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "external_id": {
+          "$ref": "#/$defs/external_id"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 26214400
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "action",
+        "target",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/name"
+        },
+        "target": {
+          "$ref": "#/$defs/external_id"
+        },
+        "params": {
+          "$ref": "#/$defs/params"
+        }
+      }
+    },
+    "preview_args": {
+      "type": "object",
+      "description": "Compute, without writing, exactly what the steps would change, and the version of each target read. Closed.",
+      "required": [
+        "steps",
+        "staging"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        },
+        "staging": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "native_review"
+          ]
+        },
+        "at_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Read the target at this version instead of its current one: a reversal is previewed at the version its original's receipt recorded, never at the current one (SPEC-write-back-33)."
+        }
+      }
+    },
+    "act_step": {
+      "type": "object",
+      "required": [
+        "action",
+        "target",
+        "params",
+        "expected_version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/name"
+        },
+        "target": {
+          "$ref": "#/$defs/external_id"
+        },
+        "params": {
+          "$ref": "#/$defs/params"
+        },
+        "expected_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "The version the approved preview read; equal to the permit's."
+        }
+      }
+    },
+    "act_args": {
+      "type": "object",
+      "description": "Carry out the steps, each under the permit at the same position of the job's permits, and re-read what was written. One step, or several on one source whose connector declared grouping atomic (all or none). Closed.",
+      "required": [
+        "steps",
+        "staging"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/act_step"
+          }
+        },
+        "staging": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "native_review"
+          ]
+        }
+      }
+    },
+    "reread_args": {
+      "type": "object",
+      "description": "Read targets again and answer with what they hold and their versions; with permit_ids, the receipt of those permits' earlier write (recovery of a lost result). Writes nothing. Closed.",
+      "required": [
+        "targets"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/external_id"
+          }
+        },
+        "fields": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "permit_ids": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/uuid"
+          }
+        }
+      }
+    },
+    "stage_args": {
+      "type": "object",
+      "description": "review_outcome: report the outcome of a staged change in the source's own review. unstage: withdraw it. Closed.",
+      "required": [
+        "stage_ref",
+        "permit_ids"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "stage_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "The address the act result named when it staged the change."
+        },
+        "permit_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/uuid"
+          }
+        }
+      }
+    }
+  }
+}
