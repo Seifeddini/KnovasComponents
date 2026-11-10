@@ -39,7 +39,7 @@ class JiraHarness:
                 {"action": "set_due_date", "target": f"{PROJECT}-3", "params": {"due_date": "2026-12-01"}}]
 
     def same_item_steps(self) -> list[dict]:
-        """Two field edits of one issue: one edit call, one receipt per step (both declare grouping atomic)."""
+        """Two field edits of one issue: one edit call, one receipt per step (both declare grouping item, D-24)."""
         return [{"action": "set_assignee", "target": f"{PROJECT}-1", "params": {"assignee": "acct-7"}},
                 {"action": "set_due_date", "target": f"{PROJECT}-1", "params": {"due_date": "2026-12-01"}}]
 

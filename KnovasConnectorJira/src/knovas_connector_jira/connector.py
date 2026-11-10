@@ -18,11 +18,12 @@ decision of 2026-11-10):
   (``POST /issue/{key}/transitions``); none is ``transition_unavailable``, several ``transition_ambiguous``, one whose
   screen requires a field ``transition_needs_fields``.
 
-The two field edits declare ``grouping: atomic``: several of them on one issue are one edit call and one change-log
-entry, written all or none, with one receipt per step (the coordinator's decision of 2026-11-10). A transition declares
-``grouping: none`` and goes alone; an act that mixes it with an edit is refused ``grouping_unsupported``. An act whose
-steps name several issues is refused ``grouping_across_items`` after their versions are checked: Jira cannot write
-two issues all or none. Two steps that set the same field of one issue are refused ``same_field_twice``.
+The two field edits declare ``grouping: item`` (protocol v2.0 as amended 2026-11-10, D-24): several of them on one
+issue are one edit call and one change-log entry, written all or none, with one receipt per step; the Brain sends one
+act per issue. A transition declares ``grouping: none`` and goes alone; an act that mixes it with an edit is refused
+``grouping_unsupported``. An act whose steps name several issues is the Brain's error and is refused
+``grouping_unsupported`` too, before anything is read: Jira cannot write two issues all or none. Two steps that set
+the same field of one issue are refused ``same_field_twice``.
 
 A field the edit metadata does not let this credential set, or one the settings name as set by an automation
 (``computed_fields``), makes the preview inexact (``computed_field``): it can never be approved (SPEC-write-back-06).
@@ -57,7 +58,7 @@ from typing import Any, Callable, Mapping, Optional
 
 from knovas_connector_kit import PROTOCOL, SUITE_VERSION
 from knovas_connector_kit.canonical import digest
-from knovas_connector_kit.connector import Connector, outcome
+from knovas_connector_kit.connector import Connector, grouping_of, outcome
 
 from knovas_connector_jira import SOURCE_KIND, VERSION
 from knovas_connector_jira.client import JiraClient, JiraError, Settings, issue_key, key_order, settings_of
@@ -74,8 +75,8 @@ DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 ACTIONS = {"set_assignee": ("assignee", "assignee"), "set_due_date": ("duedate", "due_date"),
            "transition_issue": ("status", "status")}
 #: Field edits of one issue are one edit call and one change-log entry, so several of them in one act are written all
-#: or none; a transition is its own call and goes alone (the coordinator's decision of 2026-11-10 on D-14's gap).
-GROUPING = {"set_assignee": "atomic", "set_due_date": "atomic", "transition_issue": "none"}
+#: or none, one issue per act (grouping item, D-24); a transition is its own call and goes alone.
+GROUPING = {"set_assignee": "item", "set_due_date": "item", "transition_issue": "none"}
 #: The conformance properties the package passed (tests/test_conformance.py runs the kit's suite against a fake Jira).
 #: review_outcome is not applicable: no action declares native_review.
 CONFORMANCE_PASSED = ["replay_changes_nothing", "deletion_guard", "preview_equals_receipt", "exactly_once",
@@ -307,7 +308,7 @@ class JiraConnector(Connector):
                                 "after": after})
         except JiraError as err:
             return outcome(err.status, err.code)
-        grouping = "atomic" if all(GROUPING[s["action"]] == "atomic" for s in steps) else "none"
+        grouping = grouping_of(GROUPING[s["action"]] for s in steps)
         preview = {"exact": exact, "read_versions": [{"target": t, "version": v} for t, v in versions.items()],
                    "changes": changes if exact else [], "grouping": grouping}
         if not exact:
@@ -354,13 +355,14 @@ class JiraConnector(Connector):
                                                                 "changes": changes})
 
     def act(self, source, steps, permits, staging):
-        """One step, or several field edits of one issue (grouping atomic): one call writes them all with every
-        step's permit marker, so they are written all or none. Steps on several issues are refused
-        (grouping_across_items) once their versions are checked: Jira cannot write two issues all or none."""
+        """One step, or several field edits of one issue (grouping item): one call writes them all with every step's
+        permit marker, so they are written all or none. Steps on several issues are the Brain's error (it sends one
+        act per issue) and are refused grouping_unsupported before anything is read: Jira cannot write two issues all
+        or none."""
         if staging != "direct":
             return outcome("refused", "staging_unsupported")
         if not steps or len(steps) != len(permits) or (
-                len(steps) > 1 and any(GROUPING[s["action"]] != "atomic" for s in steps)):
+                len(steps) > 1 and any(GROUPING[s["action"]] != "item" for s in steps)):
             return outcome("refused", "grouping_unsupported")
         for step in steps:
             bad = self._params(step)
@@ -375,6 +377,8 @@ class JiraConnector(Connector):
             keys = [issue_key(s["target"], settings) for s in steps]
             if any(k is None for k in keys):
                 return outcome("refused", "target_not_found")
+            if len(set(keys)) > 1:
+                return outcome("refused", "grouping_unsupported")
             marks = [MARK_PREFIX + p["permit_id"] for p in permits]
             issues: dict[str, dict] = {}
             for key in dict.fromkeys(keys):
@@ -394,8 +398,6 @@ class JiraConnector(Connector):
                 found = version_of(self._histories(issues[key]))
                 if found != permit["expected_version"]:
                     return self._conflict(issues[key], steps, i, permit["expected_version"], found)
-            if len(set(keys)) > 1:
-                return outcome("refused", "grouping_across_items")
             key, issue = keys[0], issues[keys[0]]
             body: dict = {}
             fields = [ACTIONS[s["action"]][0] for s in steps]

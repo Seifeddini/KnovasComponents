@@ -48,10 +48,11 @@ A listing Jira marks as its last page is complete: then `tombstone`s for issues 
 | `set_due_date` | `due_date`: `YYYY-MM-DD`, or null | edit | — |
 
 All three: `preview: exact`, `staging: [direct]`, `inverse: null` (no undo in V1). The two field edits declare
-`grouping: atomic`: several of them on one issue go in one edit call (one change-log entry) and come back as one
-receipt per step; `transition_issue` declares `grouping: none` and goes alone. An act whose steps name several issues
-is refused `grouping_across_items` (Jira cannot write two issues all or none), two steps setting one field of one issue
-`same_field_twice`. A value equal to the current one is refused (`no_change`). Each write carries one issue property
+`grouping: item` (protocol v2.0 as amended 2026-11-10, D-24): several of them on one issue go in one edit call (one
+change-log entry), all or none, and come back as one receipt per step; the Brain sends one act per issue.
+`transition_issue` declares `grouping: none` and goes alone. An act whose steps name several issues is the Brain's
+error and is refused `grouping_unsupported` before any issue is read (Jira cannot write two issues all or none), two
+steps setting one field of one issue `same_field_twice`. A value equal to the current one is refused (`no_change`). Each write carries one issue property
 `knovas.permit.<permit id>` per step in the same request: a repeat, or a delivery after a lost answer, finds them and
 answers the receipts without writing again. A receipt comes from reading the issue again (values before and after,
 differences from the approved value, side effects by field name, the new change-log position). A change log that moved

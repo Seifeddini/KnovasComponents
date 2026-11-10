@@ -130,7 +130,8 @@ contract:
         - test_the_suite_passes_every_read_and_write_property
     - id: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/P-3
       statement: A preview writes nothing and names, per step and with the step's index, the field's value before and
-        after and the change-log position it read, and grouping atomic only when every step is a field edit; a field
+        after and the change-log position it read, and the grouping its steps share (item when every step is a field
+        edit, D-24, else none); a field
         the edit metadata does not let the account set, or one an automation sets, makes it inexact (computed_field);
         a step that cannot be carried out is refused with its code (params_invalid, target_not_found,
         assignee_not_assignable, transition_unavailable, transition_ambiguous, transition_needs_fields, no_change,
@@ -154,7 +155,8 @@ contract:
         knovas.permit.<permit id> per step in the same request, and answers one receipt per step from a re-read -
         values before and after, every difference from the approved value, the other fields Jira changed by name, the
         new position, each named with its step. A transition goes alone (grouping_unsupported with another step), and
-        steps on several issues are refused grouping_across_items, never partly written.
+        an act whose steps span issues (the Brain's error under grouping item, D-24) is refused grouping_unsupported
+        before any issue is read, never partly written.
       risk_class: critical
       evidence:
       - kind: test
@@ -166,7 +168,7 @@ contract:
         - test_a_transition_to_done_names_what_jira_set_besides_as_side_effects
         - test_two_field_edits_of_one_issue_are_one_edit_one_change_log_entry_and_one_receipt_per_step
         - test_a_transition_goes_alone
-        - test_field_edits_of_two_issues_are_never_partly_written
+        - test_field_edits_of_two_issues_in_one_act_are_refused_and_never_written
       - kind: test
         ref: KnovasConnectorJira/tests/test_conformance.py
         checks:
@@ -185,8 +187,8 @@ contract:
         - test_reread_answers_values_versions_and_the_receipt_of_an_earlier_write
     - id: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/P-6
       statement: The declaration names source kind jira, the streams record, tombstone, generation and state, the three
-        actions (preview exact, staging direct, inverse null; grouping atomic for set_assignee and set_due_date, none
-        for transition_issue) and exactly the conformance properties the package passed, with the package's own
+        actions (preview exact, staging direct, inverse null; grouping item for set_assignee and set_due_date, D-24,
+        none for transition_issue) and exactly the conformance properties the package passed, with the package's own
         digest.
       risk_class: critical
       evidence:
@@ -198,23 +200,23 @@ contract:
       - kind: test
         ref: KnovasConnectorJira/tests/test_actions.py
         checks:
-        - test_three_direct_actions_field_edits_atomic_a_transition_alone_no_inverse
+        - test_three_direct_actions_field_edits_grouped_by_issue_a_transition_alone_no_inverse
     limits:
     - id: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-1
       statement: Jira has no conditional edit, so a change that lands between the version check and the write is not
         refused; it shows in the receipt (a side effect, or a difference when it touched the same field).
       risk_class: critical
     - id: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-2
-      statement: Atomic means one issue - field edits of several issues in one act are refused, so a change set that
-        edits two issues cannot be written in one act under v2.0 (open question J-Q2); a transition and an edit of one
-        issue in two acts against the one preview's version make the second a conflict (the Brain refuses such a
-        change set).
+      statement: Field edits of several issues are never written together - the declaration says grouping item
+        (D-24), so the Brain sends one act per issue and a change set that edits two issues is written issue by issue;
+        a transition and an edit of one issue in two acts against the one preview's version make the second a
+        conflict (the Brain refuses such a change set).
       risk_class: standard
       evidence:
       - kind: test
         ref: KnovasConnectorJira/tests/test_actions.py
         checks:
-        - test_field_edits_of_two_issues_are_never_partly_written
+        - test_field_edits_of_two_issues_in_one_act_are_refused_and_never_written
         - test_a_transition_after_an_edit_in_its_own_job_finds_the_change_log_moved
     - id: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-3
       statement: Each write leaves one issue property (knovas.permit.<permit id>, at most 32 KiB) on the issue; nothing
@@ -284,15 +286,18 @@ review:
   why: Built behind no switch because nothing ships it; tested against a fake Jira only. A live smoke on the pilot
     project needs the token at the site (P-3, J-4).
 - at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/P-3
-  why: Changed for the amended protocol (D-14, every change names its step) and the coordinator's grouping decision
-    of 2026-11-10; a person marks it compatible or not.
+  why: Changed for the amended protocol (D-14, every change names its step), the coordinator's grouping decision of
+    2026-11-10 and D-24 (a preview's grouping item); a person marks it compatible or not.
 - at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/P-4
-  why: Changed - several field edits of one issue in one act (the coordinator's grouping decision of 2026-11-10); a
-    person marks it compatible or not.
+  why: Changed - several field edits of one issue in one act (the coordinator's grouping decision of 2026-11-10); with
+    D-24 an act spanning issues is refused grouping_unsupported instead of grouping_across_items. A person marks it
+    compatible or not.
 - at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/P-6
-  why: Changed - grouping atomic for the two field edits; a person marks it compatible or not.
+  why: Changed - grouping item for the two field edits (the founder's D-24, option C, which answered J-Q2 - atomic
+    stays any items of a source, item is one item); a person marks it compatible or not.
 - at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-2
-  why: Changed with the grouping decision; whether atomic may mean one item is the open question J-Q2.
+  why: Changed with D-24 (J-Q2 answered) - one act per issue, an act spanning issues is the Brain's error; a person
+    marks it compatible or not.
 - at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-1
   why: No evidence; a property of Jira's API (EXT-JIRA-API/*/L-2).
 - at: L3-JIRA-CONNECTOR/call.knovas_connector_jira.connector.JiraConnector/L-3
