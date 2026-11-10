@@ -1,5 +1,20 @@
 # Unreleased
 
+## Automatisch abgleichen: bei neuen Commits, auf Wunsch ohne Klick (KG-2)
+
+- **Zeitplan «Bei neuen Commits».** Auf der Seite einer Sync-Komponente neben «Manuell», «Regelmäßig» (jetzt ab
+  jeder Minute) und «Im Zeitfenster». Die Komponente fragt alle 15 bis 3600 Sekunden (Standard 30) jedes
+  GitHub-Repository nach seinem neuesten Commit; ist er schon abgeglichen, geschieht nichts weiter. Ist er neu, plant
+  sie nur die Zuordnungen, die er betrifft.
+- **«Automatisch anwenden, wenn nichts zur Freigabe ansteht»**, je Quelle auf der Seite des Standorts, nur wer die
+  Standorte verwaltet, Standard aus. Was der Löschschutz anhält, Abweichungen und Einträge zum Stilllegen warten
+  weiter auf eine Person.
+- **Quellen und Abgleich.** Seite des Standorts und Liste «Standorte»: je Quelle der zuletzt abgeglichene Commit (mit
+  Link auf GitHub), wann, was der letzte Lauf schrieb, die nächste Prüfung.
+- **Jede Komponente am Standort hat ihren eigenen Zeitplan und ihre eigene Pause**; Knovas Link selbst keinen mehr.
+- **Beim Update:** neue Abbilder (Knovas Link 1.2.0, Sync-Komponente 0.3.0 mit brain-runner 0.3.2, Plattform) aus
+  demselben Stand. Ältere Komponenten laufen weiter und ignorieren die neuen Felder.
+
 ## Keine Voreinstellung nennt mehr einen Mandanten (V1-G4)
 
 - **Repository und Pfade der Wissensbasis sind Einstellungen ohne Voreinstellung.**

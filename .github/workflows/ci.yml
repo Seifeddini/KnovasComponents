@@ -83,14 +83,14 @@ jobs:
       # brain-runner, the product's mapping runner (V1-G1, V1-G11): the tests of the Brain sync, the Builder's
       # mappings, sources and publish and the sync component import it and skip without it, so CI installs it.
       # From KnowledgeBase at a pinned commit: the repository variable BRAIN_RUNNER_SHA (a full SHA), else
-      # 646f22212, the KnowledgeBase commit tagged brain-runner-v0.3.1. The token is the read-only secret KB_READ_TOKEN;
-      # it is only in this step's environment and never printed (no set -x; pip redacts it from URLs and GitHub
+      # 961b2f72b, the KnowledgeBase commit of brain-runner 0.3.2 (tag brain-runner-v0.3.2). The token is the
+      # read-only secret KB_READ_TOKEN; it is only in this step's environment and never printed (no set -x; pip redacts it from URLs and GitHub
       # masks it). Without it (a fork's pull request) the step fails and says why: a green run without the
       # runner's tests would be a lie.
       - name: brain-runner (pinned, from KnowledgeBase)
         env:
           KB_READ_TOKEN: ${{ secrets.KB_READ_TOKEN }}
-          BRAIN_RUNNER_SHA: ${{ vars.BRAIN_RUNNER_SHA || '646f222124324fab28cf42002ac3962ab3876127' }}
+          BRAIN_RUNNER_SHA: ${{ vars.BRAIN_RUNNER_SHA || '961b2f72bd178ce86998070b53caa70363451f06' }}
         run: |
           set -euo pipefail
           if [ -z "${KB_READ_TOKEN:-}" ]; then

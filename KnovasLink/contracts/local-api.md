@@ -1,4 +1,4 @@
-# Knovas Link: the local API (protocol 1.1)
+# Knovas Link: the local API (protocol 1.2)
 
 **Status: contract, not built (MVP-1, KC-7a).** Knovas Link is the one component per site that talks to Knovas. The other
 components on the site talk only to Link, through this API. Outside, Link speaks connector protocol v1
@@ -68,21 +68,33 @@ Link answers a component with the sources whose `component` is the name it regis
 
 ```json
 {"sources": [{"workspace": "ws-1", "key": "handbook", "kind": "github", "access": "read_write",
-              "settings": {"repository": "example-org/handbook", "ref": "main"}, "fetch": true}]}
+              "settings": {"repository": "example-org/handbook", "ref": "main"}, "fetch": true, "auto_apply": false}]}
 ```
 
 `access` is `read` or `read_write`; `fetch` is true when fetching originals is switched on for the source. Both are off
-until a person switches them on and publishes. 503 `unreachable`: Link has never had a configuration from the Platform.
+until a person switches them on and publishes. `auto_apply` (protocol 1.2) is true when a person switched on in the
+Builder that the component applies a plan of this source on its own when the plan holds nothing a person must decide;
+false by default. A component that does not know the field ignores it, and so applies nothing on its own. 503 `unreachable`: Link has never had a configuration from the Platform.
 
 ### `POST /local/v1/heartbeat` and `POST /local/v1/commands/<id>/done`
 
 The control plane of protocol v1, through Link. A component in link mode sends its heartbeat here, never to the
 Platform.
 
-- The body is exactly protocol v1's heartbeat body: `{state: online|degraded, version, lag_seconds, open_errors,
+- The body is protocol v1's heartbeat body: `{state: online|degraded, version, lag_seconds, open_errors,
   capabilities}`. Link reports what it learns in its own heartbeat's `components`.
+- **Protocol 1.2:** the body may also carry `sources`, the component's sync status per source it serves:
+  `[{workspace, key, synced_commit, synced_at, checked_at, next_check_at, planned_commit, held_back, last_apply}]`,
+  where `synced_commit` is the commit the last apply without errors synced, `planned_commit` the commit the last poll
+  planned, `held_back` up to 10 codes why the last plan was not applied on its own, and `last_apply`
+  `{at, status: ok|held|failed, added, changed, retired, errors, auto}`. Commits are 40 (or 64) lower-case hex digits,
+  times ISO 8601. Link keeps the entries for the sources assigned to the component and passes them on in its own
+  heartbeat's `site.sources`; a field outside this list is dropped, and an entry of the wrong shape refuses the beat
+  with 400 `bad_field`. A component that sends no `sources` is answered as before.
 - The answer is shaped as the Platform's: `{paused, schedule, commands: [{id, command, args}]}`. `paused` and
-  `schedule` are those of the Platform's last answer to Link.
+  `schedule` are those of the Platform's last answer to Link. **Protocol 1.2:** where the Platform names a component's
+  own pause and schedule (its `components`), the answer carries that schedule, and `paused` is true when the site or
+  the component is paused; for a component the Platform names none for, Link's own, as before.
 - **Commands fan out.** In the Platform's heartbeat answer to Link, a command meant for a component carries
   `"component": "<name>"`. Link delivers it once, on that component's next local heartbeat, without the `component`
   field. A command without `component` is Link's own.
@@ -96,12 +108,13 @@ Platform.
 ### `GET /local/v1/config` and `GET /local/v1/package`
 
 The bodies of protocol v1's `GET /config` and `GET /package`, as Link last had them from the Platform, limited to the
-sources assigned to this component's name and their workspaces. 503 `unreachable`: Link has no copy and cannot reach the Platform.
+sources assigned to this component's name and their workspaces. The configuration's `paused` and `schedule` are the
+component's own where the Platform names them (protocol 1.2), as in the heartbeat's answer. 503 `unreachable`: Link has no copy and cannot reach the Platform.
 
 ### `GET /local/v1/ping`
 
 ```json
-{"version": "1.1.0", "certificate": "present", "work_channel": "connected"}
+{"version": "1.2.0", "certificate": "present", "work_channel": "connected"}
 ```
 
 `certificate` is `present` or `waiting`; `work_channel` is `connected` or `down`. Ping never calls Knovas. A container

@@ -22,6 +22,10 @@ operations:
   name: python -m brain_runner compile-write --config FILE --job FILE
   entrance: cli
   ref: python -m brain_runner compile-write
+- id: cli.affected
+  name: python -m brain_runner affected --config FILE --since COMMIT --source github --repo OWNER/NAME --ref REF --json
+  entrance: cli
+  ref: python -m brain_runner affected
 - id: call.runner-entry
   name: brain_runner.__main__.main(argv, source=), runner.make_plan(previous=, stream_source=), sources.LocalSource,
     sources.base.path_order
@@ -73,6 +77,20 @@ contract:
         checks:
         - TestAProposalBecomesAPullRequest::test_the_pull_request_carries_only_the_changed_values
         - TestNothingIsWritten::test_what_the_inverse_mapping_refuses_is_the_jobs_refusal
+  cli.affected:
+    promises:
+    - id: EXT-BRAIN-RUNNER/cli.affected/P-1
+      statement: From 0.3.2 - asks GitHub for the commit the ref names now (one request when it is the commit given) and
+        prints one JSON line {head, mappings}, mappings being the ids the commits since --since concern (a mapping's
+        own file, its source or lookups) or null when every mapping must be planned; reads BRAIN_GITHUB_TOKEN and
+        BRAIN_GITHUB_API, downloads no file.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_autosync.py
+        checks:
+        - TestTheRealRunner::test_a_commit_to_a_file_a_mapping_reads_names_that_mapping
+        - TestTheRealRunner::test_a_commit_no_mapping_reads_names_none_and_nothing_new_is_one_request
   call.runner-entry:
     promises:
     - id: EXT-BRAIN-RUNNER/call.runner-entry/P-1

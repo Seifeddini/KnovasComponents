@@ -166,6 +166,20 @@
             <p class="b-small">Quellen, Zuordnungen und Ordnerregeln ändern sich in einem Entwurf und gehen durch die Prüfung. <a class="b-link-strong" href="{{ url_for('builder.stage', slug='quellen') }}">Zu den Quellen</a></p>
         </section>
 
+        {% if sync %}
+        <section class="b-op-section" aria-labelledby="b-cp-sync-title" data-cp-sync>
+            <h2 class="b-h3" id="b-cp-sync-title">Abgleich</h2>
+            {% from 'builder/_sync.html' import sync_list %}
+            {{ sync_list(sync, may_manage, url_for('builder.component_auto_apply', component_id=c.id)) }}
+        </section>
+        {% endif %}
+
+        {% if c.kind == 'knovas_link' %}
+        <section class="b-op-section" aria-labelledby="b-cp-schedule-title">
+            <h2 class="b-h3" id="b-cp-schedule-title">Zeitplan</h2>
+            <p class="b-small b-muted" data-cp-schedule-link>Knovas Link führt selbst nichts aus. Den Zeitplan hat jede Komponente am Standort selbst: auf ihrer Seite setzen.</p>
+        </section>
+        {% else %}
         <section class="b-op-section" aria-labelledby="b-cp-schedule-title">
             <h2 class="b-h3" id="b-cp-schedule-title">Zeitplan</h2>
             <p class="b-small">Jetzt: <strong data-cp-schedule-text>{{ row.schedule_text }}</strong></p>
@@ -175,8 +189,11 @@
                     <label class="b-check"><input type="radio" name="mode" value="manual" {% if sch.mode == 'manual' %}checked{% endif %}><span>Manuell</span></label>
                     <label class="b-check"><input type="radio" name="mode" value="interval" {% if sch.mode == 'interval' %}checked{% endif %}><span>Regelmäßig</span></label>
                     <label class="b-check"><input type="radio" name="mode" value="window" {% if sch.mode == 'window' %}checked{% endif %}><span>Im Zeitfenster</span></label>
+                    <label class="b-check"><input type="radio" name="mode" value="commits" {% if sch.mode == 'commits' %}checked{% endif %}><span>Bei neuen Commits</span></label>
                 </fieldset>
                 <div class="b-field"><label class="b-label" for="b-cp-every">Alle … Minuten</label><input class="b-input" id="b-cp-every" name="every_minutes" inputmode="numeric" value="{{ sch.every_minutes or 60 }}"></div>
+                <div class="b-field" data-cp-commits><label class="b-label" for="b-cp-poll">Alle … Sekunden auf neue Commits prüfen</label><input class="b-input" id="b-cp-poll" name="poll_seconds" inputmode="numeric" value="{{ sch.poll_seconds or 30 }}" aria-describedby="b-cp-poll-hint">
+                    <span class="b-hint" id="b-cp-poll-hint">15 bis 3600 Sekunden. Geplant wird nur, wenn ein GitHub-Repository einen neuen Commit hat, und nur die Zuordnungen, die er betrifft. Andere Quellen dieser Komponente laufen so nicht.</span></div>
                 <fieldset class="b-vw-choices" data-cp-window><legend class="b-label">Tage</legend>
                     {% for d in days %}<label class="b-check"><input type="checkbox" name="days" value="{{ d }}" {% if d in (sch.days or []) %}checked{% endif %}><span>{{ d | capitalize }}</span></label>{% endfor %}
                 </fieldset>
@@ -187,6 +204,7 @@
                 <button type="submit" class="b-button b-button--secondary b-button--small">Zeitplan übernehmen</button>
             </form>
         </section>
+        {% endif %}
 
         <section class="b-op-section" aria-labelledby="b-cp-settings-title">
             <h2 class="b-h3" id="b-cp-settings-title">Angaben</h2>
@@ -225,4 +243,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/builder/component.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/builder/site.js') }}?v={{ asset_version }}"></script>
 {% endblock %}

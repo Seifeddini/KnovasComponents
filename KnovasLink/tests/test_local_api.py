@@ -51,9 +51,10 @@ def test_register_answers_the_sources_assigned_to_the_name_without_credentials(w
         answer = register(world, client)
         assert [s["key"] for s in answer["sources"]] == ["handbook", "archive"]
         for s in answer["sources"]:
-            assert set(s) == {"workspace", "key", "kind", "access", "settings", "fetch"}
+            assert set(s) == {"workspace", "key", "kind", "access", "settings", "fetch", "auto_apply"}
         assert answer["sources"][0] == {"workspace": "ws-1", "key": "handbook", "kind": "github", "access": "read_write",
-                                        "settings": {"repository": "example-org/handbook", "ref": "main"}, "fetch": True}
+                                        "settings": {"repository": "example-org/handbook", "ref": "main"}, "fetch": True,
+                                        "auto_apply": False}
         assert answer["sources"][1]["fetch"] is False and answer["sources"][1]["access"] == "read"
         crm = register(world, client, "records-reader", kind="sync_component", job_kinds=["fetch"])
         assert [s["key"] for s in crm["sources"]] == ["crm"]

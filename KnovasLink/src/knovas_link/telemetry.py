@@ -46,10 +46,23 @@ class Telemetry:
     def run_status(self, workspace: str, key: str, status: str) -> None:
         self.sources.setdefault((workspace, key), {})["last_run_status"] = status
 
+    def sync(self, entries: Iterable[Mapping]) -> None:
+        """A component's sync status per source (protocol 1.2, ``sync_status.check``), kept for the next heartbeat."""
+        from knovas_link.sync_status import FIELDS
+
+        for e in entries:
+            kept = self.sources.setdefault((e.get("workspace"), e.get("key")), {})
+            kept.update({k: e[k] for k in FIELDS if k in e})
+
     def sources_list(self, configured: Iterable[Mapping]) -> list[dict]:
+        """Per configured source: when it was last read well, its last run, and -- once its component said so -- its
+        sync status (protocol 1.2; a Platform that does not know these fields drops them)."""
+        from knovas_link.sync_status import FIELDS
+
         out = []
         for s in configured:
             seen = self.sources.get((s.get("workspace"), s.get("key")), {})
             out.append({"workspace": s.get("workspace"), "key": s.get("key"),
-                        "last_read_ok_at": seen.get("last_read_ok_at"), "last_run_status": seen.get("last_run_status")})
+                        "last_read_ok_at": seen.get("last_read_ok_at"), "last_run_status": seen.get("last_run_status"),
+                        **{k: seen[k] for k in FIELDS if k in seen}})
         return out

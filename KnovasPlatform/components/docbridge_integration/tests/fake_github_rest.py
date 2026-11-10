@@ -1,5 +1,5 @@
-"""An in-process GitHub REST API for one repository, over real HTTP: enough of contents, blobs, refs, commits and pull
-requests for the sync component's fetch and write jobs (MVP-21, MVP-22). A test helper only; the repository and
+"""An in-process GitHub REST API for one repository, over real HTTP: enough of contents, blobs, refs, commits, compare
+and pull requests for the sync component's fetch and write jobs (MVP-21, MVP-22) and its diff polling (KG-2). A test helper only; the repository and
 company are made up.
 
 Tokens: ``read`` tokens may read, ``write`` tokens may also create branches, commit and open pull requests; any other
@@ -144,6 +144,26 @@ class FakeGitHub:
             if sha is None:
                 return jsonify({"message": "Not Found"}), 404
             return Response(sha, mimetype="application/vnd.github.sha")
+
+        @app.get(prefix + "/compare/<path:spec>")
+        def compare(spec):
+            """base...head as GitHub answers it: status, total_commits and the files that differ (no renames)."""
+            denied = read()
+            if denied:
+                return denied
+            base, _, head = spec.partition("...")
+            if base not in gh.commits or head not in gh.commits:
+                return jsonify({"message": "Not Found"}), 404
+            chain, at = [], head
+            while at is not None and at != base:
+                chain.append(at)
+                at = gh.commits[at]["parent"]
+            status = "identical" if base == head else ("ahead" if at == base else "diverged")
+            old, new = gh.commits[base]["tree"], gh.commits[head]["tree"]
+            files = [{"filename": f, "status": "removed" if f not in new else "added" if f not in old else "modified"}
+                     for f in sorted(set(old) | set(new)) if old.get(f) != new.get(f)]
+            return jsonify({"status": status, "total_commits": len(chain) if status == "ahead" else 0, "files": files,
+                            "commits": []})
 
         @app.get(prefix + "/git/ref/heads/<path:branch>")
         def ref(branch):

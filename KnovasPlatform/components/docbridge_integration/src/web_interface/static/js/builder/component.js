@@ -1,6 +1,6 @@
 /* Brain Builder -- one sync component's actions (build plan step B13): run now (a dry run, or an apply
- * after confirming), pause and resume, a new enrolment token, revoke, the schedule, its details, and the
- * held plans (approve with a reason, or reject). The server decides who may; the page reloads to show it. */
+ * after confirming), pause and resume, a new enrolment token, revoke, the schedule (also «bei neuen Commits»), its
+ * details, and the held plans (approve with a reason, or reject). The «automatisch anwenden» switches are site.js's. The server decides who may; the page reloads to show it. */
 (function () {
     'use strict';
 
@@ -87,7 +87,8 @@
         function mode() { var m = schedule.querySelector('input[name="mode"]:checked'); return m ? m.value : 'manual'; }
         function sync() {
             Array.prototype.forEach.call(schedule.querySelectorAll('[data-cp-window]'), function (el) { el.hidden = mode() !== 'window'; });
-            schedule.elements.every_minutes.closest('.b-field').hidden = mode() === 'manual';
+            schedule.elements.every_minutes.closest('.b-field').hidden = mode() === 'manual' || mode() === 'commits';
+            Array.prototype.forEach.call(schedule.querySelectorAll('[data-cp-commits]'), function (el) { el.hidden = mode() !== 'commits'; });
         }
         Array.prototype.forEach.call(schedule.querySelectorAll('input[name="mode"]'), function (r) { r.addEventListener('change', sync); });
         sync();
@@ -96,6 +97,7 @@
             var days = Array.prototype.filter.call(schedule.querySelectorAll('input[name="days"]'), function (c) { return c.checked; })
                 .map(function (c) { return c.value; });
             act(root.dataset.scheduleUrl, { schedule: { mode: mode(), every_minutes: Number(schedule.elements.every_minutes.value),
+                                                        poll_seconds: Number(schedule.elements.poll_seconds.value),
                                                         days: days, from: schedule.elements.from.value, to: schedule.elements.to.value } },
                 function (r) {
                     document.querySelector('[data-cp-schedule-text]').textContent = r.text;

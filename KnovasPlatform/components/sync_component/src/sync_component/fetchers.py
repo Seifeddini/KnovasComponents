@@ -77,10 +77,16 @@ def fetch_http_json(settings: Mapping[str, Any], credential: Optional[str], root
 
 # ------------------------------------------------------------------ a GitHub repository
 
+def _settings_ok(repo: str, ref: str) -> bool:
+    """owner/name and a branch, tag or commit that stay inside the repository's address (no «.» or «..» part)."""
+    return (bool(_REPOSITORY.match(repo)) and bool(_REF.match(ref)) and ".." not in ref and not ref.startswith(("-", "/"))
+            and not repo.startswith("-") and not any(part in (".", "..") for part in repo.split("/")))
+
+
 def check_github(settings: Mapping[str, Any], credential: Optional[str], *, get: Callable[..., Any] = requests.get) -> dict[str, int]:
     """That the repository and its branch or tag can be read with this credential: one call, no file."""
     repo, ref = str(settings.get("repository") or ""), str(settings.get("ref") or "HEAD")
-    if not _REPOSITORY.match(repo) or not _REF.match(ref) or ".." in ref or ref.startswith(("-", "/")) or repo.startswith("-"):
+    if not _settings_ok(repo, ref):
         raise FetchError("fetch.bad_repository")
     base = (os.environ.get("BRAIN_GITHUB_API") or "https://api.github.com").rstrip("/")
     headers = {"Accept": "application/vnd.github.sha", "X-GitHub-Api-Version": "2022-11-28"}
@@ -93,6 +99,45 @@ def check_github(settings: Mapping[str, Any], credential: Optional[str], *, get:
     if answer.status_code != 200:
         raise FetchError(f"fetch.http_{answer.status_code}")
     return {}
+
+
+#: A commit as GitHub names it: 40 hex digits (64 for a SHA-256 repository).
+COMMIT = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
+
+
+@dataclass
+class Head:
+    """The commit a source names now. ``commit`` is None when the source answered «unchanged» (304) to ``etag``."""
+    commit: Optional[str]
+    etag: Optional[str] = None
+
+
+def head_github(settings: Mapping[str, Any], credential: Optional[str], *, etag: Optional[str] = None,
+                get: Callable[..., Any] = requests.get) -> Head:
+    """The commit the source's branch or tag names now: one request, nothing downloaded. With the ``etag`` of the last
+    answer GitHub may answer 304, which its rate limit does not count (diff polling, KG-2)."""
+    repo, ref = str(settings.get("repository") or ""), str(settings.get("ref") or "HEAD")
+    if not _settings_ok(repo, ref):
+        raise FetchError("fetch.bad_repository")
+    base = (os.environ.get("BRAIN_GITHUB_API") or "https://api.github.com").rstrip("/")
+    headers = {"Accept": "application/vnd.github.sha", "X-GitHub-Api-Version": "2022-11-28"}
+    if credential:
+        headers["Authorization"] = f"Bearer {credential}"
+    if etag:
+        headers["If-None-Match"] = etag
+    try:
+        answer = get(f"{base}/repos/{repo}/commits/{quote(ref, safe='/')}", headers=headers, timeout=30, allow_redirects=False)
+    except requests.RequestException as exc:
+        raise FetchError(f"fetch.{type(exc).__name__.lower()}") from None
+    found = (getattr(answer, "headers", None) or {}).get("ETag")
+    if answer.status_code == 304 and etag:
+        return Head(None, etag)
+    if answer.status_code != 200:
+        raise FetchError(f"fetch.http_{answer.status_code}")
+    commit = (answer.text or "").strip()
+    if not COMMIT.match(commit):
+        raise FetchError("fetch.not_a_commit")
+    return Head(commit, found if isinstance(found, str) and len(found) <= 200 else None)
 
 
 def fetch_github(settings: Mapping[str, Any], credential: Optional[str], root: Path, *,
@@ -150,6 +195,8 @@ def fetch_files(settings: Mapping[str, Any], credential: Optional[str], root: Pa
 FETCHERS: dict[str, Callable[..., Reading]] = {"http_json": fetch_http_json, "github": fetch_github,
                                                "knovas_connector": fetch_files}
 CHECKS: dict[str, Callable[..., dict]] = {"github": check_github, "knovas_connector": check_files}
+#: The kinds whose head commit can be asked for: a schedule «bei neuen Commits» polls only these (KG-2).
+HEADS: dict[str, Callable[..., Head]] = {"github": head_github}
 
 
 def check(kind: str, settings: Mapping[str, Any], credential: Optional[str], *, fetchers: Optional[Mapping[str, Callable]] = None,

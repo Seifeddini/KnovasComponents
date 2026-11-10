@@ -44,7 +44,14 @@ class TestTheRules:
         assert [r["name"] for r in C.registry(rows, state="online")] == ["Alpha"]
 
     @pytest.mark.parametrize("raw,ok", [({"mode": "manual"}, True), ({"mode": "interval", "every_minutes": 60}, True),
-                                        ({"mode": "interval", "every_minutes": 1}, False),
+                                        ({"mode": "interval", "every_minutes": 1}, True),    # from 1 minute (KG-2)
+                                        ({"mode": "interval", "every_minutes": 0}, False),
+                                        ({"mode": "window", "every_minutes": 1, "days": ["mo"], "from": "22:00", "to": "05:00"}, False),
+                                        ({"mode": "commits", "poll_seconds": 30}, True),
+                                        ({"mode": "commits"}, True),                          # 30 seconds by default
+                                        ({"mode": "commits", "poll_seconds": 14}, False),
+                                        ({"mode": "commits", "poll_seconds": 3601}, False),
+                                        ({"mode": "commits", "poll_seconds": "oft"}, False),
                                         ({"mode": "window", "every_minutes": 30, "days": ["mo", "di"], "from": "22:00", "to": "05:00"}, True),
                                         ({"mode": "window", "every_minutes": 30, "days": [], "from": "22:00", "to": "05:00"}, False),
                                         ({"mode": "cron"}, False)])

@@ -73,7 +73,23 @@ def _source(raw: Any) -> Optional[dict]:
             "access": raw.get("access") if raw.get("access") in ("read", "read_write") else "read",
             "settings": raw.get("settings") if isinstance(raw.get("settings"), dict) else {},
             "fetch": raw.get("fetch") is True,
+            # Protocol 1.2 (KG-2): a person switched on that the component applies a clean plan of it on its own.
+            "auto_apply": raw.get("auto_apply") is True,
             "component": component if isinstance(component, str) and component else None}
+
+
+def _component_settings(raw: Any) -> Optional[dict]:
+    """Protocol 1.2 (KG-2): the Platform's ``components`` -- each component's own ``paused`` and ``schedule`` -- as
+    ``{name: {paused, schedule}}``; None when the Platform names none (an older Platform: every component follows
+    Link's own, as before)."""
+    if not isinstance(raw, list):
+        return None
+    out = {}
+    for item in raw:
+        if isinstance(item, dict) and isinstance(item.get("component"), str) and item["component"]:
+            out[item["component"]] = {"paused": item.get("paused") is True,
+                                      "schedule": item["schedule"] if isinstance(item.get("schedule"), dict) else None}
+    return out
 
 
 class Commands:
@@ -123,6 +139,8 @@ class Link:
         self.package: Optional[dict] = _read_json(self.state_dir / "package.json")
         self.paused = False
         self.schedule: dict = {"mode": "manual"}
+        #: Protocol 1.2: each component's own pause and schedule, as the Platform last named them (None: it named none).
+        self.component_settings: Optional[dict] = None
         self.loops = loops
         self._tasks: list = []
         self._brain_ready: Optional[asyncio.Event] = None
@@ -132,6 +150,7 @@ class Link:
             self.brain_url = self.config.get("brain_url") or None
             self.paused = bool(self.config.get("paused"))
             self.schedule = self.config.get("schedule") or {"mode": "manual"}
+            self.component_settings = _component_settings(self.config.get("components"))
 
     # ------------------------------------------------------------------ the certificate
 
@@ -300,6 +319,9 @@ class Link:
         self.config = {"component": raw.get("component"), "paused": bool(raw.get("paused")),
                        "schedule": raw.get("schedule") or {"mode": "manual"}, "brain_url": raw.get("brain_url"),
                        "sources": sources, "mappings": mappings}
+        if isinstance(raw.get("components"), list):
+            self.config["components"] = raw["components"]
+        self.component_settings = _component_settings(raw.get("components"))
         _private_json(self.state_dir / "config.json", self.config)
         new_url = raw.get("brain_url") if isinstance(raw.get("brain_url"), str) and raw.get("brain_url") else None
         if new_url and new_url != self.brain_url:
@@ -340,7 +362,22 @@ class Link:
 
     @staticmethod
     def _public(source: dict) -> dict:
-        return {k: source[k] for k in ("workspace", "key", "kind", "access", "settings", "fetch")}
+        return {k: source[k] for k in ("workspace", "key", "kind", "access", "settings", "fetch", "auto_apply")}
+
+    def paused_for(self, name: str) -> bool:
+        """Paused when the site is, or -- protocol 1.2 -- when the Platform paused this component."""
+        own = (self.component_settings or {}).get(name) or {}
+        return bool(self.paused or own.get("paused"))
+
+    def schedule_for(self, name: str) -> dict:
+        """The component's own schedule where the Platform names one (protocol 1.2), else Link's, as before."""
+        own = (self.component_settings or {}).get(name) or {}
+        return own["schedule"] if isinstance(own.get("schedule"), dict) else self.schedule
+
+    def note_sync(self, name: str, entries: list) -> None:
+        """A component's sync status per source (protocol 1.2), kept for the sources assigned to it only."""
+        mine = {(s["workspace"], s["key"]) for s in self.assigned(name)}
+        self.telemetry.sync([e for e in entries if (e["workspace"], e["key"]) in mine])
 
     async def sources_for(self, name: str) -> list[dict]:
         """The sources assigned to this component's name (``POST /local/v1/register``)."""
@@ -356,7 +393,7 @@ class Link:
         config = self._require_config()
         mine = self.assigned(name)
         keys = {(s["workspace"], s["key"]) for s in mine}
-        return {"component": name, "paused": self.paused, "schedule": self.schedule, "brain_url": brain_url,
+        return {"component": name, "paused": self.paused_for(name), "schedule": self.schedule_for(name), "brain_url": brain_url,
                 "sources": [self._public(s) for s in mine],
                 "mappings": [m for m in config.get("mappings") or [] if (m.get("workspace"), m.get("source")) in keys]}
 
@@ -430,6 +467,8 @@ class Link:
         self.paused = bool(answer.get("paused"))
         if isinstance(answer.get("schedule"), dict):
             self.schedule = answer["schedule"]
+        if isinstance(answer.get("components"), list):
+            self.component_settings = _component_settings(answer["components"])
         for command in answer.get("commands") or []:
             if not isinstance(command, dict):
                 continue

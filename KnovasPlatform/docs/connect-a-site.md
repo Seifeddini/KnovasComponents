@@ -22,7 +22,7 @@ Stand: MVP des Verbindungsteils (MVP-23 bis MVP-28). Wie Knovas Link sein Zertif
 
    Der Rechner meldet sich mit einem eigenen, widerrufbaren Lese-Token bei GHCR an (`docker login ghcr.io`, Token (classic) nur mit `read:packages`). Ein mit `docker load` kopiertes Abbild hat keinen Digest und startet das Paket nicht.
 
-   **brain-runner 0.3.1 oder neuer:** Hinter Knovas Link braucht die Sync-Komponente diese Version; die Dockerfiles pinnen sie seit dem 7. November 2026 (`BRAIN_RUNNER_GIT_REF`). Mit einer älteren Version (etwa 0.1.1, dem Pin davor) kann die Komponente hinter Knovas Link weder Probeläufe noch Anwenden noch Schreibaufträge ausführen. Der Release-Lauf nennt die Version im Schritt «Build and check the image» (`brain-runner …`). Steht dort eine ältere Version, das Abbild nicht verwenden (README der Sync-Komponente, «Release coupling»).
+   **brain-runner 0.3.2 oder neuer:** Hinter Knovas Link braucht die Sync-Komponente diese Version; die Dockerfiles pinnen sie seit dem 10. November 2026 (`BRAIN_RUNNER_GIT_REF`), und der Bau bricht bei einer anderen ab. Mit 0.3.1 plant «bei neuen Commits» bei jedem neuen Commit alle Zuordnungen; mit einer älteren Version (etwa 0.1.1) kann die Komponente hinter Knovas Link weder Probeläufe noch Anwenden noch Schreibaufträge ausführen. Der Release-Lauf nennt die Version im Schritt «Build and check the image» (`brain-runner …`). Steht dort eine ältere Version, das Abbild nicht verwenden (README der Sync-Komponente, «Release coupling»).
 
 ## 2. Beim Kunden
 
@@ -110,6 +110,9 @@ Dann wie immer: **Prüfen & Veröffentlichen** (Probelauf, Freigabe, Veröffentl
 ## 5. Im Betrieb
 
 - **Betrieb › Freigaben:** Änderungsvorschläge von Agenten oder Personen annehmen oder mit Begründung ablehnen (Berechtigung «Veröffentlichen»). Die Zeile folgt dem Ergebnis: in Arbeit, Pull Request mit Link, Konflikt, abgelehnt. Wer vorschlägt und für wen, steht so da, wie es angegeben wurde; geprüft wird es erst mit einer späteren Stufe.
+- **Zeitplan «Bei neuen Commits»** (Seite der Komponente › Zeitplan, Berechtigung «Zugänge verwalten»): Die Komponente fragt alle 15 bis 3600 Sekunden (Standard 30) jedes GitHub-Repository nach seinem neuesten Commit. Ist er schon abgeglichen, geschieht nichts weiter. Ist er neu, plant sie nur die Zuordnungen, die der Commit betrifft; der Probelauf erscheint wie jeder andere. Daneben: «Manuell», «Regelmäßig» (ab jeder Minute), «Im Zeitfenster». Knovas Link selbst hat keinen Zeitplan; jede Komponente am Standort hat ihren eigenen.
+- **«Automatisch anwenden, wenn nichts zur Freigabe ansteht»** (Seite des Standorts › Quellen und Abgleich, je Quelle; Berechtigung «Zugänge verwalten»; Standard aus): Ein geplanter Lauf wird gleich angewendet, nur wenn nichts darin auf eine Person wartet. Was der Löschschutz anhält, Abweichungen im Brain, Einträge zum Stilllegen, Freigaben von Zuordnungen und angehaltene oder gemeldete Dokumente bleiben bei der Komponente unter «Zurückgehaltene Pläne» und «Jetzt anwenden». Ein Probelauf, den jemand startet, wird nie von selbst angewendet. Jede Änderung steht als Ereignis bei der Komponente und im Zugriffsprotokoll.
+- **Seite des Standorts › Quellen und Abgleich** (und die Liste «Standorte» unter «Verbinden»): je Quelle der zuletzt abgeglichene Commit (kurz, mit Link auf GitHub), wann, was der letzte Lauf schrieb (nur Zahlen), die nächste Prüfung, der Zeitplan und ob automatisch angewendet wird.
 - **Betrieb › Verbindung:** je Standort eine Karte. Grün nur, wenn in den letzten 10 Minuten eine Probe über den Arbeitskanal ging; was die Plattform nicht weiss, steht als «unbekannt» da. Darunter die letzten 24 Stunden und die Alarme, jeder mit dem, was zu tun ist. Die Karte liest sich alle 30 Sekunden neu.
 
 ## Wenn etwas rot ist

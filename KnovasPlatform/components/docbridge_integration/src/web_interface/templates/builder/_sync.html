@@ -1,0 +1,24 @@
+{# The sync status of a component's sources (KG-2): the last synced commit, when, what the last apply wrote (counts
+   only), the next check, the schedule and the switch «automatisch anwenden». ``rows`` from
+   builder.components.sync_rows; ``may_switch``: the person may manage sites; ``url``: the component's auto_apply
+   route (one per component; on the site page each row names its own). static/js/builder/site.js switches. #}
+{% macro sync_cells(r) -%}
+<td>{% if r.synced_commit %}{% if r.synced_url %}<a class="b-mono" href="{{ r.synced_url }}" rel="noopener" target="_blank" data-sync-commit>{{ r.synced_short }}</a>{% else %}<span class="b-mono" data-sync-commit>{{ r.synced_short }}</span>{% endif %}<br><span class="b-small b-muted">{{ r.synced_at | b_datetime }}</span>{% else %}<span class="b-muted">{{ 'noch keiner' if r.reported else 'noch nicht gemeldet' }}</span>{% endif %}
+    {% if r.waiting_commit %}<br><span class="b-small" data-sync-waiting>Neuer Commit {% if r.waiting_url %}<a class="b-mono" href="{{ r.waiting_url }}" rel="noopener" target="_blank">{{ r.waiting_commit }}</a>{% else %}<span class="b-mono">{{ r.waiting_commit }}</span>{% endif %} geplant, noch nicht angewendet{% if r.held_back %}: {{ r.held_back | join('; ') }}{% endif %}</span>{% endif %}</td>
+<td>{% if r.last_apply %}<span class="b-reg-run is-{{ r.last_apply.status }}">{{ {'ok': 'ok', 'held': 'zurückgehalten', 'failed': 'fehlgeschlagen'}.get(r.last_apply.status, r.last_apply.status) }}</span> <span class="is-num" data-sync-counts>+{{ r.last_apply.added }} / ~{{ r.last_apply.changed }} / −{{ r.last_apply.retired }}</span>{% if r.last_apply.errors %} · {{ r.last_apply.errors }} Fehler{% endif %}<br><span class="b-small b-muted">{{ r.last_apply.at | b_datetime }}{% if r.last_apply.auto %} · automatisch{% endif %}</span>{% else %}–{% endif %}</td>
+<td>{% if r.next_check_at %}{{ r.next_check_at | b_datetime }}{% else %}–{% endif %}{% if r.checked_at %}<br><span class="b-small b-muted">zuletzt {{ r.checked_at | b_datetime }}</span>{% endif %}</td>
+<td>{{ r.schedule_text }}</td>
+{%- endmacro %}
+
+{% macro auto_switch(r, may_switch, url) -%}
+{% if may_switch %}<label class="b-check"><input type="checkbox" data-sync-auto data-url="{{ url }}" data-workspace="{{ r.workspace }}" data-source="{{ r.key }}" {% if r.auto_apply %}checked{% endif %}><span>{{ 'an' if r.auto_apply else 'aus' }}</span></label>{% else %}{{ 'an' if r.auto_apply else 'aus' }}{% endif %}
+{%- endmacro %}
+
+{% macro sync_list(rows, may_switch, url) -%}
+<div class="b-table-wrap"><table class="b-table b-table--compact" data-sync-table>
+    <thead><tr><th scope="col">Quelle</th><th scope="col">Zuletzt abgeglichen</th><th scope="col">Letzter Lauf schrieb</th><th scope="col">Nächste Prüfung</th><th scope="col">Zeitplan</th><th scope="col">Automatisch anwenden</th></tr></thead>
+    <tbody>{% for r in rows %}<tr data-sync-source="{{ r.key }}"><th scope="row">{{ r.name }}<br><span class="b-small b-muted">{{ r.workspace_name or '' }}</span></th>
+        {{ sync_cells(r) }}<td>{{ auto_switch(r, may_switch, url) }}</td></tr>{% endfor %}</tbody>
+</table></div>
+<p class="b-small b-muted">«Automatisch anwenden, wenn nichts zur Freigabe ansteht»: Die Komponente wendet einen geplanten Lauf dieser Quelle gleich an, nur wenn er nichts enthält, worüber eine Person entscheiden muss. Was der Löschschutz anhält, Abweichungen im Brain, Einträge zum Stilllegen, Freigaben von Zuordnungen und angehaltene oder gemeldete Dokumente wartet weiter auf eine Person. Ein Probelauf, den jemand startet, wird nie von selbst angewendet. Standard: aus.</p>
+{%- endmacro %}

@@ -50,9 +50,15 @@ class PlatformClient:
         return self._call("POST", "/enrol", {"token": token, "csr": csr, "version": VERSION, "capabilities": capabilities},
                           auth=False)
 
-    def heartbeat(self, *, state: str, lag_seconds: Optional[int], open_errors: int, capabilities: list[str]) -> dict:
-        return self._call("POST", "/heartbeat", {"state": state, "version": VERSION, "lag_seconds": lag_seconds,
-                                                 "open_errors": open_errors, "capabilities": capabilities})
+    def heartbeat(self, *, state: str, lag_seconds: Optional[int], open_errors: int, capabilities: list[str],
+                  sources: Optional[list] = None) -> dict:
+        """``sources``: per source its sync status (KG-2), sent only when there is one; a Platform or a Knovas Link
+        that does not know the field ignores it."""
+        body = {"state": state, "version": VERSION, "lag_seconds": lag_seconds, "open_errors": open_errors,
+                "capabilities": capabilities}
+        if sources:
+            body["sources"] = sources
+        return self._call("POST", "/heartbeat", body)
 
     def config(self) -> dict:
         return self._call("GET", "/config")

@@ -37,13 +37,16 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# The same release of the runner as the Platform's image (docbridge_integration/Dockerfile).
-ARG BRAIN_RUNNER_GIT_REF=646f222124324fab28cf42002ac3962ab3876127
+# The same release of the runner as the Platform's image (docbridge_integration/Dockerfile). The component needs
+# 0.3.2 or later: `affected --source github` for «bei neuen Commits» (KG-2); the build stops on any other version.
+ARG BRAIN_RUNNER_VERSION=0.3.2
+ARG BRAIN_RUNNER_GIT_REF=961b2f72bd178ce86998070b53caa70363451f06
 RUN --mount=type=secret,id=kb_read_token,required=true \
     git config --global url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf "https://github.com/" \
     && pip install --no-cache-dir --no-deps \
        "brain-runner @ git+https://github.com/Seifeddini/KnowledgeBase.git@${BRAIN_RUNNER_GIT_REF}#subdirectory=scripts/brain_runner" \
-    && git config --global --unset-all url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf
+    && git config --global --unset-all url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf \
+    && python -c "import brain_runner, os; assert brain_runner.__version__ == os.environ['BRAIN_RUNNER_VERSION'], brain_runner.__version__; print('brain-runner', brain_runner.__version__)"
 
 COPY --from=kustomize /usr/local/bin/kustomize /usr/local/bin/kustomize
 RUN kustomize version

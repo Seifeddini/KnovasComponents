@@ -206,7 +206,7 @@ class TestWhatTheComponentDoesNotServe:
         assert world.link.calls and all(path.startswith("/local/v1/") for _, path in world.link.calls)
 
 
-def test_it_registers_and_beats_as_version_0_2_0(world):
-    assert world.link.registered[COMPONENT]["version"] == "0.2.0"
+def test_it_registers_and_beats_as_version_0_3_0(world):
+    assert world.link.registered[COMPONENT]["version"] == "0.3.0"
     world.agent.tick()
-    assert world.link.beats[-1]["version"] == "0.2.0"
+    assert world.link.beats[-1]["version"] == "0.3.0"

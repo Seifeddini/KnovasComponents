@@ -74,9 +74,15 @@ class LinkClient:
                                                  "capabilities": capabilities, "job_kinds": job_kinds})
         return list((found or {}).get("sources") or [])
 
-    def heartbeat(self, *, state: str, lag_seconds: Optional[int], open_errors: int, capabilities: list[str]) -> dict:
-        return self._call("POST", "/heartbeat", {"state": state, "version": VERSION, "lag_seconds": lag_seconds,
-                                                 "open_errors": open_errors, "capabilities": capabilities}) or {}
+    def heartbeat(self, *, state: str, lag_seconds: Optional[int], open_errors: int, capabilities: list[str],
+                  sources: Optional[list] = None) -> dict:
+        """``sources``: per source its sync status (KG-2), sent only when there is one; a Platform or a Knovas Link
+        that does not know the field ignores it."""
+        body = {"state": state, "version": VERSION, "lag_seconds": lag_seconds, "open_errors": open_errors,
+                "capabilities": capabilities}
+        if sources:
+            body["sources"] = sources
+        return self._call("POST", "/heartbeat", body) or {}
 
     def config(self) -> dict:
         return self._call("GET", "/config") or {}

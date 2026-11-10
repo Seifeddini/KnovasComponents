@@ -54,7 +54,11 @@ COUNT_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,60}$")
 EVENTS = ("enrol.token_issued", "enrolled", "token.rotated", "revoked", "state.online", "state.offline",
           "state.degraded", "run.requested", "run.started", "run.finished", "run.failed", "plan.held",
           "plan.approved", "plan.rejected", "paused", "resumed", "schedule.changed", "config.changed",
-          "command.delivered", "command.done", "check.requested")
+          "command.delivered", "command.done", "check.requested", "auto_apply.on", "auto_apply.off")
+#: «bei neuen Commits» (KG-2): how often a component asks each source for its head commit, in seconds.
+POLL_SECONDS, POLL_MIN, POLL_MAX = 30, 15, 3600
+#: What a component that follows «bei neuen Commits» and applies on its own declares (sync component 0.3.0).
+POLL_CAPABILITY, AUTO_APPLY_CAPABILITY = "poll_commits", "auto_apply"
 
 
 # ------------------------------------------------------------------ tokens
@@ -78,32 +82,48 @@ def token_matches(token: Optional[str], kept_hash: Optional[str]) -> bool:
 # ------------------------------------------------------------------ schedule
 
 def check_schedule(raw: Any) -> dict:
-    """A schedule the component can follow: manual, every n minutes, or every n minutes inside a window."""
+    """A schedule the component can follow: manual, every n minutes (from 1), every n minutes inside a window (from 5),
+    or «bei neuen Commits»: every ``poll_seconds`` (15 to 3600) the component asks each source for its head commit and
+    plans only when it moved (KG-2)."""
     if not isinstance(raw, Mapping):
         raise ValueError("Zeitplan: Angaben erwartet.")
     mode = raw.get("mode")
     if mode == "manual":
         return {"mode": "manual"}
+    if mode == "commits":
+        try:
+            seconds = int(raw.get("poll_seconds") if raw.get("poll_seconds") not in (None, "") else POLL_SECONDS)
+        except (TypeError, ValueError):
+            raise ValueError("Zeitplan: alle wie viele Sekunden auf neue Commits prüfen?") from None
+        if not POLL_MIN <= seconds <= POLL_MAX:
+            raise ValueError(f"Zeitplan: alle {POLL_MIN} Sekunden bis einmal die Stunde auf neue Commits prüfen.")
+        return {"mode": "commits", "poll_seconds": seconds}
     try:
         every = int(raw.get("every_minutes"))
     except (TypeError, ValueError):
         raise ValueError("Zeitplan: alle wie viele Minuten?") from None
+    if mode == "interval":
+        if not 1 <= every <= 7 * 24 * 60:
+            raise ValueError("Zeitplan: jede Minute bis einmal die Woche.")
+        return {"mode": "interval", "every_minutes": every}
     if not 5 <= every <= 7 * 24 * 60:
         raise ValueError("Zeitplan: alle 5 Minuten bis einmal die Woche.")
-    if mode == "interval":
-        return {"mode": "interval", "every_minutes": every}
     if mode == "window":
         days = [d for d in DAYS if d in (raw.get("days") or [])]
         start, end = str(raw.get("from") or ""), str(raw.get("to") or "")
         if not days or not _TIME.match(start) or not _TIME.match(end) or start == end:
             raise ValueError("Zeitfenster: Tage und von–bis wie 22:00–05:00.")
         return {"mode": "window", "every_minutes": every, "days": days, "from": start, "to": end}
-    raise ValueError("Zeitplan: manuell, regelmäßig oder in einem Zeitfenster.")
+    raise ValueError("Zeitplan: manuell, regelmäßig, im Zeitfenster oder bei neuen Commits.")
 
 
 def schedule_text(schedule: Mapping[str, Any]) -> str:
     mode = (schedule or {}).get("mode", "manual")
+    if mode == "commits":
+        return f"bei neuen Commits (alle {schedule.get('poll_seconds') or POLL_SECONDS} Sekunden geprüft)"
     if mode == "interval":
+        if int(schedule["every_minutes"]) == 1:
+            return "jede Minute"
         return f"alle {schedule['every_minutes']} Minuten"
     if mode == "window":
         days = ", ".join(d.capitalize() for d in schedule.get("days") or [])
@@ -337,6 +357,7 @@ CHECK_TEXTS = {
     "source.write_unsupported": "Diese Komponente kann in diese Quelle nicht schreiben: die Quelle auf «Nur lesen» stellen, oder das Abbild aktualisieren.",
     "fetch.not_https": "Die Adresse muss mit https:// beginnen.",
     "fetch.bad_repository": "Repository oder Branch ist nicht gültig.",
+    "fetch.not_a_commit": "GitHub hat für den Branch oder Tag keinen Commit genannt: den Namen prüfen.",
     "fetch.bad_folder": "Der Ordner darf kein «..» enthalten.",
     "fetch.folder_missing": "Den Ordner gibt es nicht: die Ablage beim Start einhängen (-v <Ordner>:/sources:ro) und den Ordner der Quelle prüfen.",
     "fetch.folder_unreadable": "Die Komponente darf den Ordner nicht lesen: die Rechte für Benutzer 10001 prüfen.",
@@ -388,3 +409,82 @@ def clean_counts(raw: Any) -> dict:
         if isinstance(k, str) and COUNT_KEY.match(k) and isinstance(v, int) and not isinstance(v, bool):
             out[k] = v
     return out
+
+
+# ------------------------------------------------------------------ automatic apply and sync status (KG-2)
+
+def source_ref(workspace: Any, key: Any) -> str:
+    return f"{workspace}/{key}"
+
+
+def auto_apply_of(component: Mapping[str, Any]) -> set:
+    """The sources (``workspace/key``) whose clean plans this component applies on its own: off unless a person
+    switched it on (kept in the component's settings, set only by whoever manages the tenant's sites)."""
+    found = ((component or {}).get("settings") or {}).get("auto_apply") or []
+    return {str(x) for x in found if isinstance(x, str)} if isinstance(found, list) else set()
+
+
+def with_auto_apply(component: Mapping[str, Any], ref: str, on: bool) -> dict:
+    """The component's settings with ``ref`` switched on or off."""
+    settings = dict((component or {}).get("settings") or {})
+    kept = auto_apply_of(component)
+    kept = kept | {ref} if on else kept - {ref}
+    settings["auto_apply"] = sorted(kept)
+    return settings
+
+
+#: Why a component did not apply a plan on its own (sync component, engine.attention), for the person who must decide.
+HELD_BACK_TEXTS = {
+    "plan.not_clean": "der Plan ist nicht sauber (zurückgehalten oder mit Fehlern)",
+    "plan.guard_held": "der Löschschutz hält Stilllegungen an",
+    "plan.unreadable": "eine Datei der Quelle war nicht lesbar",
+    "plan.drift": "Werte wurden im Brain geändert (Abweichung)",
+    "plan.unresolved": "Ungeklärtes im Plan",
+    "plan.derived_blocked": "abgeleitete Beziehungen sind blockiert",
+    "plan.release": "eine Zuordnung wird freigegeben",
+    "plan.retire_held": "Einträge zum Stilllegen warten auf Freigabe",
+    "plan.documents_held": "Dokumente zum Entfernen warten auf Freigabe",
+    "plan.documents_stopped": "Dokumente wurden angehalten",
+    "plan.documents_reported": "Dokumente wurden gemeldet",
+    "plan.unknown_version": "diese Version der Komponente kennt den Plan nicht",
+    "plan.missing": "kein Plan vorhanden",
+}
+
+GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def commit_url(source: Mapping[str, Any], commit: Optional[str]) -> Optional[str]:
+    """The commit on GitHub, for a GitHub source whose repository is a plain owner/name; else None."""
+    repository = str(((source or {}).get("settings") or {}).get("repository") or "")
+    if (source or {}).get("kind") != "github" or not commit or not GITHUB_REPOSITORY.match(repository):
+        return None
+    return f"https://github.com/{repository}/commit/{commit}"
+
+
+def sync_rows(sources: Iterable[Mapping[str, Any]], status: Iterable[Mapping[str, Any]],
+              schedule_of: Mapping[str, Mapping[str, Any]], auto_of: Mapping[str, set]) -> list[dict]:
+    """Per source a component serves: its last synced commit (short, linked on GitHub), when, what the last apply
+    wrote (counts), the next check, the schedule and whether it applies on its own. ``sources`` carry
+    ``component_id``; ``status`` are the entries a component reported (``protocol.check_sync``)."""
+    reported = {(str(e.get("workspace")), str(e.get("key"))): e for e in status or []}
+    rows = []
+    for s in sources:
+        e = reported.get((str(s.get("workspace")), str(s.get("key")))) or {}
+        commit, planned = e.get("synced_commit"), e.get("planned_commit")
+        last = e.get("last_apply") or None
+        cid = str(s.get("component_id") or "")
+        rows.append({
+            "workspace": s.get("workspace"), "workspace_name": s.get("workspace_name"), "key": s.get("key"),
+            "name": s.get("name") or s.get("key"), "kind": s.get("kind"), "component_id": cid,
+            "component_name": s.get("component_name"),
+            "synced_commit": commit, "synced_short": commit[:7] if commit else None,
+            "synced_url": commit_url(s, commit), "synced_at": e.get("synced_at"), "checked_at": e.get("checked_at"),
+            "next_check_at": e.get("next_check_at"), "last_apply": last,
+            "waiting_commit": planned[:7] if planned and planned != commit else None,
+            "waiting_url": commit_url(s, planned) if planned and planned != commit else None,
+            "held_back": [HELD_BACK_TEXTS.get(c, c) for c in e.get("held_back") or []],
+            "schedule_text": schedule_text(schedule_of.get(cid) or {}),
+            "auto_apply": source_ref(s.get("workspace"), s.get("key")) in (auto_of.get(cid) or set()),
+            "reported": bool(e),
+        })
+    return rows

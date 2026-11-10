@@ -41,6 +41,13 @@ contract as the Platform implements it, until KC-7a writes it down in full:
        For Knovas Link: the sources and mappings of every component behind it, each with ``component`` (its name on
        the site). Everything is as last published (BB-07, B2): settings, switches (MVP-25) and mappings; a draft never
        reaches a component.
+  Version 1.2 (KG-2), additions only: each source in /config carries ``auto_apply`` (a person switched on that the
+  component applies the source's clean plans on its own; set by whoever manages sites, off by default). For Knovas
+  Link, /config and the heartbeat's answer carry ``components: [{component, paused, schedule}]``: each component
+  behind it with its own pause and schedule (an older Link ignores it; its components then follow Link's). A
+  component's heartbeat may carry ``sources: [{workspace, key, synced_commit, synced_at, checked_at, next_check_at,
+  planned_commit, held_back, last_apply}]`` (check_sync), and Link's ``site.sources`` the same fields: commits,
+  times, codes and counts only. A schedule may be ``{mode: commits, poll_seconds}`` (components.check_schedule).
   GET  /api/connectors/v1/package
     -> {workspaces: [{workspace, files: {path: base64}}]}    the published configuration of the workspaces it serves
   POST /api/connectors/v1/runs
@@ -379,6 +386,9 @@ def heartbeat(store: Any, c: Mapping[str, Any], body: Mapping[str, Any], now: dt
         if not C.is_link(c):
             raise ProtocolError(400, "bad_field", "site: only Knovas Link reports a site")
         site = check_site(body["site"])          # all of it checked before anything is stored
+    synced = None
+    if body.get("sources") is not None and not C.is_link(c):
+        synced = check_sync(body["sources"], "sources")       # version 1.2: checked before anything is stored
     was = c.get("reported_state")
     store.update_component(c["id"], last_heartbeat_at=now.isoformat(), reported_state=state,
                            version=str(body.get("version") or c.get("version") or "")[:60],
@@ -389,6 +399,8 @@ def heartbeat(store: Any, c: Mapping[str, Any], body: Mapping[str, Any], now: dt
         store.add_event(c["id"], f"state.{state}", {})
     if site is not None:
         _keep_site(store, c, site, now, tenant)
+    if synced is not None:
+        store.update_component(c["id"], telemetry={**(c.get("telemetry") or {}), "sources": synced, "at": now.isoformat()})
     if c.get("certificate_waiting"):
         # A Link whose certificate is not recorded: its commands wait until it is (BB-07 B3).
         return {"paused": bool(c.get("paused")), "schedule": c.get("schedule") or {"mode": "manual"}, "commands": [],
@@ -397,14 +409,90 @@ def heartbeat(store: Any, c: Mapping[str, Any], body: Mapping[str, Any], now: dt
     for cmd in commands:
         store.add_event(c["id"], "command.delivered", {})
     out = [{"id": cmd["id"], "command": cmd["command"], "args": cmd.get("args") or {}} for cmd in commands]
+    answer = {"paused": bool(c.get("paused")), "schedule": c.get("schedule") or {"mode": "manual"}, "commands": out}
     if C.is_link(c) and hasattr(store, "children"):
-        # The commands of the components behind Link travel with Link's answer, each naming its component.
-        for child in store.children(c["id"]):
+        # The commands of the components behind Link travel with Link's answer, each naming its component; so do
+        # their own pause and schedule (version 1.2), so that what a component's page sets reaches it.
+        children = store.children(c["id"])
+        for child in children:
             for cmd in store.deliver_commands(child["id"], now.isoformat()):
                 store.add_event(child["id"], "command.delivered", {})
                 out.append({"id": cmd["id"], "command": cmd["command"], "args": cmd.get("args") or {},
                             "component": child["local_name"]})
-    return {"paused": bool(c.get("paused")), "schedule": c.get("schedule") or {"mode": "manual"}, "commands": out}
+        answer["components"] = components_of(children)
+    return answer
+
+
+def components_of(children: list) -> list[dict]:
+    """Version 1.2: each component behind Knovas Link with its own pause and schedule, as its page sets them."""
+    return [{"component": child["local_name"], "paused": bool(child.get("paused")),
+             "schedule": child.get("schedule") or {"mode": "manual"}}
+            for child in children if child.get("local_name") and child.get("state") != "revoked"]
+
+
+#: A commit as a component reports it: 40 (or 64) lower-case hex digits.
+COMMIT = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
+SYNC_FIELDS = ("synced_commit", "synced_at", "checked_at", "next_check_at", "planned_commit", "held_back", "last_apply")
+
+
+def _sync_fields(item: Mapping[str, Any], where: str) -> dict:
+    """The sync status of one source (version 1.2): commits, times, codes and counts only; refused (400) otherwise."""
+    def bad(field: str, what: str) -> ProtocolError:
+        return ProtocolError(400, "bad_field", f"{where}.{field}: {what}")
+
+    out: dict = {}
+    for field in ("synced_commit", "planned_commit"):
+        value = item.get(field)
+        if value is not None and (not isinstance(value, str) or not COMMIT.match(value)):
+            raise bad(field, "a commit")
+        out[field] = value
+    for field in ("synced_at", "checked_at", "next_check_at"):
+        try:
+            out[field] = _when(item.get(field), field)
+        except ProtocolError:
+            raise bad(field, "an ISO 8601 time") from None
+    held = item.get("held_back") or []
+    if not isinstance(held, list) or len(held) > 10 or not all(isinstance(x, str) and C.EVENT_CODE.match(x) for x in held):
+        raise bad("held_back", "up to 10 codes")
+    out["held_back"] = list(held)
+    last = item.get("last_apply")
+    if last is not None:
+        if not isinstance(last, Mapping) or last.get("status") not in RUN_STATUSES:
+            raise bad("last_apply", "{at, status: ok|held|failed, counts, auto}")
+        if last.get("auto") is not None and not isinstance(last.get("auto"), bool):
+            raise bad("last_apply.auto", "true or false")
+        counts = {}
+        for k in ("added", "changed", "retired", "errors"):
+            v = last.get(k)
+            if v is not None and (isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 10**9):
+                raise bad(f"last_apply.{k}", "a whole number")
+            counts[k] = v or 0
+        try:
+            at = _when(last.get("at"), "at")
+        except ProtocolError:
+            raise bad("last_apply.at", "an ISO 8601 time") from None
+        out["last_apply"] = {"at": at, "status": last["status"], **counts, "auto": bool(last.get("auto"))}
+    return out
+
+
+def check_sync(raw: Any, where: str = "sources") -> list[dict]:
+    """A component's sync status per source (version 1.2) as the Platform keeps it; a field it does not know is
+    dropped, anything shaped like a name or free text refused (400)."""
+    if not isinstance(raw, list) or len(raw) > MAX_SITE_SOURCES:
+        raise ProtocolError(400, "bad_field", f"{where}: a list of up to {MAX_SITE_SOURCES}")
+    out = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            raise ProtocolError(400, "bad_field", f"{where}: objects")
+        workspace, key = str(item.get("workspace") or ""), str(item.get("key") or "")
+        try:
+            uuid.UUID(workspace)
+        except ValueError:
+            raise ProtocolError(400, "bad_field", f"{where}.workspace: a workspace id") from None
+        if not SOURCE_KEY.match(key):
+            raise ProtocolError(400, "bad_field", f"{where}.key: a source key")
+        out.append({"workspace": workspace, "key": key, **_sync_fields(item, where)})
+    return out
 
 
 # ------------------------------------------------------------------ Knovas Link's site (MVP-19, MVP-23)
@@ -503,8 +591,11 @@ def check_site(raw: Any) -> dict:
         status = item.get("last_run_status")
         if status is not None and status not in RUN_STATUSES:
             raise _bad("sources.last_run_status", "ok, held or failed")
-        out["sources"].append({"workspace": workspace, "key": key, "last_run_status": status,
-                               "last_read_ok_at": _site_when(item.get("last_read_ok_at"), "sources.last_read_ok_at")})
+        entry = {"workspace": workspace, "key": key, "last_run_status": status,
+                 "last_read_ok_at": _site_when(item.get("last_read_ok_at"), "sources.last_read_ok_at")}
+        if any(f in item for f in SYNC_FIELDS):                  # version 1.2: the component's sync status
+            entry.update(_sync_fields(item, "site.sources"))
+        out["sources"].append(entry)
     jobs = raw.get("jobs") or {}
     if not isinstance(jobs, Mapping) or len(jobs) > 20:
         raise _bad("jobs", "an object of job kinds")
@@ -567,11 +658,16 @@ def _served(store: Any, c: Mapping[str, Any]) -> dict:
     if not hasattr(store, "served_by"):
         return {"sources": [], "mappings": []}
     if not C.is_link(c) or not hasattr(store, "children"):
-        return store.served_by(c["id"])
+        found = store.served_by(c["id"])
+        auto = C.auto_apply_of(c)
+        return {"sources": [{**s, "auto_apply": C.source_ref(s["workspace"], s["key"]) in auto} for s in found["sources"]],
+                "mappings": found["mappings"]}
     sources, mappings = [], []
     for child in store.children(c["id"]):
         found = store.served_by(child["id"])
-        sources += [{**s, "component": child["local_name"]} for s in found["sources"]]
+        auto = C.auto_apply_of(child)
+        sources += [{**s, "component": child["local_name"], "auto_apply": C.source_ref(s["workspace"], s["key"]) in auto}
+                    for s in found["sources"]]
         mappings += [{**m, "component": child["local_name"]} for m in found["mappings"]]
     return {"sources": sources, "mappings": mappings}
 
@@ -579,8 +675,11 @@ def _served(store: Any, c: Mapping[str, Any]) -> dict:
 def config_of(store: Any, c: Mapping[str, Any]) -> dict:
     """What the component runs: the sources served through it and their mappings, in every workspace."""
     served = _served(store, c)
-    return {"component": c["id"], "paused": bool(c.get("paused")), "schedule": c.get("schedule") or {"mode": "manual"},
-            "sources": served["sources"], "mappings": served["mappings"]}
+    out = {"component": c["id"], "paused": bool(c.get("paused")), "schedule": c.get("schedule") or {"mode": "manual"},
+           "sources": served["sources"], "mappings": served["mappings"]}
+    if C.is_link(c) and hasattr(store, "children"):
+        out["components"] = components_of(store.children(c["id"]))
+    return out
 
 
 def package_of(store: Any, c: Mapping[str, Any], write: Optional[Callable[[Mapping[str, Any]], Mapping[str, bytes]]] = None) -> dict:

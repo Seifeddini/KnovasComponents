@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from conftest import SITE_TOKEN, CONTROL, eventually, make_job, register
 from knovas_link import CAPABILITIES, VERSION
 from knovas_link.registry import STALE_SECONDS
@@ -146,3 +148,77 @@ def test_the_heartbeat_carries_codes_and_counts_never_a_name(world):
                  world.token("sync-component"), "BEGIN"):
         assert name not in text, name
     assert beat["site"]["jobs"] == {"fetch": {"refused": 1}}
+
+
+# ------------------------------------------------------------------ protocol 1.2 (KG-2)
+
+def test_a_components_own_pause_and_schedule_reach_it_alone(world):
+    """The Platform names each component's own pause and schedule; a component it names none for follows Link's."""
+    world.platform.components = [{"component": "sync-component", "paused": False,
+                                  "schedule": {"mode": "commits", "poll_seconds": 30}},
+                                 {"component": "records-reader", "paused": True, "schedule": {"mode": "manual"}}]
+    with world.running(loops=()) as (client, link):
+        _beat(client, link, world)
+        mine = client.post("/local/v1/heartbeat", headers=world.headers(), json={"state": "online"}).json()
+        assert mine["paused"] is False and mine["schedule"] == {"mode": "commits", "poll_seconds": 30}
+        register(world, client, "records-reader", kind="sync_component", job_kinds=["fetch"])
+        other = client.post("/local/v1/heartbeat", headers=world.headers("records-reader"), json={"state": "online"}).json()
+        assert other["paused"] is True and other["schedule"] == {"mode": "manual"}
+        config = client.get("/local/v1/config", headers=world.headers()).json()
+        assert config["schedule"] == {"mode": "commits", "poll_seconds": 30} and config["paused"] is False
+        world.platform.paused = True                       # the site paused: every component is
+        _beat(client, link, world)
+        assert client.post("/local/v1/heartbeat", headers=world.headers(), json={"state": "online"}).json()["paused"] is True
+
+
+def test_a_source_s_automatic_apply_reaches_its_component(world):
+    world.platform.config["sources"][0]["auto_apply"] = True
+    with world.running(loops=()) as (client, link):
+        sources = {s["key"]: s for s in register(world, client)["sources"]}
+        assert sources["handbook"]["auto_apply"] is True and sources["archive"]["auto_apply"] is False
+        config = {s["key"]: s for s in client.get("/local/v1/config", headers=world.headers()).json()["sources"]}
+        assert config["handbook"]["auto_apply"] is True
+
+
+SYNCED = "a" * 40
+
+
+def test_a_components_sync_status_travels_in_links_heartbeat_for_its_own_sources_only(world):
+    entry = {"workspace": "ws-1", "key": "handbook", "synced_commit": SYNCED, "synced_at": "2026-11-10T09:00:00Z",
+             "checked_at": "2026-11-10T09:05:00Z", "next_check_at": "2026-11-10T09:05:30Z", "planned_commit": None,
+             "held_back": ["plan.drift"], "note": "Verträge/Muster AG.pdf",
+             "last_apply": {"at": "2026-11-10T09:00:00Z", "status": "ok", "added": 2, "changed": 1, "retired": 0,
+                            "errors": 0, "auto": True}}
+    foreign = {"workspace": "ws-2", "key": "shares", "synced_commit": "b" * 40}
+    with world.running(loops=()) as (client, link):
+        register(world, client)
+        answer = client.post("/local/v1/heartbeat", headers=world.headers(),
+                             json={"state": "online", "sources": [entry, foreign]})
+        assert answer.status_code == 200
+        sources = {s["key"]: s for s in _beat(client, link, world)["site"]["sources"]}
+    handbook = sources["handbook"]
+    assert handbook["synced_commit"] == SYNCED and handbook["held_back"] == ["plan.drift"]
+    assert handbook["last_apply"] == {"at": "2026-11-10T09:00:00+00:00", "status": "ok", "added": 2, "changed": 1,
+                                      "retired": 0, "errors": 0, "auto": True}
+    assert "note" not in handbook, "a field outside the contract is dropped"
+    assert set(sources["shares"]) == SOURCE_KEYS, "another component's source is not this one's to report"
+    assert set(sources["archive"]) == SOURCE_KEYS, "a source nobody reported on keeps the 1.1 shape"
+
+
+@pytest.mark.parametrize("bad", [
+    {"synced_commit": "main"},
+    {"synced_commit": "Verträge/Muster AG.pdf"},
+    {"checked_at": "gestern"},
+    {"held_back": ["Datei Muster AG fehlt"]},
+    {"last_apply": {"status": "fertig"}},
+    {"last_apply": {"status": "ok", "added": "viele"}},
+    {"last_apply": {"status": "ok", "auto": "ja"}},
+])
+def test_a_sync_status_shaped_like_a_name_or_free_text_is_refused(world, bad):
+    with world.running(loops=()) as (client, link):
+        register(world, client)
+        answer = client.post("/local/v1/heartbeat", headers=world.headers(),
+                             json={"state": "online", "sources": [{"workspace": "ws-1", "key": "handbook", **bad}]})
+        assert answer.status_code == 400 and answer.json()["error"] == "bad_field"
+        sources = {s["key"]: s for s in _beat(client, link, world)["site"]["sources"]}
+    assert set(sources["handbook"]) == SOURCE_KEYS

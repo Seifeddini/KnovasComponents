@@ -68,6 +68,8 @@ ENDPOINT_PERMISSIONS = {
     "register_component": "manage", "team": "manage", "delete_workspace": "manage", "grant_access": "manage", "revoke_access": "manage",
     "component_page": "view", "enrol_component": "manage", "rotate_component": "manage", "revoke_component": "manage", "delete_component": "manage",
     "component_schedule": "manage", "component_settings": "manage", "component_run": "edit", "component_check": "edit",
+    # Automatic apply of a source's clean plans (KG-2): whoever manages the tenant's sites and their schedules.
+    "component_auto_apply": "manage",
     "component_pause": "publish", "component_resume": "publish", "component_plan": "review",
     "access_page": "edit", "access_preview": "edit", "access_apply": "edit", "access_rules_add": "edit",
     "access_rule_remove": "edit", "access_members": "manage", "access_explain": "manage", "access_posture": "manage",
@@ -1285,7 +1287,22 @@ def create_builder_blueprint(
                        alerts=component_rules.alerts([observed], {component_id: runs}, {component_id: held}, now, limits),
                        chart=_run_chart(runs[:30]), kinds=component_rules.KINDS, limits=limits,
                        protocol_path=PROTOCOL_PATH,
-                       days=component_rules.DAYS)
+                       days=component_rules.DAYS, sync=_component_sync(store, observed),
+                       may_manage=g.builder_access.may("manage"))
+
+    def _component_sync(store, component) -> list:
+        """The sync status of each source the component serves (KG-2): reported by Knovas Link for a component
+        behind it, by the component itself in direct mode."""
+        if not component_rules.on_site(component):
+            return []
+        status = (component.get("telemetry") or {}).get("sources") or []
+        if component.get("transport") == "link" and component.get("parent_id"):
+            parent = store.component(_platform_tenant(), component["parent_id"], any_state=True)
+            status = ((parent or {}).get("telemetry") or {}).get("sources") or []
+        sources = [{**src, "component_id": component["id"], "component_name": component.get("name")}
+                   for src in store.served_by(component["id"])["sources"]]
+        return component_rules.sync_rows(sources, status, {component["id"]: component.get("schedule") or {}},
+                                         {component["id"]: component_rules.auto_apply_of(component)})
 
     def _run_chart(runs: list) -> dict:
         """The run history as bars, oldest left: duration high, items and errors marked."""
@@ -1458,15 +1475,53 @@ def create_builder_blueprint(
     @bp.route("/api/components/<component_id>/schedule", methods=["POST"])
     def component_schedule(component_id: str):
         component = _component_or_404(component_id)
+        if component_rules.is_link(component):
+            # Since protocol 1.2 each component behind Knovas Link follows its own schedule (KG-2).
+            return jsonify({"success": False, "error": "Knovas Link führt nichts aus: den Zeitplan auf der Seite der "
+                                                       "Komponente am Standort setzen."}), 409
         try:
             schedule = component_rules.check_schedule((request.get_json(silent=True) or {}).get("schedule"))
         except ValueError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
+        known = component.get("capabilities") or []
+        if schedule["mode"] == "commits" and known and component_rules.POLL_CAPABILITY not in known:
+            return jsonify({"success": False, "error": "Diese Komponente prüft noch nicht auf neue Commits: das Abbild "
+                                                       "aktualisieren (Sync-Komponente 0.3.0 oder neuer)."}), 409
         _store().update_component(component_id, schedule=schedule)
         _store().add_event(component_id, "schedule.changed", {})
         if component_rules.on_site(component):
             _command(component, "reload_config", {}, "config.changed")
         return jsonify({"success": True, "schedule": schedule, "text": component_rules.schedule_text(schedule)})
+
+    @bp.route("/api/components/<component_id>/auto_apply", methods=["POST"])
+    def component_auto_apply(component_id: str):
+        """«Automatisch anwenden, wenn nichts zur Freigabe ansteht», per source (KG-2). The component then applies a
+        plan of that source right after it is made, only when the plan holds nothing a person must decide; a guard
+        hold, drift or a retire entry still waits for a person. Off by default; whoever manages the sites switches it,
+        and every change is an event on the component and a line in the access log."""
+        component = _component_or_404(component_id)
+        body = request.get_json(silent=True) or {}
+        on, workspace, key = body.get("on"), str(body.get("workspace") or ""), str(body.get("source") or "")
+        if not isinstance(on, bool):
+            return jsonify({"success": False, "error": "An oder aus?"}), 400
+        if not component_rules.on_site(component) or component.get("state") != "enrolled":
+            return jsonify({"success": False, "error": "Das geht bei einer angemeldeten Komponente, die bei der Firma "
+                                                       "läuft."}), 409
+        served = _store().served_by(component_id)["sources"]
+        if not any(s.get("workspace") == workspace and s.get("key") == key for s in served):
+            return jsonify({"success": False, "error": "Diese Quelle liest die Komponente nicht (veröffentlichte "
+                                                       "Fassung)."}), 404
+        known = component.get("capabilities") or []
+        if on and component_rules.AUTO_APPLY_CAPABILITY not in known:
+            return jsonify({"success": False, "error": "Diese Komponente wendet noch nicht selbst an: das Abbild "
+                                                       "aktualisieren (Sync-Komponente 0.3.0 oder neuer)."}), 409
+        ref = component_rules.source_ref(workspace, key)
+        if (ref in component_rules.auto_apply_of(component)) != on:
+            _store().update_component(component_id, settings=component_rules.with_auto_apply(component, ref, on))
+            _store().add_event(component_id, "auto_apply.on" if on else "auto_apply.off", {})
+            _command(component, "reload_config", {}, "config.changed")
+            logger.info("Builder: automatic apply %s for a source of component %s", "on" if on else "off", component_id)
+        return jsonify({"success": True, "on": on})
 
     @bp.route("/api/components/<component_id>/settings", methods=["POST"])
     def component_settings(component_id: str):
@@ -1542,8 +1597,23 @@ def create_builder_blueprint(
             rows.append({**s, "url": url_for("builder.site_page", site_id=s["id"]), "state": state,
                          "state_label": component_rules.STATES[state],
                          "options_text": ", ".join(site_rules.OPTIONS[o]["label"] for o in s["options"]
-                                                   if o in site_rules.OPTIONS) or "nur Knovas Link"})
+                                                   if o in site_rules.OPTIONS) or "nur Knovas Link",
+                         "sync": _site_sync(store, link)})
         return rows
+
+    def _site_sync(store, link) -> list:
+        """Per source a site's components serve: the last synced commit, when, what the last apply wrote, the next
+        check, the schedule and whether it applies on its own (KG-2), from Link's heartbeat."""
+        if link is None or not hasattr(store, "children"):
+            return []
+        children = store.children(link["id"])
+        sources = []
+        for child in children:
+            sources += [{**src, "component_id": child["id"], "component_name": child.get("name")}
+                        for src in store.served_by(child["id"])["sources"]]
+        return component_rules.sync_rows(sources, (link.get("telemetry") or {}).get("sources") or [],
+                                         {c["id"]: c.get("schedule") or {} for c in children},
+                                         {c["id"]: component_rules.auto_apply_of(c) for c in children})
 
     def _site_or_404(site_id: str) -> dict:
         tenant = _platform_tenant()
@@ -1588,7 +1658,7 @@ def create_builder_blueprint(
                        certificate_step=site_rules.CERTIFICATE_STEP, certificate_check=site_rules.CERTIFICATE_CHECK,
                        certificate_fingerprint_command=site_rules.CERTIFICATE_FINGERPRINT, protocol_path=PROTOCOL_PATH,
                        compose_preview=site_rules.compose_file(site, site["options"]),
-                       states=component_rules.STATES)
+                       states=component_rules.STATES, sync=_site_sync(store, link))
 
     @bp.route("/api/sites", methods=["POST"])
     def create_site():

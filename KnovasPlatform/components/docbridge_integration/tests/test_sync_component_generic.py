@@ -49,7 +49,7 @@ RUNNER_INSTALL = re.compile(r'^\s*"brain-runner @ git\+https://github\.com/[\w.-
                             r'#subdirectory=scripts/brain_runner" \\$')
 LINK_MODE_TESTS = ("fake_knovas_link.py", "fake_github_rest.py", "sync_link_world.py", "test_github_jobs.py",
                    "test_github_write.py", "test_front_matter_edit.py", "test_sync_component.py",
-                   "test_sync_component_generic.py")
+                   "test_sync_component_generic.py", "test_sync_component_autosync.py")
 
 
 def _files() -> list[Path]:

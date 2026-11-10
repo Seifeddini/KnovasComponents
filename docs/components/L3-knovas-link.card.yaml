@@ -206,13 +206,17 @@ contract:
     promises:
     - id: L3-KNOVAS-LINK/local.register/P-1
       statement: Answers the sources the Platform assigned to that component's name (workspace, key, kind, access,
-        settings, fetch), never a credential.
+        settings, fetch, and since protocol 1.2 auto_apply, false unless the Platform says true), never a credential.
       risk_class: critical
       evidence:
       - kind: test
         ref: KnovasLink/tests/test_local_api.py
         checks:
         - test_register_answers_the_sources_assigned_to_the_name_without_credentials
+      - kind: test
+        ref: KnovasLink/tests/test_link_heartbeat.py
+        checks:
+        - test_a_source_s_automatic_apply_reaches_its_component
     - id: L3-KNOVAS-LINK/local.register/P-2
       statement: A later registration replaces the earlier one; a job kind other than fetch, write and probe is
         ignored.
@@ -256,6 +260,28 @@ contract:
         ref: KnovasLink/tests/test_link_heartbeat.py
         checks:
         - test_the_platforms_pause_and_schedule_reach_the_components
+    - id: L3-KNOVAS-LINK/local.heartbeat/P-2
+      statement: Protocol 1.2 - where the Platform names a component's own pause and schedule (components), the
+        component's heartbeat and configuration answer with that schedule, paused when the site or the component is;
+        for a component it names none for, Link's own as before.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasLink/tests/test_link_heartbeat.py
+        checks:
+        - test_a_components_own_pause_and_schedule_reach_it_alone
+    - id: L3-KNOVAS-LINK/local.heartbeat/P-3
+      statement: Protocol 1.2 - a component's sync status per source (synced and planned commit, times, up to 10 codes,
+        the last apply's counts) is kept for the component's own sources only and passed on in Link's site.sources; a
+        field outside the contract is dropped, and an entry shaped like a name or free text refuses the beat (400
+        bad_field) and keeps nothing.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasLink/tests/test_link_heartbeat.py
+        checks:
+        - test_a_components_sync_status_travels_in_links_heartbeat_for_its_own_sources_only
+        - test_a_sync_status_shaped_like_a_name_or_free_text_is_refused
   local.command-done:
     needs:
     - id: L3-KNOVAS-LINK/local.command-done/N-1

@@ -131,6 +131,8 @@ class FakePlatform:
         self.commands: list[dict] = []
         self.open_commands: set = set()
         self.paused = False
+        #: Protocol 1.2: each component's own pause and schedule; None answers as a 1.1 Platform (no field).
+        self.components: Optional[list] = None
         self.config = {
             "sources": [
                 {"workspace": "ws-1", "key": "handbook", "kind": "github", "access": "read_write", "fetch": True,
@@ -190,13 +192,14 @@ class FakePlatform:
             commands, self.commands = self.commands, []
             self.open_commands |= {c["id"] for c in commands}
         return JSONResponse({"paused": self.paused, "schedule": {"mode": "interval", "every_minutes": 60},
-                             "commands": commands})
+                             "commands": commands, **({"components": self.components} if self.components is not None else {})})
 
     async def get_config(self, request: Request):
         if (refused := self._auth(request)) is not None:
             return refused
         return JSONResponse({"component": LINK_ID, "paused": self.paused, "schedule": {"mode": "manual"},
-                             "brain_url": BRAIN_URL, **self.config})
+                             "brain_url": BRAIN_URL, **self.config,
+                             **({"components": self.components} if self.components is not None else {})})
 
     async def get_package(self, request: Request):
         if (refused := self._auth(request)) is not None:

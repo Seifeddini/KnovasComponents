@@ -8,10 +8,17 @@ With ``keep_stream`` (link mode, MVP-20) the engine also keeps, per source, the 
 acknowledged (the plan's ``source.stream``, in ``stream-acknowledged.json``) and gives it to the next plan as
 ``previous``, with the source's key as the stream's source (``sync_component.runner_cli``). ``compile_write`` runs
 brain-runner's ``compile-write`` for a write job (MVP-22) in a folder of its own.
+
+Diff polling and automatic apply (KG-2): per source the engine keeps its sync state (``sync-state.json``): the commit
+the last apply without errors synced (written only then), when, the package it ran, what the last apply wrote (counts
+only) and the commit the last poll planned. ``affected`` asks brain-runner which mappings the commits since the synced
+one concern; ``attention`` says what in a plan needs a person, so that an automatic apply never takes it.
 """
 from __future__ import annotations
 
 import base64
+import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -28,6 +35,60 @@ _CODE = re.compile(r"^[a-z][a-z0-9_.]{1,60}$")
 PACKAGE_FILE = "brain-config.yaml"
 #: The stream the last successful apply acknowledged, per source (link mode).
 ACKNOWLEDGED_FILE = "stream-acknowledged.json"
+#: Per source: the synced commit, the package it ran, the last apply's counts, the last poll (KG-2).
+SYNC_FILE = "sync-state.json"
+#: What the plan on disk would sync when it is applied without errors: its commit and its package.
+PENDING_FILE = "sync-pending.json"
+COMMIT = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
+
+
+def package_hash(files: Mapping[str, str]) -> str:
+    """The configuration package a plan ran, as one hash: a new one (a new published version) plans every mapping."""
+    digest = hashlib.sha256()
+    for rel in sorted(files):
+        digest.update(rel.encode("utf-8") + b"\0" + str(files[rel]).encode("ascii", "replace") + b"\0")
+    return digest.hexdigest()
+
+
+def attention(plan: Mapping[str, Any]) -> list[str]:
+    """What in a plan needs a person, as codes; empty when nothing does. An automatic apply takes only a plan with
+    nothing here: retirements or removals the deletion guard holds (of nodes or documents), drift (of facts, computed
+    attributes or derived edges), held retire entries, a release, documents stopped, reported or held, a source
+    document that could not be read, anything unresolved, derived edges blocked. A plan of a version this component
+    does not know needs a person too (fail closed)."""
+    out: list[str] = []
+
+    def add(code: str) -> None:
+        if code not in out:
+            out.append(code)
+
+    if not isinstance(plan, Mapping) or plan.get("version") != 1:
+        return ["plan.unknown_version"]
+    tripped = lambda guards: any(isinstance(g, Mapping) and g.get("tripped") for g in (guards or {}).values())  # noqa: E731
+    docs = plan.get("documents") if isinstance(plan.get("documents"), Mapping) else {}
+    computed = plan.get("computed") if isinstance(plan.get("computed"), Mapping) else {}
+    derived = plan.get("derived") if isinstance(plan.get("derived"), Mapping) else {}
+    retire = plan.get("retire") if isinstance(plan.get("retire"), Mapping) else {}
+    if plan.get("blocked") or plan.get("unguarded") or tripped(plan.get("guard")) or tripped(docs.get("guard")):
+        add("plan.guard_held")
+    if plan.get("unreadable"):
+        add("plan.unreadable")
+    if plan.get("drift") or computed.get("drift") or derived.get("drift"):
+        add("plan.drift")
+    if plan.get("unresolved"):
+        add("plan.unresolved")
+    if derived.get("blocked"):
+        add("plan.derived_blocked")
+    if (plan.get("released_mappings") or docs.get("released")
+            or any(isinstance(i, Mapping) and i.get("op") == "release" for i in plan.get("items") or [])):
+        add("plan.release")
+    if retire.get("items"):
+        add("plan.retire_held")
+    for part, code in (("held", "plan.documents_held"), ("stopped", "plan.documents_stopped"),
+                       ("reported", "plan.documents_reported")):
+        if docs.get(part):
+            add(code)
+    return out
 
 
 class EngineError(RuntimeError):
@@ -77,11 +138,15 @@ class RunnerEngine:
         return self._run([sys.executable, "-m", *module, *args], capture_output=True, text=True, timeout=3600,
                          env={**os.environ, "PYTHONIOENCODING": "utf-8", **self.env, **(env or {})})
 
-    def dry_run(self, root: Path, mappings: list[str], reading: Any = None) -> Result:
+    def dry_run(self, root: Path, mappings: list[str], reading: Any = None, *, commit: Optional[str] = None,
+                package: Optional[str] = None) -> Result:
         """A plan of the mappings over the source, kept for the apply. Writes nothing to the Brain. ``reading`` says
-        where the runner reads (fetchers.Reading): by default the fetched data beside the configuration."""
+        where the runner reads (fetchers.Reading): by default the fetched data beside the configuration. What the plan
+        syncs once applied without errors is kept beside it: ``commit`` (for a plan of only the mappings new commits
+        concern, the commit those were computed to; else the commit the plan read) and the ``package``."""
         plan, state = root / "plan.json", root / "state.json"
         plan.unlink(missing_ok=True)
+        (root / PENDING_FILE).unlink(missing_ok=True)
         args = ["plan", "--config", str(root / PACKAGE_FILE), "--out", str(plan), "--state", str(state)]
         for m in mappings:
             args += ["--mapping", m]
@@ -95,7 +160,11 @@ class RunnerEngine:
         done = self._cli(*args, module=module, env=getattr(reading, "env", None))
         if done.returncode != 0 or not plan.exists():
             return Result(status="failed", errors=1, codes=[f"runner.plan_exit_{done.returncode}"])
-        return self.counts(json.loads(plan.read_text(encoding="utf-8")))
+        made = json.loads(plan.read_text(encoding="utf-8"))
+        read = ((made.get("source") or {}).get("commit") if isinstance(made.get("source"), dict) else None)
+        found = commit or (read if isinstance(read, str) and COMMIT.match(read) else None)
+        _write_json(root / PENDING_FILE, {"commit": found, "package": package})
+        return self.counts(made)
 
     @staticmethod
     def counts(plan: Mapping[str, Any]) -> Result:
@@ -113,8 +182,16 @@ class RunnerEngine:
             result.status = "held"
         return result
 
-    def apply(self, root: Path, *, approve_reason: Optional[str] = None) -> Result:
-        """Write what the last dry run planned; with a reason, also what the deletion guard held."""
+    def apply(self, root: Path, *, approve_reason: Optional[str] = None, auto: bool = False) -> Result:
+        """Write what the last dry run planned; with a reason, also what the deletion guard held. ``auto``: the
+        component applies on its own (the source's automatic apply, KG-2); the caller checked ``attention`` first.
+        The sync state records what the apply wrote, and an apply without errors the commit its plan synced."""
+        result = self._apply(root, approve_reason)
+        if result.codes != ["apply.no_dry_run"]:
+            self._record_apply(root, result, auto)
+        return result
+
+    def _apply(self, root: Path, approve_reason: Optional[str]) -> Result:
         plan, state = root / "plan.json", root / "state.json"
         if not plan.exists():
             return Result(status="failed", errors=1, codes=["apply.no_dry_run"])
@@ -140,6 +217,74 @@ class RunnerEngine:
             if stream is not None:
                 self._acknowledge(root, stream)
         return result
+
+    # -------------------------------------------------------- the sync state (KG-2)
+
+    @staticmethod
+    def sync_state(root: Path) -> dict:
+        try:
+            found = json.loads((root / SYNC_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return found if isinstance(found, dict) else {}
+
+    def update_sync_state(self, root: Path, **fields: Any) -> dict:
+        state = {**self.sync_state(root), **fields}
+        _write_json(root / SYNC_FILE, state)
+        return state
+
+    @staticmethod
+    def pending(root: Path) -> dict:
+        """What the plan on disk syncs once applied without errors: ``{commit, package}``; {} without a plan."""
+        try:
+            found = json.loads((root / PENDING_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return found if isinstance(found, dict) else {}
+
+    def _record_apply(self, root: Path, result: Result, auto: bool) -> None:
+        now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+        fields: dict = {"last_apply": {"at": now, "status": result.status, "added": result.added,
+                                       "changed": result.changed, "retired": result.retired, "errors": result.errors,
+                                       "auto": bool(auto)}}
+        if result.status == "ok" and result.errors == 0:
+            pending = self.pending(root)
+            if isinstance(pending.get("commit"), str) and COMMIT.match(pending["commit"]):
+                fields.update(synced_commit=pending["commit"], synced_at=now)
+            if pending:
+                fields["package"] = pending.get("package")
+            (root / PENDING_FILE).unlink(missing_ok=True)
+        self.update_sync_state(root, **fields)
+
+    def sync_states(self) -> list[dict]:
+        """Every source this component keeps a sync state for: ``{workspace, key, **state}``."""
+        out = []
+        for found in sorted(self.folder.glob(f"*/*/{SYNC_FILE}")):
+            workspace, key = found.parent.parent.name, found.parent.name
+            if _SAFE.match(workspace) and _SAFE.match(key):
+                out.append({"workspace": workspace, "key": key, **self.sync_state(found.parent)})
+        return out
+
+    def attention(self, root: Path) -> list[str]:
+        """What in the plan on disk needs a person (``attention``); a missing or unreadable plan needs one too."""
+        try:
+            return attention(json.loads((root / "plan.json").read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            return ["plan.missing"]
+
+    def affected(self, root: Path, since: str, repository: str, ref: str, env: Optional[Mapping[str, str]] = None):
+        """brain-runner's ``affected`` over GitHub's API (0.3.2): ``{head, mappings}`` (mappings None: every one), or a
+        code when it cannot say (then the caller plans every mapping)."""
+        done = self._cli("affected", "--config", str(root / PACKAGE_FILE), "--since", since, "--source", "github",
+                         "--repo", repository, "--ref", ref or "HEAD", "--json", env=env)
+        try:
+            out = json.loads((done.stdout or "").strip().splitlines()[-1]) if done.returncode == 0 else None
+        except (ValueError, IndexError):
+            out = None
+        if not isinstance(out, dict) or not COMMIT.match(str(out.get("head") or "")):
+            return f"runner.affected_exit_{done.returncode}"
+        ids = out.get("mappings")
+        return {"head": out["head"], "mappings": None if ids is None else [str(m) for m in ids]}
 
     # -------------------------------------------------------- the acknowledged stream (link mode)
 
@@ -186,3 +331,9 @@ class RunnerEngine:
             if done.returncode == 3 and isinstance(out, dict) and _CODE.match(str(out.get("refused") or "")):
                 return "refused", out["refused"]
         return "failed", f"runner.compile_exit_{done.returncode}"
+
+
+def _write_json(path: Path, data: Any) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    os.replace(tmp, path)

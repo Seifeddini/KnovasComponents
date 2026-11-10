@@ -395,6 +395,17 @@ class TestLinkMode:
         thread.join(5)
         assert all(s.trust_env is False for s in seen) and seen[0] is not seen[1] and client.session is seen[0]
 
+    def test_the_sync_status_travels_with_the_local_heartbeat(self, link_world):
+        """Protocol 1.2 (KG-2): what the last apply wrote, per source, in the heartbeat Link passes on."""
+        link_world.agent.run("dry_run")
+        assert link_world.agent.run("apply").status == "ok"
+        link_world.agent.tick()
+        [entry] = link_world.link.beats[-1]["sources"]
+        assert (entry["workspace"], entry["key"]) == (LW.WORKSPACE, LW.SHARE_KEY)
+        assert entry["last_apply"]["status"] == "ok" and entry["last_apply"]["auto"] is False
+        assert entry["synced_commit"] is None, "a share has no commits"
+        assert "policies/" not in json.dumps(link_world.link.beats[-1])
+
     def test_only_link_mode_reads_a_read_write_source(self, world, link_world):
         github = {"workspace": "w", "key": "k", "kind": "github", "access": "read_write"}
         assert link_world.agent._readable(github) and not world.agent._readable(github)

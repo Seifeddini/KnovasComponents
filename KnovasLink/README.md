@@ -1,6 +1,7 @@
 # Knovas Link
 
-One component per site, and the only process there that talks to Knovas (connector protocol 1.1, KC-7a). The other
+One component per site, and the only process there that talks to Knovas (connector protocol 1.2: 1.1 from KC-7a, and
+since KG-2 each component's own schedule and pause, its sync status per source and the switch «automatisch anwenden»). The other
 components on the site (the sync component, the Knovas Connector, any later reader of a source) talk only to Link,
 through its local API; they hold no Knovas certificate and open no port. A new kind of source is a new local component,
 never a change to Link. How Link fits with the sync component and the Brain Builder:
@@ -26,7 +27,7 @@ The contracts it is built against are in [`contracts/`](contracts/): the local A
 ## Running it
 
 ```bash
-docker build -t knovas-link:1.1.0 KnovasLink
+docker build -t knovas-link:1.2.0 KnovasLink
 ```
 
 Settings come from the environment only; the install package's `knovas-link.env` holds the first two:
@@ -198,6 +199,13 @@ heartbeat. A leak exposes the whole tenant, and the site cannot be revoked on it
   round_trip_ms}`, `components [{name, kind, version, state, capabilities, local_ping_ms}]`, `sources [{workspace,
   key, last_read_ok_at, last_run_status}]`, `jobs {kind: {status: n}}` since the last beat. A value nobody measured is
   `null`, never a good one.
+- **Protocol 1.2 (KG-2):** a component's local heartbeat may carry its sync status per source (`synced_commit`,
+  `synced_at`, `checked_at`, `next_check_at`, `planned_commit`, `held_back`, `last_apply`; `sync_status.py` checks it
+  and refuses anything shaped like a name with 400 `bad_field`); Link keeps it for the component's own sources and adds
+  it to that source's entry in `site.sources`. The Platform's `components` (in its heartbeat answer and `/config`) give
+  each component its own `schedule` and `paused`; Link answers the component's heartbeat and configuration with them
+  (paused when the site or the component is), and with its own where the Platform names none. Each source passes on
+  `auto_apply` (register and configuration).
 
 **Logs** carry codes, counts and durations only: never a path, a document's name, a token or a certificate. There is
 no access log, because a relayed path or query may name a document.

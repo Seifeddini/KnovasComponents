@@ -1,5 +1,5 @@
 # Knovas Link: the one component per site that talks to Knovas (connector protocol 1.1).
-#   docker build -t knovas-link:1.1.0 KnovasLink
+#   docker build -t knovas-link:1.2.0 KnovasLink
 # No secret is in the image: the one-time token comes from the site's env file, the key is made at first start on
 # the /data volume, and the components' tokens are written to the /link volume.
 FROM python:3.11-slim

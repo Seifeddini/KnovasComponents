@@ -40,7 +40,8 @@
         {% for s in sites %}
         <li class="b-card" data-site="{{ s.id }}" data-component-state="{{ s.state }}"><a class="b-link-strong" href="{{ s.url }}">{{ s.name }}</a>
             <span class="b-small b-muted">{{ s.options_text }}</span>
-            <span class="b-tag b-reg-state is-{{ s.state }}"><span class="b-tag-dot"></span>Knovas Link: {{ s.state_label }}</span></li>
+            <span class="b-tag b-reg-state is-{{ s.state }}"><span class="b-tag-dot"></span>Knovas Link: {{ s.state_label }}</span>
+            {% if s.sync %}<ul class="b-small b-site-sync" data-site-sync-summary>{% for r in s.sync %}<li data-sync-source="{{ r.key }}"><strong>{{ r.name }}</strong>: {% if r.synced_commit %}{% if r.synced_url %}<a class="b-mono" href="{{ r.synced_url }}" rel="noopener" target="_blank">{{ r.synced_short }}</a>{% else %}<span class="b-mono">{{ r.synced_short }}</span>{% endif %} · {{ r.synced_at | b_datetime }}{% else %}noch nicht abgeglichen{% endif %}{% if r.last_apply %} · +{{ r.last_apply.added }} / ~{{ r.last_apply.changed }} / −{{ r.last_apply.retired }}{% endif %} · {{ r.schedule_text }}{% if r.next_check_at %}, nächste Prüfung {{ r.next_check_at | b_datetime }}{% endif %} · automatisch anwenden {{ 'an' if r.auto_apply else 'aus' }}</li>{% endfor %}</ul>{% endif %}</li>
         {% endfor %}
     </ul>
     {% else %}

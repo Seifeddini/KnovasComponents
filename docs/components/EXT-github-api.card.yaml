@@ -23,6 +23,11 @@ operations:
   name: GET and POST /repos/{owner}/{repo}/pulls - find or open the pull request of a write
   entrance: http
   ref: /repos/{owner}/{repo}/pulls
+- id: head-and-compare
+  name: GET /repos/{owner}/{repo}/commits/{ref} (Accept application/vnd.github.sha, If-None-Match) and GET
+    /compare/{base}...{head} - the head commit a ref names, and what changed since a commit (diff polling, KG-2)
+  entrance: http
+  ref: /repos/{owner}/{repo}/commits/{ref}
 contract:
   repo-contents:
     promises:
@@ -57,6 +62,20 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_github_write.py
         checks:
         - TestAProposalBecomesAPullRequest::test_a_job_claimed_again_ends_with_the_same_pull_request
+  head-and-compare:
+    promises:
+    - id: EXT-GITHUB-API/head-and-compare/P-1
+      statement: A ref answers its commit as 40 hex digits with the sha media type; with the ETag of the last answer
+        an unchanged ref may answer 304; compare base...head answers its status (ahead, identical, diverged), the
+        number of commits and at most 300 changed files.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_autosync.py
+        checks:
+        - TestTheHead::test_one_request_with_the_token_and_the_etag
+        - TestTheHead::test_unchanged_is_a_304_and_names_no_commit
+        - TestTheRealRunner::test_a_commit_to_a_file_a_mapping_reads_names_that_mapping
 review:
 - at: /contract
   why: The evidence runs against an in-process stand-in of GitHub's REST API (tests/fake_github_rest.py), written from

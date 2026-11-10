@@ -340,7 +340,7 @@ def test_github_http_family_is_a_documented_pattern_not_a_list():
 def test_contracts_lock_matches_the_files():
     lock = _load(CONTRACTS / "contracts.lock")
     assert set(lock) == {"version", "files"}
-    assert lock["version"] == "1.1.0"
+    assert lock["version"] == "1.2.0"
     expected = {p.name for p in _schema_files()} | {"codes.json", "local-api.md"}
     assert set(lock["files"]) == expected
     for name, digest in lock["files"].items():
@@ -399,6 +399,19 @@ def test_protocol_doc_is_version_1_1_with_the_new_sections():
     link = _section(text, "Sites and Knovas Link")
     assert "Direct enrolment" in link
     assert '"component": "<name>"' in link and "never calls the Platform" in link
+
+
+def test_protocol_doc_writes_down_version_1_2_as_additions_only():
+    """KG-2: the sync status, per-component schedules and automatic apply, all optional fields."""
+    text = PROTOCOL_DOC.read_text(encoding="utf-8")
+    assert re.search(r"\*\*Version 1\.2\*\*", text)
+    section = _section(text, "Sync status, schedules per component and automatic apply")
+    for needle in ("auto_apply", "poll_seconds", "synced_commit", "last_apply", '"components"', "held_back",
+                   "an older", "ignores"):
+        assert needle in section, needle
+    local = LOCAL_API.read_text(encoding="utf-8")
+    assert "Protocol 1.2" in local and "auto_apply" in local and "synced_commit" in local
+    assert not _company_specific(section)
 
 
 def test_every_contract_file_the_protocol_doc_names_exists():

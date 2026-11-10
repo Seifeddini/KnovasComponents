@@ -1,7 +1,7 @@
 {# A site (connection layer MVP-23): Knovas Link and the components beside it on one machine at the company.
    Expects site, link, link_state, children, checklist, containers, options, command, env_file, sources_env_file,
    certificate_step, certificate_check, certificate_fingerprint_command,
-   protocol_path, compose_preview, states (builder_routes.site_page). static/js/builder/site.js downloads the package,
+   protocol_path, compose_preview, states, sync (builder_routes.site_page; builder.components.sync_rows). static/js/builder/site.js downloads the package,
    renews the token and asks for a probe. #}
 {% extends 'builder/_base.html' %}
 {% from 'builder/_icons.html' import icon %}
@@ -104,6 +104,21 @@
         </table>
     </div>
     <p class="b-small b-muted">Die Komponenten erscheinen hier, sobald Knovas Link sie meldet. Quellen legen Sie danach unter «Quellen &amp; Zuordnung» auf eine dieser Komponenten.</p>
+</section>
+
+<section class="b-comp-section" aria-labelledby="b-site-sync-title" data-site-sync>
+    <h2 class="b-h3" id="b-site-sync-title">Quellen und Abgleich</h2>
+    {% if sync %}
+    {% from 'builder/_sync.html' import sync_cells, auto_switch %}
+    <div class="b-table-wrap"><table class="b-table b-table--compact" data-sync-table>
+        <thead><tr><th scope="col">Quelle</th><th scope="col">Zuletzt abgeglichen</th><th scope="col">Letzter Lauf schrieb</th><th scope="col">Nächste Prüfung</th><th scope="col">Zeitplan</th><th scope="col">Automatisch anwenden</th></tr></thead>
+        <tbody>{% for r in sync %}<tr data-sync-source="{{ r.key }}"><th scope="row">{{ r.name }}<br><span class="b-small b-muted">{{ r.workspace_name or '' }} · <a href="{{ url_for('builder.component_page', component_id=r.component_id) }}">{{ r.component_name }}</a></span></th>
+            {{ sync_cells(r) }}<td>{{ auto_switch(r, True, url_for('builder.component_auto_apply', component_id=r.component_id)) }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <p class="b-small b-muted">Zahlen und Commits meldet die Komponente über Knovas Link; Inhalte und Dateinamen nie. Den Zeitplan («bei neuen Commits» und andere) setzen Sie auf der Seite der Komponente. «Automatisch anwenden, wenn nichts zur Freigabe ansteht» wendet einen geplanten Lauf gleich an, nur wenn nichts darin auf eine Person wartet: Was der Löschschutz anhält, Abweichungen im Brain und Einträge zum Stilllegen bleiben bei «Zurückgehaltene Pläne» und «Jetzt anwenden» der Komponente. Standard: aus.</p>
+    {% else %}
+    <p class="b-muted">Noch keine Quelle liest über diesen Standort. Quellen legen Sie unter «Quellen &amp; Zuordnung» auf eine Komponente des Standorts und veröffentlichen.</p>
+    {% endif %}
 </section>
 
 <details class="b-comp-section">

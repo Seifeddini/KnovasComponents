@@ -2,7 +2,7 @@
  *
  * «Installationspaket herunterladen» posts the address this browser reached the Platform at (behind nginx the server's
  * own Host has no port) and saves the zip it answers with; «Token erneuern» and «Jetzt prüfen» post and reload. Also
- * «Standort anlegen» on the «Verbinden» page.
+ * «Standort anlegen» on the «Verbinden» page, and the «automatisch anwenden» switches (site page, component page).
  */
 (function () {
     'use strict';
@@ -76,6 +76,25 @@
             });
         });
     }
+
+    /* «Automatisch anwenden, wenn nichts zur Freigabe ansteht» per source (KG-2), on the site page and a component's
+       page: the server decides who may (manage) and whether the component can; the page reloads to show it. */
+    Array.prototype.forEach.call(document.querySelectorAll('[data-sync-auto]'), function (box) {
+        box.addEventListener('change', function () {
+            var on = box.checked;
+            if (on && !window.confirm('Pläne dieser Quelle gleich anwenden, wenn nichts darin auf eine Person wartet? Was der Löschschutz anhält, Abweichungen und Einträge zum Stilllegen warten weiter auf eine Person.')) {
+                box.checked = false;
+                return;
+            }
+            box.disabled = true;
+            send(box.dataset.url, { workspace: box.dataset.workspace, source: box.dataset.source, on: on }).then(json).then(function (b) {
+                if (b.success) { window.location.reload(); return; }
+                box.checked = !on;
+                box.disabled = false;
+                fail(document.querySelector('[data-site-error]'), b.error || 'Nicht möglich.');
+            });
+        });
+    });
 
     var dialog = document.getElementById('b-site-new');
     var opener = document.querySelector('[data-site-new]');

@@ -14,7 +14,9 @@ entry point; it links to the pages that own each detail and repeats none of them
   health of each site.
 - Three things travel through a site:
   1. **Sync:** the sync component reads a source, plans what changes in the Brain, shows a dry run, and applies it
-     after a person's approval.
+     after a person's approval. On the schedule «bei neuen Commits» it plans only when a GitHub source has a new
+     commit, and only the mappings the commit concerns; where a person switched on «automatisch anwenden» for the
+     source, it applies a plan right after it is made, only when nothing in it needs a person (KG-2).
   2. **Originals:** when an agent asks for an original document and may read it, Knovas asks the site; the sync
      component reads the file from the source, and its bytes pass through Link to the agent. Knovas does not store
      them.
@@ -28,7 +30,8 @@ entry point; it links to the pages that own each detail and repeats none of them
 |---|---|---|---|---|
 | Knovas Link | the site | enrolment, the site's key and certificate, heartbeat, the components' Brain calls on an allow-list, the work channel (jobs) and probes, its local API | [`KnovasLink/`](../../KnovasLink/) | [Link README](../../KnovasLink/README.md); local API: [`KnovasLink/contracts/local-api.md`](../../KnovasLink/contracts/local-api.md) |
 | Sync component, link mode | the site, beside Link | reads GitHub, HTTP/JSON and file shares; runs brain-runner; answers `fetch` (a GitHub blob) and `write` (a pull request) jobs | [`components/sync_component/`](../components/sync_component/) | [sync component README](../components/sync_component/README.md) |
-| Brain Builder: sites | the Platform | the site page, its install package, «Token erneuern», the certificate step, «Jetzt prüfen» | `components/docbridge_integration/src/builder/sites.py` | [connect-a-site.md](connect-a-site.md) §§ 1–2 |
+| Brain Builder: sites | the Platform | the site page, its install package, «Token erneuern», the certificate step, «Jetzt prüfen»; per source «Quellen und Abgleich»: the last synced commit, the last run's counts, the next check, the switch «automatisch anwenden» (KG-2) | `components/docbridge_integration/src/builder/sites.py`, `builder/components.py` (`sync_rows`, `auto_apply_of`) | [connect-a-site.md](connect-a-site.md) §§ 1–2, 5 |
+| Brain Builder: a component's schedule | the Platform | manual, regularly (from 1 minute), in a window, or «bei neuen Commits» (poll every 15–3600 s); each component behind Link has its own | `builder/components.py` (`check_schedule`), `builder/protocol.py` (`components_of`) | [connect-a-site.md](connect-a-site.md) § 5 |
 | Brain Builder: sources and switches | the Platform | per source «Agenten dürfen Originale abrufen» and «Änderungen dürfen zurückgeschrieben werden», both off until switched on and published | `builder/sources.py` | [connect-a-site.md](connect-a-site.md) § 3 |
 | Brain Builder: mapping panels | the Platform | «Zugriff» (who reads the documents) and «Zurückschreiben» (which facts may travel back) | `builder/mapping_edits.py`, `builder/mappings.py` | [connect-a-site.md](connect-a-site.md) § 4 |
 | Brain Builder: «Betrieb › Freigaben» | the Platform | accept or reject write proposals (permission «Veröffentlichen») | `builder/approvals.py`, `builder/connection_api.py` | [connect-a-site.md](connect-a-site.md) § 5 |
@@ -73,26 +76,32 @@ network is closed (`builder/sites.py`).
 | Source switch «Agenten dürfen Originale abrufen» | Link passes `fetch` jobs for that source; otherwise `refused fetch_disabled` | off |
 | Source switch «Änderungen dürfen zurückgeschrieben werden» (`access: read_write`) | Link passes `write` jobs; otherwise `refused write_disabled`. Offered for GitHub only, and only when the component declares `write:github` | off |
 | `SYNC_LINK_URL` | the sync component runs in link mode (the install package sets it) | unset: direct mode |
+| A component's schedule «Bei neuen Commits» | it asks each GitHub source for its head every `poll_seconds` and plans only the mappings new commits concern (KG-2) | manual |
+| Source switch «Automatisch anwenden, wenn nichts zur Freigabe ansteht» (whoever manages sites) | the component applies a scheduled plan of that source right after it is made, only when nothing in it needs a person; a guard hold, drift or retire entry still waits | off |
 | `BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT` | the Platform requires the terminator's fingerprint on connector calls | `true` |
 | `BUILDER_CONNECTOR_ISSUE_CERTIFICATES` | the Platform asks the Brain to sign a component's certificate at enrolment. Where the Brain cannot sign, set `false`: Knovas Link then waits for a certificate an admin signed | `true` |
 | `BUILDER_CONNECTOR_CLIENT_CA` | the client CA Link learns at enrolment and a recorded site certificate must chain to | empty |
 | `LINK_HEARTBEAT_SECONDS`, `LINK_PROBE_SECONDS` | heartbeat and probe intervals | 30, 300 |
 | `LINK_TEST_ONLY_SHARED_CERTIFICATE` | test only, never for a company: Link uses the tenant's own certificate | off |
 
-## What is built and what is not (2026-11-07)
+## What is built and what is not (2026-11-10)
 
 - **Built on this branch, not deployed at any company:** Knovas Link, the sync component's link mode and its GitHub
   `fetch` and `write`, the Builder's sites, switches, panels, «Freigaben» and «Verbindung», the terminator, the release
-  workflow.
+  workflow. Since 2026-11-10 (KG-2, protocol 1.2, Link 1.2.0, sync component 0.3.0): diff polling «bei neuen
+  Commits», the switch «automatisch anwenden» per source, each component's own schedule and pause behind Link, and the
+  last synced commit and run per source on «Verbinden» and the site page. None of it runs anywhere until an image
+  release carries it.
 - **No image is released yet.** GitHub offers the release workflow only once its file is on the default branch
   ([release-images.md](deployment/release-images.md), "Once per repository").
-- **Images behind Link need brain-runner 0.3.1 or later.** The Platform's and the sync component's Dockerfiles pin
-  0.3.1 (`BRAIN_RUNNER_VERSION`, `BRAIN_RUNNER_GIT_REF`) since 2026-11-07. Older releases (0.1.1, the pin before) cannot
-  call the Brain through Link (`BRAIN_LOCAL_TOKEN`) and have no `compile-write`, so a sync component built with one
-  cannot plan, apply or answer write jobs in link mode (sync component README, "Release coupling"). The release run
-  prints the version in its step "Build and check the image".
+- **Images behind Link need brain-runner 0.3.2 or later.** The Platform's and the sync component's Dockerfiles pin
+  0.3.2 (`BRAIN_RUNNER_VERSION`, `BRAIN_RUNNER_GIT_REF`, KnowledgeBase commit `961b2f72b`) since 2026-11-10; both builds
+  stop on another version. 0.3.1 has no `affected --source github`, so «bei neuen Commits» would plan every mapping;
+  0.1.1 cannot call the Brain through Link (`BRAIN_LOCAL_TOKEN`) and has no `compile-write` (sync component README,
+  "Release coupling"). The release run prints the version in its step "Build and check the image".
 - **Not built:** sources other than GitHub for `fetch` and `write`; the Knovas Connector behind Link; permissions from
-  the source; credentials typed into the Builder; monitoring history and notifications; autonomous writes. The Builder
+  the source; credentials typed into the Builder; monitoring history and notifications; autonomous writes to a source
+(automatic apply writes to the Brain only, and only what needs no person); polling sources other than GitHub. The Builder
   records who accepted a proposal, but the Brain does not yet bind the accept to a verified person.
 - **Known limits:** jobs of one tenant are not yet bound to one site, so add a second site only after that item; Link
   relays every method below `secured/graph/` ([connector-protocol-v1.md](connector-protocol-v1.md), "Sites and Knovas

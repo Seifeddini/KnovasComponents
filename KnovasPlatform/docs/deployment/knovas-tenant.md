@@ -209,9 +209,10 @@ The image installs a pinned release; the Platform never imports or runs code fro
 **Set-up, once:**
 
 1. **The package in the image.**
-   - The Dockerfile installs brain-runner at `BRAIN_RUNNER_GIT_REF` (today `0.3.1`, commit `646f22212`, tag
-     `brain-runner-v0.3.1` on KnowledgeBase: fetch, plan and apply for the sync and the builder, Brain calls through
-     Link, write jobs).
+   - The Dockerfile installs brain-runner at `BRAIN_RUNNER_GIT_REF` (today `0.3.2`, commit `961b2f72b`, tag
+     `brain-runner-v0.3.2` on KnowledgeBase: fetch, plan and apply for the sync and the builder, Brain calls through
+     Link, write jobs, and `affected` for «bei neuen Commits»). The tag is set by a person on that commit; until it
+     exists the pin is the commit itself.
    - KnowledgeBase is private, so the build needs a read-only token: a fine-grained GitHub token for
      `Seifeddini/KnowledgeBase` only, permission **Contents: read**. Put it in `knovas.env` and rebuild:
 
@@ -225,7 +226,7 @@ The image installs a pinned release; the Platform never imports or runs code fro
    - `start.sh` also takes the token from `.env` (it runs compose with `--env-file knovas.env`, which skips `.env`)
      and says after the build whether brain-runner is installed. A layer built without the token is rebuilt once a
      token is given (build argument `KB_READ_TOKEN_GIVEN`; a secret alone does not change the layer cache).
-   - Check the build output for `brain-runner 0.3.1`. Without the token the image builds without brain-runner, and the
+   - Check the build output for `brain-runner 0.3.2`. Without the token the image builds without brain-runner, and the
      sync page and the builder's source test say the package is not installed.
 2. **Settings** (Einstellungen → Ansichten und Wissensbasis, or pinned by the environment):
 
@@ -793,12 +794,12 @@ On the same machine as the Platform (CL-8). Generic reference: [../connect-a-sit
 - From the release run (4.1): `KNOVAS_LINK_DIGEST=sha256:…` and `SYNC_COMPONENT_DIGEST=sha256:…`, best from the same
   run as the Platform.
 - In the Builder you hold «Zugänge verwalten» (admin has it).
-- **The sync-component image carries brain-runner 0.3.1 or later.** In the release run (4.1), the sync-component job's
-  step "Build and check the image" prints `brain-runner <version>`. **Stop if** it prints an older version (such as
-  `0.1.1`, the pin before 2026-11-07): behind Link that version can neither reach the Brain through Link
-  (`BRAIN_LOCAL_TOKEN`) nor compile a write (`compile-write`). Both Dockerfiles pin `brain-runner-v0.3.1`
-  (`BRAIN_RUNNER_GIT_REF=646f22212…`); release from a checkout that has that pin (Brain v1 plan, step 8; the sync
-  component's README, "Release coupling").
+- **The sync-component image carries brain-runner 0.3.2 or later.** In the release run (4.1), the sync-component job's
+  step "Build and check the image" prints `brain-runner <version>`. **Stop if** it prints an older version: 0.3.1 has
+  no `affected --source github`, so «bei neuen Commits» plans every mapping on each new commit; 0.1.1 (the pin before
+  2026-11-07) can neither reach the Brain through Link (`BRAIN_LOCAL_TOKEN`) nor compile a write (`compile-write`).
+  Both Dockerfiles pin 0.3.2 (`BRAIN_RUNNER_GIT_REF=961b2f72b…`, and the build stops on another version); release from
+  a checkout that has that pin (Brain v1 plan, step 8; the sync component's README, "Release coupling").
 
 ### 5.1 Create the site and download the package (browser)
 
@@ -924,3 +925,32 @@ Update: put the new digests into `~/knovas-site/.env`, then `docker compose pull
 the component keep their data volumes, so no new certificate is needed. Roll back: the previous digests, the same two
 commands. Back up nothing here beyond the volumes' presence: Link's key is in `knovas-site_link-data`; losing it means
 «Token erneuern» and a new certificate (5.2–5.3).
+
+### 5.6 Sync on new commits, and apply on its own (KG-2)
+
+Needs an image release from a checkout with this change: Knovas Link 1.2.0 and the sync component 0.3.0 (its page
+shows the version), brain-runner 0.3.2 in the sync-component image (5.0), and the Platform built from the same
+checkout. Then 5.5 with the new digests.
+
+1. **The schedule.** Builder → Verbinden → the site → the sync component's page (`knovas-hq · sync-component`) →
+   «Zeitplan» → **Bei neuen Commits**, «Alle … Sekunden auf neue Commits prüfen» `30` → «Zeitplan übernehmen». It
+   reaches the component with Link's next heartbeat (30 s). Every 30 s the component asks GitHub for each source's
+   head commit; when nothing is new, nothing else happens. When a commit is new, only the mappings it concerns are
+   planned, and the dry run shows on the component page as any other. Knovas Link's own page has no schedule any more:
+   each component has its own.
+2. **Apply on its own, per source** (admin, «Zugänge verwalten»). The site page → «Quellen und Abgleich» → tick
+   **Automatisch anwenden** for a source → confirm. From the next plan on, a plan that holds nothing a person must
+   decide is applied right after it is made. A plan with a deletion-guard hold, drift, a retire entry, a release, or a
+   stopped or reported document is not: it waits under «Zurückgehaltene Pläne» / «Jetzt anwenden» on the component
+   page, as before, and the site page says why («Neuer Commit … geplant, noch nicht angewendet: …»). Off by default;
+   untick to stop. Every change is an event on the component (`auto_apply.on` / `auto_apply.off`) and a line in the
+   access log.
+3. **What to look at.** The site page's «Quellen und Abgleich» (and the «Standorte» list on «Verbinden») shows per
+   source the last synced commit (short, linked to the commit on GitHub), when, what the last apply wrote
+   (+ added / ~ changed / − retired, errors, «automatisch»), the next check and the schedule. The synced commit moves
+   only after an apply without errors.
+
+**Check it end to end:** push a commit that changes one file a mapping reads (for example one card in
+KnowledgeBase); within a minute the component page shows a dry run of only the mappings that file concerns, then, with
+the switch on and nothing to decide, an apply marked «automatisch», and the site page shows the new commit.
+

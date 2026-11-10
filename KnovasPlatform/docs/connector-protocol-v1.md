@@ -4,6 +4,13 @@
 
 **Version 1.1** (MVP-2, KC-7a): additions to 1.0 only. It adds sites and Knovas Link, streams, jobs on a work channel, probes, write proposals and fetching originals, in the sections from "Sites and Knovas Link" on. All of them are built: Knovas Link, the sync component's link mode with GitHub `fetch` and `write`, the Builder's sites, and the Brain's routes, which run at Knovas since 2026-11-07. No company runs a site yet. What is built where: [connection-layer.md](connection-layer.md). The paths stay `/api/connectors/v1`, and a component that knows only 1.0 keeps working unchanged. The contracts are files in `KnovasComponents/KnovasLink/contracts/`, pinned by `contracts.lock`.
 
+**Version 1.2** (KG-2, FEAT-2026-11-05-knovas-brain-v1, asked for by the founder 2026-11-10): additions to 1.1 only,
+every new field optional. A component reports per source the commit it last synced and what its last apply wrote; a
+schedule «bei neuen Commits» polls a source's head and plans only the mappings new commits concern; a person may switch
+on per source that a component applies a plan on its own when nothing in it needs a person; each component behind
+Knovas Link gets its own pause and schedule. The section "Sync status, schedules per component and automatic apply"
+says what changed. `contracts.lock` says `1.2.0`; Knovas Link 1.2.0 and the sync component 0.3.0 speak it.
+
 A connector is a separately deployed sync component, registered for one company (DEC-0040). This document is what any connector must do, in any language. The Platform's side is `docbridge_integration/src/builder/protocol.py`; the reference component is `components/sync_component`.
 
 ## Principles
@@ -12,7 +19,11 @@ A connector is a separately deployed sync component, registered for one company 
 - **The tenant comes from the certificate.** A component never names it.
 - **The workspace model is the only record.** A component is configured from the Platform, not by hand.
 - **Reports carry codes and counts.** No document name and no customer text reaches the Platform's logs or events (GI-DATA-02/04). What does not fit that shape is refused.
-- **Nothing is written to a tenant without a shown dry run and a person's approval.** A schedule only runs dry runs.
+- **Nothing is written to a tenant without a shown dry run and a person's approval.** A schedule only runs dry runs,
+  with one exception a person chooses (version 1.2): for a source whose automatic apply a person who manages the sites
+  switched on, the component applies a plan the schedule made right after it is reported, and only when it holds
+  nothing a person must decide (no deletion-guard hold, drift, retire entry, release, stopped or reported document,
+  nothing unresolved). Everything else waits for a person exactly as before.
 - **A credential of a source stays at the company,** in the component's own environment.
 
 ## Enrolment
@@ -29,8 +40,8 @@ A connector is a separately deployed sync component, registered for one company 
 
 | Call | Body | Answer |
 |---|---|---|
-| `POST /heartbeat` | `{state: online\|degraded, version, lag_seconds, open_errors, capabilities}` | `{paused, schedule, commands: [{id, command, args}]}`; a command is delivered once |
-| `GET /config` | | `{component, paused, schedule, brain_url, sources: [{workspace, key, kind, access, settings}], mappings: [{workspace, id, source}]}` |
+| `POST /heartbeat` | `{state: online\|degraded, version, lag_seconds, open_errors, capabilities, sources?}` | `{paused, schedule, commands: [{id, command, args}], components?}`; a command is delivered once |
+| `GET /config` | | `{component, paused, schedule, brain_url, sources: [{workspace, key, kind, access, settings, auto_apply?}], mappings: [{workspace, id, source}], components?}` |
 | `GET /package` | | `{workspaces: [{workspace, files: {path: base64}}]}`: the compiled configuration of the workspaces it serves; definitions and source settings, no credential and no data |
 
 Both answers come from each workspace's newest **published** version, never from a draft (BB-07, B2): a source's settings, its switches, which component serves it and the mappings that read it reach a component only once they were reviewed, approved and published. An apply on a component applies that published version.
@@ -115,6 +126,41 @@ A **site** is one machine at the company, with one Docker network. **Knovas Link
 - **Commands fan out.** In the Platform's heartbeat answer to Link, a command meant for one of its components carries `"component": "<name>"`; Link delivers it on that component's next local heartbeat. Link reports the outcome with `POST /commands/<id>/done`, adding the same `"component": "<name>"`. A command without `component` is Link's own.
 - **Known limit: the relay is wide (accepted 2026-11-06, connection-layer review F6).** Link relays a component's Brain calls on an allow-list, but everything below `secured/graph/` passes with every method, deletes included. So a compromised source component on a site has the tenant's full graph write authority through Link. The runner needs most of it to apply plans. Before the first external customer, the allow-list is narrowed to the routes and methods the runner uses (an item of the connection layer's increments).
 - **Additions to existing calls.** `GET /config` gives each source `fetch`: true when fetching originals is switched on, false by default, also for sources published before. Link's `POST /heartbeat` adds `certificate: present|waiting`, `work_channel: connected|down`, `probe: {last_at, ok, round_trip_ms}`, `components: [{name, kind, version, state, capabilities, local_ping_ms}]`, per source `{last_read_ok_at, last_run_status}`, and job counts by kind and outcome since the last beat. All of them are codes, counts, versions and times.
+
+## Sync status, schedules per component and automatic apply
+
+*Version 1.2, built (KG-2). Additions only: an older Platform, Knovas Link or component ignores what it does not know.*
+
+- **Schedule «bei neuen Commits».** A component's `schedule` may be `{mode: "commits", poll_seconds}` (15 to 3600,
+  30 by default; the Builder sets it). Every `poll_seconds` the component asks each GitHub source for the commit its
+  ref names now: one request (with the last `ETag`, so an unchanged answer is a 304). When it is the commit last synced
+  or planned, nothing more happens: no plan, no Brain call. When it is new, brain-runner's `affected` (0.3.2 or later,
+  over GitHub's compare API) names the mappings the commits since the synced one concern, and only those are planned,
+  each whole; the plan is reported as any dry run. A change `affected` cannot narrow (the manifest or the ontology, a
+  list GitHub may have cut, diverged histories), a new package or no synced commit yet plans every mapping. Sources
+  without commits are not polled. An older component answers this schedule by running nothing (it is never due).
+  `interval` now starts at 1 minute; `window` stays at 5.
+- **Per-component pause and schedule behind Knovas Link.** The Platform's answers to Link (`POST /heartbeat` and
+  `GET /config`) carry `"components": [{"component": "<name>", "paused", "schedule"}]`: each component's own, as its
+  page in the Builder sets it. Link answers a component's local heartbeat and configuration with that schedule, and
+  `paused` when the site or the component is paused. An older Link ignores the field; its components then follow
+  Link's own schedule, as in 1.1.
+- **Automatic apply.** Each source in `GET /config` carries `auto_apply` (default false): a person who manages the
+  tenant's sites switched on «Automatisch anwenden, wenn nichts zur Freigabe ansteht» for it. The component then
+  applies a plan the schedule made, right after the dry run's report, as a second run (`kind: apply`, no `command`)
+  and the event `auto_apply.applied` with counts; only when the plan is `ok`, holds nothing the deletion guard held, no
+  drift (of facts, computed attributes or derived edges), no held retire entry, no release, no document stopped,
+  reported or held, no unreadable source document, nothing unresolved, no blocked derived edge, and is of a plan
+  version the component knows. Otherwise it sends `auto_apply.withheld` and the reasons as codes (for example
+  `plan.drift`), and the plan waits for a person as before. A dry run a person asked for (`run`) is never applied on
+  its own; guard holds, drift and retire entries are never approved by it. An older component ignores the field and
+  applies nothing on its own.
+- **Sync status.** A component's heartbeat may carry `"sources": [{workspace, key, synced_commit, synced_at,
+  checked_at, next_check_at, planned_commit, held_back, last_apply: {at, status, added, changed, retired, errors,
+  auto}}]`; Knovas Link passes the same fields on in its `site.sources`. `synced_commit` is written only after an apply
+  without errors, for a plan of only some mappings as the commit `affected` compared to. Commits are hex digits, times
+  ISO 8601, `held_back` up to 10 codes; anything else is refused with 400 `bad_field`, a field not listed is dropped.
+  The Builder shows them on «Verbinden», the site page and the component's page, a GitHub commit linked to GitHub.
 
 ## Streams
 

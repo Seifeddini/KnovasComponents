@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
-from knovas_link import VERSION, relay
+from knovas_link import VERSION, relay, sync_status
 from knovas_link.brain_client import BrainUnreachable
 from knovas_link.errors import LocalError
 from knovas_link.link import Link
@@ -117,9 +117,12 @@ def create_app(link: Link) -> Any:
             if value is not None and (isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= maximum):
                 raise LocalError(400, "bad_field", f"{field}: a whole number")
         _strings(body.get("capabilities"), _CAPABILITY, "capabilities")
+        synced = sync_status.check(body.get("sources"))           # protocol 1.2: checked before anything is kept
         link.registry.beat(name, state=state, version=version)
+        if synced:
+            link.note_sync(name, synced)
         commands = link.commands.deliver(name)
-        return JSONResponse({"paused": link.paused, "schedule": link.schedule, "commands": commands})
+        return JSONResponse({"paused": link.paused_for(name), "schedule": link.schedule_for(name), "commands": commands})
 
     async def command_done(request: Request) -> Response:
         name = who(request)

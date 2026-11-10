@@ -40,7 +40,7 @@ responsible_for:
   - KnovasPlatform/components/docbridge_integration/src/builder/publisher.py
   - KnovasPlatform/components/docbridge_integration/src/web_interface/builder_routes.py
 - id: L2-BRAIN-BUILDER/R-3
-  statement: 'Components and sites: enrolment, tokens, the install package, the certificate step, commands, runs, held plans, and the Platform''s side of connector protocol v1.1.'
+  statement: 'Components and sites: enrolment, tokens, the install package, the certificate step, commands, runs, held plans, schedules (also «bei neuen Commits»), the switch «automatisch anwenden» per source, the sync status per source, and the Platform''s side of connector protocol v1.2.'
   code:
   - KnovasPlatform/components/docbridge_integration/src/builder/components.py
   - KnovasPlatform/components/docbridge_integration/src/builder/sites.py
@@ -218,6 +218,10 @@ operations:
   name: POST /builder/api/components/{component_id}/schedule
   entrance: http
   ref: POST /builder/api/components/{component_id}/schedule
+- id: component-auto-apply
+  name: POST /builder/api/components/{component_id}/auto_apply - «Automatisch anwenden, wenn nichts zur Freigabe ansteht», per source
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/auto_apply
 - id: component-settings
   name: POST /builder/api/components/{component_id}/settings - name, site, owner
   entrance: http
@@ -1288,14 +1292,44 @@ contract:
         - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
     promises:
     - id: L2-BRAIN-BUILDER/component-schedule/P-1
-      statement: Stores a checked schedule (manual, interval, or window of days and hours, every N minutes), answers it as text, and the component's configuration carries it.
-      risk_class: low
+      statement: Stores a checked schedule (manual, interval from 1 minute, a window of days and hours from 5, or «bei neuen Commits» polling every 15 to 3600 seconds), answers it as text, and the component's heartbeat answer and configuration carry it; behind Knovas Link it reaches that component alone (its entry in Link's components). Knovas Link's own schedule is not set (409), and «bei neuen Commits» is refused for a component that reports capabilities without poll_commits.
+      risk_class: standard
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
         checks:
         - TestTheProtocol::test_pause_resume_schedule_and_config
         - TestTheRules::test_a_schedule
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestTheSchedule::test_a_component_behind_link_gets_its_own_schedule_and_pause_through_link
+        - TestTheSchedule::test_link_runs_nothing_so_its_own_schedule_is_not_set
+        - TestTheSchedule::test_a_component_that_cannot_poll_is_not_given_the_schedule
+        - TestTheSchedule::test_a_direct_component_gets_the_schedule_in_its_heartbeat_and_config
+        - TestTheSchedule::test_the_page_offers_bei_neuen_commits
+  component-auto-apply:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-auto-apply/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role; authors, reviewers, publishers and viewers get 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestAutomaticApply::test_only_whoever_manages_sites_switches_it
+    promises:
+    - id: L2-BRAIN-BUILDER/component-auto-apply/P-1
+      statement: Switches a source's automatic apply on or off on the component that serves it (published version), off by default; it reaches the component as auto_apply in its configuration; every change is an event (auto_apply.on, auto_apply.off) and a line in the access log and sends reload_config; a source the component does not serve is 404, and switching on is refused 409 for a component that does not declare auto_apply.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestAutomaticApply::test_off_by_default_and_on_only_where_switched
+        - TestAutomaticApply::test_every_change_is_an_event_and_tells_the_component_to_read_its_configuration
+        - TestAutomaticApply::test_a_source_the_component_does_not_serve_or_a_component_that_cannot_is_refused
+        - TestAutomaticApply::test_a_direct_component_gets_it_in_its_config
   component-settings:
     needs:
     - id: L2-BRAIN-BUILDER/component-settings/N-1
@@ -1395,6 +1429,16 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
         checks:
         - TestTheRequestIsRecorded::test_enrolment_records_the_request_s_fingerprint_and_the_page_shows_it
+    - id: L2-BRAIN-BUILDER/site-page/P-2
+      statement: «Quellen und Abgleich» shows per source the site's components serve the last synced commit (seven hex digits, linked to the commit on GitHub for a GitHub source), when, what the last apply wrote (counts only, and whether it ran on its own), the next check, the schedule, a newer commit planned but not applied and why, and the switch «automatisch anwenden»; the «Standorte» list on «Verbinden» and the component's page show the same.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestTheSyncStatus::test_link_s_heartbeat_carries_it_and_the_site_page_shows_it
+        - TestTheSyncStatus::test_the_component_page_shows_it_too
+        - TestTheSyncStatus::test_rows_link_only_github_commits
   site-create:
     needs:
     - id: L2-BRAIN-BUILDER/site-create/N-1
@@ -2244,7 +2288,7 @@ contract:
         - TestTheReproduction::test_once_recorded_every_call_needs_that_certificate
     promises:
     - id: L2-BRAIN-BUILDER/protocol-heartbeat/P-1
-      statement: Answers paused, schedule and the commands for the caller, each delivered once (for Knovas Link also its components', each naming the component); Link's site object is kept as telemetry and its components become child rows; names and free text are refused, unknown fields dropped.
+      statement: Answers paused, schedule and the commands for the caller, each delivered once (for Knovas Link also its components', each naming the component, and since 1.2 each component's own paused and schedule in components); Link's site object is kept as telemetry, with each source's sync status (commits, times, codes, counts), and its components become child rows; a direct component's sync status (sources) is kept likewise; names and free text are refused, unknown fields dropped.
       risk_class: critical
       evidence:
       - kind: test
@@ -2255,6 +2299,14 @@ contract:
         - TestTheHeartbeat::test_a_field_this_platform_does_not_know_is_dropped_not_stored
         - TestTheHeartbeat::test_only_knovas_link_reports_a_site
         - TestTheHeartbeat::test_a_child_s_command_is_delivered_through_link
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestTheSchedule::test_a_component_behind_link_gets_its_own_schedule_and_pause_through_link
+        - TestTheSyncStatus::test_link_s_heartbeat_carries_it_and_the_site_page_shows_it
+        - TestTheSyncStatus::test_names_and_free_text_are_refused
+        - TestTheSyncStatus::test_a_source_without_a_sync_status_keeps_the_1_1_shape
+        - TestTheSyncStatus::test_a_direct_component_reports_it_in_its_own_heartbeat
     limits:
     - id: L2-BRAIN-BUILDER/protocol-heartbeat/L-1
       statement: A body is at most 256 KiB (413 too_large); a Platform that does not know its tenant answers 503 no_tenant; this holds for every call of the protocol.
@@ -2277,7 +2329,7 @@ contract:
         - TestTheReproduction::test_once_recorded_every_call_needs_that_certificate
     promises:
     - id: L2-BRAIN-BUILDER/protocol-config/P-1
-      statement: Answers what the caller runs as last published - sources with their settings, switches (fetch, access) and mappings, never a draft; for Knovas Link those of every component behind it, each naming the component.
+      statement: Answers what the caller runs as last published - sources with their settings, switches (fetch, access) and mappings, never a draft, each source with auto_apply as set on the component that serves it; for Knovas Link those of every component behind it, each naming the component, and each component's own paused and schedule (components).
       risk_class: critical
       evidence:
       - kind: test
@@ -2294,6 +2346,10 @@ contract:
         checks:
         - test_fetch_reaches_the_component_only_once_published
         - test_a_source_published_before_neither_fetches_nor_writes
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestAutomaticApply::test_off_by_default_and_on_only_where_switched
   protocol-package:
     needs:
     - id: L2-BRAIN-BUILDER/protocol-package/N-1
