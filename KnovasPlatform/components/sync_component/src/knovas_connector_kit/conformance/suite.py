@@ -13,6 +13,11 @@ The write properties check each staging the connector declared (verifier, Phase 
 only stage (``native_review``) can pass them: ``preview_equals_receipt`` takes a staged change's receipts from the
 accepted review, ``exactly_once`` repeats a staging ``act`` (the repeat answers the same stage, and the source's
 review holds one change), and ``permit_refusals`` checks the connector's own binding of each staging and of the site.
+
+Grouping (v2.0 as amended 2026-11-10, D-24): ``preview_equals_receipt`` checks that a preview names the grouping its
+steps share; that several steps of one act on one item (``atomic`` or ``item``) are written all or none, never partly;
+that an ``atomic`` act whose second item moved writes nothing on the first; and that an act whose steps span items
+while one of their actions declares ``item`` is refused and writes nothing (the Brain sends one act per item).
 """
 from __future__ import annotations
 
@@ -23,6 +28,7 @@ from typing import Callable, Optional
 
 from knovas_connector_kit import SUITE_VERSION, contracts
 from knovas_connector_kit.canonical import digest, params_hash
+from knovas_connector_kit.connector import grouping_allows, grouping_of
 from knovas_connector_kit.gate import LinkGate
 from knovas_connector_kit.permits import MAX_LIFETIME_SECONDS, KeyRing, Signer
 
@@ -243,10 +249,27 @@ def _preview_equals_receipt(factory: Callable, staging: str) -> Optional[str]:
     if len(grouped) == 2 and grouped[0]["target"] != grouped[1]["target"]:
         prev = h.connector.handle(brain.preview(grouped, staging))
         h.change_behind(grouped[1]["target"])
+        before = h.writes(grouped[0]["target"])
         res = h.connector.handle(brain.act(grouped, [_version(prev, s["target"]) for s in grouped], staging))
+        if res["status"] == "conflict" and h.writes(grouped[0]["target"]) != before:
+            return "steps_of_one_act_partly_written"
         if res["status"] != "conflict" or res["conflict"]["step"] != 1 \
                 or not _attributed([res["conflict"]] + res["conflict"].get("changes", []), grouped):
             return "change_not_attributed_to_its_step"
+    # An act never mixes items when one of its actions declares grouping item: the Brain sends one act per item, and
+    # an act that spans items is refused with nothing written (D-24).
+    h = factory()
+    by_item = [s for s in _staging_steps(h, staging)
+               if h.connector.declared_action(s["action"])["grouping"] == "item"]
+    if len(by_item) >= 2 and by_item[0]["target"] != by_item[1]["target"]:
+        mixed = by_item[:2]
+        prev = h.connector.handle(brain.preview(mixed, staging))
+        if prev["status"] != "ok" or prev["preview"]["grouping"] != "item":
+            return "grouping_not_previewed"
+        before = [h.writes(s["target"]) for s in mixed]
+        res = h.connector.handle(brain.act(mixed, [_version(prev, s["target"]) for s in mixed], staging))
+        if res["status"] == "ok" or [h.writes(s["target"]) for s in mixed] != before:
+            return "act_mixed_items"
     # The receipt is a re-read: a source that stored something else shows a difference.
     h = factory()
     step = _staging_steps(h, staging)[0]
@@ -276,6 +299,8 @@ def _changes_named_by_their_step(factory: Callable, staging: str) -> Optional[st
         return "change_not_attributed_to_its_step"
     if any(_shown(prev["preview"]["changes"], i) != alone[i] for i in range(len(steps))):
         return "change_not_attributed_to_its_step"
+    if prev["preview"]["grouping"] != grouping_of(h.connector.declared_action(s["action"])["grouping"] for s in steps):
+        return "grouping_not_previewed"
     pair = _same_item_steps(h, staging)
     if pair is not None:
         own = []
@@ -289,10 +314,16 @@ def _changes_named_by_their_step(factory: Callable, staging: str) -> Optional[st
                 or [_shown(both["preview"]["changes"], i) for i in range(len(pair))] != own:
             return "change_not_attributed_to_its_step"
         declared = [h.connector.declared_action(s["action"]) for s in pair]
-        if all(d["grouping"] == "atomic" and "direct" in d["staging"] for d in declared):
-            # Written together, each receipt's values name the step of its own permit.
+        if pair[0] != pair[1] and all("direct" in d["staging"] for d in declared) \
+                and grouping_allows(pair, [d["grouping"] for d in declared]):
+            # Several steps of one item (grouping atomic or item) in one act: written all or none, never partly, and
+            # each receipt's values name the step of its own permit.
+            before = h.writes(pair[0]["target"])
             res = h.connector.handle(brain.act(pair, [_version(both, s["target"]) for s in pair]))
-            if res["status"] != "ok" or len(res.get("receipts", [])) != len(pair):
+            if res["status"] != "ok" and h.writes(pair[0]["target"]) != before:
+                return "steps_of_one_act_partly_written"
+            if res["status"] != "ok" or len(res.get("receipts", [])) != len(pair) \
+                    or any(r["outcome"] != "written" for r in res["receipts"]):
                 return "act_failed"
             for i, r in enumerate(res["receipts"]):
                 if not _attributed(r["values"] + r["differences"], pair) \

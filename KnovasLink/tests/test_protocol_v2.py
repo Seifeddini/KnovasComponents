@@ -390,6 +390,35 @@ def test_logs_carry_no_permit_token_or_value(world, v2, caplog):
     assert job["permits"][0] not in text and "person-7" not in text and "items/matter-1" not in text
 
 
+# ------------------------------------------------------------------ grouping item (D-24)
+
+@pytest.mark.parametrize("second, code", [("items/matter-1", None), ("items/matter-2", "grouping_unsupported")])
+def test_grouping_item_lets_several_steps_of_one_item_through_and_refuses_steps_on_several(world, v2, second, code):
+    """v2.0 as amended 2026-11-10 (D-24): an action declared grouping item takes several steps in one act only on one
+    item (all or none there); an act spanning items is the Brain's error, refused grouping_unsupported and logged."""
+    client, link, brain, connector, src = v2
+    eventually(lambda: brain.signer.kid in link.v2.ring.keys)
+    declaration = connector.declaration()
+    for action in declaration["actions"]:
+        if action["name"] == STEP["action"]:
+            action["grouping"] = "item"
+    register(world, client, CONNECTOR, kind="records_connector", capabilities=[],
+             job_kinds=["preview", "act", "reread", "review_outcome", "unstage", "probe"], declaration=declaration)
+    steps = [dict(STEP, params={"owner": "person-7"}), dict(STEP, target=second, params={"due_date": "2026-12-01"})]
+    job = world.secure.enqueue(brain.job("act", {"steps": steps, "staging": "direct"},
+                                         permits=[brain.permit(s) for s in steps]))
+    if code is None:
+        serve(world, client, connector)
+        result = outcome(world, job["id"])
+        assert result["status"] == "ok" and [r["outcome"] for r in result["receipts"]] == ["written", "written"]
+        assert src.writes == {"items/matter-1": 2}
+    else:
+        result = outcome(world, job["id"])
+        assert (result["status"], result["code"]) == ("refused", code)
+        assert nothing_waiting(world, client) and src.writes == {}
+        assert [(e["outcome"], e["code"]) for e in link.v2.store.entries()] == [("refused", code)] * 2
+
+
 # ------------------------------------------------------------------ M1: a repeat is answered before anything else
 
 def _site_changes(world, client, link, connector, change):

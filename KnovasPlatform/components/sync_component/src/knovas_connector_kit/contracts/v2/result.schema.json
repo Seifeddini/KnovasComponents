@@ -63,7 +63,7 @@
           "description": "The version of each target the preview read: the permit's expected_version."
         },
         "changes": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/change"}},
-        "grouping": {"type": "string", "enum": ["atomic", "none"], "description": "Whether the steps will be written all or none; the approver is told before approving when not (SPEC-write-back-31)."}
+        "grouping": {"type": "string", "enum": ["atomic", "item", "none"], "description": "Whether the steps will be written all or none: atomic all together, item all or none per item (one act job per item), none one by one; the approver is told before approving when not all together (SPEC-write-back-31; item: v2.0 as amended 2026-11-10, D-24)."}
       }
     },
     "receipt": {

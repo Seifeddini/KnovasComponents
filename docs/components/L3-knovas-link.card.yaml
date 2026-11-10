@@ -788,8 +788,10 @@ contract:
       statement: 'Protocol 2.0 (LINK_PROTOCOL_V2): a v2 job (preview, act, reread, review_outcome, unstage) goes only
         to the connector serving its source that declared the source''s kind, the action and its staging; otherwise
         Link answers unsupported, refused action_not_declared or staging_unsupported, refused write_disabled for an
-        act or unstage on a source that only reads, failed invalid_job; for an act only after its permit checks
-        (P-4). With the switch off: unsupported protocol_unsupported. A 1.x job goes its 1.x way either way.'
+        act or unstage on a source that only reads, refused grouping_unsupported for several steps of an act unless
+        no action declares grouping none and, where one declares item, they name one item (D-24), failed
+        invalid_job; for an act only after its permit checks (P-4). With the switch off: unsupported
+        protocol_unsupported. A 1.x job goes its 1.x way either way.'
       risk_class: critical
       evidence:
       - kind: test
@@ -798,6 +800,7 @@ contract:
         - test_a_preview_reaches_the_connector_that_declared_the_action_and_its_answer_goes_back
         - test_an_undeclared_action_is_refused_after_the_permit_checks
         - test_an_act_that_breaks_the_v2_job_schema_is_invalid_job_and_logged
+        - test_grouping_item_lets_several_steps_of_one_item_through_and_refuses_steps_on_several
         - test_a_source_that_only_reads_refuses_an_act_write_disabled
         - test_a_source_of_another_kind_than_the_connector_declared_is_unsupported
         - test_a_v1_job_still_goes_its_1x_way_with_the_switch_on
@@ -1026,7 +1029,8 @@ review:
     confirms it.
 - at: L3-KNOVAS-LINK/work-channel/P-3
   why: Changed 2026-11-10 after the independent verification of Phase A (M1) - an act's declaration, staging and
-    switch are checked after its permits (it was before them); a person confirms it is compatible.
+    switch are checked after its permits (it was before them); and by the amendment D-24 - grouping item lets several
+    steps of one item through and refuses steps on several items. A person confirms it is compatible.
 - at: L3-KNOVAS-LINK/work-channel/P-5
   why: Extended 2026-11-10 after the independent verification of Phase A (M2, L2) - the reservation before the
     connector runs, the first result never replaced, every refusal logged; a person confirms it is compatible.

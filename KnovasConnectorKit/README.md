@@ -36,6 +36,9 @@ checks:
   item;
 - `act` writes only while each target is at its permit's `expected_version` (else `conflict`, nothing written), keeps
   the permit id with the change in the source, re-reads after writing and answers receipts from that re-read;
+- `grouping` (D-24): `atomic` writes several steps of one act all or none on any items, `item` all or none on one item
+  (the Brain sends one act per item; `handle` refuses an act spanning items `grouping_unsupported`), `none` one step
+  per act; a preview's `grouping` is what its steps share (`connector.grouping_of`);
 - a repeat of a permit (also after a crash between the write and the answer) finds the earlier write by its permit id
   and answers its receipt without writing again;
 - no result, stream message, log line or error carries the source's credential: log exceptions by their type only.
@@ -63,7 +66,9 @@ cd KnovasConnectorKit && pip install -r requirements.txt "pytest>=7.4,<9" && pyt
 declare only `native_review`) and on one mutant per property (`tests/mutants.py`), each of which fails exactly its own
 property; the further mutants (`EXTRA`: one writes past the preview's version, one names changes by their item instead
 of their step, one stages a repeat a second time, one stages past the preview's version, one's own permit check
-ignores the staging and the site) fail only theirs.
+ignores the staging and the site, one writes an act's steps one by one) fail only theirs. With `set_fields` declared
+`grouping: item` (D-24) the example passes too, and two more mutants fail `preview_equals_receipt`: one writes an act
+whose steps span items, one writes an item's steps one by one (partly, when the second finds the item moved).
 
 The write properties check each staging the connector's actions declare (the verifier's finding M3 on Phase A): a
 connector that only stages passes them, its receipts taken from the accepted review; `exactly_once` delivers a staging

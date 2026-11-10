@@ -22,7 +22,7 @@
     },
     {
       "code": "grouping_unsupported",
-      "meaning": "Several steps in one act job for an action whose grouping is none."
+      "meaning": "Several steps in one act job for an action whose grouping is none, or steps on more than one item for an action whose grouping is item."
     },
     {
       "code": "preview_inexact",

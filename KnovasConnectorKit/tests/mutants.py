@@ -129,6 +129,45 @@ class SkipsStagingAndSiteBinding(ExampleRecordsConnector):
         return out
 
 
+class MixesItems(ExampleRecordsConnector):
+    """Its own grouping check takes grouping item for atomic: an act whose steps span items is written item after item,
+    as if the source could write them all or none (D-24)."""
+
+    def _bound_permits(self, job):
+        self._item_as_atomic = True
+        try:
+            return super()._bound_permits(job)
+        finally:
+            self._item_as_atomic = False
+
+    def declared_action(self, name):
+        action = super().declared_action(name)
+        if action is not None and getattr(self, "_item_as_atomic", False) and action["grouping"] == "item":
+            action = dict(action, grouping="atomic")
+        return action
+
+
+class WritesStepByStep(ExampleRecordsConnector):
+    """Writes the steps of one act one after the other, each checked against its version just before it is written:
+    of two steps on one item the first is written, then the second finds the item moved (by that write) and answers a
+    conflict - partly written, where atomic and item promise all or none."""
+
+    def act(self, source, steps, permits, staging):
+        if len(steps) < 2 or staging != "direct":
+            return super().act(source, steps, permits, staging)
+        receipts = []
+        for index, (step, permit) in enumerate(zip(steps, permits)):
+            res = super().act(source, [step], [permit], staging)
+            for entry in [res.get("conflict") or {}] + [e for r in res.get("receipts") or []
+                                                        for e in r["values"] + r["differences"]]:
+                if entry:
+                    entry["step"] = index
+            if res["status"] != "ok":
+                return res
+            receipts += res["receipts"]
+        return outcome("ok", receipts=receipts)
+
+
 class LeaksCredential(ExampleRecordsConnector):
     """Logs the source's error text, which quotes the credential."""
 
@@ -163,11 +202,29 @@ MUTANTS = {
 #: property (verifier, Phase A, M3): before the suite checked each declared staging, all three passed every property.
 EXTRA = [("preview_equals_receipt", IgnoresVersion), ("preview_equals_receipt", StepsByTarget),
          ("exactly_once", StagesTwice), ("preview_equals_receipt", StagesPastTheVersion),
-         ("permit_refusals", SkipsStagingAndSiteBinding)]
+         ("permit_refusals", SkipsStagingAndSiteBinding), ("preview_equals_receipt", WritesStepByStep)]
+#: Mutants of a connector whose field action declares grouping item (``grouping_item``), with the property each breaks.
+ITEM = [("preview_equals_receipt", MixesItems), ("preview_equals_receipt", WritesStepByStep)]
 
 
 def factory(cls):
     return lambda: ExampleHarness(cls)
+
+
+def grouping_item(cls):
+    """``cls`` with ``set_fields`` declared grouping item instead of atomic (D-24): several field changes of one item
+    in one act, all or none; the Brain sends one act per item."""
+
+    class GroupingItem(cls):
+        def declaration(self):
+            d = super().declaration()
+            for action in d["actions"]:
+                if action["grouping"] == "atomic":
+                    action["grouping"] = "item"
+            return d
+
+    GroupingItem.__name__ = cls.__name__ + "GroupingItem"
+    return GroupingItem
 
 
 def only_native_review(cls):

@@ -19,7 +19,7 @@ import logging
 from typing import Optional
 
 from knovas_connector_kit import PROTOCOL, SUITE_VERSION
-from knovas_connector_kit.connector import Connector, outcome
+from knovas_connector_kit.connector import Connector, grouping_of, outcome
 
 log = logging.getLogger("knovas_connector_kit.example")
 
@@ -192,7 +192,7 @@ class ExampleRecordsConnector(Connector):
                     exact, code = False, "computed_field"
                 changes.append({"step": index, "target": step["target"], "field": field,
                                 "before": item["fields"].get(field), "after": after})
-        grouping = "atomic" if all(self.declared_action(s["action"])["grouping"] == "atomic" for s in steps) else "none"
+        grouping = grouping_of(self.declared_action(s["action"])["grouping"] for s in steps)
         preview = {"exact": exact, "read_versions": versions, "changes": [] if not exact else changes,
                    "grouping": grouping}
         if not exact:

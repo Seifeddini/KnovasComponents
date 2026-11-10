@@ -7,8 +7,8 @@ import pytest
 from knovas_connector_kit.conformance import PROPERTIES, run
 from knovas_connector_kit.example import ExampleHarness, ExampleRecordsConnector, make_harness
 
-from mutants import (EXTRA, MUTANTS, SkipsStagingAndSiteBinding, StagesPastTheVersion, StagesTwice, factory,
-                     only_native_review)
+from mutants import (EXTRA, ITEM, MUTANTS, MixesItems, SkipsStagingAndSiteBinding, StagesPastTheVersion, StagesTwice,
+                     factory, grouping_item, only_native_review)
 
 
 def test_the_example_connector_passes_every_property():
@@ -99,3 +99,25 @@ def test_a_repeated_staging_act_answers_its_stage_and_never_stages_twice():
         "preview_equals_receipt": "staged_past_the_preview_version"}
     assert run(factory(SkipsStagingAndSiteBinding))["failed"] == {
         "permit_refusals": "connector_acted_under_an_unbound_permit"}
+
+
+def test_a_connector_whose_field_action_groups_by_item_passes_every_property():
+    """D-24 (v2.0 as amended 2026-11-10): grouping item - several steps of one item in one act, all or none; an act
+    whose steps span items is refused. The example with set_fields declared item passes, its previews say item."""
+    report = run(lambda: ExampleHarness(grouping_item(ExampleRecordsConnector)))
+    assert report["failed"] == {} and report["passed"] == PROPERTIES
+
+
+@pytest.mark.parametrize("prop, mutant", ITEM, ids=lambda v: v if isinstance(v, str) else v.__name__)
+def test_an_item_connector_that_mixes_items_or_writes_an_item_partly_fails_on_its_property_only(prop, mutant):
+    report = run(lambda: ExampleHarness(grouping_item(mutant)))
+    assert set(report["failed"]) == {prop}, report["failed"]
+    assert set(report["passed"]) == set(PROPERTIES) - {prop}
+
+
+def test_an_act_that_spans_items_is_never_written_by_an_item_connector():
+    assert run(lambda: ExampleHarness(grouping_item(MixesItems)))["failed"] == {
+        "preview_equals_receipt": "act_mixed_items"}
+    from mutants import WritesStepByStep
+    assert run(lambda: ExampleHarness(grouping_item(WritesStepByStep)))["failed"] == {
+        "preview_equals_receipt": "steps_of_one_act_partly_written"}

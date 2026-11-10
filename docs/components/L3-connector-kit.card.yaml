@@ -113,7 +113,9 @@ contract:
     - id: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.Connector/P-1
       statement: handle(job) answers every job with one result that is valid against v2's result.schema.json - a job
         that is not valid is failed invalid_job, an action or staging the declaration lacks is refused, an act whose
-        permits do not bind their own steps is refused permit_mismatch (or permit_missing), a preview's or act's
+        permits do not bind their own steps is refused permit_mismatch (or permit_missing), an act whose steps the
+        actions' grouping does not allow (one step for none, one item for item, D-24) is refused grouping_unsupported, a
+        preview's or act's
         answer whose changes, values, differences or conflict do not each name a step of the job on that step's
         target is failed internal (D-14), and an exception is failed internal, logged by its type only.
       risk_class: critical
@@ -124,6 +126,7 @@ contract:
         - test_the_suite_fails_the_mutant_on_its_property_only
         - test_the_example_connector_passes_every_property
         - test_an_answer_whose_change_names_no_step_of_the_job_leaves_as_failed_internal
+        - test_an_act_that_spans_items_is_never_written_by_an_item_connector
   call.knovas_connector_kit.connector.outcome:
     promises:
     - id: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.outcome/P-1
@@ -157,7 +160,9 @@ contract:
         hours (D-15). The write properties check each staging the connector declares, so a connector that only
         stages can pass them - preview_equals_receipt with the accepted review's receipts and a stale item never
         staged, exactly_once with a repeated staging act answering its one stage, permit_refusals with the
-        connector's own binding of the staging and the site.
+        connector's own binding of the staging and the site. preview_equals_receipt also checks grouping (D-24) - the
+        preview names the grouping its steps share, several steps of one item in one act are written all or none,
+        and an act spanning items while one action declares item is refused with nothing written.
       risk_class: critical
       evidence:
       - kind: test
@@ -171,6 +176,9 @@ contract:
         - test_a_connector_that_only_stages_can_pass_every_property
         - test_a_connector_that_only_stages_fails_each_staging_mutant_on_its_property_only
         - test_a_repeated_staging_act_answers_its_stage_and_never_stages_twice
+        - test_a_connector_whose_field_action_groups_by_item_passes_every_property
+        - test_an_item_connector_that_mixes_items_or_writes_an_item_partly_fails_on_its_property_only
+        - test_an_act_that_spans_items_is_never_written_by_an_item_connector
     limits:
     - id: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/L-1
       statement: The report is the connector package's own statement; nothing signs it yet (an open question of the
@@ -202,8 +210,9 @@ review:
     unreadable token is refused instead of raising.
 - at: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.Connector/P-1
   why: Extended 2026-11-10 by the amendment of protocol v2.0 (D-14) - an answer whose changes do not name the job's
-    steps leaves as failed internal; a connector built before the amendment, which names no step, now fails. A person
-    confirms whether that is compatible (nothing of v2 was released).
+    steps leaves as failed internal; a connector built before the amendment, which names no step, now fails. Extended
+    again by D-24 - grouping item allows several steps on one item. A person confirms whether that is compatible
+    (nothing of v2 was released).
 - at: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/N-1
   why: Extended 2026-11-10 (D-14) by the optional same_item_steps of a harness, and after the verification of Phase A
     (M3) by harnesses whose steps only stage; compatible additions, to be marked compatible by a person who reviews
@@ -214,3 +223,4 @@ review:
     verification of Phase A (M3) - the write properties check each declared staging (a connector that only stages can
     pass; one that stages twice, stages a stale item or ignores the staging or site binding now fails). A person
     confirms whether that is compatible (nothing of v2 was released; the example, GitHub and Jira connectors pass).
+    Extended again by the amendment D-24 - the grouping checks of preview_equals_receipt (grouping item).

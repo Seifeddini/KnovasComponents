@@ -70,6 +70,16 @@ _REMEMBERED = 500
 V2_KINDS = ("preview", "act", "reread", "review_outcome", "unstage")
 
 
+def grouping_allows(steps: list, declared: dict) -> bool:
+    """Several steps in one act (v2.0 as amended 2026-11-10, D-24): only when no step's action declares grouping
+    ``none``, and only on one item when one of them declares ``item`` (all or none on that item); ``atomic`` alone
+    allows any items of the source."""
+    if len(steps) < 2:
+        return True
+    groupings = {declared[s["action"]]["grouping"] for s in steps}
+    return "none" not in groupings and ("item" not in groupings or len({s["target"] for s in steps}) == 1)
+
+
 def utcnow() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
@@ -315,7 +325,7 @@ class WorkChannel:
                     return "refused", "action_not_declared"
                 if staging not in action["staging"]:
                     return "refused", "staging_unsupported"
-            if kind == "act" and len(steps) > 1 and any(declared[s["action"]]["grouping"] != "atomic" for s in steps):
+            if kind == "act" and not grouping_allows(steps, declared):
                 return "refused", "grouping_unsupported"
         return name
 

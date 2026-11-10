@@ -2,7 +2,7 @@
 
 **Status: v2.0, approved by the founder on 2026-11-10** (D-7: "approved. Withdrawing a change is not necessary for
 V1 (undo not required)"; D-8: the permit signing key in Key Vault; D-9: signed conformance reports later), amended the
-same day before any release (D-14, D-15: see "Change notes"). Written on
+same day before any release (D-14, D-15, D-24: see "Change notes"). Written on
 2026-11-10 for BET-2026-11-write-back, item WB-10 (feature plan FEAT-2026-11-10-write-back, Phase A); its five design
 choices were decided before (D-4, DEC-0071). Built behind switches that are off by default: the connector kit and
 its conformance suite, Knovas Link (`LINK_PROTOCOL_V2`), the first connector (`SYNC_PROTOCOL_V2`); the Brain's side
@@ -45,7 +45,7 @@ first release (the programme's coordinator, 2026-11-10). Version 1.x (`connector
 | 2. Staging is declared by the connector | Each action declares `staging: [direct, native_review]`; the Brain and Link treat both through the same jobs |
 | 3. Job kinds | `preview`, `act`, `reread`, `review_outcome`, plus `unstage` (see "Differences from the plan's §1.1"), next to 1.1's `probe` and `fetch` and the read streams |
 | 4. Permits | Ed25519 signatures with a key id (a JWS compact token, permit format 1, the same the Brain's side builds: plan §5.B2.1), pinned by Link from the Brain; bound to tenant, site, source, action, a hash of target and parameters, expected version, staging and expiry; used once |
-| 5. One record per action, 1.x keeps working | A step names one `target`; several steps in one job only where the connector declared `grouping: atomic`. A 1.x Link never receives a v2 job |
+| 5. One record per action, 1.x keeps working | A step names one `target`; several steps in one job only where the connector declared `grouping: atomic` (any items of the source) or `grouping: item` (one item; D-24). A 1.x Link never receives a v2 job |
 
 ## Principles
 
@@ -89,7 +89,8 @@ A connector registers with Knovas Link (local API, as in 1.x) and hands over its
 - `fetch`: whether it answers `fetch` jobs;
 - `actions`: per action its `name`, the `target_kind` it changes, its `params` (name, kind, required; an `enum`
   lists its values), `preview` (`exact` or `none`), `staging` (`direct`, `native_review` or both), `grouping`
-  (`atomic` or `none`) and `inverse` (the action that undoes it from a receipt's before-values, or `null`);
+  (`atomic`, `item` or `none`; see "Grouping: all or none") and `inverse` (the action that undoes it from a receipt's
+  before-values, or `null`);
 - `conformance {suite, passed, report_sha256}`: the properties its package passed in the conformance suite of the
   connector kit (WB-11).
 
@@ -290,8 +291,9 @@ declaration, so a repeat of a written permit gets its first result whatever chan
 6. Now is before `exp`: else `refused permit_expired`.
 7. The job's deadline has not passed: else `unreachable`; the source's switch allows writing (`access: read_write`):
    else `refused write_disabled` (1.x code); the connector serving the source declared the action with this staging:
-   else `refused action_not_declared` or `refused staging_unsupported`; several steps only for `grouping: atomic`:
-   else `refused grouping_unsupported`.
+   else `refused action_not_declared` or `refused staging_unsupported`; several steps only when no step's action
+   declares `grouping: none`, and only on one item when one of them declares `grouping: item`: else `refused
+   grouping_unsupported`.
 8. Link reserves each permit in its used-permit store and records it in its write log at the site before it hands
    the job on: else `failed write_log_unavailable`.
 
@@ -354,11 +356,21 @@ stay in the contract for later (SPEC-write-back-33, -34; WB-32) without a connec
 
 ## Grouping: all or none
 
-An action declares `grouping: atomic` when the connector can write several steps on one source all or none. Then the
-Brain sends a change set's steps on that source in one `act` job, and the receipts are all `written` or all
-`not_written`. With `grouping: none` the Brain sends one step per job; the preview's `grouping` tells the approver
-before approving that the steps are written one by one, and a change set where some steps were written and some not is
-`partly applied` (SPEC-write-back-31).
+Each action declares how several of its steps can be written together (the founder's decision D-24 added `item`):
+
+| `grouping` | The connector can | The Brain sends |
+|---|---|---|
+| `atomic` | write several steps on one source all or none, on any of its items | a change set's steps on that source in one `act` job; the receipts are all `written` or all `not_written` |
+| `item` | write several steps on one item all or none, but not several items together | one `act` job per item, each with its own permits and receipts; an item's receipts are all `written` or all `not_written` |
+| `none` | write one step at a time | one step per `act` job |
+
+Several steps in one `act` job are allowed only when no step's action declares `none`, and only on one item when one
+of them declares `item`; Link refuses any other job `grouping_unsupported` (step 7 of "What Knovas Link checks"), and
+so may the connector. An `act` job whose steps span items while one of their actions declares `item` is the Brain's
+error, never the connector's to write. The preview's `grouping` names what its steps share (`none` if one says none,
+else `item` if one says item, else `atomic`) and tells the approver before approving whether the change set is
+written all together, all or none per item, or one step at a time; a change set where some acts or steps were written
+and some not is `partly applied` (SPEC-write-back-31).
 
 ## Results and codes
 
@@ -372,7 +384,7 @@ The statuses are 1.1's: `ok`, `refused`, `conflict`, `unsupported`, `unreachable
 | `action_not_declared` | The connector did not declare this action |
 | `params_invalid` | A parameter is missing, unknown or of the wrong kind |
 | `staging_unsupported` | The action did not declare the job's staging |
-| `grouping_unsupported` | Several steps for an action without `grouping: atomic` |
+| `grouping_unsupported` | Several steps for an action declaring `grouping: none`, or steps on more than one item for one declaring `grouping: item` |
 | `preview_inexact` | The connector cannot compute the change exactly; not approvable |
 | `computed_field` | The change would set a field the source computes |
 | `target_not_found` | The target does not exist in the source |
@@ -419,7 +431,7 @@ source where one is available.
 |---|---|
 | `replay_changes_nothing` | Reading the same source twice yields the same stream; an apply of a replayed stream changes nothing (GI-CONN-01) |
 | `deletion_guard` | Absence is reported only through a complete `generation` or a `tombstone`; a cut listing yields neither (GI-CONN-02) |
-| `preview_equals_receipt` | For every declared action with `preview: exact` and each staging it declares, the receipt's values equal the preview's changes on an unchanged source (for `native_review`, the receipts of the accepted review), and an item that moved since the preview is a conflict, nothing written or staged; a computed field makes the preview inexact; every change, value, difference and conflict names its step, and two steps on one item each show their own changes (D-14) |
+| `preview_equals_receipt` | For every declared action with `preview: exact` and each staging it declares, the receipt's values equal the preview's changes on an unchanged source (for `native_review`, the receipts of the accepted review), and an item that moved since the preview is a conflict, nothing written or staged; a computed field makes the preview inexact; every change, value, difference and conflict names its step, and two steps on one item each show their own changes (D-14); the preview names the grouping its steps share, several steps of one item in one act (`atomic` or `item`) are written all or none, and an act that spans items while one action declares `item` is refused with nothing written (D-24) |
 | `exactly_once` | A repeated `act` with the same permit, also after a simulated loss of the result between the write and Link, writes once and answers with the first receipt; a repeated staging `act` answers the same stage, and the source's review holds that one change |
 | `permit_refusals` | Every refusal in "What Knovas Link checks" is produced for its case, and nothing is written (run against the kit's Link); the connector's own check refuses, for each staging it declares, a permit that does not bind its step, its staging or this site |
 | `no_credential_leaves_site` | No result, part, stream message, log line or error carries the source's credential (the kit plants a canary credential) |
@@ -460,6 +472,14 @@ and two details go beyond them; the founder approved both with the full text (D-
   a token is read only in its one canonical spelling and an unreadable one is refused, never an error (L1, L5); the
   conformance properties check each declared staging, so a connector that only stages can pass them (M3); the
   conformance table's `unstage` is optional, as D-7 decided, and the lock's `draft` is explained under the status (L6).
+- **v2.0, amended 2026-11-10 (D-24)** (the founder's decision of 2026-11-10, option C; nothing of v2 had been
+  released, so this amends v2.0 again; the lock stays `2.0.0-draft` with new digests): a third `grouping`, `item`:
+  several steps of one item in one `act` job, all or none; the Brain sends one act per item, each with its own permits
+  and receipts. `atomic` stays all or none for every step of one act on a source, `none` one step at a time.
+  `declaration.schema.json` and `result.schema.json` (the preview's `grouping`) take `item`; `job.schema.json`'s
+  `act` and the code `grouping_unsupported` say so; Link refuses steps on several items for an `item` action
+  (step 7); the conformance property `preview_equals_receipt` checks it (examples `declaration.item-grouping`,
+  `declaration.grouping-other`).
 - **v2.0, amended 2026-11-10** (the founder's decisions of 2026-11-10; nothing of v2 had been released, so this
   amends v2.0 and is not a v2.1; the lock stays `2.0.0-draft` with new digests):
   - **D-14** (from D-B1-3): a preview's `changes`, a receipt's `values` and `differences`, and a `conflict` with its
@@ -489,7 +509,8 @@ part of the protocol: the GitHub, Jira and file-share connectors are WB-12, WB-0
   pull request's URL; `review_outcome` answers `accepted` when it was merged (with receipts from the target branch),
   `declined` when it was closed without merge; `unstage` closes it and deletes the branch.
 - **Jira.** A connector declares `source_kind: "jira"`, streams `record`, `tombstone`, `generation`, `state`, and
-  actions such as `set_assignee`, `transition_issue` and `set_due_date` (`staging: [direct]`, `grouping: none`). An
+  actions such as `set_assignee` and `set_due_date` (`staging: [direct]`, `grouping: item`: one edit of an issue
+  writes both, but two issues never together) and `transition_issue` (`grouping: none`). An
   item is an issue (`external_id` its key, `version` its `updated` time or change-log id); a field an automation
   computes is in `computed`, so a preview that would set it is inexact. An assignee and a due date of one issue are
   two steps on one item; each change of the preview, the receipts and a conflict names its step (D-14).

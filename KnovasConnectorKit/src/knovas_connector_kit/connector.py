@@ -3,6 +3,7 @@
 A connector subclasses ``Connector``, returns its declaration and implements the operations its declaration promises.
 ``handle(job)`` is what its job loop calls for every job Knovas Link hands it: it checks the job against the contract,
 decodes the permits of an ``act`` (Link has verified them; the connector re-checks only that each permit binds its own
+step, and that the actions' grouping allows the job's steps: ``atomic`` any items, ``item`` one item, ``none`` one
 step), dispatches, and checks the answer against the contract before it leaves, including that every change,
 difference and conflict of a ``preview`` or ``act`` names a step of the job on that step's target (D-14). An exception
 becomes ``failed internal`` and is logged by its type only: an error text may quote a credential or a value
@@ -38,6 +39,22 @@ def _steps_named(job: Any, result: dict) -> bool:
     if result.get("conflict"):
         entries += [result["conflict"]] + list(result["conflict"].get("changes") or [])
     return all(e["step"] < len(steps) and e["target"] == steps[e["step"]]["target"] for e in entries)
+
+
+def grouping_of(groupings) -> str:
+    """The grouping several steps share (v2.0 as amended 2026-11-10, D-24): ``none`` when one step's action declares
+    none, else ``item`` when one declares item, else ``atomic``. A preview's ``grouping`` says this to the approver."""
+    groupings = set(groupings)
+    return "none" if "none" in groupings else "item" if "item" in groupings else "atomic"
+
+
+def grouping_allows(steps: list, groupings: list) -> bool:
+    """Whether one ``act`` may hold these steps: one step always; several when no action declares ``none``, and only
+    on one item when one declares ``item`` (all or none on that item; the Brain sends one act per item)."""
+    if len(steps) < 2:
+        return True
+    shared = grouping_of(groupings)
+    return shared == "atomic" or (shared == "item" and len({s["target"] for s in steps}) == 1)
 
 
 def outcome(status: str, code: Optional[str] = None, **fields: Any) -> dict:
@@ -141,6 +158,6 @@ class Connector(ABC):
                     or payload["staging"] != job["args"]["staging"] or payload["site"] != job["target_serial"]):
                 raise PermitError("permit_mismatch")
             out.append(payload)
-        if len(steps) > 1 and any(self.declared_action(s["action"])["grouping"] != "atomic" for s in steps):
+        if not grouping_allows(steps, [self.declared_action(s["action"])["grouping"] for s in steps]):
             raise PermitError("grouping_unsupported")
         return out

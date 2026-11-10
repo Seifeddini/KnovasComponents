@@ -68,7 +68,7 @@
           "items": {"type": "string", "enum": ["direct", "native_review"]},
           "description": "direct: written to the item after the Brain's approval, only while the item is still at the expected version. native_review: staged for the source's own review step; applied only when the source accepts it."
         },
-        "grouping": {"type": "string", "enum": ["atomic", "none"], "description": "atomic: several steps of one act job on this source are written all or none. none: one step per job, each with its own outcome."},
+        "grouping": {"type": "string", "enum": ["atomic", "item", "none"], "description": "atomic: several steps of one act job on this source are written all or none, on any items. item: several steps of one act job on one item are written all or none; the Brain sends one act job per item, each with its own permits and receipts, and steps on several items in one act job are refused. none: one step per job, each with its own outcome. Several steps in one act job are allowed only when no step's action says none, and only on one item when one of them says item (v2.0 as amended 2026-11-10, D-24)."},
         "inverse": {
           "oneOf": [{"$ref": "#/$defs/token"}, {"type": "null"}],
           "description": "The action that undoes this one from a receipt's before-values, or null when there is none."

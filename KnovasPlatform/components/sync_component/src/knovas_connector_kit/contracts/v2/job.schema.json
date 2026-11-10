@@ -473,7 +473,7 @@
     },
     "act_args": {
       "type": "object",
-      "description": "Carry out the steps, each under the permit at the same position of the job's permits, and re-read what was written. One step, or several on one source whose connector declared grouping atomic (all or none). Closed.",
+      "description": "Carry out the steps, each under the permit at the same position of the job's permits, and re-read what was written. One step; or several on one source whose actions declared grouping atomic (all or none); or several on one item whose actions declared grouping item or atomic (all or none on that item). Closed.",
       "required": [
         "steps",
         "staging"
