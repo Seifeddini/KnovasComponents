@@ -8,7 +8,10 @@
   are read as increasing integers, as Jira gives them.
 - ``fields`` holds the settings' fields by Jira's field ids, each as a scalar: a person as their account id (never a
   name or an email address), an option, status, priority or type as its name or value, a date as Jira writes it, a
-  whole number as an integer and any other number as a string (the protocol carries no floating-point number).
+  whole number as an integer and any other number as a string (the protocol carries no floating-point number), and a
+  rich-text field (Atlassian Document Format: the description, the environment) as plain text, at most 32,768
+  characters (``adf.py``). A field reaches the record only when the settings name it in ``fields``: a mapping that
+  reads the description needs ``description`` there.
 - ``computed`` names the fields the source computes, from the issue's edit metadata: a field read but not editable by
   this credential (``created``, ``resolution``), and every field the settings name as set by an automation. ``status``
   is not computed unless the settings say so: it is written through a transition.
@@ -19,6 +22,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping, Optional
 
+from knovas_connector_jira import adf
 from knovas_connector_jira.client import LINK_FIELDS, Settings
 
 RECORD_KIND = "issue"
@@ -29,13 +33,16 @@ _VALUE_KEYS = ("accountId", "value", "name", "key", "id")
 
 
 def scalar(value: Any) -> Any:
-    """One value as the protocol carries it: a string, an integer, a boolean or null."""
+    """One value as the protocol carries it: a string, an integer, a boolean or null. A rich-text document (ADF)
+    is its plain text (``adf.to_text``)."""
     if value is None or isinstance(value, (bool, str)):
         return value
     if isinstance(value, int):
         return value if abs(value) <= 2 ** 53 - 1 else str(value)
     if isinstance(value, float):
         return str(int(value)) if value.is_integer() else repr(value)
+    if adf.is_adf(value):
+        return adf.to_text(value)
     if isinstance(value, Mapping):
         for k in _VALUE_KEYS:
             if k in value and not isinstance(value[k], (Mapping, list)):

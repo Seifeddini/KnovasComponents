@@ -24,7 +24,9 @@ A source of kind `jira` names its site and project in its settings; nothing in t
 - `site`: `https://` and the host only (no user, password or path); `project`: the project key.
 - `fields` (optional): the field ids a record carries; default `summary, status, assignee, reporter, duedate,
   priority, labels, issuetype, resolution, created, resolutiondate`. Links, the parent and sub-tasks are read as the
-  record's `links`.
+  record's `links`. The description is not among the defaults: a source whose records a Brain mapping reads the
+  description from must list `description` in `fields` (and, with `fields` given, every other field the mapping
+  reads); a field the settings do not name never reaches a record.
 - `computed_fields` (optional): fields an automation sets. They are never written, and a preview that would set one is
   inexact (it cannot be approved). Fields the edit metadata does not let the credential set count as computed too.
 - The credential is read from the site's environment: `SYNC_CREDENTIAL_<SOURCE KEY>` (upper case, other characters as
@@ -50,9 +52,20 @@ The account needs *Browse projects* (reading), *Edit issues*, *Assign issues* an
 
 One `record` per issue: `external_id` the issue key, `version` the issue's **change-log position** (the id of its newest
 change-log entry, `0` for none), `payload.fields` by field id (a person as their account id; whole numbers as
-integers, other numbers as strings), `payload.computed` (from the edit metadata and the settings), `payload.links`.
+integers, other numbers as strings; a rich-text field such as the description as plain text, below),
+`payload.computed` (from the edit metadata and the settings), `payload.links`.
 A listing Jira marks as its last page is complete: then `tombstone`s for issues gone since the last state, a
 `generation` and a `state`. A cut listing reports no absence.
+
+**Rich text as plain text** ([`adf.py`](src/knovas_connector_jira/adf.py)). Jira's API v3 gives the description (and
+the environment, a paragraph custom field) in Atlassian Document Format; the record carries it as plain text, never
+HTML: blocks separated by a blank line; a heading's text alone; a code block's text as it is, without a fence; `- `
+before a bullet item, `1. ` (from the list's start) before an ordered one, `- [x] ` / `- [ ] ` for a task, two spaces
+more per level; a table row per line, cells separated by ` | `; marks dropped, a link as its text (never its address),
+a smart link card as its URL, a mention as `@` and the account id (never the name), an emoji, a date (`YYYY-MM-DD`)
+or a status as its text; attachments, media and extensions left out. At most **32,768 characters** (half of the
+protocol's 64 KiB for one value): longer text is cut and ends with `…`, as is the text read when the walk stops after
+20,000 nodes or 64 levels. A document without text is `null`.
 
 ## What it writes
 
