@@ -21,7 +21,10 @@ WB-10, WB-11, WB-12).
   Knovas Link (`KnovasConnectorJira/deploy/docker-compose.jira.yml`); der Zugang nur aus seiner eigenen Datei
   `knovas-jira.env`, die kein anderer Dienst liest (nie aus `knovas-sources.env`, die die Sync-Komponente liest), an
   genau den Host, den die Zeile daneben nennt. Die Sync-Komponente verwendet keinen Zugang, neben dem eine Zeile
-  `…_HOST` steht, und keinen nach der Art einer anderen Quelle benannten. `knovas-connector-jira dump-stream` schreibt den vollständigen
+  `…_HOST` steht, und keinen nach der Art einer anderen Quelle benannten. Der Datenstrom trägt nur, was die
+  Zuordnung ins Brain liest: ohne `fields` in den Einstellungen Zusammenfassung, Beschreibung, Status, Bearbeiter (als
+  Konto-Id), Fälligkeit, Priorität, Labels, Typ, erstellt und erledigt, dazu den übergeordneten Vorgang als einzige
+  Verknüpfung; keine Namen oder E-Mail-Adressen von Personen, aus dem Änderungsprotokoll nur die Versions-Id. `knovas-connector-jira dump-stream` schreibt den vollständigen
   Datenstrom einer Quelle als JSON Lines für die Zuordnung ins Brain.
 - **Brain Builder** (`BUILDER_PROTOCOL_V2=true`): bietet je Quelle an, was ihr Connector angemeldet und geprüft hat;
   Quellen einer Art ohne eigenes Formular (etwa `jira`) mit einem allgemeinen Einstellungsformular; «Freigaben»

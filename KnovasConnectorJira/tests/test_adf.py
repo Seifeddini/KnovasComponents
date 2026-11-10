@@ -182,8 +182,12 @@ class TestInARecord:
         assert got["DEMO-2"]["description"] is None
         assert "tracker.example.invalid" not in str(stream)
 
-    def test_without_description_in_the_settings_the_record_has_none(self):
-        h = JiraHarness()
+    def test_the_description_is_a_default_field_and_absent_when_the_settings_name_fields_without_it(self):
+        h = JiraHarness()                                            # no fields in the settings: the defaults
+        h.jira.issues["DEMO-1"]["fields"]["description"] = DESCRIPTION
+        one = next(m for m in h.connector.read(h.source, None) if m.get("external_id") == "DEMO-1")
+        assert one["payload"]["fields"]["description"] == adf.to_text(DESCRIPTION)
+        h = JiraHarness(dict(SOURCE, settings=dict(SOURCE["settings"], fields=["summary", "status"])))
         h.jira.issues["DEMO-1"]["fields"]["description"] = DESCRIPTION
         one = next(m for m in h.connector.read(h.source, None) if m.get("external_id") == "DEMO-1")
         assert "description" not in one["payload"]["fields"]

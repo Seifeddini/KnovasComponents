@@ -63,6 +63,8 @@ class FakeJira:
         self.workflow = list(WORKFLOW)
         self.writes: dict[str, int] = {}
         self.calls: list[tuple[str, str]] = []
+        #: Every call as asked: (method, path, query parameters, JSON body).
+        self.requests: list[tuple[str, str, dict, Any]] = []
         self.page_size = page_size
         self.changelog_window = 100
         self.editmeta_in_search = True
@@ -107,7 +109,7 @@ class FakeJira:
 
     def _record(self, key: str, author: str, items: list) -> None:
         self.next_history += 1
-        self.issues[key]["history"].append({"id": str(self.next_history), "author": {"accountId": author},
+        self.issues[key]["history"].append({"id": str(self.next_history), "author": self._person(author),
                                             "created": "2026-11-10T12:00:00.000+0000", "items": items})
 
     def _set(self, key: str, field: str, value: Any, author: str) -> None:
@@ -146,6 +148,7 @@ class FakeJira:
             return Answer(404, {"errorMessages": ["not found"]})
         path = parts.path[len("/rest/api/3"):]
         self.calls.append((method, path))
+        self.requests.append((method, path, dict(params or {}), json))
         if (headers or {}).get("Authorization") not in self.auth:
             return Answer(401, {"errorMessages": ["unauthorized"]})
         if self.rate_limit_next:

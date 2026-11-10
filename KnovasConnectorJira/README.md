@@ -22,11 +22,12 @@ A source of kind `jira` names its site and project in its settings; nothing in t
 ```
 
 - `site`: `https://` and the host only (no user, password or path); `project`: the project key.
-- `fields` (optional): the field ids a record carries; default `summary, status, assignee, reporter, duedate,
-  priority, labels, issuetype, resolution, created, resolutiondate`. Links, the parent and sub-tasks are read as the
-  record's `links`. The description is not among the defaults: a source whose records a Brain mapping reads the
-  description from must list `description` in `fields` (and, with `fields` given, every other field the mapping
-  reads); a field the settings do not name never reaches a record.
+- `fields` (optional): the field ids a record carries; default `summary, description, status, assignee, duedate,
+  priority, labels, issuetype, created, resolutiondate`: what a Brain mapping of an issue reads, and no more (the
+  recommendation for the founder's decision D-34): no reporter or other person but the assignee, no resolution, no
+  comments, attachments or worklog. With `fields` given, a record carries exactly those (list every field the mapping
+  reads); a field the settings do not name never reaches a record. The parent is the record's one link; `issuelinks`,
+  `parent` and `subtasks` are never fields.
 - `computed_fields` (optional): fields an automation sets. They are never written, and a preview that would set one is
   inexact (it cannot be approved). Fields the edit metadata does not let the credential set count as computed too.
 - The credential is read from the site's environment: `SYNC_CREDENTIAL_<SOURCE KEY>` (upper case, other characters as
@@ -52,9 +53,18 @@ The account needs *Browse projects* (reading), *Edit issues*, *Assign issues* an
 ## What it reads
 
 One `record` per issue: `external_id` the issue key, `version` the issue's **change-log position** (the id of its newest
-change-log entry, `0` for none), `payload.fields` by field id (a person as their account id; whole numbers as
-integers, other numbers as strings; a rich-text field such as the description as plain text, below),
-`payload.computed` (from the edit metadata and the settings), `payload.links`.
+change-log entry, `0` for none), `payload.fields` by field id (a person as their account id, never a name, a login or
+an e-mail address, and null when Jira gives none; whole numbers as integers, other numbers as strings; a rich-text
+field such as the description as plain text, below), `payload.computed` (from the edit metadata and the settings),
+`payload.links` (the parent only, `{"relation": "parent", "external_id": <key>}`).
+
+**What it reads and what it carries.** The listing asks Jira for the settings' fields and the parent, with the change
+log and the edit metadata. Of the change log only the newest entry's id reaches the record (its version): never an
+earlier value, an author or a name. Of the edit metadata only which of the settings' fields are computed. Issue links
+and sub-tasks are not read. Issue properties are read only for the permit markers (`knovas.permit.<permit id>`), by
+`act` and `reread`. A preview or an act reads the settings' fields and the fields its actions write (assignee, due
+date, status), whatever the settings name. Comments, attachments and worklogs are not among the defaults; named in
+`fields`, a comment or worklog field is null and an attachment field the attachments' ids, never their content.
 A listing Jira marks as its last page is complete: then `tombstone`s for issues gone since the last state, a
 `generation` and a `state`. A cut listing reports no absence.
 

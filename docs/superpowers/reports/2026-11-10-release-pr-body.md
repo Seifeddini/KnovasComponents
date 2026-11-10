@@ -11,8 +11,9 @@ Brain v1, the Brain Builder, Knovas Link and connector protocol 2.0 (write back 
 
 ## Body
 
-**What this brings to `main`** (229 commits on the branch: 226, then the J-4/C-5 commit `0b8d092`, the ADF commit
-`74d0ddf`, and the fix of the independent verification KC-3; full list at the end).
+**What this brings to `main`** (230 commits on the branch: 226, then the J-4/C-5 commit `0b8d092`, the ADF commit
+`74d0ddf`, the fix of the independent verification KC-3 `f88ccaa`, and the Jira stream narrowed to what the Brain
+reads; full list at the end).
 Items are named per commit.
 
 1. **Ansichten and the Cortex star view** (Oct 26–28; views steps 1–8, KC-1..KC-3): the ego graph, process and spine
@@ -41,7 +42,10 @@ Items are named per commit.
    **verification KC-3 fixes**: the Jira credential in the connector's own file `knovas-jira.env`, which the sync
    component never receives (the Builder names that file for a source of a connector's own kind), and the sync
    component never using a credential with a `_HOST` line, a host line or another kind's line (N5, SPEC-write-back-20);
-   migration 0025 refusing a child of the kind `knovas_link`; the ADF bound in bytes of UTF-8.
+   migration 0025 refusing a child of the kind `knovas_link`; the ADF bound in bytes of UTF-8; and the Jira stream
+   narrowed to what a Brain mapping reads (default fields with the description, without reporter and resolution; the
+   parent as the one link; of the change log only the version id; no person's name or address; issue properties only
+   for the permit markers; on the recommendation for D-34, which is pending).
 
 **Switches, all off by default:** `BUILDER_PROTOCOL_V2` (Platform), `LINK_PROTOCOL_V2` and `LINK_COMPONENTS` (Link),
 `SYNC_PROTOCOL_V2` (sync component). The Jira connector runs only where a site adds its file. Without them a site and
@@ -78,7 +82,9 @@ nothing; GitHub sources keep working), `test_builder_sites.py` (`docker compose 
 asserted as `CheckViolation`), `test_builder_site_credentials.py`, `test_builder_connection_generic.py` 162 passed;
 `test_sync_component.py`, `test_connector_kinds.py`, `test_product_has_no_knovas_defaults.py` 143 passed;
 `test_github_jobs.py`, `test_sync_component_github_v2.py` 39 passed; KnovasConnectorJira `tests/` 145 passed. Cards
-`card check` and `card render --check` clean.
+`card check` and `card render --check` clean. The Jira stream narrowing: KnovasConnectorJira `tests/` 151 passed (the
+conformance suite among them; 6 new in `test_read.py`: no display name or e-mail in the stream, only the version id
+from the change log, the parent as the one link, properties only for the permit markers).
 
 Verification: not verified by its author; a fresh session runs skill `verify` on J-4 and C-5.
 
@@ -354,5 +360,6 @@ repository → KnovasComponents → role **Write**; "Danger zone" says **Private
 - `df1d8c3` Jira connector sends its credential only to the host the site's environment binds to it: SYNC_CREDENTIAL_<KEY>_HOST beside SYNC_CREDENTIAL_<KEY>, a site setting naming another host refused jira.bad_settings before any request, no redirect followed (FEAT-2026-11-10-write-back J-2; BET-2026-11-write-back WB-07, WB-20; GI-CONN-07, SPEC-write-back-20; verifier KC N1)
 - `0b8d092` The Jira connector runs at a site behind Knovas Link with its own image, and dump-stream writes a source's record stream; the sync component serves a GitHub source on protocol 2 while its reads stay; the release workflow builds four images (FEAT-2026-11-10-write-back J-4, C-5; BET-2026-11-write-back WB-07, WB-12)
 - `74d0ddf` Jira connector: a rich-text field (the description, Atlassian Document Format) reaches the record as plain text, bounded at 32,768 characters, instead of null (FEAT-2026-11-10-write-back J-4; BET-2026-11-write-back WB-07, WB-30)
-- this fix: the Jira credential only in the Jira connector's own knovas-jira.env and never handed out by the sync component; migration 0025 refuses a child of Link's own kind; the ADF bound in bytes (FEAT-2026-11-10-write-back J-4; BET-2026-11-write-back WB-07, WB-20; SPEC-write-back-20; verifier KC-3 N5, notes 2, 3, 5)
+- `f88ccaa` Jira credential only in the Jira connector's own knovas-jira.env, and the sync component never sends a host-bound, host or other kind's credential; migration 0025 refuses a child of Link's own kind; the ADF bound in bytes (FEAT-2026-11-10-write-back J-4; BET-2026-11-write-back WB-07, WB-20; SPEC-write-back-20, GI-CONN-07; verifier KC-3 N5, notes 2, 3, 5)
+- this change: the Jira stream carries what a Brain mapping reads and no more (FEAT-2026-11-10-write-back J-4; BET-2026-11-write-back WB-07; D-34 recommendation)
 - (this change) The Jira connector runs at a site behind Knovas Link with its own image, and dump-stream writes a source's record stream; the sync component serves a GitHub source on protocol 2 while its reads stay; the release workflow builds four images (FEAT-2026-11-10-write-back J-4, C-5; BET-2026-11-write-back WB-07, WB-12)

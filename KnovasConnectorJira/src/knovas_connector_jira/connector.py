@@ -3,7 +3,10 @@ the connector kit (``knovas_connector_kit``). Everything specific to Jira lives 
 (SPEC-write-back-16).
 
 **Reading** (``read``): the project's issues as ``record`` messages (``records.py``), one enhanced JQL search
-(``POST /rest/api/3/search/jql``) page after the other with the change log and the edit metadata expanded. Only a
+(``POST /rest/api/3/search/jql``) page after the other with the change log and the edit metadata expanded, asking for
+the settings' fields and the parent only. Of the change log only the newest entry's id reaches the record (its
+version), never an earlier value, an author or a name; of the edit metadata only which of the settings' fields are
+computed; no issue property is read (the permit markers are read only by ``act`` and ``reread``). Only a
 listing Jira marked as its last page is complete: then a ``tombstone`` for every issue the state saw that is gone,
 a ``generation`` and the new ``state``. A cut listing (a page that is not the last but names no next page, or more
 pages than the bound) yields its records and nothing that reports an absence (GI-CONN-02).
@@ -78,6 +81,8 @@ DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 #: The action, the Jira field it changes and the parameter that carries the new value.
 ACTIONS = {"set_assignee": ("assignee", "assignee"), "set_due_date": ("duedate", "due_date"),
            "transition_issue": ("status", "status")}
+#: The fields the actions write, which a preview and an act read whatever the settings name.
+ACTION_FIELDS = tuple(dict.fromkeys(field for field, _param in ACTIONS.values()))
 #: Field edits of one issue are one edit call and one change-log entry, so several of them in one act are written all
 #: or none, one issue per act (grouping item, D-24); a transition is its own call and goes alone.
 GROUPING = {"set_assignee": "item", "set_due_date": "item", "transition_issue": "none"}
@@ -152,9 +157,10 @@ class JiraConnector(Connector):
 
     def _issue(self, client: JiraClient, settings: Settings, key: str,
                marks: tuple = ()) -> Optional[dict]:
-        """The issue with the settings' fields, its newest change-log entries and its edit metadata (and the permit
-        markers asked for); None when Jira has no such issue for this credential."""
-        params = {"fields": ",".join(requested_fields(settings)), "expand": "changelog,editmeta"}
+        """The issue with the settings' fields and the fields the actions write, its newest change-log entries and its
+        edit metadata (and the permit markers asked for, no other property); None when Jira has no such issue for this
+        credential."""
+        params = {"fields": ",".join(requested_fields(settings, ACTION_FIELDS)), "expand": "changelog,editmeta"}
         if marks:
             params["properties"] = ",".join(marks)
         try:

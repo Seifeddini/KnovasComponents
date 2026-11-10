@@ -33,11 +33,16 @@ SITE = re.compile(f"^https://{_HOST}$")
 PROJECT = re.compile(r"^[A-Z][A-Z0-9_]{1,9}$")
 ISSUE_KEY = re.compile(r"^([A-Z][A-Z0-9_]{1,9})-([1-9][0-9]{0,9})$")
 FIELD_ID = re.compile(r"^(?:[a-z][A-Za-z]{0,40}|customfield_[0-9]{1,10})$")
-#: The fields read when the settings name none: a set of fields rather than a document, by Jira's field ids.
-DEFAULT_FIELDS = ("summary", "status", "assignee", "reporter", "duedate", "priority", "labels", "issuetype",
-                  "resolution", "created", "resolutiondate")
-#: Read for the record's links (never as fields): the issue's links, its parent and its sub-tasks.
-LINK_FIELDS = ("issuelinks", "parent", "subtasks")
+#: The fields read when the settings name none, by Jira's field ids: what a Brain mapping of an issue reads, and no
+#: more (the recommendation for the founder's decision D-34): no reporter or other person but the assignee (as an
+#: account id), no resolution, no comment, attachment or worklog. The parent comes as a link (``LINK_FIELDS``).
+DEFAULT_FIELDS = ("summary", "description", "status", "assignee", "duedate", "priority", "labels", "issuetype",
+                  "created", "resolutiondate")
+#: Read for the record's links, never as a field: the parent, which the mapping reads. Issue links and sub-tasks are
+#: neither read nor carried.
+LINK_FIELDS = ("parent",)
+#: Never a field of the settings: the links Jira keeps between issues (other issues' keys), read as links or not at all.
+NOT_FIELDS = ("issuelinks", "parent", "subtasks")
 MAX_FIELDS = 100
 
 
@@ -71,7 +76,7 @@ def settings_of(source: Mapping[str, Any]) -> Settings:
         raise JiraError("jira.bad_settings")
     if not isinstance(fields, list) or not isinstance(computed, list) or len(fields) > MAX_FIELDS:
         raise JiraError("jira.bad_settings")
-    if any(not isinstance(f, str) or not FIELD_ID.match(f) or f in LINK_FIELDS for f in fields + computed):
+    if any(not isinstance(f, str) or not FIELD_ID.match(f) or f in NOT_FIELDS for f in fields + computed):
         raise JiraError("jira.bad_settings")
     if not isinstance(page_size, int) or isinstance(page_size, bool) or not 1 <= page_size <= 100:
         raise JiraError("jira.bad_settings")
