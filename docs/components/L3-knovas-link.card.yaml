@@ -498,7 +498,8 @@ contract:
         - test_link_forgets_every_job_once_it_has_its_outcome
     - id: L3-KNOVAS-LINK/local.job-result/P-2
       statement: A result that comes after the job's deadline or after another claim of it is refused 409 lease_lost;
-        the job then has Link's own answer (unreachable) or the newer claim's.
+        the job then has Link's own answer (unreachable) or the newer claim's. A v2 act this Link claims again keeps
+        its running hand-out instead, and its result goes back with the new claim's lease, so its permit runs once.
       risk_class: critical
       evidence:
       - kind: test
@@ -507,6 +508,10 @@ contract:
         - test_silent_past_the_deadline_is_unreachable_and_the_late_answer_lease_lost
         - test_a_late_result_after_another_claim_is_refused_and_the_rest_dropped
         - test_a_job_claimed_again_after_its_lease_ran_out_refuses_the_first_claims_late_result
+      - kind: test
+        ref: KnovasLink/tests/test_protocol_v2.py
+        checks:
+        - test_an_act_claimed_again_while_its_connector_writes_runs_once_under_the_new_lease
   local.brain-relay:
     needs:
     - id: L3-KNOVAS-LINK/local.brain-relay/N-1
@@ -783,15 +788,16 @@ contract:
       statement: 'Protocol 2.0 (LINK_PROTOCOL_V2): a v2 job (preview, act, reread, review_outcome, unstage) goes only
         to the connector serving its source that declared the source''s kind, the action and its staging; otherwise
         Link answers unsupported, refused action_not_declared or staging_unsupported, refused write_disabled for an
-        act or unstage on a source that only reads, failed invalid_job. With the switch off: unsupported
-        protocol_unsupported. A 1.x job goes its 1.x way either way.'
+        act or unstage on a source that only reads, failed invalid_job; for an act only after its permit checks
+        (P-4). With the switch off: unsupported protocol_unsupported. A 1.x job goes its 1.x way either way.'
       risk_class: critical
       evidence:
       - kind: test
         ref: KnovasLink/tests/test_protocol_v2.py
         checks:
         - test_a_preview_reaches_the_connector_that_declared_the_action_and_its_answer_goes_back
-        - test_an_undeclared_action_is_refused_before_any_permit_check
+        - test_an_undeclared_action_is_refused_after_the_permit_checks
+        - test_an_act_that_breaks_the_v2_job_schema_is_invalid_job_and_logged
         - test_a_source_that_only_reads_refuses_an_act_write_disabled
         - test_a_source_of_another_kind_than_the_connector_declared_is_unsupported
         - test_a_v1_job_still_goes_its_1x_way_with_the_switch_on
@@ -801,8 +807,14 @@ contract:
         order (LinkVerifyMechanism) - permit_missing, permit_bad_signature (canonical token, a pinned key whose
         window holds the permit's iat, at most 10800 s, signature), permit_wrong_site (this certificate's serial),
         permit_mismatch (tenant, source, action, target and parameters, expected version, staging), a used permit
-        answered with its first result (repeat true, permit_used, also after expiry), permit_expired; nothing is
-        written on a refusal, and the verdicts agree with the connector kit's reference.
+        answered with its first result (repeat true, permit_used, also after expiry), permit_expired - before the
+        act's deadline, the source's switch or the connector's declaration are looked at, so a repeat gets its first
+        result whatever changed at the site since. A delivery of a permit whose first delivery is still with the
+        connector waits for that result and never reaches the connector; a permit whose delivery ended without a
+        result goes on again before its expiry (the connector's marker answers) and is permit_expired after it. A
+        token in any spelling but the one canonical encoding, or one Link cannot read (a time past the year 9999, deep
+        nesting), is permit_bad_signature, never an error. Nothing is written on a refusal, and the verdicts agree
+        with the connector kit's reference.
       risk_class: critical
       evidence:
       - kind: test
@@ -813,10 +825,19 @@ contract:
         - test_a_repeat_after_the_permit_expired_and_its_key_retired_still_gets_the_first_result
         - test_a_permit_may_live_three_hours_and_not_a_second_longer
         - test_links_verdicts_agree_with_the_kits_reference
+        - test_a_repeat_of_a_written_permit_gets_its_first_result_whatever_changed_since
+        - test_a_first_delivery_after_the_expiry_is_permit_expired_even_past_its_deadline
+        - test_a_second_delivery_while_the_first_is_with_the_connector_waits_and_never_runs
+        - test_a_permit_whose_delivery_ended_without_a_result_goes_on_again_only_before_its_expiry
+        - test_an_untrusted_token_is_refused_and_never_raises
+        - test_an_untrusted_token_gets_an_answer_through_link
+        - test_a_permit_has_exactly_one_encoding
     - id: L3-KNOVAS-LINK/work-channel/P-5
       statement: Every delivery that carried a permit is a line of the site's write log (accepted, executed, refused,
-        repeated) and an act's first result is kept under each permit id, both written to Link's volume (0600)
-        before the job goes on; when that fails nothing goes on (failed write_log_unavailable).
+        repeated), every refusal included - a permit that did not verify under the id it names, unverified, a delivery
+        that carried none as one line without an id; an act's permits are reserved in the used-permit store before
+        its connector sees it, and its first result is kept under each permit id and never replaced; all written to
+        Link's volume (0600) before the job goes on; when that fails nothing goes on (failed write_log_unavailable).
       risk_class: critical
       evidence:
       - kind: test
@@ -824,6 +845,11 @@ contract:
         checks:
         - test_an_act_under_a_valid_permit_is_written_once_and_a_repeat_gets_the_first_result
         - test_when_the_write_log_cannot_be_written_nothing_goes_on
+        - test_a_refused_permit_writes_nothing_and_is_logged
+        - test_an_undeclared_action_is_refused_after_the_permit_checks
+        - test_a_source_that_only_reads_refuses_an_act_write_disabled
+        - test_the_first_result_is_kept_and_never_replaced
+        - test_a_second_delivery_while_the_first_is_with_the_connector_waits_and_never_runs
     - id: L3-KNOVAS-LINK/work-channel/P-6
       statement: With LINK_PROTOCOL_V2 on, Link pins the Brain's permit keys from GET /secured/connector/v2/permit-keys
         only (keeping a key the Brain dropped until 30 days after its not_after), declares its site with PUT
@@ -994,7 +1020,20 @@ review:
 - at: L3-KNOVAS-LINK/work-channel/P-4
   why: Changed 2026-11-10 by the amendment of protocol v2.0 (D-15, the founder - a permit may live 3 hours); Link now
     accepts permits up to 10800 s instead of 3600 s, a looser check. map-check reports the line as changed and not
-    marked compatible; a person confirms it (compatible, reviewed_by).
+    marked compatible; a person confirms it (compatible, reviewed_by). Changed again the same day after the
+    independent verification of Phase A (M1, M2, L1, L5) - the permit checks come before the deadline and the
+    declaration, a second delivery of a running permit waits, another base64url spelling is refused; a person
+    confirms it.
+- at: L3-KNOVAS-LINK/work-channel/P-3
+  why: Changed 2026-11-10 after the independent verification of Phase A (M1) - an act's declaration, staging and
+    switch are checked after its permits (it was before them); a person confirms it is compatible.
+- at: L3-KNOVAS-LINK/work-channel/P-5
+  why: Extended 2026-11-10 after the independent verification of Phase A (M2, L2) - the reservation before the
+    connector runs, the first result never replaced, every refusal logged; a person confirms it is compatible.
+- at: L3-KNOVAS-LINK/local.job-result/P-2
+  why: Changed 2026-11-10 after the independent verification of Phase A (M2) - only for a v2 act (LINK_PROTOCOL_V2,
+    off by default) that Link claims again, the running hand-out is kept under the new lease instead of ended; 1.x
+    jobs are unchanged. A person confirms it is compatible.
 - at: L3-KNOVAS-LINK/local.job-result/N-1
   why: Tightened 2026-11-10 by the amendment of protocol v2.0 (D-14) - a v2 result whose changes, differences or
     conflict name no step is refused 400 bad_field; the connectors on this branch (the kit's example, GitHub) name

@@ -231,8 +231,11 @@ the same the Brain's side builds (`knovas-software/app/src/services/write_back_p
 ```
 
 - **Token.** It travels as a JWS compact token (RFC 7515): `base64url(header) "." base64url(payload) "."
-  base64url(signature)`, without padding. Header and payload are each the canonical JSON (RFC 8785) of their object; a
-  verifier refuses a part that is not in that form, so one permit has exactly one encoding. Parameters hold no
+  base64url(signature)`, without padding and in the one spelling of each part's bytes (the unused bits of a part's
+  last character are zero). Header and payload are each the canonical JSON (RFC 8785) of their object; a verifier
+  refuses a part that is not in that form, so one permit has exactly one encoding. A token a verifier cannot read
+  (another spelling, a time no calendar date holds, nesting deeper than its parser goes) is `permit_bad_signature`,
+  never an error. Parameters hold no
   floating-point numbers, and times are whole seconds since 1970 (UTC).
 - **Signature.** Ed25519 (RFC 8032) over the ASCII of `header "." payload` as they appear in the token.
 - **Keys.** `kid` is `wbp-` and the first 16 hex digits of SHA-256 over the raw 32-byte public key, so it depends on
@@ -263,7 +266,9 @@ the same the Brain's side builds (`knovas-software/app/src/services/write_back_p
 ## What Knovas Link checks before a connector sees an `act`
 
 In this order, for every step and its permit (the order of the Alloy model's `LinkVerifyMechanism`,
-`network/write_back_permits.als`); the first that fails answers for the whole job, and nothing is written:
+`network/write_back_permits.als`); the first that fails answers for the whole job, and nothing is written. Link looks
+at nothing else about an `act` before steps 1 to 6, not its deadline, the source's switch or the connector's
+declaration, so a repeat of a written permit gets its first result whatever changed at the site since:
 
 1. The step has its permit (as many permits as steps): else `refused permit_missing`.
 2. The token is readable and canonical, names `EdDSA` and a pinned key whose validity window holds the permit's `iat`
@@ -275,17 +280,24 @@ In this order, for every step and its permit (the order of the Alloy model's `Li
 4. `tenant` is the tenant of Link's certificate, and `source`, `action`, `params_hash` (over the step's `target` and
    `params`), `expected_version` and `staging` equal the job's: else `refused permit_mismatch`.
 5. The permit id is not in Link's used-permit store: else the stored first result, with `repeat: true` and
-   `code: permit_used`; nothing is written again, also after the permit's expiry.
+   `code: permit_used`; nothing is written again, also after the permit's expiry. A permit whose first delivery is
+   still with the connector is never handed on again: the delivery waits for that result and is answered with it
+   (`unreachable` past its own deadline). A permit whose delivery ended without a result (Link restarted, or the
+   connector stayed silent past the deadline) goes on again before its expiry, and the connector's marker of the write
+   answers the earlier receipt ("Idempotency and exactly once"); after the expiry it is refused at step 6.
 6. Now is before `exp`: else `refused permit_expired`.
-7. The source's switch allows writing (`access: read_write`): else `refused write_disabled` (1.x code); the connector
-   serving the source declared the action with this staging: else `refused action_not_declared` or
-   `refused staging_unsupported`; several steps only for `grouping: atomic`: else `refused grouping_unsupported`.
-8. Link records each permit in its write log at the site before it hands the job on: else `failed
-   write_log_unavailable`.
+7. The job's deadline has not passed: else `unreachable`; the source's switch allows writing (`access: read_write`):
+   else `refused write_disabled` (1.x code); the connector serving the source declared the action with this staging:
+   else `refused action_not_declared` or `refused staging_unsupported`; several steps only for `grouping: atomic`:
+   else `refused grouping_unsupported`.
+8. Link reserves each permit in its used-permit store and records it in its write log at the site before it hands
+   the job on: else `failed write_log_unavailable`.
 
-After the connector's result Link stores it under every permit id of the job before it passes the result on, and
-records each delivery in its write log, `{permit_id, job_id, outcome: executed | refused | repeated, code, at}`. The
-log and the Brain's record reconcile by permit id (SPEC-write-back-26, WB-25). The connector checks the expected
+After the connector's result Link stores it under every permit id of the job before it passes the result on (the
+first result stored is never replaced), and records each delivery in its write log, `{permit_id, job_id, outcome:
+accepted | executed | refused | repeated, code, at}`, every refusal included: a permit refused before it verified is
+logged under the id it names, unverified, and a delivery that carried no permit as one line without an id. The log and
+the Brain's record reconcile by permit id (SPEC-write-back-26, WB-25). The connector checks the expected
 version itself; Link cannot, because it does not read the source.
 
 ## Receipts
@@ -311,7 +323,9 @@ the receipts come with the `review_outcome` result that reports `accepted`.
 The **permit id is the idempotency key** of the write, end to end (SPEC-write-back-10, GI-CONN-05):
 
 - **Link** answers every repeat of a permit it already carried out with the stored first result, `repeat: true` and
-  `code: permit_used`, also after the permit's expiry, and keeps the store for at least 30 days after the expiry.
+  `code: permit_used`, also after the permit's expiry, and keeps the store for at least 30 days after the expiry. It
+  reserves a permit before the connector sees it, so a second delivery while the first runs never reaches the
+  connector (step 5 of "What Knovas Link checks").
 - **The connector** makes each write recognisable by its permit id where the source allows it (a marker the source
   keeps with the change), so that a write whose result was lost between the source and Link's store is found on the
   next delivery and answered with a receipt, not written again. A connector that cannot do this does not pass

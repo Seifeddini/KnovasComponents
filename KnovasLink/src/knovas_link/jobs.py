@@ -13,6 +13,12 @@ Link answers for the site where no component does (local-api.md):
 - fetching is off for the source: ``refused`` ``fetch_disabled``; the source's ``access`` is not ``read_write``:
   ``refused`` ``write_disabled``.
 
+A v2 ``act`` (protocol 2.0, draft) goes through Link's permit checks first (``write_path.check_act``), before its
+deadline, the source and the connector's declaration are looked at, so a repeat of a written permit gets its first
+result whatever changed since. Its permits are reserved before the connector sees it: a second delivery of a permit
+whose first is still with the connector waits for that result and never reaches the connector, and a claim of the
+same act again keeps the running hand-out under the new lease (verifier, Phase A, M1 and M2).
+
 While Link waits for its certificate it claims nothing. Every 5 minutes, and on the Platform's ``check`` command,
 Link probes: ``POST /secured/connector/probe``, answers the probe when it comes round the channel, and hands each
 component that answers probes a local probe of its own to measure ``local_ping_ms``.
@@ -35,7 +41,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
 from knovas_link import contracts
 from knovas_link.brain_client import LEASE, BrainBusy, BrainUnreachable
 from knovas_link.errors import LocalError
-from knovas_link.write_path import WriteLogUnavailable, check_act, content_digest
+from knovas_link.write_path import Verdict, WriteLogUnavailable, carried_ids, check_act, content_digest
 
 if TYPE_CHECKING:                                     # pragma: no cover
     from knovas_link.link import Link
@@ -106,6 +112,8 @@ class Held:
     permit_ids: list = field(default_factory=list)
     digest: Optional[str] = None
     exp: int = 0
+    #: Set when the hold ends: a delivery of the same permit waits for it (M2).
+    done: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class WorkChannel:
@@ -121,6 +129,8 @@ class WorkChannel:
         self._probes: dict[str, tuple[float, asyncio.Future]] = {}
         self._answered_probes: collections.OrderedDict = collections.OrderedDict()
         self._tasks: set = set()
+        #: Protocol 2.0: permit id -> the act hold that carries it to the connector, while it is held.
+        self._acting: dict[str, Held] = {}
 
     # ------------------------------------------------------------------ helpers
 
@@ -202,6 +212,12 @@ class WorkChannel:
         job = {k: v for k, v in job.items() if k != "lease"}          # the lease stays with Link
         held = self.held.get(jid)
         if held is not None and not held.ended:
+            if held.v2 and held.kind == "act":
+                # A v2 act claimed again: its connector may be writing under the permit right now. The hand-out keeps
+                # running under the new claim and its result goes back with the new lease; the permit runs once (M2).
+                held.lease = lease
+                log.info("job.claimed_again act, kept")
+                return
             # Claimed again after its lease ran out: the first claim is gone. Its hand-out ends (a late part or
             # result of it is 409 lease_lost), and the job is handed out afresh under the new lease.
             self._end(held)
@@ -244,77 +260,148 @@ class WorkChannel:
     # ------------------------------------------------------------------ connector protocol 2.0 (draft)
 
     async def accept_v2(self, jid: str, job: dict, claimed: float, lease: Optional[str]) -> None:
-        """A v2 job: refused while the switch is off; checked against the v2 contract; for an act, Link's permit
-        checks (write_path.check_act) before the connector serving the source sees it."""
+        """A v2 job: refused while the switch is off; checked against the v2 contract; an act goes through Link's
+        permit checks before anything else (``_accept_act``); any other kind to the connector serving the source that
+        declared the source's kind, the action and its staging."""
         kind = str(job.get("kind") or "unknown") if isinstance(job.get("kind"), str) else "unknown"
         v2 = self.link.v2
         if v2 is None:
             await self.answer(jid, kind, "unsupported", "protocol_unsupported", claimed, lease)
             return
         if not contracts.v2_valid("job.schema.json", job):
-            await self.answer(jid, kind, "failed", INVALID_JOB, claimed, lease)
+            if kind == "act":
+                await self._refuse_act(jid, "failed", INVALID_JOB, carried_ids(job), claimed, lease)
+            else:
+                await self.answer(jid, kind, "failed", INVALID_JOB, claimed, lease)
+            return
+        if kind == "act":
+            await self._accept_act(jid, job, claimed, lease)
             return
         deadline = parse_deadline(job["deadline"])
         remaining = (deadline - utcnow()).total_seconds() if deadline else 0
         if remaining <= 0:
             await self.answer(jid, kind, "unreachable", "unreachable", claimed, lease)
             return
+        found = self._connector_for(job, kind)
+        if isinstance(found, tuple):
+            await self.answer(jid, kind, found[0], found[1], claimed, lease)
+            return
+        if kind == "unstage" and self.link.source(job["source"]).get("access") != "read_write":
+            await self.answer(jid, kind, "refused", "write_disabled", claimed, lease)
+            return
+        h = self._hold(jid, job, kind, found, job["source"], remaining, local=False, claimed=claimed, lease=lease)
+        h.v2 = True
+
+    def _connector_for(self, job: dict, kind: str):
+        """The name of the connector that serves the job's source and declared what the job needs (step 7: the
+        source's switch, the action and its staging, grouping), or the (status, code) Link answers instead."""
         source = self.link.source(job["source"])
         if source is None:
-            await self.answer(jid, kind, "unsupported", "unsupported", claimed, lease)
-            return
+            return "unsupported", "unsupported"
         name = source.get("component")
         component = self.link.registry.get(name)
         declaration = component.declaration if component is not None else None
         if (component is None or not component.registered or declaration is None or kind not in component.job_kinds
                 or source.get("kind") != declaration["source_kind"]):
-            await self.answer(jid, kind, "unsupported", "unsupported", claimed, lease)
-            return
+            return "unsupported", "unsupported"
+        if kind == "act" and source.get("access") != "read_write":
+            return "refused", "write_disabled"
         declared = {a["name"]: a for a in declaration["actions"]}
         if kind in ("preview", "act"):
             steps, staging = job["args"]["steps"], job["args"]["staging"]
             for step in steps:
                 action = declared.get(step["action"])
                 if action is None:
-                    await self.answer(jid, kind, "refused", "action_not_declared", claimed, lease)
-                    return
+                    return "refused", "action_not_declared"
                 if staging not in action["staging"]:
-                    await self.answer(jid, kind, "refused", "staging_unsupported", claimed, lease)
-                    return
-        if kind in ("act", "unstage") and source.get("access") != "read_write":
-            await self.answer(jid, kind, "refused", "write_disabled", claimed, lease)
-            return
-        held = None
-        if kind == "act":
+                    return "refused", "staging_unsupported"
+            if kind == "act" and len(steps) > 1 and any(declared[s["action"]]["grouping"] != "atomic" for s in steps):
+                return "refused", "grouping_unsupported"
+        return name
+
+    async def _refuse_act(self, jid: str, status: str, code: str, permit_ids: list, claimed: float,
+                          lease: Optional[str]) -> None:
+        """An act Link answers itself: a line of the write log per permit it carried, then the answer (L2)."""
+        try:
+            self.link.v2.store.log(permit_ids, jid, "refused", code)
+        except WriteLogUnavailable:
+            status, code = "failed", "write_log_unavailable"
+        await self.answer(jid, "act", status, code, claimed, lease)
+
+    def _first_delivery(self, permit_ids: list) -> Optional[Held]:
+        """The hold that carries one of these permits to the connector right now, if any."""
+        for pid in permit_ids:
+            h = self._acting.get(pid)
+            if h is not None and not h.ended:
+                return h
+        return None
+
+    async def _accept_act(self, jid: str, job: dict, claimed: float, lease: Optional[str]) -> None:
+        """An act, in the order of "What Knovas Link checks": the permit checks first (steps 1 to 6: a repeat of a
+        written permit gets its first result before anything else is looked at, M1), then the deadline, the
+        connector and its declaration (step 7), then the reservation and the write-log line (step 8)."""
+        v2 = self.link.v2
+        deadline = parse_deadline(job["deadline"])
+        while True:
             tenant, serial = v2.identity()
-            verdict = check_act(job, ring=v2.ring, tenant=tenant, serial=serial, now=int(v2.clock()),
-                                store=v2.store)
+            verdict = check_act(job, ring=v2.ring, tenant=tenant, serial=serial, now=int(v2.clock()), store=v2.store)
             if verdict.code == "permit_bad_signature" and await v2.refresh_keys():
+                tenant, serial = v2.identity()
                 verdict = check_act(job, ring=v2.ring, tenant=tenant, serial=serial, now=int(v2.clock()),
                                     store=v2.store)
+            if not verdict.reserved:
+                break
+            first = self._first_delivery(verdict.permit_ids)
+            if first is None:
+                # Reserved by a delivery that ended without a result (Link restarted, or the connector stayed silent
+                # past the deadline): before the expiry it goes on again, and the connector's marker of the write
+                # answers the earlier receipt; after it nothing goes on (the Brain recovers the outcome by reread).
+                verdict = (Verdict(code="permit_expired", permit_ids=verdict.permit_ids)
+                           if int(v2.clock()) >= verdict.exp else Verdict(permit_ids=verdict.permit_ids, exp=verdict.exp))
+                break
+            # The first delivery of the permit is still with the connector: wait for its result, never run it twice.
+            remaining = (deadline - utcnow()).total_seconds() if deadline else 0
+            log.info("job.waits_for_its_permits_first_delivery act")
             try:
-                if verdict.repeat is not None:
-                    v2.store.log(verdict.permit_ids, jid, "repeated", "permit_used")
-                    await self._post_repeat(jid, kind, verdict.repeat, claimed, lease)
-                    return
-                if verdict.code is not None:
-                    v2.store.log(verdict.permit_ids, jid, "refused", verdict.code)
-                    await self.answer(jid, kind, "refused", verdict.code, claimed, lease)
-                    return
-                if len(job["args"]["steps"]) > 1 and any(
-                        declared[s["action"]]["grouping"] != "atomic" for s in job["args"]["steps"]):
-                    v2.store.log(verdict.permit_ids, jid, "refused", "grouping_unsupported")
-                    await self.answer(jid, kind, "refused", "grouping_unsupported", claimed, lease)
-                    return
-                v2.store.log(verdict.permit_ids, jid, "accepted", None)
-            except WriteLogUnavailable:
-                await self.answer(jid, kind, "failed", "write_log_unavailable", claimed, lease)
+                if remaining <= 0:
+                    raise asyncio.TimeoutError()
+                await asyncio.wait_for(first.done.wait(), remaining)
+            except asyncio.TimeoutError:
+                await self._refuse_act(jid, "unreachable", "unreachable", verdict.permit_ids, claimed, lease)
                 return
-            held = (verdict.permit_ids, content_digest(job), verdict.exp)
-        h = self._hold(jid, job, kind, name, job["source"], remaining, local=False, claimed=claimed, lease=lease)
-        h.v2 = True
-        if held is not None:
-            h.permit_ids, h.digest, h.exp = held
+        if verdict.repeat is not None:
+            try:
+                v2.store.log(verdict.permit_ids, jid, "repeated", "permit_used")
+            except WriteLogUnavailable:
+                await self.answer(jid, "act", "failed", "write_log_unavailable", claimed, lease)
+                return
+            await self._post_repeat(jid, "act", verdict.repeat, claimed, lease)
+            return
+        if verdict.code is not None:
+            await self._refuse_act(jid, "refused", verdict.code, verdict.permit_ids, claimed, lease)
+            return
+        remaining = (deadline - utcnow()).total_seconds() if deadline else 0
+        if remaining <= 0:
+            await self._refuse_act(jid, "unreachable", "unreachable", verdict.permit_ids, claimed, lease)
+            return
+        found = self._connector_for(job, "act")
+        if isinstance(found, tuple):
+            await self._refuse_act(jid, found[0], found[1], verdict.permit_ids, claimed, lease)
+            return
+        digest = content_digest(job)
+        try:
+            # Reserved before the connector sees it (the Brain's used.begin): a second delivery now waits or is
+            # answered from the store, never handed on (M2). Then the write log's line (step 8).
+            if not v2.store.begin(verdict.permit_ids, jid, digest, verdict.exp):
+                raise WriteLogUnavailable()                   # a result appeared under these permits: never here
+            v2.store.log(verdict.permit_ids, jid, "accepted", None)
+        except WriteLogUnavailable:
+            await self.answer(jid, "act", "failed", "write_log_unavailable", claimed, lease)
+            return
+        h = self._hold(jid, job, "act", found, job["source"], remaining, local=False, claimed=claimed, lease=lease)
+        h.v2, h.permit_ids, h.digest, h.exp = True, verdict.permit_ids, digest, verdict.exp
+        for pid in verdict.permit_ids:
+            self._acting[pid] = h
 
     async def _post_repeat(self, jid: str, kind: str, first: bytes, claimed: float, lease: Optional[str]) -> None:
         """A repeat of a permit carried out before: its first result, marked as a repeat; nothing goes on."""
@@ -388,6 +475,10 @@ class WorkChannel:
         jid = h.job.get("id")
         if self.held.get(jid) is h:
             del self.held[jid]
+        for pid in h.permit_ids:
+            if self._acting.get(pid) is h:
+                del self._acting[pid]
+        h.done.set()
         queue = self._queues.get(h.component)
         if queue and jid in queue and self.held.get(jid) is None:
             queue.remove(jid)
@@ -545,18 +636,28 @@ class WorkChannel:
         if brain is None:
             raise LocalError(503, "unreachable", "secure-api did not answer")
         if h.v2 and h.kind == "act" and h.permit_ids and self.link.v2 is not None:
-            # The first result is kept under every permit id before it leaves Link: a repeat gets exactly it.
+            # The first result is kept under every permit id before it leaves Link and is never replaced: a repeat
+            # gets exactly it.
             try:
-                self.link.v2.store.remember(h.permit_ids, jid, h.digest or "", raw, h.exp)
+                kept = self.link.v2.store.complete(h.permit_ids, jid, h.digest or "", raw, h.exp)
                 self.link.v2.store.log(h.permit_ids, jid, "executed" if result["status"] == "ok" else "refused",
                                        result.get("code"))
             except WriteLogUnavailable:
                 raise LocalError(503, "unreachable", "Link could not keep the result") from None
+            if kept != raw:                   # another result was kept first: that one answers (never the case
+                result = json.loads(kept)     # while the permit is reserved for this hold alone)
+                result.update(repeat=True, code="permit_used")
+                raw = json.dumps(result, separators=(",", ":")).encode("utf-8")
         h.finishing = True
         try:
-            status, code = await brain.post_result(jid, raw, h.lease)
-        except BrainUnreachable:
-            status, code = 503, None
+            while True:
+                sent = h.lease
+                try:
+                    status, code = await brain.post_result(jid, raw, sent)
+                except BrainUnreachable:
+                    status, code = 503, None
+                if not (status == 409 and code == "lease_lost" and h.lease != sent):
+                    break                     # (a v2 act claimed again meanwhile: send it with the new lease)
         finally:
             h.finishing = False
         if 200 <= status < 300:

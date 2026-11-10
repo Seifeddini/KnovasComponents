@@ -214,12 +214,21 @@ heartbeat. A leak exposes the whole tenant, and the site cannot be revoked on it
   sources of the kind it declared), pins the Brain's permit keys from `GET /secured/connector/v2/permit-keys` only
   (`<data>/state/v2/permit-keys.json`), and routes `preview`, `act`, `reread`, `review_outcome` and `unstage` to the
   connector that declared the action and staging (`refused action_not_declared` / `staging_unsupported`,
-  `write_disabled` for an act on a source that only reads). Before an `act` reaches its connector Link checks every
-  permit in the Alloy model's order (`write_path.py`): `permit_missing`, `permit_bad_signature`, `permit_wrong_site`,
-  `permit_mismatch`, a used permit answered with its first result (`repeat: true`, `permit_used`, also after expiry),
-  `permit_expired`; it writes the site's write log (`write-log.jsonl`) and keeps the first result under every permit id
-  (`used-permits.json`, 0600) before the job goes on, else `failed write_log_unavailable`. With the switch off a v2 job
-  is answered `unsupported protocol_unsupported` and a declaration is ignored; 1.x jobs go their 1.x way either way.
+  `write_disabled` for an act on a source that only reads). Before anything else about an `act` (its deadline, the
+  source's switch, the connector's declaration) Link checks every permit in the Alloy model's order (`write_path.py`):
+  `permit_missing`, `permit_bad_signature`, `permit_wrong_site`, `permit_mismatch`, a used permit answered with its
+  first result (`repeat: true`, `permit_used`, also after expiry and whatever changed at the site since),
+  `permit_expired`. It reserves the permits in its used-permit store (`used-permits.json`, 0600) and writes the site's
+  write log (`write-log.jsonl`) before the job goes on, else `failed write_log_unavailable`; a second delivery of a
+  permit whose first is still with the connector waits for that result and never reaches the connector, a claim of the
+  same act again keeps the running hand-out under the new lease, and the first result is kept under every permit id and
+  never replaced. A permit whose delivery ended without a result (Link restarted, the connector stayed silent past the
+  deadline) goes on again before its expiry, so the connector's marker of the write answers, and is refused
+  `permit_expired` after it. Every refusal is a line of the write log, a permit that did not verify under the id it
+  names. A token Link cannot read (any spelling but the one canonical encoding, a time past the year 9999, deep
+  nesting) is `permit_bad_signature`, never an error (the verifier's findings on Phase A, M1, M2, L1, L2, L5). With
+  the switch off a v2 job is answered `unsupported protocol_unsupported` and a declaration is ignored; 1.x jobs go
+  their 1.x way either way.
 
 **Logs** carry codes, counts and durations only: never a path, a document's name, a token, a permit or a certificate.
 There is no access log, because a relayed path or query may name a document.
