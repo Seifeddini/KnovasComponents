@@ -28,7 +28,8 @@ from urllib.parse import urlsplit
 
 import requests
 
-SITE = "https://jira.example.invalid"
+HOST = "jira.example.invalid"
+SITE = "https://" + HOST
 PROJECT = "DEMO"
 AUTOMATION = "automation-account"
 STATUSES = {"To Do": "1", "In Progress": "3", "Done": "10001", "Rejected": "10002"}

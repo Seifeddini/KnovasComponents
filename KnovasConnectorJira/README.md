@@ -28,6 +28,19 @@ A source of kind `jira` names its site and project in its settings; nothing in t
 - The credential is read from the site's environment: `SYNC_CREDENTIAL_<SOURCE KEY>` (upper case, other characters as
   `_`), else `SYNC_CREDENTIAL_JIRA`. `<account email>:<API token>` is sent as basic authentication, a bare token as a
   bearer token. It never leaves the site: not in a result, a stream message, a log line or an error.
+- The one host the credential may be sent to is named beside it, in `SYNC_CREDENTIAL_<SOURCE KEY>_HOST` (for
+  `SYNC_CREDENTIAL_JIRA`: `SYNC_CREDENTIAL_JIRA_HOST`), the host name only, never taken from the other line:
+
+  ```bash
+  # knovas-sources.env at the site
+  SYNC_CREDENTIAL_JIRA_MAIN=<account email>:<API token>
+  SYNC_CREDENTIAL_JIRA_MAIN_HOST=<your-site>.atlassian.net
+  ```
+
+  The settings come from the Platform, so `site` must be `https://` and exactly that host: a `site` naming any other
+  host is refused `jira.bad_settings` before any request is made, and a credential without its host line is
+  `jira.no_credential`. Every request goes to that host, and a redirect is never followed (it answers
+  `jira.http_3xx`), so the credential reaches no other host (GI-CONN-07).
 
 The account needs *Browse projects* (reading), *Edit issues*, *Assign issues* and *Transition issues* (the actions).
 

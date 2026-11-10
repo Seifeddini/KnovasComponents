@@ -1,6 +1,7 @@
 """The conformance harness of the Jira connector (``knovas_connector_kit/conformance/harness.py``): a fresh connector
 over a fake Jira (``fake_jira.py``) the suite may change. Six issues of a made-up project; the credential is a canary
-the suite looks for in every result, stream message, log line and error.
+the suite looks for in every result, stream message, log line and error, bound to the fake site's host as the site's
+environment binds it (``SYNC_CREDENTIAL_<KEY>_HOST``).
 
     python -m knovas_connector_kit.conformance harness:make_harness     (from tests/, with both src folders on the path)
 """
@@ -8,7 +9,8 @@ from __future__ import annotations
 
 import uuid
 
-from fake_jira import PROJECT, SITE, FakeJira
+from fake_jira import HOST, PROJECT, SITE, FakeJira
+from knovas_connector_jira.client import Credential
 from knovas_connector_jira.connector import JiraConnector
 
 SOURCE = {"key": "jira-demo", "kind": "jira", "access": "read_write", "workspace": "ws-1",
@@ -30,7 +32,7 @@ class JiraHarness:
         self.jira.add(6, summary="Archive old pages", status="In Progress", story_points=3.0)
         self.source_config = dict(source)
         self.connector = JiraConnector(source=lambda key: dict(self.source_config) if key == source["key"] else None,
-                                       credential=lambda s: self.credential, session=self.jira,
+                                       credential=lambda s: Credential(self.credential, HOST), session=self.jira,
                                        sleep=lambda seconds: None)
 
     def sample_steps(self) -> list[dict]:

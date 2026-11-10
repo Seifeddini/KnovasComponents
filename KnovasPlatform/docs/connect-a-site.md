@@ -94,6 +94,12 @@ Die Quelle auf die Komponente des Standorts legen. Das darf nur, wer die Standor
 
 - **Schlüssel:** bestimmt die Zeile für den Zugang am Standort (`SYNC_CREDENTIAL_<SCHLÜSSEL>=`); leer gelassen, wird er aus dem Namen gebildet.
 - **Einstellungen als Name und Wert**, so wie der Connector sie liest; welche, sagt seine Dokumentation. Ein Wert ist Text, eine Zahl, Ja/Nein oder eine Liste von Texten (mit Komma getrennt). Beim Jira-Connector etwa `site` (`https://<firma>.atlassian.net`) und `project` (der Schlüssel des Projekts), falls nötig `fields` und `computed_fields` (Listen von Feld-Ids) und `page_size` (Zahl). Namen klein geschrieben, aus Buchstaben, Ziffern und `_`.
+- **Wohin der Zugang darf** (Jira-Connector): Den Host, an den der Zugang gehen darf, nennt der Standort selbst, in `knovas-sources.env` direkt neben dem Zugang, nur den Hostnamen:
+  ```
+  SYNC_CREDENTIAL_<SCHLÜSSEL>=<E-Mail des Kontos>:<API-Token>
+  SYNC_CREDENTIAL_<SCHLÜSSEL>_HOST=<firma>.atlassian.net
+  ```
+  Die Einstellung `site` muss genau dieser Host sein (mit `https://`). Nennt sie einen anderen, verweigert der Connector die Quelle mit `jira.bad_settings`, fehlt die Zeile `…_HOST`, mit `jira.no_credential`, beides bevor er irgendetwas sendet. Einer Umleitung auf einen anderen Host folgt er nicht. So kann niemand, der die Einstellungen in der Plattform ändert, den Zugang an eine andere Adresse schicken.
 - **Kein Zugang:** Ein Name oder Wert, der nach einem Zugang aussieht (Token, Passwort, Geheimnis, Schlüssel, eine Adresse mit Benutzer oder Token, «E-Mail:Token»), wird abgelehnt; die Meldung nennt die Zeile für `knovas-sources.env`. Der Zugang wird am Standort eingetragen, nie in die Plattform. Die Prüfung erkennt Zugänge an ihrer Form, nicht jedes Geheimnis: ein kurzes Passwort unter einem harmlosen Namen fiele nicht auf. Es gehört trotzdem nicht hierher.
 
 Geändert werden die Einstellungen auf der Seite der Quelle unter «Einstellungen ändern»; wie jede Änderung erreichen sie den Standort erst nach Prüfen & Veröffentlichen, dann genau so, wie sie eingetragen sind. «Änderungen dürfen zurückgeschrieben werden» gibt es, wo der Connector Aktionen angemeldet und die Prüfungen fürs Schreiben bestanden hat; «Agenten dürfen Originale abrufen», wo er `fetch` angemeldet hat; die Schreibweise wie bei jeder Quelle (Abschnitt 5). «Testen» liest eine solche Quelle nicht: das tut nur die Komponente am Standort.

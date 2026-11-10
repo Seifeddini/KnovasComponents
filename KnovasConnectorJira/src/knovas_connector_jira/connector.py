@@ -44,6 +44,9 @@ difference when it touched the same field).
 Every change, difference and conflict names its ``step``, the index into the job's ``args.steps`` (D-14); a receipt
 read again later names the step of its permit in the act job, from the marker.
 
+The credential goes only to the host the site's environment binds to it (``client.credential_from_environment``); a
+source whose ``site`` setting names another host is refused ``jira.bad_settings`` before any request (GI-CONN-07).
+
 Logs carry codes and counts only: never an issue key, a value, a site or the credential (GI-DATA-02, GI-DATA-04).
 """
 from __future__ import annotations
@@ -61,7 +64,8 @@ from knovas_connector_kit.canonical import digest
 from knovas_connector_kit.connector import Connector, grouping_of, outcome
 
 from knovas_connector_jira import SOURCE_KIND, VERSION
-from knovas_connector_jira.client import JiraClient, JiraError, Settings, issue_key, key_order, settings_of
+from knovas_connector_jira.client import (Credential, JiraClient, JiraError, Settings, issue_key, key_order,
+                                          settings_of)
 from knovas_connector_jira.records import (RECORD_KIND, changed_fields, editable, entries_since, fields_of, record,
                                            requested_fields, value_of, version_of)
 
@@ -103,9 +107,10 @@ def _now() -> str:
 
 class JiraConnector(Connector):
     """``source(key)`` the source Link assigned (``{key, kind, access, settings}``), ``credential(source)`` its
-    credential at the site (``client.credential_from_environment``)."""
+    credential at the site with the host it is bound to (``client.credential_from_environment``)."""
 
-    def __init__(self, *, source: Callable[[str], Optional[dict]], credential: Callable[[Mapping], Optional[str]],
+    def __init__(self, *, source: Callable[[str], Optional[dict]],
+                 credential: Callable[[Mapping], Optional[Credential]],
                  session: Any = None, report_sha256: str = "0" * 64, sleep: Optional[Callable[[float], None]] = None):
         self._source, self._credential = source, credential
         self.session, self.report_sha256, self.sleep = session, report_sha256, sleep

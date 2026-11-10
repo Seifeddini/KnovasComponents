@@ -12,7 +12,8 @@ purpose: Jira Cloud's REST API (version 3) on a company's own site, as far as th
   issues through it and changes an issue's assignee, due date and status, always with the source's own credential at
   the site.
 not_responsible_for:
-- Holding a credential; each call carries the source's credential from the site's environment.
+- Holding a credential; each call carries the source's credential from the site's environment, to the one host the
+  site names beside it there.
 - Deciding what may be written; the Brain's permits and Knovas Link do (connector protocol 2.0).
 terms:
 - change log (an issue's list of change entries; each change to a tracked field adds one with a new id)
@@ -53,7 +54,8 @@ contract:
     always:
     - id: EXT-JIRA-API/*/A-1
       statement: A call is authenticated by its Authorization header - basic with an account's email and API token, or
-        a bearer token; a wrong or missing credential answers 401. The site is the company's own host.
+        a bearer token; a wrong or missing credential answers 401. The site is the company's own host, the one the
+        site's environment binds the credential to, and the API answers there itself; a redirect is not followed.
       risk_class: critical
       evidence:
       - kind: test
@@ -61,6 +63,7 @@ contract:
         checks:
         - test_a_wrong_credential_is_unauthorized_and_the_error_carries_no_secret
         - test_an_email_and_token_is_basic_a_bare_token_is_bearer_and_none_is_refused
+        - test_a_redirect_to_another_host_is_not_followed_so_the_credential_never_reaches_it
     limits:
     - id: EXT-JIRA-API/*/L-1
       statement: Jira limits the rate of calls and answers 429 with Retry-After when the limit is reached.
@@ -174,6 +177,10 @@ review:
   why: The evidence runs against an in-process stand-in of Jira Cloud (KnovasConnectorJira/tests/fake_jira.py), written
     from Atlassian's OpenAPI document of the REST API version 3 (read 2026-11-10); it shows what is relied on, not that
     Jira keeps it. A live smoke on the pilot project waits for the token at the site (P-3, J-4).
+- at: EXT-JIRA-API/*/A-1
+  why: Changed after the verification of 2026-11-10 (finding KC N1) - the site is the host bound to the credential at
+    the site, and the connector relies on the API answering there without a redirect; a person marks it compatible or
+    not.
 - at: EXT-JIRA-API/*/L-2
   why: No evidence; read from the API document (an edit and a transition take no expected version).
 - at: EXT-JIRA-API/search-jql/L-1
