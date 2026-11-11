@@ -1,7 +1,8 @@
 # Draft pull request: `cl/jolly-fermat-ro3vkk` into `main` (2026-11-10)
 
-Prepared for FEAT-2026-11-10-write-back (J-4, C-5) and BET-2026-11-write-back (WB-07, WB-12). Not opened: the
-founder opens it, with the body below. The release steps after it are in "Release" at the end of this file.
+Prepared for FEAT-2026-11-10-write-back (J-4, C-5) and BET-2026-11-write-back (WB-07, WB-12). Opened as
+KnovasComponents pull request #50 on 2026-11-11 by the coordinator (founder decision D-36); the founder merges it. The
+release steps after it are in "Release" at the end of this file.
 
 ---
 
@@ -35,7 +36,7 @@ Items are named per commit.
    its conformance suite (WB-11, A-3, A-4); Knovas Link v2 behind `LINK_PROTOCOL_V2` (A-5; WB-21, WB-06, WB-25 site
    halves); GitHub on the kit behind `SYNC_PROTOCOL_V2` (C-3); declarations, «Freigaben» with change sets and the
    generic settings form behind `BUILDER_PROTOCOL_V2` (C-1, C-2, C-8); the Platform keeps components of their own kind
-   (migration 0025); the Jira connector (J-0..J-2, WB-07, WB-20); and with this change **the Jira connector at a site**
+   (migration 0025); the Jira connector (J-0..J-2, WB-07, WB-20); and since `0b8d092` **the Jira connector at a site**
    (its image, `deploy/docker-compose.jira.yml`, `LINK_COMPONENTS` in Link, `dump-stream`) and **the site's half of
    C-5** (`SYNC_PROTOCOL_V2=1` pinned to keep reading, fetch and 1.x jobs; the switch-over in
    `KnovasPlatform/docs/connect-a-site.md` § 6.2); the description as plain text (`74d0ddf`, ADF); and the
@@ -361,5 +362,5 @@ repository → KnovasComponents → role **Write**; "Danger zone" says **Private
 - `0b8d092` The Jira connector runs at a site behind Knovas Link with its own image, and dump-stream writes a source's record stream; the sync component serves a GitHub source on protocol 2 while its reads stay; the release workflow builds four images (FEAT-2026-11-10-write-back J-4, C-5; BET-2026-11-write-back WB-07, WB-12)
 - `74d0ddf` Jira connector: a rich-text field (the description, Atlassian Document Format) reaches the record as plain text, bounded at 32,768 characters, instead of null (FEAT-2026-11-10-write-back J-4; BET-2026-11-write-back WB-07, WB-30)
 - `f88ccaa` Jira credential only in the Jira connector's own knovas-jira.env, and the sync component never sends a host-bound, host or other kind's credential; migration 0025 refuses a child of Link's own kind; the ADF bound in bytes (FEAT-2026-11-10-write-back J-4; BET-2026-11-write-back WB-07, WB-20; SPEC-write-back-20, GI-CONN-07; verifier KC-3 N5, notes 2, 3, 5)
-- this change: the Jira stream carries what a Brain mapping reads and no more (FEAT-2026-11-10-write-back J-4; BET-2026-11-write-back WB-07; D-34 recommendation)
-- (this change) The Jira connector runs at a site behind Knovas Link with its own image, and dump-stream writes a source's record stream; the sync component serves a GitHub source on protocol 2 while its reads stay; the release workflow builds four images (FEAT-2026-11-10-write-back J-4, C-5; BET-2026-11-write-back WB-07, WB-12)
+- `7fb67e5` Jira connector: the stream carries what a Brain mapping reads and no more (FEAT-2026-11-10-write-back J-4; BET-2026-11-write-back WB-07; founder decision D-34)
+- `90d95ec` Merge `main` into the branch so the release pull request can be built (the release workflow kept at this branch's version; FEAT-2026-11-10-write-back; D-36)
