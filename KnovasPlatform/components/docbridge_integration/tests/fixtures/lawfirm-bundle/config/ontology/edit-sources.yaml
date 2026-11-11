@@ -1,0 +1,39 @@
+types:
+  Contract:
+    editable: true
+    source: Akten register
+    key_path: Contract
+  Matter:
+    editable: true
+    source: Akten register
+    key_path: Matter
+relations:
+  Contract belongs_to_matter Matter:
+    editable: true
+    source: Akten folder
+    key_path: folder
+facts:
+  '*.status':
+    editable: true
+    source: DMS
+    key_path: status
+  '*.current_step':
+    editable: false
+    source: loader
+    key_path: '-'
+    reason: derived by loader
+    fix_at: status
+  '*.step_history':
+    editable: false
+    source: loader
+    key_path: '-'
+    reason: derived by loader
+    fix_at: status
+  Matter.client:
+    editable: true
+    source: DMS
+    key_path: client
+  Contract.term_end:
+    editable: true
+    source: DMS
+    key_path: term_end

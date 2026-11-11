@@ -888,7 +888,8 @@ def create_app(config_path: Optional[str] = None):
         """Avoid browsers serving cached HTML/JS after docker rebuild."""
         path = request.path or ''
         if (
-            path in ('/', '/login', '/ontology')
+            path in ('/', '/login', '/ontology', '/views')
+            or path.startswith('/views/doc/')
             or path == '/experiments'
             or path.startswith('/experiments/')
             or path.endswith('.js')
@@ -1386,6 +1387,9 @@ def create_app(config_path: Optional[str] = None):
         # ambient credential for a forged request to ride on.
         if request.endpoint.startswith('experiments_api.'):
             return None
+        # Connector protocol v1 (Brain Builder B13): components send their own token, never a browser cookie.
+        if request.endpoint.startswith('connector_protocol.'):
+            return None
         csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
         if not _csrf_token_is_valid(csrf_header):
             return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 403
@@ -1639,6 +1643,11 @@ def create_app(config_path: Optional[str] = None):
         if not _csrf_token_is_valid(submitted_csrf):
             return jsonify({'success': False, 'error': 'CSRF token ungültig'}), 400
         if identity_gate is not None:
+            leaving = identity_gate.current_user()
+            if leaving is not None and 'views' in app.extensions:
+                # The views keep this person's topology and facts in memory;
+                # they leave with the session, not at the end of the TTL.
+                app.extensions['views'].forget_subject(str(leaving.id))
             identity_gate.sign_out()
         else:
             session.clear()
@@ -1734,6 +1743,25 @@ def create_app(config_path: Optional[str] = None):
             logger.warning('Experimente-Eintrag nicht ermittelbar: %s', exc)
             return False
 
+    def _builder_nav() -> bool:
+        """Whether the sidebar offers the Brain Builder: the signed-in person
+        holds a builder role. Presentation only -- the builder blueprint
+        refuses on its own -- so a failure hides the item."""
+        if identity_gate is None:
+            return False
+        try:
+            from builder.store import WorkspaceStore
+            from web_interface.builder_routes import user_may_build
+
+            user = identity_gate.current_user()
+            if user is None:
+                return False
+            # A consultant holds no builder role, only a grant on one workspace.
+            return user_may_build(user, WorkspaceStore(identity_gate.connection()).grants_of(user.id))
+        except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
+            logger.warning('Builder-Eintrag nicht ermittelbar: %s', exc)
+            return False
+
     def _sidebar_context() -> Dict[str, Any]:
         """Gemeinsame Werte der Plattform-Leiste."""
         return {
@@ -1742,6 +1770,7 @@ def create_app(config_path: Optional[str] = None):
             'console_url': _console_url(),
             'cortex_enabled': cortex_enabled,
             'experiments_nav': _experiments_nav(),
+            'builder_nav': _builder_nav(),
         }
 
     @app.route('/')
@@ -1779,7 +1808,8 @@ def create_app(config_path: Optional[str] = None):
         if cortex_enabled:
             return None
         path = request.path or ''
-        if path == '/ontology' or path.startswith('/api/ontology'):
+        if (path in ('/ontology', '/views') or path.startswith('/api/ontology')
+                or path.startswith('/api/views') or path.startswith('/views/')):
             if path.startswith('/api/'):
                 return jsonify({'success': False, 'error': 'Cortex ist deaktiviert.'}), 404
             return redirect(url_for('index'))
@@ -1800,12 +1830,18 @@ def create_app(config_path: Optional[str] = None):
 
     @app.route('/settings')
     def settings_page():
-        """Konto und System. Zeigt nur echte Werte, keine Attrappen."""
+        """Konto und System. Zeigt nur echte Werte, keine Attrappen.
+
+        Administrators also get "Ansichten und Wissensbasis" (KC-0.1): the registered platform
+        settings, filled by the page's script from /api/settings/platform.
+        """
         if identity_gate is not None:
             signed_in_as = identity_gate.current_user()
             display_name = f'{signed_in_as.display_name} ({signed_in_as.email})'
+            settings_admin = 'admin' in (getattr(signed_in_as, 'roles', ()) or ())
         else:
             display_name = config.get('web.login.username', '') or ''
+            settings_admin = True
         return render_template(
             'settings.html',
             active_nav='einstellungen',
@@ -1817,6 +1853,7 @@ def create_app(config_path: Optional[str] = None):
             csrf_token=_ensure_csrf_token(),
             asset_version=_static_asset_version(),
             build_id=DOCBRIDGE_BUILD_ID,
+            settings_admin=settings_admin,
         )
 
     if identity_gate is not None:
@@ -1839,6 +1876,221 @@ def create_app(config_path: Optional[str] = None):
                 'ingestion_enabled': rc_client is not None,
             },
         ))
+
+        from builder.publisher import BrainRunnerEngine
+        from builder.store import WorkspaceStore
+        from web_interface.builder_routes import create_builder_blueprint
+
+        def _builder_brain_api():
+            """brain-runner's API client on this Platform's certificate: its tenant only."""
+            from brain_runner.api import BrainApi
+
+            return BrainApi(api_client.base_url, api_client.cert_path or None, api_client.key_path or None,
+                            api_client.ca_cert_path or None)
+
+        def _builder_source_secrets():
+            """The sources' credentials in the settings registry, for this Platform's tenant (write-only)."""
+            import platform_settings as _ps
+
+            return _ps.SourceSecrets(_ps.SettingStore(identity_gate.connection()),
+                                     app.extensions['platform_settings'].box, str(api_client.customer_id or ''))
+
+        def _builder_platform_roles():
+            return [r[0] for r in identity_gate.connection().execute('SELECT key FROM roles ORDER BY key').fetchall()]
+
+        def _builder_roles_sink(mapping, user):
+            """Write the published role mapping through the settings registry (audited like a page edit)."""
+            app.extensions['platform_settings'].save(user, {'views.profile_roles': mapping or None},
+                                                     roles=_builder_platform_roles())
+
+        def _builder_component_secrets():
+            """The sync components' token hashes in the settings registry, for this Platform's tenant."""
+            import platform_settings as _ps
+
+            return _ps.SourceSecrets(_ps.SettingStore(identity_gate.connection()),
+                                     app.extensions['platform_settings'].box, str(api_client.customer_id or ''),
+                                     prefix=_ps.COMPONENT_SECRET_PREFIX)
+
+        def _builder_component_adapter(component):
+            """What a component that does not speak protocol v1 yet reports today (builder.adapters)."""
+            from builder import adapters as _adapters
+
+            if component['kind'] == 'knovas_connector':
+                base = (component.get('settings') or {}).get('base_url')
+                client = KnovasConnectorClient(base, principal_broker=principal_broker) if base else rc_client
+                return _adapters.KnovasConnectorAdapter(client) if client is not None else None
+            if component['kind'] == 'github_runner':
+                sync = app.extensions.get('brain_sync')
+                return _adapters.GitHubRunnerAdapter(sync) if sync is not None else None
+            return None
+
+        def _builder_access_backend():
+            from builder.access_backend import BrainAccess
+
+            return BrainAccess(api_client)
+
+        # connection layer (MVP-27, MVP-28): begin
+        def _builder_tenant_client():
+            from builder.connection_api import BrainConnection
+
+            return BrainConnection(api_client)
+        # connection layer (MVP-27, MVP-28): end
+
+        def _builder_assistant():
+            """The views assistant: a Claude client on the settings registry's API key and the chosen model; None
+            without a key."""
+            resolver = app.extensions['platform_settings']
+            key = resolver.secret('builder.assistant.api_key')
+            if not key:
+                return None
+            import anthropic
+
+            return anthropic.Anthropic(api_key=key), resolver.value('builder.assistant.model') or 'claude-opus-5-5'
+
+        _builder_issue_certificates = str(config.get('builder.components.issue_certificates', 'true')
+                                          ).strip().lower() not in ('false', '0', 'no')
+        if not _builder_issue_certificates:
+            logger.warning("Sync components enrol without a certificate of their own: they use the tenant's. Only for a test.")
+
+        def _builder_component_limits():
+            resolver = app.extensions['platform_settings']
+            return {'offline_after_minutes': resolver.value('builder.components.offline_after_minutes'),
+                    'lag_hours': resolver.value('builder.components.lag_hours')}
+
+        def _builder_sync_status():
+            sync = app.extensions.get('brain_sync')
+            if sync is None:
+                return None
+            return {'state': sync.state(), 'runs': sync.history(50), 'evaluation': sync.evaluation()}
+
+        def _builder_reader(component, source, secret, workspace_id):
+            """A source's reader through the component that serves it (builder.sources)."""
+            import hashlib as _hashlib
+            import tempfile as _tempfile
+            from pathlib import Path as _Path
+
+            from builder import sources as _sources
+
+            settings = source.get('settings') or {}
+            if source['kind'] == 'github':
+                from brain_runner.sources.github import GitHubSource
+
+                # brain-runner's own cache: the listing is brought forward from the last read's commit.
+                name = _hashlib.sha256(f"{workspace_id}/{source['key']}/{settings.get('repository')}".encode()).hexdigest()
+                cache = _Path(_tempfile.gettempdir()) / 'builder-github' / f'{name}.json'
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                return _sources.GitHubReader(GitHubSource(settings['repository'], settings.get('ref') or 'HEAD',
+                                                          cache_path=cache, token=secret))
+            if source['kind'] == 'knovas_connector':
+                base = (component.get('settings') or {}).get('base_url')
+                client = KnovasConnectorClient(base, principal_broker=principal_broker) if base else rc_client
+                if client is None:
+                    raise _sources.ReaderError('Diese Plattform hat keinen KnovasConnector.')
+                return _sources.KnovasConnectorReader(client, settings.get('folder') or '')
+            if source['kind'] == 'http_json':
+                return _sources.HttpJsonReader(settings['url'], secret)
+            raise _sources.ReaderError('Diese Art von Quelle liest die Plattform nicht.')
+
+        # Only with per-user identity: the builder is gated on a role, and the
+        # legacy shared login has no roles to check. The store is built per
+        # request, on the request's connection, as the grant store below is.
+        def _builder_client_ca():
+            """Knovas's client CA (PEM, public; builder.components.client_ca): a site's Knovas Link learns it at enrolment
+            and installs only a certificate it signed; a site certificate recorded in the Builder must be signed by it
+            (BB-07 B3, S-4 M2)."""
+            path = str(config.get('builder.components.client_ca', '') or '').strip()
+            try:
+                text = open(path, encoding='utf-8').read() if path else ''
+            except OSError:
+                logger.warning("builder.components.client_ca is set but not readable")
+                return None
+            return text if 'BEGIN CERTIFICATE' in text else None
+
+        app.register_blueprint(create_builder_blueprint(
+            identity_gate,
+            page_context=lambda: {
+                'app_title': web_app_title,
+                'brand': web_brand,
+                'asset_version': _static_asset_version(),
+                'platform_url': url_for('index'),
+                'csrf_token': _ensure_csrf_token(),
+            },
+            store_factory=lambda: WorkspaceStore(identity_gate.connection()),
+            # The tenant of this Platform's own certificate: the only one a
+            # workspace can be linked to from here.
+            tenant_provider=lambda: api_client.customer_id,
+            engine_factory=lambda: BrainRunnerEngine(_builder_brain_api),
+            # The tenant's own node types and their schemas, for a workspace
+            # that starts from what the tenant has.
+            tenant_ontology=lambda: (api_client.graph_node_types(), api_client.graph_schema),
+            # The definitions the tenant's views read (its bundle, views.config_source): such a workspace
+            # takes the tenant's processes, spines, pages and profiles from it.
+            tenant_bundle=lambda: app.extensions['views'].bundle(),
+            # The views read the sync's bundle: a published version becomes it.
+            publish_sink=lambda text, **info: app.extensions['brain_sync'].adopt(text, **info),
+            views_source=lambda: app.extensions['platform_settings'].value('views.config_source'),
+            # Sources (B7): credentials only through the settings registry, reads only through a component.
+            source_secrets=_builder_source_secrets,
+            reader_factory=_builder_reader,
+            # The team (B11): inviting a consultant without an account makes one.
+            user_directory=lambda: identity_gate.users(),
+            # Views (B9): the role table, and the published role mapping as the setting views.profile_roles.
+            platform_roles=_builder_platform_roles,
+            roles_sink=_builder_roles_sink,
+            # What views.profile_roles holds now: the dry run shows what publish replaces (BB-07, B1).
+            roles_source=lambda: app.extensions['platform_settings'].value('views.profile_roles'),
+            # A site certificate recorded on the site page must be signed by Knovas's client CA (BB-07 B3).
+            client_ca=_builder_client_ca,
+            # Betrieb (B10): the sync's mapping state, runs and evaluation.
+            sync_status=_builder_sync_status,
+            # Sync components (B13): token hashes in the settings registry, adapters over what they report today.
+            component_secrets=_builder_component_secrets,
+            component_adapter=_builder_component_adapter,
+            component_limits=_builder_component_limits,
+            issue_certificates=_builder_issue_certificates,
+            # The access window (B14): the Brain's groups and folder rules on this Platform's certificate.
+            access_backend=_builder_access_backend,
+            # Views by description: Claude on the settings registry's API key (builder.assistant.*).
+            assistant_client=_builder_assistant,
+            # Relations and hierarchies from what the tenant's links show (builder.brain_shape).
+            tenant_graph=lambda: (api_client.graph_node_types(), api_client.graph_nodes(), api_client.graph_edges()),
+            # connection layer (MVP-27, MVP-28): begin
+            # «Freigaben» and the «Verbindung» card read the tenant's write proposals and job counts on this
+            # Platform's certificate (builder.connection_api), as the access window reads its groups.
+            tenant_client=_builder_tenant_client,
+            # connection layer (MVP-27, MVP-28): end
+        ))
+
+        # Connector protocol v1 (B13): components call out to these; each checks the component's own credential,
+        # so the session gate and the CSRF gate stand aside for them.
+        from web_interface.connector_protocol import ENDPOINTS as _PROTOCOL_ENDPOINTS
+        from web_interface.connector_protocol import create_connector_protocol_blueprint
+
+        def _builder_brain_ca():
+            """The CA this Platform checks the Brain's TLS certificate against: public, for an enrolling component."""
+            path = getattr(api_client, 'ca_cert_path', '') or ''
+            try:
+                text = open(path, encoding='utf-8').read() if path else ''
+            except OSError:
+                return None
+            return text if 'BEGIN CERTIFICATE' in text else None
+
+        app.register_blueprint(create_connector_protocol_blueprint(
+            store_factory=lambda: WorkspaceStore(identity_gate.connection()),
+            secrets=_builder_component_secrets,
+            tenant_provider=lambda: api_client.customer_id,
+            # The Brain signs a component's certificate for this Platform's tenant.
+            signer=lambda csr, name: api_client.sign_certificate(csr, validity_days=365, organisation=name, as_person=False),
+            # The TLS terminator sets X-Client-Cert-Fingerprint from the certificate it verified; only a deployment
+            # without one says so explicitly (BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT=false).
+            require_client_certificate=str(config.get('builder.components.require_client_certificate', 'true')
+                                           ).strip().lower() not in ('false', '0', 'no'),
+            brain_url=lambda: api_client.base_url,
+            brain_ca=_builder_brain_ca,
+            issue_certificates=_builder_issue_certificates,
+            client_ca=_builder_client_ca,
+        ))
+        identity_gate.allow_bearer_endpoints(_PROTOCOL_ENDPOINTS)
 
         from identity.node_grants import NodeGrantStore
         from web_interface.graph_routes import create_graph_blueprint
@@ -2954,6 +3206,171 @@ def create_app(config_path: Optional[str] = None):
                 text_resolver=_document_text_resolver())
         return _cortex_text_resolver['filters']
 
+    # Ansichten (/views): process and spine views drawn from the ontology's
+    # definitions; read-only on the brain. One service per worker, because it
+    # holds the per-subject topology caches (plan 2026-10-27, D1).
+    from graph_views.service import ViewService
+    from web_interface.views_routes import create_views_blueprint
+
+    # Settings an administrator changes on the settings page (KC-0.1): deployment pin, else the
+    # page's value, else config.yaml's default, read through a short cache so a change applies
+    # without a restart. Page values live in the platform database, so only with identity on.
+    import platform_settings as _psettings
+
+    settings_resolver = _psettings.Resolver(
+        config, tenant=str(config.get('api.customer_id', '') or '').strip(),
+        store=(lambda: _psettings.SettingStore(identity_gate.open_connection(), owned=True))
+        if identity_gate is not None else None,
+        # Once a sync from GitHub succeeded, the views read its bundle unless a source is configured (KC-0.2).
+        defaults={'views.config_source': lambda: _sync_default()})
+    app.extensions['platform_settings'] = settings_resolver
+
+    # Sync from GitHub (KC-0.2): the tenant's Brain from its knowledge base through the installed brain-runner
+    # package, read-only token from the settings, written with the tenant's certificate. Per tenant storage under
+    # brain_sync.storage_dir; history in the platform database, so only with identity on.
+    from brain_sync import PackageRunner as _SyncRunner
+    from brain_sync import SyncService as _SyncService
+    from brain_sync import SyncStore as _SyncStore
+    from pathlib import Path as _SyncPath
+
+    def _tenant_id() -> str:
+        return str(config.get('api.customer_id', '') or '').strip()
+
+    def _tenant_ref() -> str:
+        """The tenant and its certificate as one hash: a replaced certificate is another reference."""
+        import hashlib
+
+        cert = str(config.get('api.cert_path', '') or '').strip()
+        try:
+            cert_hash = hashlib.sha256(_SyncPath(cert).read_bytes()).hexdigest() if cert else ''
+        except OSError:
+            cert_hash = ''
+        return hashlib.sha256(f'{_tenant_id()}|{cert_hash}'.encode('utf-8')).hexdigest()[:16]
+
+    def _brain_api():
+        """The graph API with the tenant's client certificate (the write credential)."""
+        from brain_runner.api import BrainApi
+
+        return BrainApi(str(config.get('api.base_url', '') or '').strip(),
+                        str(config.get('api.cert_path', '') or '').strip(),
+                        str(config.get('api.key_path', '') or '').strip(),
+                        str(config.get('api.ca_cert_path', '') or '').strip())
+
+    sync_service = _SyncService(
+        settings_resolver, tenant=_tenant_id, tenant_ref=_tenant_ref,
+        storage=_SyncPath(str(config.get('brain_sync.storage_dir', '') or '/app/data/brain-sync')),
+        store=lambda: _SyncStore(identity_gate.open_connection(), owned=True),
+        runner=_SyncRunner(brain_api=_brain_api),
+        on_success=lambda tenant: _views_forget(tenant)) if identity_gate is not None else None
+    app.extensions['brain_sync'] = sync_service
+
+    def _sync_default():
+        return sync_service.default_bundle_source() if sync_service is not None else None
+
+    def _views_forget(tenant: str) -> None:
+        view_service.bundles.forget(tenant)
+        settings_resolver.invalidate()
+
+    def _kb_token() -> str:
+        """The change requests' least-privilege GitHub token (KB_GITHUB_TOKEN, the token file, else
+        the settings page); never logged."""
+        return settings_resolver.secret('views.change_requests.github_token') or ''
+
+    def _bundle_github(repo: str):
+        """GitHub for a github: definitions bundle (views.config_source), with the same token."""
+        from graph_views.github_repo import GitHubRepo
+
+        return GitHubRepo(repo, _kb_token())
+
+    view_service = ViewService(lambda: api_client, github=_bundle_github,
+                               settings_provider=settings_resolver.view_settings,
+                               sync_path=lambda tenant: sync_service.bundle_path() if sync_service is not None else None)
+    app.extensions['views'] = view_service
+    from identity import view_prefs
+    from identity.change_sets import ChangeSetStore
+    from identity.node_grants import NodeGrantStore as _ViewsGrantStore
+    from identity.saved_views import SavedViewStore
+
+    # Where the tenant's knowledge base keeps decision records and edge lists (V1-G4): the deployment's
+    # values, empty when it sets none (the change that needs one is then refused, never guessed).
+    from graph_views import repo_layout as _repo_layout
+
+    _repo_layout.configure(_repo_layout.RepoLayout.from_config(config))
+
+    def _change_repo():
+        """KnowledgeBase for change requests: GitHub with a least-privilege token
+        (contents + pull requests on KnowledgeBase only), else a read-only local
+        checkout for previews, else None (the form says it is not configured)."""
+        from graph_views.change_requests import LocalRepo
+        from graph_views.github_repo import GitHubRepo
+
+        token = _kb_token()
+        repo = str(config.get('views.change_requests.github_repo', '') or '').strip()
+        if token and repo:
+            return GitHubRepo(repo, token)
+        local = str(config.get('views.change_requests.local_repo', '') or '').strip()
+        return LocalRepo(local) if local and os.path.isdir(local) else None
+
+    def _platform_roles():
+        """The Platform's role keys, from the role table (the built-in four when it cannot be read)."""
+        from web_interface.settings_routes import BUILTIN_ROLES
+
+        if identity_gate is None:
+            return list(BUILTIN_ROLES)
+        try:
+            return [r[0] for r in identity_gate.connection().execute('SELECT key FROM roles ORDER BY key').fetchall()]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning('settings: roles not readable (%s)', type(exc).__name__)
+            return list(BUILTIN_ROLES)
+
+    def _bundle_profiles():
+        """The tenant's profiles, for the role-to-profile picker: [{id, audience}]."""
+        from graph_views.profiles import platform_profiles
+
+        found = view_service.bundle()
+        return [{'id': pid, 'audience': p.get('audience')} for pid, p in platform_profiles(found).items()]
+
+    def _github_repo(repo: str, token: str):
+        from graph_views.github_repo import GitHubRepo
+
+        return GitHubRepo(repo, token)
+
+    from web_interface.settings_routes import create_settings_blueprint
+
+    app.register_blueprint(create_settings_blueprint(
+        settings_resolver, gate=identity_gate, roles=_platform_roles, profiles=_bundle_profiles,
+        bundle_github=_bundle_github,
+        repository=lambda: str(config.get('views.change_requests.github_repo', '') or '').strip(),
+        make_repo=_github_repo))
+
+    if sync_service is not None:
+        from web_interface.sync_routes import create_sync_blueprint
+
+        app.register_blueprint(create_sync_blueprint(
+            sync_service, gate=identity_gate,
+            page_context=lambda: {**_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+                                  'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version()}))
+
+    app.register_blueprint(create_views_blueprint(
+        identity_gate, view_service,
+        graph_mode=_ontology_source_is_graph,
+        # Built per request: identity_gate.connection() is request-scoped.
+        view_store=(lambda: SavedViewStore(identity_gate.connection())) if identity_gate is not None else None,
+        view_prefs=view_prefs if identity_gate is not None else None,
+        change_repo=_change_repo,
+        change_store=(lambda: ChangeSetStore(identity_gate.connection())) if identity_gate is not None else None,
+        node_grants=(lambda: _ViewsGrantStore(identity_gate.connection())) if identity_gate is not None else None,
+        change_base=str(config.get('views.change_requests.base_branch', 'master') or 'master'),
+        # Documentation pages link explanation documents to their source on GitHub (Step 8).
+        doc_repo=str(config.get('views.change_requests.github_repo', '') or '').strip() or None,
+        page_context=lambda: {
+            **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+            'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version(),
+            'is_admin': bool(identity_gate is not None and identity_gate.current_user() is not None
+                             and 'admin' in identity_gate.current_user().roles),
+        },
+    ))
+
     @app.route('/api/ontology/summary', methods=['GET'])
     def ontology_summary():
         try:
@@ -3127,6 +3544,21 @@ def create_app(config_path: Optional[str] = None):
             logger.error("Ontology relation delete error", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
+    @app.route('/api/ontology/types/<type_id>', methods=['PATCH'])
+    def ontology_type_update(type_id: str):
+        try:
+            payload = request.get_json(silent=True) or {}
+            label = str(payload.get('label') or '').strip()
+            if not label:
+                return jsonify({'success': False, 'error': 'Name fehlt'}), 400
+            updated = _ontology_source().update_type(type_id, label)
+            if updated is None:
+                return jsonify({'success': False, 'error': 'Typ nicht gespeichert'}), 404
+            return jsonify({'success': True, 'type': updated})
+        except Exception:
+            logger.error("Ontology type update error for %s", type_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
     @app.route('/api/ontology/types/<type_id>', methods=['DELETE'])
     def ontology_type_delete(type_id: str):
         try:
@@ -3135,6 +3567,23 @@ def create_app(config_path: Optional[str] = None):
             return jsonify({'success': True})
         except Exception:
             logger.error("Ontology type delete error for %s", type_id, exc_info=True)
+            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
+
+    @app.route('/api/ontology/entities/<entity_id>', methods=['PATCH'])
+    def ontology_entity_update(entity_id: str):
+        try:
+            payload = request.get_json(silent=True) or {}
+            if 'label' not in payload and 'description' not in payload:
+                return jsonify({'success': False, 'error': 'Nichts zu speichern'}), 400
+            label = payload.get('label') if 'label' in payload else None
+            description = payload.get('description') if 'description' in payload else None
+            updated = _ontology_source().update_entity(
+                entity_id, label=label, description=description)
+            if updated is None:
+                return jsonify({'success': False, 'error': 'Entität nicht gespeichert'}), 404
+            return jsonify({'success': True, 'entity': updated})
+        except Exception:
+            logger.error("Ontology entity update error for %s", entity_id, exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['DELETE'])

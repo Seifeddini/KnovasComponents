@@ -4,7 +4,8 @@
    gesetzt), optional experiments_nav (Experimente: Modul eingeschaltet und
    die angemeldete Person hat eine Experimente-Rolle). Fehlt experiments_nav,
    gibt es keinen Eintrag -- anders als Cortex ist das Modul standardmaessig
-   aus und fuer alle ohne Rolle unsichtbar. #}
+   aus und fuer alle ohne Rolle unsichtbar. Optional builder_nav: die
+   angemeldete Person hat eine Builder-Rolle (bis Schritt B11: admin). #}
 <aside class="app-sidebar">
     <a class="app-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
         <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
@@ -47,6 +48,17 @@
                 <path d="M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3M7 15h10"/>
             </svg>
             Experimente
+        </a>
+        {% endif %}
+        {% if builder_nav is defined and builder_nav %}
+        <a href="{{ url_for('builder.home') }}" class="app-nav-item">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <rect x="9" y="2.5" width="6" height="5" rx="1"/><rect x="2.5" y="16.5" width="6" height="5" rx="1"/>
+                <rect x="15.5" y="16.5" width="6" height="5" rx="1"/><path d="M12 7.5v4M5.5 16.5v-2.5h13v2.5"/>
+            </svg>
+            Builder
         </a>
         {% endif %}
         <a href="{{ url_for('settings_page') }}" class="app-nav-item{% if active_nav == 'einstellungen' %} active{% endif %}"

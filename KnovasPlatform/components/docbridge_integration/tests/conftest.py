@@ -187,6 +187,28 @@ def _fresh_doc_fields_state():
     doc_fields_capability.reset_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _repo_layout_restored():
+    """The change requests' repository layout is set once per installation (create_app); a test that builds an
+    app must not leave its layout to the next test."""
+    from graph_views import repo_layout
+
+    previous = repo_layout.current()
+    yield
+    repo_layout.configure(previous)
+
+
+@pytest.fixture
+def knovas_repo_layout():
+    """The Knovas tenant's layout, for tests on the Knovas bundle fixture (the product default is empty)."""
+    from graph_views import repo_layout
+    from views_fixture import KNOVAS_REPO_LAYOUT
+
+    layout = repo_layout.RepoLayout(**KNOVAS_REPO_LAYOUT)
+    repo_layout.configure(layout)
+    return layout
+
+
 class DummyKnovasClient:
     """Controllable mock. Set DummyKnovasClient.health_result before creating the app."""
 
@@ -730,3 +752,19 @@ def exp_member_client(experiments_app, member):
 @pytest.fixture
 def exp_admin_client(experiments_app, platform_admin):
     return _signed_in(experiments_app, platform_admin.email)
+
+
+# -- Ansichten: the definitions bundle ---------------------------------------------
+# The views' readers take the request's bundle (graph_views/bundle.py); a test that
+# calls them directly gets the Knovas fixture (tests/fixtures/knovas-bundle).
+
+
+@pytest.fixture(autouse=True)
+def _views_knovas_bundle():
+    from views_fixture import knovas_bundle
+
+    from graph_views import bundle
+
+    token = bundle.use(knovas_bundle())
+    yield
+    bundle.reset(token)

@@ -10,6 +10,7 @@ from auth.platform_principal import refuse_if_broker_private_key_is_readable
 from config import get_config, load_config
 from m365.source import m365_configured, remove_stale_temp_copies
 from onedrive_mirror import start_mirror_thread_if_configured
+from platform_link import bootstrap as platform_link
 from routes.discover import discover_bp
 from routes.health import health_bp
 from routes.m365 import m365_bp
@@ -24,7 +25,9 @@ logger = logging.getLogger(__name__)
 
 
 def create_app(*, skip_validation: bool = False) -> Flask:
-    load_config(validate=not skip_validation)
+    # Before the configuration is read: an enrolled connector's certificate and Brain address come from its enrolment.
+    linked = platform_link.prepare()
+    load_config(validate=not skip_validation, force_reload=linked is not None)
 
     # The Platform's broker key directory is mounted here for its public half;
     # the private half is in the same directory. If this process can read it,
@@ -77,6 +80,9 @@ def create_app(*, skip_validation: bool = False) -> Flask:
                 start_mirror_thread_if_configured()
             except Exception as exc:
                 logger.warning("OneDrive mirror not started: %s", exc)
+
+    if linked is not None:
+        platform_link.start(linked)
 
     return app
 

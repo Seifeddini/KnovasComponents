@@ -1,0 +1,34 @@
+# The software map's checks for this repository: settings of brain-runner's `map-check` (format: brain-runner's
+# mapcheck/__init__.py). The cards (format 2) live in this folder, one per component; boundaries.yaml says where each
+# component's code begins and ends, and why. Report only: nothing blocks.
+#
+# Run from a checkout with brain-runner on the path (it reads committed files; by hand, --worktree in place of --head
+# reads the working tree, never in CI):
+#   python3 -m brain_runner map-check --repo . --base origin/main --head HEAD \
+#     --settings docs/components/map-check.yaml --markdown /tmp/map-check.md
+#   python3 -m brain_runner map-check ... --within L3-KNOVAS-LINK      # one card
+version: 1
+cards: ["docs/components/**/*.card.yaml"]
+code:
+  # The code reader, given the head's cards as its boundaries (map-check's default for code_map): every route, command
+  # and name one card's code takes from another, and the dependencies between the cards. Python only: the Builder's
+  # JavaScript, the njs file, the nginx files, the workflow and the shell scripts are not read.
+  - extractor: code_map
+    glob: "**/*.py"
+    options:
+      tracked_only: true
+      roots: [KnovasLink/src, KnovasConnectorKit/src, KnovasConnectorJira/src, KnovasConnectorJira/vendor,
+              KnovasPlatform/components/sync_component/src,
+              KnovasPlatform/components/docbridge_integration/src, KnovasConnector/src,
+              KnovasPlatform/components/experiments_runner, KnovasPlatform/experiments-sdk/python,
+              KnovasPlatform/mock_knovas_api]
+      # a route's app and prefixes: the Flask apps, the blueprints with their own url_prefix, and register_blueprint,
+      # whose url_prefix replaces the blueprint's (a blueprint registered as a factory's result is not followed to
+      # its app: such a route's app is the blueprint)
+      routes: {decorators: [route], verb_decorators: [get, post, put, patch, delete], registrations: [add_url_rule],
+               apps: [Flask], routers: [{call: Blueprint, prefix: url_prefix}],
+               mounts: [{call: register_blueprint, prefix: url_prefix, replaces: true}]}
+      cli: {subcommands: [add_parser], commands: [command], main_guard: true}
+      http: {methods: [get, post, put, patch, delete]}
+budget: {tokens: 16000, chars_per_token: 4, size_classes: [8000, 16000]}
+checks: {declared: report, compatible: report, budget: report, complete: report, fresh: report}

@@ -1,0 +1,5 @@
+version: 1
+relations:
+  - {name: client_of, family: Structure, sedm_iri: int:partyTo, domain: [Organization], range: [Mandate], inverse: has_client, reason: "SeDM partyTo."}
+  - {name: due_in, family: Structure, sedm_iri: null, domain: [Deadline], range: [Mandate], reason: "candidate: a deadline belongs to its mandate."}
+  - {name: relates_to, family: Other, sedm_iri: null, domain: [], range: [], reason: "candidate: placeholder without bounds."}

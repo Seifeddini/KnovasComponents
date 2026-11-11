@@ -1,0 +1,8 @@
+id: partner
+audience: Partner
+role: ROLE-PARTNER
+description: "Sees every mandate and its deadlines."
+lens:
+  spines: [SPINE-client]
+  types: [Organization, Mandate, Deadline]
+views: []

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knovas Cortex</title>
+    <link rel="icon" href="../img/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="bestand.css?v=6">
+</head>
+<body class="bestand-app">
+    <div class="app-shell">
+        <aside class="app-sidebar">
+            <a class="app-brand" href="http://192.168.1.15:8081/" aria-label="Knovas Document Search">
+                <img src="../img/knovas-logo.svg" alt="Knovas" width="120" height="16">
+            </a>
+            <nav class="app-nav" aria-label="Hauptnavigation">
+                <a class="app-nav-item" href="http://192.168.1.15:8081/">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                    </svg>
+                    Suche
+                </a>
+                <a class="app-nav-item active" href="./" aria-current="page">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                    </svg>
+                    Cortex
+                </a>
+                <a class="app-nav-item" href="http://192.168.1.15:8081/settings">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                        <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
+                        <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
+                        <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
+                        <line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/>
+                        <line x1="17" y1="16" x2="23" y2="16"/>
+                    </svg>
+                    Einstellungen
+                </a>
+            </nav>
+            <div class="app-sidebar-foot">
+                <a class="app-user" href="http://192.168.1.15:8081/settings">
+                    <span class="app-avatar" aria-hidden="true">K</span>
+                    <span class="app-user-text">
+                        <span class="app-user-name">Knovas</span>
+                        <span class="app-user-role">Angemeldet</span>
+                    </span>
+                </a>
+            </div>
+        </aside>
+
+        <div class="app-content">
+            <div class="container">
+                <header class="site-header">
+                    <h1 class="site-greeting">Cortex<br>
+                        <span class="site-greeting-question">Ihr Wissen, vernetzt.</span>
+                    </h1>
+                </header>
+
+                <main class="bestand-page" aria-label="Cortex">
+                    <div class="bestand-frame">
+                        <div class="bestand-frame-head">
+                            <h2>Struktur</h2>
+                            <div class="bestand-switch" role="radiogroup" aria-label="Ansicht">
+                                <button type="button" id="viewLayers" role="radio" aria-checked="true">Schichten</button>
+                                <button type="button" id="viewOld" role="radio" aria-checked="false">Bisherige Ansicht</button>
+                            </div>
+                        </div>
+
+                        <div class="view-bar" id="viewBar" role="tablist" aria-label="Gespeicherte Ansichten"></div>
+
+                        <div class="layer-view" id="bestandReading">
+                            <div class="layer-toolbar">
+                                <p id="bestandLead"></p>
+                                <div class="layer-toolbar-side">
+                                    <div class="bestand-switch" role="radiogroup" aria-label="Gewichtung">
+                                        <button type="button" id="objVolume" role="radio" aria-checked="false">Volumen</button>
+                                        <button type="button" id="objLearned" role="radio" aria-checked="true">Gelernt</button>
+                                    </div>
+                                    <label class="layer-search-label" for="bestandSearch">Typ suchen</label>
+                                    <input id="bestandSearch" type="search" placeholder="Typ oder Eintrag suchen" autocomplete="off" spellcheck="false">
+                                    <button type="button" id="layerBack" hidden>Übersicht</button>
+                                </div>
+                            </div>
+                            <div class="layer-stage-wrap" id="layerWrap">
+                            <div class="layer-stage" id="layerStage">
+                                <div class="layer-world" id="layerWorld"></div>
+                                <p class="view-empty" id="viewEmpty" hidden>Keine Knoten in dieser Ansicht.</p>
+                            </div>
+                            <aside class="node-picker" id="nodePicker" hidden aria-label="Knoten dieser Ansicht">
+                                <div class="node-picker-head">
+                                    <label class="layer-search-label" for="viewName">Name der Ansicht</label>
+                                    <input id="viewName" type="text" maxlength="40" autocomplete="off" spellcheck="false">
+                                    <button type="button" id="pickerClose">Schliessen</button>
+                                </div>
+                                <label class="layer-search-label" for="pickerSearch">Knoten suchen</label>
+                                <input id="pickerSearch" type="search" placeholder="Knoten suchen" autocomplete="off" spellcheck="false">
+                                <div class="node-picker-actions">
+                                    <button type="button" id="pickerAll">Alle</button>
+                                    <button type="button" id="pickerNone">Keine</button>
+                                    <button type="button" id="pickerDelete">Löschen</button>
+                                </div>
+                                <ul id="pickerList"></ul>
+                            </aside>
+                            </div>
+                        </div>
+
+                        <div id="bestandOld" hidden>
+                            <p class="bestand-old-note" id="bestandOldNote"></p>
+                            <div id="oldGraph" aria-label="Bisherige Kreisansicht"></div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <script src="data.js"></script>
+    <script src="examples.js"></script>
+    <script src="../js/vendor/cytoscape.min.js"></script>
+    <script src="bestand.js?v=8"></script>
+</body>
+</html>

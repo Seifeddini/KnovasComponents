@@ -1,0 +1,152 @@
+{# Stage 5 (build plan step B7): the workspace's sources, each read through a
+   registered component. Expects current_workspace, history and sources
+   (builder_routes._sources_view). static/js/builder/sources.js draws the
+   list, a source's settings, its write-only credential, the test and the
+   sample browser. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% block title %}{{ stage.label }} · {{ current_workspace.name }}{% endblock %}
+{% block main %}
+<header class="b-onto-head">
+    <div class="b-page-head" style="margin-bottom: 0">
+        <p class="b-step-count b-small">Stufe {{ stage_number }} von {{ stages | length }} · {{ current_workspace.name }}</p>
+        <h1 class="b-h1">Quellen</h1>
+        <p class="b-muted">Was die Firma hält, gelesen über ihre registrierten Komponenten. Die Zuordnung zur Ontologie folgt.</p>
+    </div>
+    <div class="b-onto-edit-bar" data-src-root
+         data-edit-url="{{ url_for('builder.edit_ontology', workspace_id=current_workspace.id, view='sources') }}"
+         data-base-url="{{ url_for('builder.source_test', workspace_id=current_workspace.id, key='__KEY__') }}"
+         data-components-url="{{ url_for('builder.stage', slug='verbinden') }}">
+        <button type="button" class="b-button b-button--primary" data-src-new {% if not sources.components %}disabled title="Zuerst eine Komponente registrieren."{% endif %}>{{ icon('plus') }}Quelle hinzufügen</button>
+    </div>
+</header>
+
+{% if not sources.components %}
+<div class="b-callout b-callout--warning" role="status">
+    <p class="b-callout-title">Noch keine Komponente registriert</p>
+    <p>Jede Quelle wird über eine registrierte Komponente gelesen. <a href="{{ url_for('builder.stage', slug='verbinden') }}">Komponente registrieren</a></p>
+</div>
+{% endif %}
+{% if not sources.secrets.available %}
+<div class="b-callout" role="status"><p>Zugangsdaten können nicht gespeichert werden: {{ sources.secrets.reason }}</p></div>
+{% endif %}
+
+<div class="b-src-layout">
+    <nav class="b-proc-list" aria-label="Quellen">
+        <ul data-src-list></ul>
+        <p class="b-muted b-small" data-src-list-empty hidden>Noch keine Quelle.</p>
+        <div class="b-src-planned">
+            {% for p in sources.planned %}<p class="b-small b-muted"><strong>{{ p.label }}</strong> <span class="b-tag">Geplant</span><br>{{ p.text }}</p>{% endfor %}
+        </div>
+    </nav>
+    <div class="b-src-detail" data-src-detail aria-live="polite"></div>
+</div>
+
+<section class="b-src-mappings" aria-labelledby="b-src-mappings-title">
+    <h2 class="b-h2" id="b-src-mappings-title">Zuordnungen</h2>
+    <p class="b-muted">Wie die Einträge einer Quelle zu Knoten, Fakten und Kanten werden. Eine neue beginnt bei «Zuordnen» neben einer Sammlung im Test.</p>
+    {% if sources.mappings %}
+    <div class="b-table-wrap">
+        <table class="b-table" data-src-mappings>
+            <thead><tr><th scope="col">Zuordnung</th><th scope="col">Zieltypen</th><th scope="col">Liest</th><th scope="col">Prüfung</th><th scope="col"><span class="b-visually-hidden">Aktionen</span></th></tr></thead>
+            <tbody>
+            {% for m in sources.mappings %}
+                <tr>
+                    <td><a href="{{ m.url }}" class="b-mono">{{ m.id }}</a><br><span class="b-small b-muted">{{ m.description }}</span></td>
+                    <td>{{ m.types | join(', ') }}</td>
+                    <td class="b-small">{% if m.source %}Quelle <span class="b-mono">{{ m.source }}</span>{% else %}<span class="b-muted">noch keine Quelle gewählt</span>{% endif %}<br><span class="b-mono b-muted">{{ m.extractor }}</span></td>
+                    <td>{% if m.problems %}<span class="b-tag b-tag--critical">{{ m.problems }} {{ 'Problem' if m.problems == 1 else 'Probleme' }}</span>{% else %}<span class="b-tag b-tag--good">In Ordnung</span>{% endif %}</td>
+                    <td><button type="button" class="b-button b-button--quiet b-button--small" data-map-remove="{{ m.id }}">Entfernen</button></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="b-muted">Noch keine Zuordnung.</p>
+    {% endif %}
+</section>
+
+<dialog class="b-dialog" id="b-map-new" aria-labelledby="b-map-new-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-map-new-title">Neue Zuordnung</h2>
+            <p class="b-muted" data-mn-what></p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <div class="b-field">
+                <label class="b-label" for="b-mn-id">Kennung</label>
+                <input class="b-input b-mono" id="b-mn-id" name="id" required autocomplete="off" spellcheck="false" placeholder="z. B. ablage-mandate">
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="b-mn-type">Zieltyp</label>
+                <select class="b-select" id="b-mn-type" name="type">{% for t in sources.types %}<option value="{{ t.key }}">{{ t.name }}{% if t.name != t.key %} ({{ t.key }}){% endif %}</option>{% endfor %}</select>
+            </div>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Zuordnung anlegen</button>
+        </div>
+    </form>
+</dialog>
+
+<script type="application/json" id="b-src-data">{{ sources | tojson }}</script>
+
+<dialog class="b-dialog b-dialog--wide" id="b-src-new" aria-labelledby="b-src-new-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-src-new-title">Quelle hinzufügen</h2>
+            <p class="b-muted">Gelesen wird sie nur über die gewählte Komponente.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <fieldset class="b-field b-choice">
+                <legend class="b-label">Art</legend>
+                {% for kind, k in sources.kinds.items() if not k.generic %}
+                <label class="b-check"><input type="radio" name="kind" value="{{ kind }}" {% if loop.first %}checked{% endif %}>{{ k.label }}</label>
+                {% endfor %}
+                {% for p in sources.planned %}
+                <label class="b-check b-muted"><input type="radio" name="kind" value="{{ p.kind }}" disabled>{{ p.label }} (geplant)</label>
+                {% endfor %}
+                {% set declared = sources.kinds.items() | selectattr('1.generic') | list %}
+                {% if declared %}
+                <p class="b-small b-muted" data-sn-declared>Von einem Connector am Standort angemeldet (Protokoll 2), mit allgemeinen Einstellungen:</p>
+                {% for kind, k in declared %}
+                <label class="b-check"><input type="radio" name="kind" value="{{ kind }}" data-sn-generic><span class="b-mono">{{ k.label }}</span></label>
+                {% endfor %}
+                {% endif %}
+            </fieldset>
+            <div class="b-field">
+                <label class="b-label" for="b-sn-component">Komponente</label>
+                <select class="b-select" id="b-sn-component" name="component"></select>
+                <span class="b-hint" data-sn-component-hint></span>
+            </div>
+            <div class="b-ed-pair">
+                <div class="b-field"><label class="b-label" for="b-sn-name">Name</label><input class="b-input" id="b-sn-name" name="name" required autocomplete="off"></div>
+                <div class="b-field"><label class="b-label" for="b-sn-owner">Verantwortlich</label><input class="b-input" id="b-sn-owner" name="owner" autocomplete="off"></div>
+            </div>
+            <div class="b-field" data-sn-key hidden>
+                <label class="b-label" for="b-sn-key">Schlüssel</label>
+                <input class="b-input b-mono" id="b-sn-key" name="key" autocomplete="off" spellcheck="false" placeholder="aus dem Namen gebildet, falls leer">
+                <span class="b-hint">Klein geschrieben, Wörter mit Bindestrich. Bestimmt die Zeile für den Zugang am Standort (SYNC_CREDENTIAL_…).</span>
+            </div>
+            <div data-sn-settings></div>
+            <p class="b-small b-muted" data-sn-credential-note>Synchronisation: manuell. Zugangsdaten setzen Sie nach dem Anlegen; sie werden nur geschrieben, nie angezeigt.</p>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Quelle anlegen</button>
+        </div>
+    </form>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/sources.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

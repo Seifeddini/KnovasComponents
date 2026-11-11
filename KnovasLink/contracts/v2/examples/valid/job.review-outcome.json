@@ -1,0 +1,22 @@
+{
+  "schema": "job.schema.json",
+  "description": "Ask for the outcome of a staged change.",
+  "instance": {
+    "id": "55555555-6666-4777-8888-999999999999",
+    "kind": "review_outcome",
+    "protocol": "2.0",
+    "source": "records-main",
+    "target_serial": "731948205517",
+    "deadline": "2026-11-10T14:10:00Z",
+    "actor": {
+      "kind": "user",
+      "id": "person-example-approver"
+    },
+    "args": {
+      "stage_ref": "stage-example-41",
+      "permit_ids": [
+        "7a6b5c4d-3e2f-4a1b-9c0d-8e7f6a5b4c3d"
+      ]
+    }
+  }
+}

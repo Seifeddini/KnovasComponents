@@ -1,0 +1,144 @@
+card: 2
+id: EXT-BRAIN-RUNNER
+name: brain-runner, the mapping runner (external)
+kind: external
+owner: ROLE-ENGINE-OWNER
+purpose: The mapping runner the Platform's and the sync component's images install at a pinned release
+  (BRAIN_RUNNER_GIT_REF), as far as the code of this repository calls it.
+not_responsible_for:
+- Its own code, releases and tests; they live in the repository it is released from.
+terms:
+- the pin (the release an image installs, BRAIN_RUNNER_GIT_REF in each Dockerfile; CI installs one too)
+operations:
+- id: cli.plan
+  name: python -m brain_runner plan --config FILE --out PLAN --state STATE --mapping ID ...
+  entrance: cli
+  ref: python -m brain_runner plan
+- id: cli.apply
+  name: python -m brain_runner apply --plan PLAN --state STATE [--approve-guard REASON]
+  entrance: cli
+  ref: python -m brain_runner apply
+- id: cli.compile-write
+  name: python -m brain_runner compile-write --config FILE --job FILE
+  entrance: cli
+  ref: python -m brain_runner compile-write
+- id: cli.affected
+  name: python -m brain_runner affected --config FILE --since COMMIT --source github --repo OWNER/NAME --ref REF --json
+  entrance: cli
+  ref: python -m brain_runner affected
+- id: call.runner-entry
+  name: brain_runner.__main__.main(argv, source=), runner.make_plan(previous=, stream_source=), sources.LocalSource,
+    sources.base.path_order
+  entrance: call
+  ref: brain_runner.__main__#main
+- id: call.publish-api
+  name: config, bundle.build and dumps, ontology.plan and apply, diff, snapshot, state, api.BrainApi
+  entrance: call
+  ref: brain_runner.ontology#plan
+- id: call.mapping-api
+  name: mapping.evaluate, run_mapping, MappingRun and the private _emit and _selected; inverse.invertible;
+    extractors.extract
+  entrance: call
+  ref: brain_runner.mapping#run_mapping
+contract:
+  cli.plan:
+    promises:
+    - id: EXT-BRAIN-RUNNER/cli.plan/P-1
+      statement: Exits 0 with the plan file (summary per mapping with add, change and retire; blocked mappings and the
+        guard's counts per type; source.stream) and writes nothing to the Brain; reads BRAIN_API_URL, and behind Link
+        BRAIN_LOCAL_TOKEN and BRAIN_COMPONENT_NAME instead of a client certificate.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py
+        checks:
+        - TestLinkMode::test_a_dry_run_reads_plans_and_reports_through_link_only
+        - TestLinkMode::test_the_runners_brain_calls_go_through_links_relay_with_the_local_token
+  cli.apply:
+    promises:
+    - id: EXT-BRAIN-RUNNER/cli.apply/P-1
+      statement: Applies exactly the given plan; exits 3 when the plan is stale; prints a JSON report with done counts,
+        errors and blocked mappings; --approve-guard releases what the deletion guard held, with the reason.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py
+        checks:
+        - TestLinkMode::test_the_last_acknowledged_stream_is_the_next_plans_previous
+  cli.compile-write:
+    promises:
+    - id: EXT-BRAIN-RUNNER/cli.compile-write/P-1
+      statement: Exits 0 with {edits} for the one file a write job changes, or 3 with {refused} and a code
+        (computed_attribute among them); writes nothing anywhere.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_github_write.py
+        checks:
+        - TestAProposalBecomesAPullRequest::test_the_pull_request_carries_only_the_changed_values
+        - TestNothingIsWritten::test_what_the_inverse_mapping_refuses_is_the_jobs_refusal
+  cli.affected:
+    promises:
+    - id: EXT-BRAIN-RUNNER/cli.affected/P-1
+      statement: From 0.3.2 - asks GitHub for the commit the ref names now (one request when it is the commit given) and
+        prints one JSON line {head, mappings}, mappings being the ids the commits since --since concern (a mapping's
+        own file, its source or lookups) or null when every mapping must be planned; reads BRAIN_GITHUB_TOKEN and
+        BRAIN_GITHUB_API, downloads no file.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_autosync.py
+        checks:
+        - TestTheRealRunner::test_a_commit_to_a_file_a_mapping_reads_names_that_mapping
+        - TestTheRealRunner::test_a_commit_no_mapping_reads_names_none_and_nothing_new_is_one_request
+  call.runner-entry:
+    promises:
+    - id: EXT-BRAIN-RUNNER/call.runner-entry/P-1
+      statement: main takes argv and a source object; make_plan takes previous and stream_source as keywords;
+        LocalSource can be subclassed with glob, last_commit and tracked.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py
+        checks:
+        - TestLinkMode::test_the_last_acknowledged_stream_is_the_next_plans_previous
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestFiles::test_the_runner_reads_it_through_the_share_source
+  call.publish-api:
+    promises:
+    - id: EXT-BRAIN-RUNNER/call.publish-api/P-1
+      statement: The bundle is brain-runner's own (format brain-definitions-bundle, version 1); ontology.plan says what
+        the tenant's ontology needs and ontology.apply answers written, refused and skipped.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py
+        checks:
+        - TestTheBundle::test_the_bundle_is_brain_runner_s_own
+        - TestTheAliasesOnTheTenant
+  call.mapping-api:
+    promises:
+    - id: EXT-BRAIN-RUNNER/call.mapping-api/P-1
+      statement: A mapping the Builder writes is evaluated and run by brain-runner's own rules, and inverse.invertible
+        gives the reason codes the Builder shows.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_mappings.py
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_mapping_writes.py
+        checks:
+        - TestInvertible::test_brain_runner_s_rule_is_used_when_installed
+hides:
+- Which release is pinned; the Dockerfiles and CI name it.
+review:
+- at: /contract
+  why: The evidence is this repository's tests that run the real brain-runner of the pin CI installs; they show the
+    pinned release keeps these lines, not that a later one does. The runner's own tests live where it is released.
+- at: /operations/5
+  why: The Builder imports two private names (mapping._emit and mapping._selected); a runner release may change them
+    without notice.
+- at: /owner
+  why: Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4).

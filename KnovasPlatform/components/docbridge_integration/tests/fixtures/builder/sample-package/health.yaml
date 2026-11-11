@@ -1,0 +1,9 @@
+version: 1
+types:
+  Mandate:
+    owner_role: ROLE-PARTNER
+    review_every: 30 d
+    required: [name, key, owner, status]
+    stale_after: 90 d
+    compliance: [P-owner]
+    last_review: 2026-10-01

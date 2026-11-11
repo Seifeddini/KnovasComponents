@@ -1,0 +1,18 @@
+"""Knovas Link: the one component per site that talks to Knovas (connector protocol 1.2; 1.1 KC-7a, 1.2 KG-2).
+
+The other components on the site talk only to Link, through its local API (contracts/local-api.md). Link holds the
+site's key and certificate, runs the control plane with the Platform, relays the Brain calls on an allow-list, and
+carries the work channel's jobs between secure-api and the components.
+"""
+
+import logging
+
+VERSION = "1.2.0"
+#: The kind Link enrols as with the Platform.
+KIND = "knovas_link"
+#: What Link declares in its enrolment and heartbeat.
+CAPABILITIES = ["site", "work_channel", "brain_relay", "probes"]
+
+# httpx logs every request's whole URL at INFO; a relayed path or query may name a document (GI-DATA-02).
+for _logger in ("httpx", "httpx2", "httpcore"):
+    logging.getLogger(_logger).setLevel(logging.WARNING)

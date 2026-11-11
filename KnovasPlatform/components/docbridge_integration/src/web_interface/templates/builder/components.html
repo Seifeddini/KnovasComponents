@@ -1,0 +1,254 @@
+{# Stage 2 (build plan steps B7 and B13): the tenant's sync components. Every
+   source is read through one of them. Expects components, component_kinds,
+   planned_components, platform_tenant (builder_routes._components_context)
+   and registry, registry_all, component_alerts, limits, state_filter,
+   kind_filter, registry_states, enrol_kinds, protocol_path
+   (builder_routes._registry_context). The enrolment wizard and the adapter
+   registration are static/js/builder/components.js. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% from 'builder/_alerts.html' import alerts_box %}
+{% block title %}{{ stage.label }}{% endblock %}
+{% block main %}
+<header class="b-onto-head">
+    <div class="b-page-head" style="margin-bottom: 0">
+        <p class="b-step-count b-small">Stufe {{ stage_number }} von {{ stages | length }}{% if platform_tenant %} · Mandant <span class="b-mono">{{ platform_tenant }}</span>{% endif %}</p>
+        <h1 class="b-h1">{{ stage.label }}</h1>
+        <p class="b-muted">Jede Quelle wird nur über eine registrierte Komponente gelesen. Hochgeladen wird nichts von Hand.</p>
+    </div>
+    <div class="b-onto-edit-bar">
+        <button type="button" class="b-button b-button--secondary" data-site-new data-url="{{ url_for('builder.create_site') }}" {% if not platform_tenant %}disabled{% endif %}>Standort anlegen</button>
+        <button type="button" class="b-button b-button--secondary" data-comp-new data-url="{{ url_for('builder.register_component') }}" {% if not platform_tenant %}disabled{% endif %}>Komponente registrieren</button>
+        <button type="button" class="b-button b-button--primary" data-enrol-open data-url="{{ url_for('builder.enrol_component') }}" {% if not platform_tenant %}disabled title="Diese Plattform kennt ihren Mandanten nicht."{% endif %}>{{ icon('plus') }}Komponente anmelden</button>
+    </div>
+</header>
+
+{% if not platform_tenant %}
+<div class="b-callout b-callout--warning" role="status">
+    <p class="b-callout-title">Kein Mandant</p>
+    <p>Diese Plattform kennt ihren Mandanten nicht (kein Zertifikat). Komponenten gehören zu einem Mandanten.</p>
+</div>
+{% endif %}
+
+{{ alerts_box(component_alerts) }}
+
+<section aria-labelledby="b-sites-title" class="b-comp-section" data-sites>
+    <h2 class="b-h3" id="b-sites-title">Standorte</h2>
+    <p class="b-small b-muted">Ein Standort ist ein Rechner bei der Firma mit Knovas Link und den Komponenten daneben, installiert aus einem Paket mit einem Befehl.</p>
+    {% if sites %}
+    <ul class="b-comp-kinds">
+        {% for s in sites %}
+        <li class="b-card" data-site="{{ s.id }}" data-component-state="{{ s.state }}"><a class="b-link-strong" href="{{ s.url }}">{{ s.name }}</a>
+            <span class="b-small b-muted">{{ s.options_text }}</span>
+            <span class="b-tag b-reg-state is-{{ s.state }}"><span class="b-tag-dot"></span>Knovas Link: {{ s.state_label }}</span>
+            {% if s.sync %}<ul class="b-small b-site-sync" data-site-sync-summary>{% for r in s.sync %}<li data-sync-source="{{ r.key }}"><strong>{{ r.name }}</strong>: {% if r.synced_commit %}{% if r.synced_url %}<a class="b-mono" href="{{ r.synced_url }}" rel="noopener" target="_blank">{{ r.synced_short }}</a>{% else %}<span class="b-mono">{{ r.synced_short }}</span>{% endif %} · {{ r.synced_at | b_datetime }}{% else %}noch nicht abgeglichen{% endif %}{% if r.last_apply %} · +{{ r.last_apply.added }} / ~{{ r.last_apply.changed }} / −{{ r.last_apply.retired }}{% endif %} · {{ r.schedule_text }}{% if r.next_check_at %}, nächste Prüfung {{ r.next_check_at | b_datetime }}{% endif %} · automatisch anwenden {{ 'an' if r.auto_apply else 'aus' }}</li>{% endfor %}</ul>{% endif %}</li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="b-muted">Noch kein Standort.</p>
+    {% endif %}
+</section>
+
+<section aria-labelledby="b-comp-title" class="b-comp-section">
+    <div class="b-src-head">
+        <h2 class="b-h3" id="b-comp-title">Komponenten</h2>
+        <form class="b-reg-filters" method="get" aria-label="Filter">
+            <nav class="b-tag-row" aria-label="Zustand">
+                <a class="b-tag {{ 'b-tag--accent' if not state_filter else '' }}" href="?{{ 'art=' ~ kind_filter if kind_filter else '' }}">Alle {{ registry_all }}</a>
+                {% for key, label in registry_states.items() %}
+                <a class="b-tag {{ 'b-tag--accent' if state_filter == key else '' }}" href="?zustand={{ key }}{{ '&art=' ~ kind_filter if kind_filter else '' }}" {% if state_filter == key %}aria-current="true"{% endif %}>{{ label }}</a>
+                {% endfor %}
+            </nav>
+            <label class="b-visually-hidden" for="b-reg-kind">Art</label>
+            <select class="b-select" id="b-reg-kind" name="art" data-reg-kind>
+                <option value="">Alle Arten</option>
+                {% for key, k in enrol_kinds.items() %}<option value="{{ key }}" {% if kind_filter == key %}selected{% endif %}>{{ k.short }}</option>{% endfor %}
+            </select>
+            {% if state_filter %}<input type="hidden" name="zustand" value="{{ state_filter }}">{% endif %}
+            <noscript><button class="b-button b-button--secondary b-button--small" type="submit">Filtern</button></noscript>
+        </form>
+    </div>
+    {% if registry %}
+    <div class="b-table-wrap">
+        <table class="b-table b-table--compact b-reg" data-comp-table>
+            <thead><tr><th scope="col">Name</th><th scope="col">Art</th><th scope="col">Version</th><th scope="col">Standort</th><th scope="col">Zustand</th><th scope="col">Letzter Herzschlag</th><th scope="col">Letzter Lauf</th><th scope="col" class="is-num">+ / ~ / −</th><th scope="col">Rückstand</th><th scope="col" class="is-num">Fehler</th><th scope="col" class="is-num">Zurückgehalten</th></tr></thead>
+            <tbody>
+            {% for r in registry %}
+                <tr data-component="{{ r.name }}" data-component-state="{{ r.state }}">
+                    <th scope="row"><a class="b-link-strong" href="{{ url_for('builder.component_page', component_id=r.id) }}">{{ r.name }}</a><br>
+                        <span class="b-small b-muted">{{ 'Protokoll v1' if r.transport == 'v1' else 'Adapter' }}{% if r.owner %} · {{ r.owner }}{% endif %}</span>
+                        {% if r.settings and r.settings.base_url %}<br><span class="b-mono b-small b-muted">{{ r.settings.base_url }}</span>{% endif %}</th>
+                    <td>{{ r.kind_label }}</td>
+                    <td class="b-mono">{{ r.version or '–' }}</td>
+                    <td>{{ r.site or '–' }}</td>
+                    <td><span class="b-tag b-reg-state is-{{ r.state }}"><span class="b-tag-dot"></span>{{ r.state_label }}</span>
+                        {% if r.offline_minutes is not none %}<br><span class="b-small {{ 'b-error' if r.beyond_limit else 'b-muted' }}">seit {{ r.offline_minutes }} Min.</span>{% endif %}</td>
+                    <td>{{ r.last_heartbeat_at | b_datetime }}</td>
+                    <td>{% if r.last_run %}{{ r.last_run.started_at | b_datetime }}<br><span class="b-small">{{ 'Probelauf' if r.last_run.kind == 'dry_run' else 'Anwenden' }} · <span class="b-reg-run is-{{ r.last_run.status }}">{{ {'ok': 'ok', 'held': 'zurückgehalten', 'failed': 'fehlgeschlagen', 'running': 'läuft'}.get(r.last_run.status, r.last_run.status) }}</span></span>{% else %}–{% endif %}</td>
+                    <td class="is-num">{% if r.last_run %}{{ r.last_run.added }} / {{ r.last_run.changed }} / {{ r.last_run.retired }}{% else %}–{% endif %}</td>
+                    <td>{% if r.lag_seconds is not none %}{{ (r.lag_seconds // 3600) ~ ' Std.' if r.lag_seconds >= 3600 else (r.lag_seconds // 60) ~ ' Min.' }}{% else %}–{% endif %}</td>
+                    <td class="is-num">{{ r.open_errors or 0 }}</td>
+                    <td class="is-num">{% if r.held %}<span class="b-tag b-tag--warning">{{ r.held }}</span>{% else %}0{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="b-small b-muted">Offline heißt: kein Herzschlag seit {{ limits.offline_after_minutes }} Minuten. Offline über dieser Grenze steht oben.</p>
+    {% elif registry_all %}
+    <p class="b-muted">Keine Komponente in diesem Zustand.</p>
+    {% else %}
+    <section class="b-empty" aria-labelledby="b-comp-empty-title">
+        <span class="b-empty-icon">{{ icon(stage.slug, 24) }}</span>
+        <div class="b-empty-text">
+            <h3 class="b-h3" id="b-comp-empty-title">{{ stage.empty_title }}</h3>
+            <p class="b-muted">Melden Sie eine Dateiablage, ein DMS oder den GitHub-Runner an.</p>
+        </div>
+    </section>
+    {% endif %}
+</section>
+
+<section aria-labelledby="b-comp-kinds-title" class="b-comp-section">
+    <h2 class="b-h3" id="b-comp-kinds-title">Arten von Komponenten</h2>
+    <ul class="b-comp-kinds">
+        {% for kind, k in component_kinds.items() %}
+        <li class="b-card"><strong>{{ k.label }}</strong><span class="b-small b-muted">{{ k.text }}</span></li>
+        {% endfor %}
+        {% for k in planned_components %}
+        <li class="b-card b-comp-planned"><span><strong>{{ k.label }}</strong> <span class="b-tag">Geplant</span></span><span class="b-small b-muted">{{ k.text }}</span></li>
+        {% endfor %}
+    </ul>
+</section>
+
+<script type="application/json" id="b-comp-data">{{ {'kinds': component_kinds} | tojson }}</script>
+
+<dialog class="b-dialog b-dialog--wide" id="b-enrol" aria-labelledby="b-enrol-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-enrol-title">Komponente anmelden</h2>
+            <p class="b-muted">Die Komponente meldet sich selbst an: mit einem Einmal-Token, das 24 Stunden gilt. Sie erhält ihr eigenes Zertifikat und einen Steuer-Token und ruft die Plattform nur von sich aus an.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-enrol-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate data-enrol-form>
+        <div class="b-dialog-body">
+            <ol class="b-wizard-steps" aria-label="Schritte">
+                <li class="is-current" aria-current="step" data-enrol-step-label="1">Art</li>
+                <li data-enrol-step-label="2">Angaben</li>
+                <li data-enrol-step-label="3">Token</li>
+            </ol>
+            <div data-enrol-step="1">
+                <fieldset class="b-enrol-kinds">
+                    <legend class="b-label">Welche Komponente?</legend>
+                    {% for key, k in enrol_kinds.items() if not k.adapter_only %}
+                    <label class="b-card b-enrol-kind {{ 'is-planned' if k.planned else '' }}">
+                        <input type="radio" name="kind" value="{{ key }}" {% if loop.first %}checked{% endif %} {% if k.planned %}disabled{% endif %}>
+                        <strong>{{ k.label }}</strong>
+                        <span class="b-small b-muted">{% if key == 'sync_component' %}Daten aus JSON-Schnittstellen, GitHub und Dateilisten auf Typen und Beziehungen abbilden. Läuft bei der Firma, ein Befehl genügt.{% elif key == 'knovas_connector' %}Die Dokumente eines Ordners ins Brain übertragen, für die Suche. Läuft bei der Firma, ein Befehl genügt.{% elif key == 'github_runner' %}Ein GitHub-Repository auf Typen und Beziehungen abbilden. Läuft, wo Sie wollen, ein Befehl genügt.{% else %}Geplant: wartet auf das Connector-Protokoll v1.{% endif %}</span>
+                        {% if k.planned %}<span class="b-tag">Geplant</span>{% endif %}
+                    </label>
+                    {% endfor %}
+                </fieldset>
+            </div>
+            <div data-enrol-step="2" hidden>
+                <div class="b-field"><label class="b-label" for="b-en-name">Name</label><input class="b-input" id="b-en-name" name="name" required autocomplete="off" placeholder="z. B. Dateiablage Zürich"></div>
+                <div class="b-ed-pair">
+                    <div class="b-field"><label class="b-label" for="b-en-site">Standort</label><input class="b-input" id="b-en-site" name="site" autocomplete="off" placeholder="z. B. Büro Zürich"></div>
+                    <div class="b-field"><label class="b-label" for="b-en-owner">Verantwortlich</label><input class="b-input" id="b-en-owner" name="owner" autocomplete="off"></div>
+                </div>
+            </div>
+            <div data-enrol-step="3" hidden>
+                <div class="b-callout b-callout--good" role="status">
+                    <p class="b-callout-title">Einmal-Token für <span data-enrol-name></span></p>
+                    <p>Wird nur jetzt gezeigt und gilt bis <strong data-enrol-expires></strong>. Danach ein neues anfordern.</p>
+                </div>
+                <div class="b-field">
+                    <label class="b-label" for="b-en-token">Einmal-Token</label>
+                    <input class="b-input b-mono" id="b-en-token" readonly data-enrol-token>
+                </div>
+                <div class="b-field" data-enrol-deploy hidden>
+                    <label class="b-label" for="b-en-command">Auf dem Rechner bei der Firma starten</label>
+                    <textarea class="b-input b-mono" id="b-en-command" rows="6" readonly data-enrol-command data-protocol-path="{{ protocol_path }}" data-issue-certificates="{{ 'true' if issue_certificates else 'false' }}"></textarea>
+                    <p class="b-small b-muted" data-enrol-hint></p>
+                    <p class="b-small b-muted">Die Adresse ist die, unter der Sie die Plattform gerade geöffnet haben: Der Rechner bei der Firma muss sie ebenfalls erreichen. Sie meldet sich selbst an und holt ihre Konfiguration hier ab. Ins Brain schreibt sie erst nach Probelauf und Freigabe. Ob sie jede Quelle lesen kann, zeigt danach ihre Seite.</p>
+                </div>
+            </div>
+            <div class="b-callout b-callout--critical" data-enrol-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-enrol-back hidden>Zurück</button>
+            <button type="button" class="b-button b-button--quiet" data-enrol-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary" data-enrol-next>Weiter</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog class="b-dialog" id="b-site-new" aria-labelledby="b-site-new-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-site-new-title">Standort anlegen</h2>
+            <p class="b-muted">Danach laden Sie das Installationspaket herunter und starten es auf dem Rechner mit einem Befehl.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <div class="b-field"><label class="b-label" for="b-sn-site-name">Name</label><input class="b-input" id="b-sn-site-name" name="name" required autocomplete="off" placeholder="z. B. Büro Zürich"></div>
+            <div class="b-field"><label class="b-label" for="b-sn-site-owner">Verantwortlich</label><input class="b-input" id="b-sn-site-owner" name="owner" autocomplete="off"></div>
+            <fieldset class="b-field b-choice">
+                <legend class="b-label">Was dort gelesen wird</legend>
+                {% for key, o in site_options.items() %}
+                <label class="b-check"><input type="checkbox" name="options" value="{{ key }}">{{ o.label }}</label>
+                {% endfor %}
+            </fieldset>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Standort anlegen</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog class="b-dialog" id="b-comp-new" aria-labelledby="b-comp-new-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-comp-new-title">Komponente registrieren</h2>
+            <p class="b-muted">Für eine Komponente, die das Protokoll v1 noch nicht spricht: die Plattform liest, was sie heute meldet.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <fieldset class="b-field b-choice">
+                <legend class="b-label">Art</legend>
+                {% for kind, k in component_kinds.items() %}
+                <label class="b-check"><input type="radio" name="kind" value="{{ kind }}" {% if loop.first %}checked{% endif %}>{{ k.label }}</label>
+                {% endfor %}
+                {% for k in planned_components %}
+                <label class="b-check b-muted"><input type="radio" name="kind" value="{{ k.kind }}" disabled>{{ k.label }} (geplant)</label>
+                {% endfor %}
+            </fieldset>
+            <div class="b-field"><label class="b-label" for="b-cn-name">Name</label><input class="b-input" id="b-cn-name" name="name" required autocomplete="off" placeholder="z. B. Dateiablage Zürich"></div>
+            <div class="b-ed-pair">
+                <div class="b-field"><label class="b-label" for="b-cn-site">Standort</label><input class="b-input" id="b-cn-site" name="site" autocomplete="off" placeholder="z. B. Büro Zürich"></div>
+                <div class="b-field"><label class="b-label" for="b-cn-owner">Verantwortlich</label><input class="b-input" id="b-cn-owner" name="owner" autocomplete="off"></div>
+            </div>
+            <div class="b-field" data-cn-base>
+                <label class="b-label" for="b-cn-base">Adresse des Connectors</label>
+                <input class="b-input b-mono" id="b-cn-base" name="base_url" autocomplete="off" spellcheck="false" placeholder="leer: der Connector dieser Plattform" aria-describedby="b-cn-base-hint">
+                <span class="b-hint" id="b-cn-base-hint">Nur für einen weiteren KnovasConnector. Gelesen wird als die angemeldete Person.</span>
+            </div>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Registrieren</button>
+        </div>
+    </form>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/components.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/builder/site.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

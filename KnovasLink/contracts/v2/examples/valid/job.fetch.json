@@ -1,0 +1,19 @@
+{
+  "schema": "job.schema.json",
+  "description": "A fetch, as in 1.1.",
+  "instance": {
+    "id": "77777777-8888-4999-8aaa-bbbbbbbbbbbb",
+    "kind": "fetch",
+    "protocol": "2.0",
+    "source": "files-share",
+    "deadline": "2026-11-10T14:00:20Z",
+    "actor": {
+      "kind": "user",
+      "id": "person-example-approver"
+    },
+    "args": {
+      "external_id": "folder/note.md",
+      "max_bytes": 26214400
+    }
+  }
+}

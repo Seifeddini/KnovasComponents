@@ -326,10 +326,18 @@ def _semantix_secure_base_url() -> str:
     ).rstrip("/")
 
 
+def platform_link_enabled() -> bool:
+    """Run from the Platform under connector protocol v1 (platform_link): it calls out only, nobody calls in, so what
+    checks an inbound caller is not needed."""
+    return bool((os.environ.get("RC_PLATFORM_URL") or "").strip())
+
+
 def _required_env_keys() -> tuple[str, ...]:
     skip: set[str] = set()
     if _internal_local_bypass_enabled():
         skip.update({"RC_INSTANCE_TOKEN", "KNOVAS_INTERNAL_API_URL"})
+    if platform_link_enabled():
+        skip.update({"RC_INSTANCE_TOKEN", "KNOVAS_INTERNAL_API_URL", "RC_CLIENT_ID"})
     return tuple(k for k in _REQUIRED_VARS if k not in skip)
 
 

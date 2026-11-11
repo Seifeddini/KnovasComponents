@@ -1,0 +1,35 @@
+{
+  "schema": "job.schema.json",
+  "description": "Write-path jobs are addressed to one site certificate.",
+  "breaks": [
+    "target_serial"
+  ],
+  "instance": {
+    "id": "11111111-2222-4333-8444-555555555555",
+    "kind": "preview",
+    "protocol": "2.0",
+    "source": "records-main",
+    "deadline": "2026-11-10T14:10:00Z",
+    "actor": {
+      "kind": "agent",
+      "id": "agent-example",
+      "on_behalf_of": {
+        "kind": "user",
+        "id": "person-example-proposer"
+      }
+    },
+    "args": {
+      "steps": [
+        {
+          "action": "set_fields",
+          "target": "items/matter-17",
+          "params": {
+            "owner": "person-example-7",
+            "due_date": "2026-12-01"
+          }
+        }
+      ],
+      "staging": "direct"
+    }
+  }
+}

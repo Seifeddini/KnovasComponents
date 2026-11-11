@@ -1,0 +1,2 @@
+# Contract files are pinned by their bytes (contracts.lock): keep LF on every checkout.
+* text eol=lf

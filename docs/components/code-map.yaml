@@ -1,0 +1,22 @@
+# brain-runner's code reader (code_map) on this repository, against the boundaries in boundaries.yaml: what each
+# component's code offers (routes, commands, names another component takes) and which other components it needs.
+#   python3 -m brain_runner code-map --spec docs/components/code-map.yaml --root .
+#   python3 -m brain_runner code-map --spec docs/components/code-map.yaml --root . --owner L3-KNOVAS-LINK --documents
+# Python only; the same options as map-check.yaml's code entry.
+glob: "**/*.py"
+options:
+  tracked_only: true
+  roots: [KnovasLink/src, KnovasConnectorKit/src, KnovasConnectorJira/src, KnovasConnectorJira/vendor,
+          KnovasPlatform/components/sync_component/src,
+          KnovasPlatform/components/docbridge_integration/src, KnovasConnector/src,
+          KnovasPlatform/components/experiments_runner, KnovasPlatform/experiments-sdk/python,
+          KnovasPlatform/mock_knovas_api]
+  boundaries: {path: docs/components/boundaries.yaml, select: "items(data.components)[].{owner: key, prefixes: value.paths}"}
+  # a route's app and prefixes: the Flask apps, the blueprints with their own url_prefix, and register_blueprint,
+  # whose url_prefix replaces the blueprint's (a blueprint registered as a factory's result is not followed to
+  # its app: such a route's app is the blueprint)
+  routes: {decorators: [route], verb_decorators: [get, post, put, patch, delete], registrations: [add_url_rule],
+           apps: [Flask], routers: [{call: Blueprint, prefix: url_prefix}],
+           mounts: [{call: register_blueprint, prefix: url_prefix, replaces: true}]}
+  cli: {subcommands: [add_parser], commands: [command], main_guard: true}
+  http: {methods: [get, post, put, patch, delete]}

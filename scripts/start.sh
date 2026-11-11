@@ -24,7 +24,62 @@ knovas_prepare_stack "$KNOVAS_ENV" "$ROOT_DIR"
 knovas_load_compose_project "$KNOVAS_ENV" "$ROOT_DIR"
 
 knovas_retire_old_connector_container "$COMPOSE_PROJECT_NAME"
+# The KnowledgeBase read token for the docbridge-web build (brain-runner). --env-file
+# replaces .env for compose, so a token kept in .env is handed over from here.
+KB_TOKEN="$(read_env_var KB_READ_TOKEN "" "$KNOVAS_ENV")"
+[[ -z "$KB_TOKEN" && -f "$ROOT_DIR/.env" ]] && KB_TOKEN="$(read_env_var KB_READ_TOKEN "" "$ROOT_DIR/.env")"
+# Ask GitHub before building: a token it refuses would stop the whole image at the brain-runner step.
+# The token is never printed; only its length, its first characters and GitHub's answer are.
+if [[ -n "$KB_TOKEN" ]]; then
+  kb_source="knovas.env"
+  grep -qE '^[[:space:]]*KB_READ_TOKEN=' "$KNOVAS_ENV" || kb_source=".env"
+  kb_lines="$(grep -cE '^[[:space:]]*(export[[:space:]]+)?KB_READ_TOKEN=' "$ROOT_DIR/$kb_source" || true)"
+  if [[ "$kb_lines" -gt 1 ]]; then
+    echo "Note: $kb_source sets KB_READ_TOKEN $kb_lines times; the last line is used." >&2
+  fi
+  if [[ "$KB_TOKEN" =~ [[:space:]\"\'#] ]]; then
+    echo "Warning: KB_READ_TOKEN in $kb_source contains a space, quote or # (a comment on the same line?)." >&2
+  fi
+  if command -v curl >/dev/null 2>&1; then
+    kb_status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+      -H "Authorization: Bearer $KB_TOKEN" https://api.github.com/repos/Seifeddini/KnowledgeBase || true)"
+    case "$kb_status" in
+      200) echo "KB_READ_TOKEN from $kb_source: GitHub accepts it." ;;
+      401|403|404)
+        case "$kb_status" in
+          401) why="GitHub does not know this token (wrong, expired or revoked)" ;;
+          403) why="GitHub refuses this token (blocked, or the organisation has not approved it)" ;;
+          *) why="the token cannot see Seifeddini/KnowledgeBase (repository access: add it, Contents: read)" ;;
+        esac
+        echo "Warning: KB_READ_TOKEN from $kb_source (${#KB_TOKEN} characters, starts with ${KB_TOKEN:0:4}): $why." >&2
+        echo "         docbridge-web builds without brain-runner. Put a working token in knovas.env and run this again." >&2
+        KB_TOKEN="" ;;
+      *) echo "Note: GitHub could not be asked about KB_READ_TOKEN (HTTP ${kb_status:-none}); building with it." >&2 ;;
+    esac
+  fi
+  unset kb_source kb_lines kb_status why
+fi
+if [[ -n "$KB_TOKEN" ]]; then
+  export KB_READ_TOKEN="$KB_TOKEN"
+else
+  # Empty, not unset: compose reads knovas.env itself (--env-file) and the shell's value wins over the file's,
+  # so only an empty one keeps a refused token (or one exported in the login shell) out of the build.
+  export KB_READ_TOKEN=""
+fi
+if [[ -n "${KB_READ_TOKEN:-}" ]]; then
+  :
+elif ! grep -qE '^[[:space:]]*KB_READ_TOKEN=.' "$KNOVAS_ENV" "$ROOT_DIR/.env" 2>/dev/null; then
+  echo "Note: no KB_READ_TOKEN in knovas.env or .env -- docbridge-web builds without brain-runner" >&2
+  echo "      (Brain Builder sources, dry run and publish, Sync von GitHub stay unavailable)." >&2
+fi
+unset KB_TOKEN
 docker compose --env-file "$KNOVAS_ENV" up -d --build
+unset KB_READ_TOKEN
+if docker compose --env-file "$KNOVAS_ENV" exec -T docbridge-web python -c "import brain_runner; print('brain-runner', brain_runner.__version__)" 2>/dev/null; then
+  :
+else
+  echo "Warning: brain-runner is not installed in docbridge-web; check KB_READ_TOKEN (a GitHub token with Contents: read on the KnowledgeBase repository)." >&2
+fi
 
 echo "==> Health checks"
 sleep 3

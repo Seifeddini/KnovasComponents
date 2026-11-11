@@ -1,0 +1,19 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "Only a complete listing is a generation: an incomplete one must never retire anything.",
+  "breaks": [
+    "payload",
+    "complete"
+  ],
+  "instance": {
+    "type": "generation",
+    "source": "handbook",
+    "payload": {
+      "id": "7f1c2d9e-5b4a-4c3e-9a8b-1d2e3f4a5b6c",
+      "complete": false,
+      "counts": {
+        "documents": 32
+      }
+    }
+  }
+}

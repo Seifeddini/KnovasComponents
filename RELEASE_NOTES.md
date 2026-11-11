@@ -1,5 +1,67 @@
 # Unreleased
 
+## Zurückschreiben in die Quelle (Protokoll 2, Entwurf): Jira-Connector am Standort, GitHub auf Protokoll 2
+
+Alles hinter Schaltern, die aus sind, bis jemand sie setzt (FEAT-2026-11-10-write-back; BET-2026-11-write-back WB-07,
+WB-10, WB-11, WB-12).
+
+- **Connector-Protokoll 2.0** (`KnovasPlatform/docs/connector-protocol-v2.md`) und der **Connector-Bausatz**
+  (`KnovasConnectorKit/`, mit Konformitätsprüfung): ein Vertrag fürs Lesen und Schreiben jeder Quelle; geschrieben
+  wird nur nach einer genauen Vorschau, die eine Person freigegeben hat, mit einer Freigabe (Permit) je Schritt.
+- **Knovas Link 1.2 mit Protokoll 2** (`LINK_PROTOCOL_V2=true`): nimmt die Anmeldungen der Connectoren, meldet den
+  Standort beim Brain an, prüft jede Freigabe vor dem Connector, führt jede genau einmal aus und schreibt jede
+  Ablehnung ins Protokoll. Neu: `LINK_COMPONENTS` nennt weitere Komponenten, für die Knovas Link gleich beim Start ein
+  Token schreibt (etwa `jira-connector`).
+- **GitHub auf Protokoll 2** in der Sync-Komponente (`SYNC_PROTOCOL_V2=1`): Aktion `set_front_matter`, «direkt nach der
+  Freigabe in Knovas» (ein Commit auf dem Branch, mit `Knovas-Permit` in der Nachricht) oder als Pull Request. Lesen,
+  Originale und die Pull Requests von Protokoll 1 bleiben, wie sie sind. Umstellen am Standort:
+  `KnovasPlatform/docs/connect-a-site.md` Abschnitt 6.2.
+- **Jira-Connector** (`KnovasConnectorJira/`, neues Abbild `jira-connector`): liest ein Jira-Projekt als Datensätze und
+  führt `set_assignee`, `set_due_date` und `transition_issue` aus. Läuft am Standort als eigene Komponente neben
+  Knovas Link (`KnovasConnectorJira/deploy/docker-compose.jira.yml`); der Zugang nur aus seiner eigenen Datei
+  `knovas-jira.env`, die kein anderer Dienst liest (nie aus `knovas-sources.env`, die die Sync-Komponente liest), an
+  genau den Host, den die Zeile daneben nennt. Die Sync-Komponente verwendet keinen Zugang, neben dem eine Zeile
+  `…_HOST` steht, und keinen nach der Art einer anderen Quelle benannten. Der Datenstrom trägt nur, was die
+  Zuordnung ins Brain liest: ohne `fields` in den Einstellungen Zusammenfassung, Beschreibung, Status, Bearbeiter (als
+  Konto-Id), Fälligkeit, Priorität, Labels, Typ, erstellt und erledigt, dazu den übergeordneten Vorgang als einzige
+  Verknüpfung; keine Namen oder E-Mail-Adressen von Personen, aus dem Änderungsprotokoll nur die Versions-Id. `knovas-connector-jira dump-stream` schreibt den vollständigen
+  Datenstrom einer Quelle als JSON Lines für die Zuordnung ins Brain.
+- **Brain Builder** (`BUILDER_PROTOCOL_V2=true`): bietet je Quelle an, was ihr Connector angemeldet und geprüft hat;
+  Quellen einer Art ohne eigenes Formular (etwa `jira`) mit einem allgemeinen Einstellungsformular; «Freigaben»
+  zeigt Änderungssätze mit ihrer Vorschau und gibt nur genaue frei.
+- **Beim Update:** Der Release-Lauf baut jetzt vier Abbilder (`all`); das Paket `jira-connector` in GHCR einmal privat
+  anlegen (`KnovasPlatform/docs/deployment/release-images.md`, «Once per repository»). Die Plattform wendet
+  **Migration 0025** beim Start an (eine Komponente hinter Knovas Link darf eine eigene Art haben, nie die Art
+  `knovas_link`). Am Standort: die Jira-Zeilen in `knovas-jira.env`, nicht in `knovas-sources.env`.
+  Ohne die Schalter ändert sich am Standort nichts.
+
+## Automatisch abgleichen: bei neuen Commits, auf Wunsch ohne Klick (KG-2)
+
+- **Zeitplan «Bei neuen Commits».** Auf der Seite einer Sync-Komponente neben «Manuell», «Regelmäßig» (jetzt ab
+  jeder Minute) und «Im Zeitfenster». Die Komponente fragt alle 15 bis 3600 Sekunden (Standard 30) jedes
+  GitHub-Repository nach seinem neuesten Commit; ist er schon abgeglichen, geschieht nichts weiter. Ist er neu, plant
+  sie nur die Zuordnungen, die er betrifft.
+- **«Automatisch anwenden, wenn nichts zur Freigabe ansteht»**, je Quelle auf der Seite des Standorts, nur wer die
+  Standorte verwaltet, Standard aus. Was der Löschschutz anhält, Abweichungen und Einträge zum Stilllegen warten
+  weiter auf eine Person.
+- **Quellen und Abgleich.** Seite des Standorts und Liste «Standorte»: je Quelle der zuletzt abgeglichene Commit (mit
+  Link auf GitHub), wann, was der letzte Lauf schrieb, die nächste Prüfung.
+- **Jede Komponente am Standort hat ihren eigenen Zeitplan und ihre eigene Pause**; Knovas Link selbst keinen mehr.
+- **Beim Update:** neue Abbilder (Knovas Link 1.2.0, Sync-Komponente 0.3.0 mit brain-runner 0.3.2, Plattform) aus
+  demselben Stand. Ältere Komponenten laufen weiter und ignorieren die neuen Felder.
+
+## Keine Voreinstellung nennt mehr einen Mandanten (V1-G4)
+
+- **Repository und Pfade der Wissensbasis sind Einstellungen ohne Voreinstellung.**
+  `views.change_requests.github_repo` (`VIEWS_KB_GITHUB_REPO`), `brain_sync.repository`
+  (`BRAIN_SYNC_REPOSITORY`) und `brain_sync.config_path` (`BRAIN_SYNC_CONFIG_PATH`) sind leer, bis
+  die Installation sie setzt; neu sind `views.change_requests.decisions_dir`, `plan_links_path` und
+  `sample_edges_path` (`VIEWS_KB_DECISIONS_DIR`, `VIEWS_KB_PLAN_LINKS_PATH`,
+  `VIEWS_KB_SAMPLE_EDGES_PATH`). Leer heisst "nicht konfiguriert": die Funktion sagt es und nennt die
+  Einstellung, statt ein fremdes Repository zu raten. **Beim Update:** wer sich auf die alten
+  Voreinstellungen verlassen hat, setzt die Werte in `knovas.env`
+  (`KnovasPlatform/docs/deployment/knovas-tenant.md`, "The tenant's knowledge base").
+
 ## PDF-Vorschau: das PDF steht, wo vorher nur das Vorschaubild kam
 
 - **Lange PDFs oeffnen in der Vorschau in Sekunden statt gar nicht.** Das

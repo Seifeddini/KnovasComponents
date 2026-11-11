@@ -1895,3 +1895,21 @@ mark.context-snippet-match,
     cursor: pointer;
     text-decoration: underline;
 }
+
+/* Einstellungen: "Ansichten und Wissensbasis" (KC-0.1). */
+.settings-card-wide { grid-column: 1 / -1; }
+.platform-settings { display: grid; gap: 18px; margin: 12px 0; }
+.platform-setting-label { font-weight: 600; }
+.platform-setting-field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+.platform-setting-field input[type=text], .platform-setting-field input[type=password] { min-width: 28rem; max-width: 100%; }
+.platform-setting-origin, .platform-settings-note { font-size: 12px; color: var(--text-secondary); margin: 2px 0; }
+.platform-settings-roles { display: grid; gap: 6px; }
+.platform-settings-role { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.platform-settings-ok { color: var(--success-color, #1a6b4a); }
+.platform-settings-error { color: var(--error-color, #be123c); }
+.platform-settings-actions { display: flex; gap: 12px; align-items: center; }
+
+/* Sync von GitHub (KC-0.2): counts per mapping and the history. */
+.sync-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+.sync-table th, .sync-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border-color, #e5e7eb); }
+.sync-table th { font-weight: 600; }

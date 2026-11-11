@@ -1,0 +1,32 @@
+{
+  "schema": "job.schema.json",
+  "description": "Stage the approved change in the source's own review.",
+  "instance": {
+    "id": "33333333-4444-4555-8666-777777777777",
+    "kind": "act",
+    "protocol": "2.0",
+    "source": "records-main",
+    "target_serial": "731948205517",
+    "deadline": "2026-11-10T14:10:00Z",
+    "actor": {
+      "kind": "user",
+      "id": "person-example-approver"
+    },
+    "args": {
+      "steps": [
+        {
+          "action": "transition",
+          "target": "items/matter-18",
+          "params": {
+            "state": "closed"
+          },
+          "expected_version": "v-90"
+        }
+      ],
+      "staging": "native_review"
+    },
+    "permits": [
+      "eyJhbGciOiJFZERTQSIsImtpZCI6IndicC1lZDkyN2E0OGY0OWU4NWY2IiwidHlwIjoia25vdmFzLXBlcm1pdCtqd3MifQ.eyJhY3Rpb24iOiJ0cmFuc2l0aW9uIiwiYWN0aW9uX2lkIjoiMWEyYjNjNGQtNWU2Zi00YTdiLThjOWQtMGUxZjJhM2I0YzVkIiwiY2hhbmdlX3NldF9pZCI6ImM1ZDZlN2Y4LTBhMWItNGMyZC04ZTNmLTRhNWI2YzdkOGU5ZiIsImV4cCI6MTc5NDQwOTIwMCwiZXhwZWN0ZWRfdmVyc2lvbiI6InYtOTAiLCJpYXQiOjE3OTQ0MDU2MDAsInBhcmFtc19oYXNoIjoic2hhMjU2OjBmMDA4OGQ5ODE2NTA4MWU1NWQxNjU3YjAxYTU5MjMzYzI3YzIxNGVhOWVmZTQxNzExYmNhM2JiNDUwY2NkMjgiLCJwZXJtaXRfaWQiOiI3YTZiNWM0ZC0zZTJmLTRhMWItOWMwZC04ZTdmNmE1YjRjM2QiLCJzaXRlIjoiNzMxOTQ4MjA1NTE3Iiwic291cmNlIjoicmVjb3Jkcy1tYWluIiwic3RhZ2luZyI6Im5hdGl2ZV9yZXZpZXciLCJ0ZW5hbnQiOiIzZjBjMmE4ZS01YjFkLTRjN2EtOWUyMS02ZDRiOGEwZjFjNTUiLCJ2IjoxfQ.xK67z4AbcUQ29HJQrCWL7A61uMTqefW-gddYgTQbgfB753kwEOGJz8d04GDDv38dJNZPPfDoPGfUkc_iDMQpBg"
+    ]
+  }
+}

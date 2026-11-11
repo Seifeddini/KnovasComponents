@@ -282,7 +282,10 @@ class TestSidebar:
                          m365_mode=False, results_per_page=20, build_id="b")
         assert _nav_item(env.get_template("index.html").render(index_ctx)) is None
         assert _nav_item(env.get_template("ontology.html").render(common)) is None
-        settings_ctx = dict(common, login_name="x", identity_enabled=True, build_id="b")
+        # The settings route always passes settings_admin (KC-0.1); a reader
+        # who is not an administrator sees no platform settings card.
+        settings_ctx = dict(common, login_name="x", identity_enabled=True, build_id="b",
+                            settings_admin=False)
         assert _nav_item(env.get_template("settings.html").render(settings_ctx)) is None
         assert _nav_item(env.get_template("index.html").render(
             dict(index_ctx, experiments_nav=True))) is not None

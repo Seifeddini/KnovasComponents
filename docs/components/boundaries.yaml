@@ -1,0 +1,174 @@
+# The component boundaries of this repository: which files each component's code lies in, and why the line is drawn
+# there. One entry per component card in this folder (<id>.card.yaml); `paths` are repository-root paths and equal the
+# card's `source_paths` (map-check reads the cards themselves; this table is what brain-runner's code reader takes
+# when it runs on its own, see code-map.yaml). A file belongs to the component whose path is the longest that holds
+# it. Change a boundary here and on the card in the same change.
+#
+# Read the code against these boundaries (brain-runner on the path):
+#   python3 -m brain_runner code-map --spec docs/components/code-map.yaml --root .
+version: 1
+components:
+  L2-BRAIN-BUILDER:
+    card: L2-brain-builder.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/builder
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/builder_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/connector_protocol.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/builder
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/builder
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/builder
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0011_builder.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0012_builder_change_batch.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0013_builder_publish.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0014_builder_component.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0015_builder_review.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0016_builder_team.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0017_builder_components.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0019_builder_workspace_delete.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0020_builder_self_approval.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0021_builder_source_checks.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0022_builder_sites.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0023_builder_review_binding.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0024_builder_site_certificate.sql
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0025_builder_declared_component_kind.sql
+    why: >-
+      src/builder/ is the Builder's Python package. Its pages are one Flask blueprint file (builder_routes.py) with
+      their own templates, scripts and styles in the builder/ folders under web_interface/. connector_protocol.py
+      exists only as the HTTP binding of builder/protocol.py (the Platform's side of the connector protocol). The
+      builder migrations create only the Builder's tables (0018 changes the identity's grants and stays outside).
+      The rest of web_interface/ is the Platform's web app, which registers these blueprints and is not part of the
+      Builder. One component although it is far over the reading budget: builder_routes.py holds every Builder route
+      in one file, and builder/protocol.py and builder/components.py take each other's names; a protocol card of its
+      own would turn 11 names it takes from the Builder and 6 the routes take from it into operations across a
+      boundary, with the two cards depending on each other and no caller getting a smaller dependency. The
+      development scripts under docbridge_integration/scripts/ (builder_*.py) stay outside: they are not shipped.
+  L3-KNOVAS-LINK:
+    card: L3-knovas-link.card.yaml
+    paths:
+      - KnovasLink/src/knovas_link
+      - KnovasLink/contracts/codes.json
+      - KnovasLink/contracts/contracts.lock
+      - KnovasLink/contracts/job-result.schema.json
+      - KnovasLink/contracts/job.schema.json
+      - KnovasLink/contracts/local-api.md
+      - KnovasLink/contracts/stream-message.schema.json
+      - KnovasLink/contracts/v2/codes.json
+      - KnovasLink/contracts/v2/contracts.lock
+      - KnovasLink/contracts/v2/declaration.schema.json
+      - KnovasLink/contracts/v2/job.schema.json
+      - KnovasLink/contracts/v2/permit-keys.schema.json
+      - KnovasLink/contracts/v2/permit.schema.json
+      - KnovasLink/contracts/v2/result.schema.json
+      - KnovasLink/contracts/v2/site.schema.json
+      - KnovasLink/contracts/v2/stream-message.schema.json
+      - KnovasLink/Dockerfile
+      - KnovasLink/pyproject.toml
+      - KnovasLink/requirements.txt
+    why: >-
+      KnovasLink/ is one deployable (one image, one entry point) that imports nothing from the rest of the
+      repository. The contract files are part of it: Link refuses to start when the ones it uses do not match
+      contracts.lock. The test vectors (contracts/vectors/) and the tests are evidence, not the component, and stay
+      outside so that the reading budget measures the code.
+  L3-CONNECTOR-KIT:
+    card: L3-connector-kit.card.yaml
+    paths:
+      - KnovasConnectorKit/src/knovas_connector_kit
+      - KnovasConnectorKit/pyproject.toml
+      - KnovasConnectorKit/requirements.txt
+      - KnovasPlatform/components/sync_component/src/knovas_connector_kit
+      - KnovasConnectorJira/vendor/knovas_connector_kit
+    why: >-
+      KnovasConnectorKit/ is one installable package (knovas-connector-kit) that every connector of protocol v2 is
+      built on, with the conformance suite; it imports nothing from the rest of the repository. Its copy of the v2
+      contracts (src/knovas_connector_kit/contracts/v2) is part of it, as Link's contract files are part of Link. Its
+      tests, the mutant connectors and the README are evidence and documentation, not the component. The copy under
+      sync_component/src/ is the kit too (byte for byte, tested): the sync component's image is built from its own
+      folder; so is the copy under KnovasConnectorJira/vendor/, for the Jira connector's image (J-4).
+  L3-JIRA-CONNECTOR:
+    card: L3-jira-connector.card.yaml
+    paths:
+      - KnovasConnectorJira/src/knovas_connector_jira
+      - KnovasConnectorJira/pyproject.toml
+      - KnovasConnectorJira/requirements.txt
+      - KnovasConnectorJira/Dockerfile
+      - KnovasConnectorJira/deploy/docker-compose.jira.yml
+    why: >-
+      KnovasConnectorJira/ is one installable package (knovas-connector-jira), a connector of protocol v2 on the
+      connector kit; it imports nothing from the rest of the repository but the kit. Its image (Dockerfile) and the
+      site file that runs it beside Knovas Link are its own (FEAT-2026-11-10-write-back J-4). vendor/ is a
+      byte-for-byte copy of the kit's code for the image (its own folder is the build context) and belongs to the
+      kit, as the sync component's copy does; the tests, the fakes, the conformance harness and the README are
+      evidence and documentation, not the component.
+  L3-SYNC-COMPONENT:
+    card: L3-sync-component.card.yaml
+    paths:
+      - KnovasPlatform/components/sync_component/src/sync_component
+      - KnovasPlatform/components/sync_component/Dockerfile
+      - KnovasPlatform/components/sync_component/requirements.txt
+    why: >-
+      Its own folder, image and entry point, and it imports nothing from the Platform beside it. Its tests live in
+      docbridge_integration/tests/ (evidence, not part of it). Link mode and direct mode are one component: the same
+      agent and engine run behind either client.
+  L2-HOST-NGINX:
+    card: L2-host-nginx.card.yaml
+    paths:
+      - KnovasPlatform/deploy/host-nginx
+      - scripts/host-https.sh
+    why: >-
+      deploy/host-nginx/ holds every file of the host's nginx site for the Platform (TLS, the login throttle, the
+      access-log format, and the connectors' client-certificate terminator); scripts/host-https.sh is the one script
+      that installs them. The terminator is part of the site, not a component of its own: three commented lines and
+      one header line of the same site, one njs function and its two-line conf, switched on by the same script.
+  L2-IMAGE-RELEASE:
+    card: L2-image-release.card.yaml
+    paths:
+      - .github/workflows/release-images.yml
+      - scripts/ci/release_image.sh
+    why: >-
+      The release workflow and its only helper. The CI workflow (ci.yml) and the other files in scripts/ci/ check
+      pull requests; they release nothing and stay outside.
+  EXT-BRAIN-API:
+    card: EXT-brain-api.card.yaml
+    paths: []
+    why: External - the Brain's secured API, served outside this repository; the card says what this repository relies
+      on.
+  EXT-BRAIN-RUNNER:
+    card: EXT-brain-runner.card.yaml
+    paths: []
+    why: External - the mapping runner the images install at a pinned release; the card says what this repository
+      calls.
+  EXT-GITHUB-API:
+    card: EXT-github-api.card.yaml
+    paths: []
+    why: External - GitHub's REST API, read and written with a source's own credential.
+  EXT-JIRA-API:
+    card: EXT-jira-api.card.yaml
+    paths: []
+    why: External - Jira Cloud's REST API (version 3) on a company's own site, read and written with a source's own
+      credential at the site.
+# Code that no card holds yet. The first group was changed by the work these cards were written for (the Brain v1
+# feature and the connection layer, from 2026-11-04 on), but only by a cross-cutting or maintenance change; the code
+# reader reports what it offers as held by no card (map-check's `unowned`).
+not_carded:
+  - path: KnovasPlatform/components/docbridge_integration/src/web_interface
+    why: The Platform's web app (search, documents, settings, admin); it registers the Builder's blueprints. Touched to
+      wire the Builder and to name no tenant in its defaults.
+  - path: KnovasPlatform/components/docbridge_integration/src/identity
+    why: Sign-in, roles, audit and the migration ledger the Builder's migrations run in. Touched by the defaults change
+      and an audit fix (beside the Builder's own migrations, which the Builder's card holds).
+  - path: KnovasPlatform/components/docbridge_integration/src/graph_views
+    why: The views (Ansichten). Touched only so that their defaults name no tenant.
+  - path: KnovasPlatform/components/docbridge_integration/src/brain_sync
+    why: The Platform's own sync of a configuration package (the GitHub runner the Builder shows through an adapter).
+      Touched by an audit fix.
+  - path: KnovasPlatform/components/docbridge_integration/src/ontology_graph.py
+    why: The star and point-cloud views. Touched by two view fixes.
+  - path: KnovasPlatform/components/docbridge_integration/config
+    why: The Platform's configuration defaults. Touched so that they name no tenant, and for the connectors' client
+      CA setting.
+  - path: docker-compose.yml
+    why: The repository's compose stack. Touched to name the release workflow's images.
+  - path: .github/workflows/ci.yml
+    why: Continuous integration. Touched to install the pinned brain-runner and run Knovas Link's tests.
+  - path: KnovasConnector
+    why: The Knovas Connector; not touched by this work (it does not run behind Knovas Link yet).

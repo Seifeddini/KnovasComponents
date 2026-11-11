@@ -1,0 +1,32 @@
+id: contracts
+version: 1
+source:
+  extractor: file_glob
+  glob: Akten/**/*.*
+  select: '@'
+  as: f
+freshness:
+  window: 1 d
+deletion_guard:
+  max_retire_share: 0.05
+edit_policy: source_owned
+emits:
+- type: Contract
+  identify:
+  - key
+  key: f.path
+  name: f.stem
+  facts:
+    file_type:
+      value: f.suffix
+      priority: 10
+    filed_on:
+      value: f.modified
+      priority: 10
+    matter:
+      value: f.folders[2]
+      priority: 10
+  relations:
+  - relation: belongs_to_matter
+    to_type: Matter
+    to_key: f.folders[2]

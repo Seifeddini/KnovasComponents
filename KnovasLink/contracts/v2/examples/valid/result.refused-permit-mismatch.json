@@ -1,0 +1,9 @@
+{
+  "schema": "result.schema.json",
+  "description": "A permit whose parameter hash does not match the job: refused, nothing written.",
+  "instance": {
+    "status": "refused",
+    "code": "permit_mismatch",
+    "duration_ms": 3
+  }
+}

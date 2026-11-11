@@ -1,0 +1,13 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "A state names its source.",
+  "breaks": [
+    "source"
+  ],
+  "instance": {
+    "type": "state",
+    "state": {
+      "commit": "9fceb02d0ae598e95dc970b74767f19372d61af8"
+    }
+  }
+}

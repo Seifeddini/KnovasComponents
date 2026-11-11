@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ brand }} Sync von GitHub</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+</head>
+<body>
+    <div class="app-shell">
+        {% include '_sidebar.html' %}
+
+        <div class="app-content">
+            <div class="container">
+                <header class="site-header">
+                    <h1 class="site-greeting">Sync von GitHub<br>
+                        <span class="site-greeting-question">Das Gehirn des Mandanten aus der Wissensbasis</span>
+                    </h1>
+                </header>
+
+                <main class="settings-layout" id="brainSync" data-csrf="{{ csrf_token }}">
+                    <section class="settings-card settings-card-wide">
+                        <h2>Quelle</h2>
+                        <dl class="settings-list" id="syncSettings"><dt>wird geladen …</dt><dd></dd></dl>
+                        <p class="settings-note">Repository, Branch, Pfad und Lese-Token ändern Sie unter
+                            <a href="{{ url_for('settings_page') }}">Einstellungen</a>. Geschrieben wird mit dem Zertifikat des Mandanten.</p>
+                    </section>
+
+                    <section class="settings-card settings-card-wide">
+                        <h2>Ablauf</h2>
+                        <div class="platform-settings-actions">
+                            <button type="button" class="btn btn-outline" id="syncCheck">Neuen Stand holen</button>
+                            <button type="button" class="btn btn-outline" id="syncProbe">Probelauf</button>
+                            <button type="button" class="btn" id="syncApply">Anwenden</button>
+                        </div>
+                        <p id="syncMessage" role="status" aria-live="polite"></p>
+                        <div id="syncHead"></div>
+                        <div id="syncCounts"></div>
+                    </section>
+
+                    <section class="settings-card settings-card-wide">
+                        <h2>Letzter erfolgreicher Sync</h2>
+                        <div id="syncCurrent">–</div>
+                    </section>
+
+                    <section class="settings-card settings-card-wide">
+                        <h2>Verlauf</h2>
+                        <div id="syncHistory">–</div>
+                    </section>
+                </main>
+            </div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/brain_sync.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>

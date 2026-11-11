@@ -1,0 +1,198 @@
+{# The access window (build plan step B14): the tenant's access-group tree (left), the chosen group (middle),
+   the people with their roles and groups (right), "explain access" and the enforcement posture below.
+   Live: the tenant's tree, changed by administrators through the Brain. Entwurf: the chosen workspace's
+   design, which publishing creates. Expects view (builder_routes._access_view). static/js/builder/access.js
+   previews every structural change and sends it after it is confirmed. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% set live = view.mode == 'live' %}
+{% block title %}Zugriff{% endblock %}
+
+{% macro branch(nodes) -%}
+<ul class="b-ax-tree" role="group">
+    {% for n in nodes %}
+    <li role="treeitem" aria-expanded="true" {% if view.detail and view.detail.id == n.id %}aria-selected="true"{% endif %}>
+        <div class="b-ax-row {{ 'is-current' if view.detail and view.detail.id == n.id else '' }} {{ 'is-lit' if n.lit else '' }}"
+             data-ax-group="{{ n.id }}" {% if not n.is_admin %}draggable="true"{% endif %} style="--depth: {{ n.depth }}">
+            {% if n.children %}<button type="button" class="b-ax-toggle" data-ax-toggle aria-label="{{ n.name }} auf- oder zuklappen">▾</button>{% else %}<span class="b-ax-toggle" aria-hidden="true"></span>{% endif %}
+            <a class="b-ax-name" href="?{{ 'entwurf=1&' if not live else '' }}gruppe={{ n.id | urlencode }}{{ '&person=' ~ view.person if view.person else '' }}">{{ n.name }}</a>
+            {% if n.is_admin %}<span class="b-tag">Administratoren</span>{% endif %}
+            <span class="b-ax-counts b-small b-muted" title="Mitglieder · Dokumente · Ordnerregeln · Knotentypen">
+                {{ n.counts.members or 0 }} P{% if live %} · {{ n.counts.documents or 0 }}{{ '+' if n.counts.documents_more else '' }} D{% endif %} · {{ n.counts.folder_rules or 0 }} O · {{ n.counts.node_types or 0 }} T
+            </span>
+        </div>
+        {% if n.children %}{{ branch(n.children) }}{% endif %}
+    </li>
+    {% endfor %}
+</ul>
+{%- endmacro %}
+
+{% block main %}
+<header class="b-page-head" data-ax
+        data-preview-url="{{ url_for('builder.access_preview') }}{{ '?entwurf=1' if not live else '' }}"
+        data-apply-url="{{ url_for('builder.access_apply') }}{{ '?entwurf=1' if not live else '' }}"
+        data-rules-url="{{ url_for('builder.access_rules_add') }}{{ '?entwurf=1' if not live else '' }}"
+        data-rule-remove-url="{{ url_for('builder.access_rule_remove') }}{{ '?entwurf=1' if not live else '' }}"
+        data-members-url="{{ url_for('builder.access_members') }}"
+        data-explain-url="{{ url_for('builder.access_explain') }}"
+        data-posture-url="{{ url_for('builder.access_posture') }}"
+        data-posture-approve-url="{{ url_for('builder.access_posture_approve', request_id='REQ') }}">
+    <h1 class="b-h1">Zugriff</h1>
+    <p class="b-muted">Wer was sehen darf: Gruppen von den Administratoren abwärts. Eine Gruppe sieht, was ihr und allen Gruppen unter ihr zugewiesen ist.</p>
+    <nav class="b-tag-row" aria-label="Welcher Baum">
+        <a class="b-tag {{ 'b-tag--accent' if live else '' }}" href="{{ url_for('builder.access_page') }}" {% if live %}aria-current="page"{% endif %}>Mandant (live)</a>
+        <a class="b-tag {{ 'b-tag--accent' if not live else '' }}" href="{{ url_for('builder.access_page', entwurf=1) }}" {% if not live %}aria-current="page"{% endif %}>Entwurf{% if view.workspace %}: {{ view.workspace }}{% endif %}</a>
+    </nav>
+    {% if not live %}<p class="b-small b-muted">Der Entwurf legt den ersten Baum und die Ordnerregeln fest; beim Veröffentlichen entstehen die Gruppen und Regeln, die es beim Mandanten noch nicht gibt. Danach ändern Administratoren den Baum hier live.</p>{% endif %}
+</header>
+
+{% if view.error %}
+<div class="b-callout b-callout--warning" role="status"><p>{{ view.error }}</p></div>
+{% else %}
+<div class="b-callout" data-ax-result role="status" hidden></div>
+<div class="b-ax-layout">
+    <section class="b-ax-pane" aria-labelledby="b-ax-tree-title">
+        <h2 class="b-h3" id="b-ax-tree-title">Gruppen</h2>
+        <p class="b-small b-muted">Ziehen Sie eine Gruppe auf eine andere, um sie dorthin zu hängen. P Personen · {% if live %}D Dokumente · {% endif %}O Ordnerregeln · T Knotentypen.</p>
+        <div role="tree" aria-label="Zugriffsgruppen" class="b-ax-treebox" data-ax-tree>{{ branch(view.tree) }}</div>
+    </section>
+
+    <section class="b-ax-pane b-ax-detail" aria-labelledby="b-ax-detail-title">
+        {% set d = view.detail %}
+        {% if d %}
+        <h2 class="b-h2" id="b-ax-detail-title" data-ax-detail="{{ d.id }}">{{ d.name }}</h2>
+        {% if d.path %}<p class="b-small b-muted">unter {{ d.path | join(' / ') }}</p>{% endif %}
+        <div class="b-ax-facts">
+            {% if live %}<span class="b-tag">{{ d.counts.documents or 0 }}{{ '+' if d.counts.documents_more else '' }} Dokumente</span>{% endif %}
+            <span class="b-tag">{{ d.counts.folder_rules or 0 }} Ordnerregeln</span>
+            <span class="b-tag">{{ d.counts.node_types or 0 }} Knotentypen</span>
+        </div>
+
+        {% if not d.is_admin %}
+        <form class="b-ax-row-form" novalidate data-ax-rename>
+            <label class="b-label" for="b-ax-name">Name</label>
+            <input class="b-input" id="b-ax-name" name="name" value="{{ d.name }}">
+            <button type="submit" class="b-button b-button--secondary b-button--small">Umbenennen</button>
+        </form>
+        <form class="b-ax-row-form" novalidate data-ax-move>
+            <label class="b-label" for="b-ax-parent">Hängt unter</label>
+            <select class="b-select" id="b-ax-parent" name="parent">
+                {% for gr in view.groups if gr.id != d.id %}<option value="{{ gr.id }}" {% if gr.id == d.parent %}selected{% endif %}>{{ gr.path }}</option>{% endfor %}
+            </select>
+            <button type="submit" class="b-button b-button--secondary b-button--small">Verschieben …</button>
+        </form>
+        {% endif %}
+        <form class="b-ax-row-form" novalidate data-ax-create>
+            <label class="b-label" for="b-ax-child">Neue Untergruppe</label>
+            <input class="b-input" id="b-ax-child" name="name" placeholder="z. B. Mandatsteam Meier">
+            <button type="submit" class="b-button b-button--primary b-button--small">Anlegen …</button>
+        </form>
+
+        {% if live %}
+        <h3 class="b-h3">Mitglieder</h3>
+        {% if d.members %}
+        <ul class="b-ax-list">{% for m in d.members %}<li data-ax-member="{{ m.name }}"><span>{{ m.name }}</span>{% if m.ends_on %} <span class="b-tag">bis {{ m.ends_on }}</span>{% endif %}
+            <button type="button" class="b-button b-button--quiet b-button--small" data-ax-member-remove="{{ m.id }}">Entfernen</button></li>{% endfor %}</ul>
+        {% else %}<p class="b-small b-muted">Niemand direkt.</p>{% endif %}
+        <form class="b-ax-row-form" novalidate data-ax-member-add>
+            <label class="b-label" for="b-ax-person">Person aufnehmen</label>
+            <select class="b-select" id="b-ax-person" name="user">{% for p in view.people %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select>
+            <label class="b-label" for="b-ax-until">bis (leer: ohne Ende)</label>
+            <input class="b-input" id="b-ax-until" name="ends_on" type="date">
+            <button type="submit" class="b-button b-button--secondary b-button--small">Aufnehmen</button>
+        </form>
+        <h3 class="b-h3">Sieht außerdem, wer darüber steht</h3>
+        {% if d.above %}
+        <ul class="b-ax-list">{% for a in d.above %}<li><span class="b-small b-muted">{{ a.group }}:</span> {{ a.people | join(', ') }}</li>{% endfor %}</ul>
+        {% else %}<p class="b-small b-muted">Niemand über dieser Gruppe hat Mitglieder.</p>{% endif %}
+        {% endif %}
+
+        <h3 class="b-h3">Ordnerregeln</h3>
+        {% if d.rules %}
+        <ul class="b-ax-list" data-ax-rules>{% for r in d.rules %}<li><span class="b-mono">{{ r.pointer_prefix }}</span>{% if r.source %} <span class="b-small b-muted">{{ r.source }}</span>{% endif %}
+            <button type="button" class="b-button b-button--quiet b-button--small" data-ax-rule-remove="{{ r.rule_id }}">Entfernen</button></li>{% endfor %}</ul>
+        {% else %}<p class="b-small b-muted">Kein Ordner zugewiesen.</p>{% endif %}
+        <form class="b-ax-row-form" novalidate data-ax-rule-add>
+            <label class="b-label" for="b-ax-prefix">Ordner zuweisen</label>
+            <input class="b-input b-mono" id="b-ax-prefix" name="prefix" list="b-ax-folders" placeholder="/Mandate/Meier">
+            <datalist id="b-ax-folders">{% for f in view.folders %}<option value="{{ f.prefix }}">{{ f.source }}</option>{% endfor %}</datalist>
+            <button type="submit" class="b-button b-button--secondary b-button--small">Zuweisen</button>
+        </form>
+        {% if d.node_types %}<h3 class="b-h3">Knotentypen</h3><p class="b-small">{{ d.node_types | join(', ') }}</p>
+        <p class="b-small b-muted">Ein Knoten ist nie weiter sichtbar als sein Typ oder sein Behälter; das Brain prüft die Reihenfolge.</p>{% endif %}
+        {% if not d.is_admin %}
+        <button type="button" class="b-button b-button--quiet b-ax-delete" data-ax-delete>Gruppe löschen …</button>
+        {% endif %}
+        {% endif %}
+    </section>
+
+    {% if live %}
+    <section class="b-ax-pane" aria-labelledby="b-ax-people-title">
+        <h2 class="b-h3" id="b-ax-people-title">Personen</h2>
+        <p class="b-small b-muted">Rollen: was jemand tun darf. Gruppen: was jemand sehen darf. Wählen Sie eine Person, um ihren sichtbaren Teilbaum zu sehen.</p>
+        <ul class="b-ax-people">
+            {% for p in view.people %}
+            <li class="{{ 'is-current' if view.person == p.id else '' }}" data-ax-person="{{ p.name }}">
+                <a class="b-link-strong" href="?gruppe={{ view.detail.id if view.detail else '' }}&person={{ p.id }}">{{ p.name }}</a>
+                <span class="b-small b-muted">{{ p.roles | join(', ') or 'keine Rolle' }}</span>
+                <span class="b-small">{% for gr in p.grants %}{% set gname = (view.groups | selectattr('id', 'equalto', gr.group_id) | map(attribute='name') | first) %}<span class="b-tag">{{ gname or gr.group_id }}{% if gr.ends_on %} · bis {{ gr.ends_on }}{% endif %}</span> {% else %}keine Gruppe{% endfor %}</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+</div>
+
+{% if live %}
+<div class="b-ax-bottom">
+    <section class="b-op-section" aria-labelledby="b-ax-explain-title">
+        <h2 class="b-h3" id="b-ax-explain-title">Zugriff erklären</h2>
+        <form class="b-ax-row-form" novalidate data-ax-explain>
+            <label class="b-label" for="b-ax-ex-user">Wer</label>
+            <select class="b-select" id="b-ax-ex-user" name="user">{% for p in view.people %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select>
+            <label class="b-label" for="b-ax-ex-pointer">Dokument (Pfad)</label>
+            <input class="b-input b-mono" id="b-ax-ex-pointer" name="pointer" placeholder="/Mandate/Meier/Vollmacht.pdf">
+            <button type="submit" class="b-button b-button--secondary b-button--small">Erklären</button>
+        </form>
+        <div class="b-callout" data-ax-explain-result role="status" hidden></div>
+    </section>
+    <section class="b-op-section" aria-labelledby="b-ax-posture-title">
+        <h2 class="b-h3" id="b-ax-posture-title">Durchsetzung</h2>
+        {% if view.posture %}
+        <p>Der Mandant <strong data-ax-mode>{{ 'setzt die Gruppen durch' if view.posture.mode == 'enforcing' else 'setzt die Gruppen noch nicht durch' }}</strong> (<span class="b-mono">{{ view.posture.mode }}</span>).
+            ACL-Nachführung: {{ 'abgeschlossen' if view.posture.backfill_complete else 'noch nicht abgeschlossen' }}.</p>
+        {% else %}
+        <p class="b-small b-muted">Den Modus (disabled oder enforcing) zeigt das Brain heute nur Knovas-intern.</p>
+        {% endif %}
+        <div class="b-button-row">
+            <button type="button" class="b-button b-button--secondary b-button--small" data-ax-posture="enforcing">Durchsetzen anfragen</button>
+            <button type="button" class="b-button b-button--quiet b-button--small" data-ax-posture="disabled">Ausschalten anfragen</button>
+        </div>
+        <p class="b-small b-muted">Umschalten braucht die Freigabe einer zweiten Administratorin oder eines zweiten Administrators.</p>
+        {% if view.posture_requests %}
+        <ul class="b-ax-list">{% for r in view.posture_requests %}<li>{{ 'Durchsetzen' if r.mode == 'enforcing' else 'Ausschalten' }} · angefragt von {{ r.requested_by_name or '–' }}, {{ r.requested_at | b_datetime }}
+            {% if r.approved_at %}<span class="b-tag b-tag--good">freigegeben von {{ r.approved_by_name }}</span>{% elif r.requested_by != view.me %}<button type="button" class="b-button b-button--primary b-button--small" data-ax-posture-approve="{{ r.id }}">Freigeben</button>{% else %}<span class="b-tag">wartet auf eine zweite Person</span>{% endif %}</li>{% endfor %}</ul>
+        {% endif %}
+    </section>
+</div>
+{% endif %}
+
+<dialog class="b-dialog" id="b-ax-impact" aria-labelledby="b-ax-impact-title">
+    <div class="b-dialog-head"><div>
+        <h2 class="b-h2" id="b-ax-impact-title">Wirkung prüfen</h2>
+        <p class="b-muted" data-ax-impact-what></p>
+    </div></div>
+    <div class="b-dialog-body">
+        <div data-ax-impact-body></div>
+        <div class="b-callout b-callout--critical" data-ax-impact-error role="alert" hidden></div>
+    </div>
+    <div class="b-dialog-foot">
+        <button type="button" class="b-button b-button--quiet" data-ax-impact-cancel>Abbrechen</button>
+        <button type="button" class="b-button b-button--primary" data-ax-impact-go>Bestätigen</button>
+    </div>
+</dialog>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/access.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

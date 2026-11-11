@@ -11,6 +11,7 @@
 | Deploy the platform | [setup.md](setup.md) |
 | HTTPS + internal DNS (host nginx) | [deployment/host-nginx-internal.md](deployment/host-nginx-internal.md) |
 | Host nginx deploy checklist | [deployment/checklist-host-nginx.md](deployment/checklist-host-nginx.md) |
+| Run it for the Knovas tenant; the views (Ansichten) and their addresses | [deployment/knovas-tenant.md](deployment/knovas-tenant.md) |
 | Stop web servers | [../../docs/stopping-web-servers.md](../../docs/stopping-web-servers.md) |
 | Try without a Knovas tenant | [demo.md](demo.md) |
 | Ubuntu host notes | [platforms/ubuntu.md](platforms/ubuntu.md) |
@@ -24,3 +25,7 @@
 | Knovas API (mTLS, ingestion) | [docs/KnovasAPI](../../docs/KnovasAPI/README.md) |
 | mTLS certificates (filenames, permissions) | [docs/certificates.md](../../docs/certificates.md) |
 | Index documents before search | [Knovas Connector](../../KnovasConnector/README.md) |
+| Connect a company's sources to its Brain: the parts, who proves what, what is built | [connection-layer.md](connection-layer.md) |
+| Set up a site with Knovas Link (German, for consultants) | [connect-a-site.md](connect-a-site.md) |
+| The contract between components, Knovas Link, the Platform and the Brain | [connector-protocol-v1.md](connector-protocol-v1.md) |
+| Build, sign and publish the images; deploy them by digest | [deployment/release-images.md](deployment/release-images.md) |

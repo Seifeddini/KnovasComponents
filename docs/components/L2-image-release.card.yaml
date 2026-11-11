@@ -1,0 +1,216 @@
+card: 2
+id: L2-IMAGE-RELEASE
+name: Image release
+kind: infrastructure
+owner: ROLE-ENGINE-OWNER
+status: planned
+level: 2
+source_paths:
+- .github/workflows/release-images.yml
+- scripts/ci/release_image.sh
+purpose: Builds, signs and pushes the images of the Platform, Knovas Link, the sync component and the Jira connector
+  from a branch a person picks, so that a deployment names each image by its digest.
+responsible_for:
+- id: L2-IMAGE-RELEASE/R-1
+  statement: Builds each chosen image from the run's commit with the image's own Dockerfile, without the layer cache.
+  code:
+  - .github/workflows/release-images.yml
+- id: L2-IMAGE-RELEASE/R-2
+  statement: Pushes the image under two moving tags and signs and verifies the pushed digest keylessly.
+  code:
+  - .github/workflows/release-images.yml
+- id: L2-IMAGE-RELEASE/R-3
+  statement: Names, per image, the package, the build context and the two tags (release_image.sh).
+  code:
+  - scripts/ci/release_image.sh
+not_responsible_for:
+- Deploying an image; a deployment names the digest the run's summary prints.
+- What goes into an image; each image's Dockerfile belongs to its component.
+operations:
+- id: release-images
+  name: 'Workflow release-images, started by hand (workflow_dispatch) on a branch, input images: all, platform, site,
+    knovas-link, sync-component or jira-connector'
+  entrance: job
+  ref: .github/workflows/release-images.yml
+- id: release-image-helper
+  name: release_image.sh IMAGE OWNER BRANCH COMMIT, prints package, repository, context, runner, module, short_tag and
+    branch_tag as KEY=value lines
+  entrance: cli
+  ref: scripts/ci/release_image.sh
+contract:
+  '*':
+    always:
+    - id: L2-IMAGE-RELEASE/*/A-1
+      statement: The workflow holds no secret but the run's GITHUB_TOKEN and the read-only KB_READ_TOKEN, and no step
+        prints either.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_only_the_run_token_and_the_read_only_kb_token
+    - id: L2-IMAGE-RELEASE/*/A-2
+      statement: Every action the workflow uses is pinned by a full commit SHA, and the checkout keeps no credentials.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_every_action_is_pinned_by_sha
+  release-images:
+    needs:
+    - id: L2-IMAGE-RELEASE/release-images/N-1
+      statement: Started by hand on a branch (refs/heads/...); a run started from anything else builds nothing.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_started_by_hand_only_with_a_choice_of_images
+        - test_any_branch_and_every_choice_maps_to_images
+    - id: L2-IMAGE-RELEASE/release-images/N-2
+      statement: The repository secret KB_READ_TOKEN is set for the Platform and the sync component, whose images
+        install brain-runner; without it those jobs fail before they build.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_the_token_reaches_the_build_as_a_secret_and_is_required
+    promises:
+    - id: L2-IMAGE-RELEASE/release-images/P-1
+      statement: Each chosen image is built from the run's commit with --pull --no-cache; KB_READ_TOKEN reaches the
+        build only as a BuildKit secret, and the job fails when the token is in the image's history or git
+        configuration, or when brain-runner is not importable in an image that needs it, or, in an image without
+        brain-runner, when its own package (the helper's module) does not import.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_the_token_reaches_the_build_as_a_secret_and_is_required
+        - test_an_image_without_brain_runner_is_checked_by_importing_its_own_package
+    - id: L2-IMAGE-RELEASE/release-images/P-2
+      statement: The image is pushed as ghcr.io/OWNER/PACKAGE:SHORT_TAG (the first 12 characters of the commit) and :BRANCH_TAG, both
+        naming the digest the registry answered; a different digest fails the job.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_the_push_reads_the_digest_and_both_tags_name_it
+    - id: L2-IMAGE-RELEASE/release-images/P-3
+      statement: The pushed digest is signed keylessly with a checksum-pinned cosign and verified against this run's
+        workflow identity, commit and trigger before the summary is written.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_cosign_is_pinned_and_the_digest_signed_and_verified
+    - id: L2-IMAGE-RELEASE/release-images/P-4
+      statement: The run's summary names, per image, the image by digest, the branch, the commit and the line a
+        deployment sets (DOCBRIDGE_WEB_IMAGE, KNOVAS_LINK_DIGEST, SYNC_COMPONENT_DIGEST or JIRA_CONNECTOR_DIGEST).
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_the_summary_names_digest_branch_and_commit
+    limits:
+    - id: L2-IMAGE-RELEASE/release-images/L-1
+      statement: 'One job per image, 60 minutes each, on a single-use runner (CI_EPHEMERAL_RUNNER) or a GitHub-hosted
+        one, never the shared runner; permissions only contents: read, packages: write, id-token: write.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_single_use_runners_never_the_shared_box
+        - test_permissions_are_minimal
+    - id: L2-IMAGE-RELEASE/release-images/L-2
+      statement: GitHub offers the workflow only once its file is on the default branch; a branch without the file
+        cannot be released by it.
+      risk_class: low
+  release-image-helper:
+    needs:
+    - id: L2-IMAGE-RELEASE/release-image-helper/N-1
+      statement: Exactly four arguments; the image is platform, knovas-link, sync-component or jira-connector, the
+        owner a GitHub owner name, the commit a full 40-character SHA, the branch not empty; anything else exits
+        non-zero and prints nothing to the output.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_the_helper_refuses_what_it_cannot_name
+    promises:
+    - id: L2-IMAGE-RELEASE/release-image-helper/P-1
+      statement: The package names are the ones the deployment already uses (docker-compose.yml's docbridge-web and
+        jira-connector, the site package's knovas-link and sync-component, the Jira connector's site file), and
+        runner=yes exactly for the images whose Dockerfile installs brain-runner.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_the_image_names_are_the_ones_the_deployment_uses
+    - id: L2-IMAGE-RELEASE/release-image-helper/P-2
+      statement: The branch tag is a valid Docker tag of at most 128 characters; a branch that reads like a commit gets
+        the prefix branch-, so it never shadows a commit tag.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_the_branch_tag_is_a_valid_docker_tag
+uses:
+- component: L3-KNOVAS-LINK
+  expects:
+  - KnovasLink/Dockerfile builds the knovas-link image, and `import knovas_link` gives its VERSION.
+  method: docker build of the component's folder
+- component: L3-SYNC-COMPONENT
+  expects:
+  - KnovasPlatform/components/sync_component/Dockerfile builds the sync-component image and installs brain-runner from
+    the kb_read_token build secret.
+  method: docker build of the component's folder
+- component: L3-JIRA-CONNECTOR
+  expects:
+  - KnovasConnectorJira/Dockerfile builds the jira-connector image from its folder alone (the kit vendored), and
+    `import knovas_connector_jira.connector` gives its VERSION.
+  method: docker build of the component's folder
+- component: L2-BRAIN-BUILDER
+  expects:
+  - The site package the Builder writes names the images knovas-link and sync-component (builder/sites.py CONTAINERS),
+    the package names release_image.sh pushes; a test compares them, no code reads them across the boundary.
+  method: names shared by convention, checked by test_the_image_names_are_the_ones_the_deployment_uses
+hides:
+- The cosign version and its checksum.
+- The runner label and the tag scheme (both tags move; only the digest is stable).
+decisions:
+- id: K-D3
+  statement: Jobs that hold packages write and id-token write run on single-use runners, never on the shared box.
+review:
+- at: /parent
+  why: The domain of the release workflow is open (Software Map K5); KnovasComponents has no domain for its delivery yet.
+- at: /owner
+  why: Proposed owner; one role per component is confirmed by a person (Software Map K4).
+- at: L2-IMAGE-RELEASE/release-images/L-2
+  why: No evidence; GitHub's own behaviour, stated in the workflow's header.
+- at: /uses/2
+  why: The Platform image is built from the whole docbridge_integration folder, which is more than the Builder; the
+    Platform's web app has no card yet, so the dependency is named on the Builder's site container names only.
+- at: /status
+  why: Built; last run from 7c557e6 (three images). The fourth image, jira-connector, has not been run yet and needs
+    its GHCR package created private first (release-images.md, "Once per repository").
+- at: L2-IMAGE-RELEASE/release-images/P-1
+  why: Changed for FEAT-2026-11-10-write-back J-4 - an image without brain-runner is checked by importing the module
+    the helper names (knovas_link, knovas_connector_jira.connector) instead of knovas_link alone; a person marks it
+    compatible or not.
+- at: L2-IMAGE-RELEASE/release-image-helper/P-1
+  why: Changed for J-4 - a fourth image (jira-connector) and the module line; a person marks it compatible or not.
+- at: L2-IMAGE-RELEASE/release-image-helper/N-1
+  why: Changed for J-4 - jira-connector is a fourth image the helper takes (a looser need); a person marks it
+    compatible or not.
+- at: L2-IMAGE-RELEASE/release-images/P-4
+  why: Changed for J-4 - the summary also names JIRA_CONNECTOR_DIGEST; a person marks it compatible or not.

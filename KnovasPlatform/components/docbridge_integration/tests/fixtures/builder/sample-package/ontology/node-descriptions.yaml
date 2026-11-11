@@ -1,0 +1,4 @@
+version: 1
+descriptions:
+  ORG-0001: "The first client."
+  PROC-mandate: "How a mandate moves from offer to close."

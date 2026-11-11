@@ -1,0 +1,6 @@
+version: 1
+types:
+  Mandate: {editable: true, source: "dms", key_path: "mandates[]"}
+  Deadline: {editable: false, source: "dms", key_path: "deadlines[]", reason: "derived by loader", fix_at: "the mandate file"}
+relations: {}
+facts: {}

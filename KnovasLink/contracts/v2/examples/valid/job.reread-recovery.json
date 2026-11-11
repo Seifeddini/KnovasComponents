@@ -1,0 +1,28 @@
+{
+  "schema": "job.schema.json",
+  "description": "Read the target again and give the receipt of an earlier write whose result was lost.",
+  "instance": {
+    "id": "44444444-5555-4666-8777-888888888888",
+    "kind": "reread",
+    "protocol": "2.0",
+    "source": "records-main",
+    "target_serial": "731948205517",
+    "deadline": "2026-11-10T14:10:00Z",
+    "actor": {
+      "kind": "user",
+      "id": "person-example-approver"
+    },
+    "args": {
+      "targets": [
+        "items/matter-17"
+      ],
+      "fields": [
+        "owner",
+        "due_date"
+      ],
+      "permit_ids": [
+        "6e5d4c3b-2a19-4f08-8e7d-6c5b4a392817"
+      ]
+    }
+  }
+}

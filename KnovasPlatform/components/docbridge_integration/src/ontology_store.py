@@ -28,6 +28,15 @@ _EMPTY: Dict[str, Any] = {
 }
 
 
+def _replace_by_id(items: List[Dict[str, Any]], entry: Dict[str, Any]) -> None:
+    """Eintrag in einer Fixture-Liste an seiner Id ersetzen."""
+    for index, item in enumerate(items):
+        if str(item.get("id")) == str(entry.get("id")):
+            items[index] = dict(entry)
+            return
+    items.append(dict(entry))
+
+
 def _as_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
@@ -70,6 +79,42 @@ class OntologyStore:
         self._persist(lambda raw: raw.setdefault("types", []).append(dict(entry)))
         return dict(entry)
 
+    def update_type(self, type_id: str, label: str) -> Optional[Dict[str, Any]]:
+        """Typ umbenennen. Ein leerer Name und ein belegter Name bleiben stehen."""
+        label = " ".join(str(label or "").split())
+        type_id = str(type_id or "").strip()
+        if not label or not type_id:
+            return None
+        target = None
+        for existing in self._types:
+            if existing["id"] == type_id:
+                target = existing
+            elif existing["label"].lower() == label.lower():
+                return None
+        if target is None:
+            return None
+        target["label"] = label
+        self._persist(lambda raw: _replace_by_id(raw.setdefault("types", []), target))
+        return dict(target)
+
+    def update_entity(self, entity_id: str, label: Optional[str] = None,
+                      description: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Name oder Beschreibung einer Entität ändern."""
+        entity = self._entity_by_id.get(str(entity_id or "").strip())
+        if entity is None:
+            return None
+        if label is None and description is None:
+            return dict(entity)
+        if label is not None:
+            label = " ".join(str(label).split())
+            if not label:
+                return None
+            entity["label"] = label
+        if description is not None:
+            entity["description"] = " ".join(str(description).split())
+        self._persist(lambda raw: _replace_by_id(raw.setdefault("entities", []), entity))
+        return dict(entity)
+
     def _slug(self, label: str) -> str:
         base = re.sub(r"[^a-z0-9]+", "_",
                       label.lower().replace("ä", "ae").replace("ö", "oe")
@@ -93,8 +138,22 @@ class OntologyStore:
                   "type": type_id, "doc_count": 0}
         self._entities.append(entity)
         self._entity_by_id[entity["id"]] = entity
-        self._persist(lambda raw: raw.setdefault("entities", []).append(dict(entity)))
+
+        def write(raw):
+            raw.setdefault("entities", []).append(dict(entity))
+            self._count_entity(raw, type_id, 1)
+
+        self._count_entity({"types": self._types}, type_id, 1)
+        self._persist(write)
         return dict(entity)
+
+    @staticmethod
+    def _count_entity(data: Dict[str, Any], type_id: str, by: int) -> None:
+        """A type's count moves with its entities: the star view draws a type by it. It is a stated number (a fixture
+        may hold only a sample of its entries), so it moves rather than being recounted."""
+        for entry in data.get("types") or []:
+            if entry.get("id") == type_id:
+                entry["count"] = max(0, _as_int(entry.get("count")) + by)
 
     def create_relation(self, src: str, predicate: str,
                         dst: str) -> Optional[Dict[str, Any]]:
@@ -168,6 +227,7 @@ class OntologyStore:
         entity_id = str(entity_id or "").strip()
         if entity_id not in self._entity_by_id:
             return False
+        type_id = self._entity_by_id[entity_id]["type"]
         self._entities[:] = [e for e in self._entities if e["id"] != entity_id]
         del self._entity_by_id[entity_id]
         self._entity_relations[:] = [
@@ -175,7 +235,13 @@ class OntologyStore:
             if r["src"] != entity_id and r["dst"] != entity_id]
         self._evidence[:] = [ev for ev in self._evidence
                              if ev["entity_id"] != entity_id]
-        self._persist(lambda raw: self._prune(raw, {entity_id}))
+
+        def write(raw):
+            self._prune(raw, {entity_id})
+            self._count_entity(raw, type_id, -1)
+
+        self._count_entity({"types": self._types}, type_id, -1)
+        self._persist(write)
         return True
 
     def delete_type(self, type_id: str) -> bool:
@@ -358,8 +424,12 @@ def _validate(raw: Any, path_exists: Optional[Callable[[str], bool]]) -> Tuple[D
             warnings.append(f"Entität verworfen: {e!r}")
             continue
         seen_entity_ids.add(eid)
-        entities.append({"id": eid, "label": label, "type": etype,
-                         "doc_count": _as_int(e.get("doc_count"))})
+        entry = {"id": eid, "label": label, "type": etype,
+                 "doc_count": _as_int(e.get("doc_count"))}
+        description = " ".join(str(e.get("description") or "").split())
+        if description:
+            entry["description"] = description
+        entities.append(entry)
 
     entity_relations = []
     for r in raw.get("entity_relations") or []:

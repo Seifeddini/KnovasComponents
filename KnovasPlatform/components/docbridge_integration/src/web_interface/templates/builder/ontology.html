@@ -1,0 +1,265 @@
+{# Stage 3 (build plan steps B2 and B3): the workspace's ontology as a
+   canvas, a type tree and a problems list, edited in place. Expects
+   current_workspace, history ({undo, redo} counts) and ontology
+   (builder.ontology_view.build). The views are drawn by
+   static/js/builder/ontology.js from the JSON below; the editors are
+   static/js/builder/ontology-edit.js. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% set c = ontology.counts %}
+{% block title %}{{ stage.label }} · {{ current_workspace.name }}{% endblock %}
+{% block main %}
+<header class="b-onto-head">
+    <div class="b-page-head" style="margin-bottom: 0">
+        <p class="b-step-count b-small">Stufe {{ stage_number }} von {{ stages | length }} · {{ current_workspace.name }}</p>
+        <h1 class="b-h1">{{ stage.label }}</h1>
+    </div>
+    <div class="b-tag-row">
+        <span class="b-tag" data-onto-head-types>{{ c.types }} Typen</span>
+        <span class="b-tag" data-onto-head-relations>{{ c.relations }} Beziehungen</span>
+        {% if c.problems.critical %}<span class="b-tag b-tag--critical"><span class="b-tag-dot"></span>{{ c.problems.critical }} Probleme</span>{% endif %}
+        {% if c.problems.warning %}<span class="b-tag b-tag--warning"><span class="b-tag-dot"></span>{{ c.problems.warning }} Warnungen</span>{% endif %}
+        {% if c.problems.info %}<span class="b-tag"><span class="b-tag-dot"></span>{{ c.problems.info }} Hinweise</span>{% endif %}
+        <span class="b-tag b-tag--accent">Entwurf {{ current_workspace.draft_number or '' }}</span>
+    </div>
+    <div class="b-onto-edit-bar" data-onto-edit
+         data-edit-url="{{ url_for('builder.edit_ontology', workspace_id=current_workspace.id) }}"
+         data-undo-url="{{ url_for('builder.undo', workspace_id=current_workspace.id) }}"
+         data-redo-url="{{ url_for('builder.redo', workspace_id=current_workspace.id) }}"
+         data-undo="{{ history.undo }}" data-redo="{{ history.redo }}">
+        <button type="button" class="b-button b-button--quiet" data-onto-undo {% if not history.undo %}disabled{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Rückgängig</button>
+        <button type="button" class="b-button b-button--quiet" data-onto-redo {% if not history.redo %}disabled{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>Wiederherstellen</button>
+        {% set own_types = ontology.nodes | selectattr('source', 'equalto', 'model') | rejectattr('level', 'equalto', 'pack') | list %}
+        {% set own_relations = ontology.relations | selectattr('editable') | list %}
+        {% if own_types or own_relations %}<button type="button" class="b-button b-button--quiet" data-onto-reset-open>Zurücksetzen …</button>{% endif %}
+        <button type="button" class="b-button b-button--primary" data-onto-new-type>{{ icon('plus') }}Neuer Typ</button>
+    </div>
+</header>
+
+{% if ontology.nodes %}
+{% if not c.types %}
+<div class="b-callout b-onto-start" role="status">
+    <p class="b-callout-title">Noch keine eigenen Typen</p>
+    <p>Die Fläche zeigt den Kern, den jeder Mandant hat (Enterprise Upper Ontology). Legen Sie darunter eigene Typen an, oder beginnen Sie einen Arbeitsbereich mit der Ontologie des Mandanten oder mit einem Branchenpaket.</p>
+</div>
+{% endif %}
+<div data-tabs>
+    <div class="b-tablist" role="tablist" aria-label="Ansicht der Ontologie">
+        <button type="button" class="b-tab" role="tab" id="b-onto-tab-canvas" aria-controls="b-onto-view-canvas" aria-selected="true" data-onto-view="canvas">Fläche</button>
+        <button type="button" class="b-tab" role="tab" id="b-onto-tab-tree" aria-controls="b-onto-view-tree" aria-selected="false" tabindex="-1" data-onto-view="tree">Typbaum</button>
+        <button type="button" class="b-tab" role="tab" id="b-onto-tab-problems" aria-controls="b-onto-view-problems" aria-selected="false" tabindex="-1" data-onto-view="problems">Probleme<span class="b-tab-count">{{ ontology.problems | length }}</span></button>
+        <button type="button" class="b-tab" role="tab" id="b-onto-tab-candidates" aria-controls="b-onto-view-candidates" aria-selected="false" tabindex="-1" data-onto-view="candidates">Kandidaten<span class="b-tab-count">{{ ontology.candidates | length }}</span></button>
+    </div>
+
+    <form class="b-onto-filters" role="search" aria-label="Typen filtern" data-onto-filters>
+        <div class="b-field">
+            <label class="b-label" for="b-onto-search">Suchen</label>
+            <input class="b-input b-search" id="b-onto-search" type="search" placeholder="Name oder Schlüssel, z. B. CAP-" autocomplete="off" data-filter="search">
+        </div>
+        <fieldset class="b-field b-choice">
+            <legend class="b-label">Ebene</legend>
+            <div class="b-onto-levels">
+                <label class="b-check"><input type="checkbox" data-filter="level" value="core" checked>Kern</label>
+                <label class="b-check"><input type="checkbox" data-filter="level" value="pack" checked>Paket</label>
+                <label class="b-check"><input type="checkbox" data-filter="level" value="company" checked>Firma</label>
+            </div>
+        </fieldset>
+        <div class="b-field">
+            <label class="b-label" for="b-onto-pack">Paket</label>
+            <select class="b-select" id="b-onto-pack" data-filter="pack">
+                <option value="">Alle</option>
+                {% for p in ontology.packs %}<option value="{{ p.id }}">{{ p.name.de or p.id }}</option>{% endfor %}
+                <option value="-">Ohne Paket</option>
+            </select>
+        </div>
+        <div class="b-field">
+            <label class="b-label" for="b-onto-meta">Meta</label>
+            <select class="b-select" id="b-onto-meta" data-filter="meta">
+                <option value="">Alle</option>
+                <option value="yes">Nur Meta-Typen</option>
+                <option value="no">Ohne Meta-Typen</option>
+            </select>
+        </div>
+        <div class="b-onto-levels">
+            <label class="b-check"><input type="checkbox" data-filter="problems">Nur mit Problemen</label>
+        </div>
+        <p class="b-onto-count" aria-live="polite" data-onto-count></p>
+    </form>
+
+    <div class="b-onto-work">
+        <div class="b-tabpanel" role="tabpanel" id="b-onto-view-canvas" aria-labelledby="b-onto-tab-canvas" style="padding-top: 0">
+            <div class="b-canvas" data-onto-canvas>
+                <div class="b-onto-graph" id="b-onto-graph" aria-label="Typen und Beziehungen als Fläche" role="img"></div>
+                <div class="b-onto-empty" data-onto-canvas-empty hidden>Kein Typ passt zu den Filtern.</div>
+                <div class="b-toolbar" role="toolbar" aria-label="Fläche">
+                    <button type="button" class="b-tool b-tool-text" aria-pressed="false" data-onto-connect
+                            title="Beziehung ziehen: von einer Karte auf eine andere ziehen (auch mit gedrückter Umschalttaste)">Beziehung ziehen</button>
+                    <span class="b-tool-sep" aria-hidden="true"></span>
+                    <span data-toggle-group style="display: contents">
+                        <button type="button" class="b-tool b-tool-text" aria-pressed="true" data-onto-layout="tree" title="Als Baum, Wurzel links">Baum</button>
+                        <button type="button" class="b-tool b-tool-text" aria-pressed="false" data-onto-layout="grouped" title="Nach Ebene gruppiert">Gruppiert</button>
+                        <button type="button" class="b-tool b-tool-text" aria-pressed="false" data-onto-layout="force" title="Frei angeordnet nach Verbindungen">Frei</button>
+                    </span>
+                    <span class="b-tool-sep" aria-hidden="true"></span>
+                    <button type="button" class="b-tool" aria-label="Vergrößern" data-onto-zoom="in">{{ icon('zoom-in') }}</button>
+                    <button type="button" class="b-tool" aria-label="Verkleinern" data-onto-zoom="out">{{ icon('zoom-out') }}</button>
+                    <button type="button" class="b-tool" aria-label="Alles zeigen" data-onto-zoom="fit">{{ icon('fit') }}</button>
+                </div>
+                <div class="b-onto-legend" aria-hidden="true">
+                    <span><span class="b-onto-swatch b-onto-swatch--core"></span>Kern</span>
+                    <span><span class="b-onto-swatch b-onto-swatch--pack"></span>Paket</span>
+                    <span><span class="b-onto-swatch b-onto-swatch--company"></span>Firma</span>
+                    <span><span class="b-onto-swatch b-onto-swatch--problem"></span>Mit Problem</span>
+                    <span><span class="b-onto-line"></span>Untertyp von</span>
+                    <span><span class="b-onto-line b-onto-line--relation"></span>Beziehung</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="b-tabpanel" role="tabpanel" id="b-onto-view-tree" aria-labelledby="b-onto-tab-tree" hidden>
+            <ul class="b-tree" role="tree" aria-label="Typbaum" data-onto-tree></ul>
+        </div>
+
+        <div class="b-tabpanel" role="tabpanel" id="b-onto-view-problems" aria-labelledby="b-onto-tab-problems" hidden>
+            <div data-onto-problems></div>
+        </div>
+
+        <div class="b-tabpanel" role="tabpanel" id="b-onto-view-candidates" aria-labelledby="b-onto-tab-candidates" hidden>
+            <div data-onto-candidates></div>
+        </div>
+
+        <aside class="b-panel" id="b-onto-panel" aria-labelledby="b-onto-panel-title" data-panel hidden style="--panel-width: 480px">
+            <button type="button" class="b-panel-resize" role="separator" aria-orientation="vertical"
+                    aria-label="Breite der Seitenleiste" aria-valuemin="320" aria-valuemax="720" aria-valuenow="480"
+                    data-panel-resize></button>
+            <div class="b-panel-head">
+                <div>
+                    <h2 class="b-h3" id="b-onto-panel-title" data-onto-panel-title></h2>
+                    <span class="b-mono b-muted" data-onto-panel-key></span>
+                </div>
+                <button type="button" class="b-button b-button--quiet b-button--icon" data-panel-close aria-label="Seitenleiste schließen">{{ icon('close') }}</button>
+            </div>
+            <div class="b-panel-body" data-onto-panel-body></div>
+        </aside>
+    </div>
+</div>
+
+<script type="application/json" id="b-onto-data">{{ ontology | tojson }}</script>
+{% else %}
+<section class="b-empty" aria-labelledby="b-onto-empty-title">
+    <span class="b-empty-icon">{{ icon(stage.slug, 24) }}</span>
+    <div class="b-empty-text">
+        <h2 class="b-h3" id="b-onto-empty-title">Noch keine Typen</h2>
+        <p class="b-muted">{{ current_workspace.name }} hat noch keine Typen. Legen Sie den ersten an, unter einem Typ des Kerns.</p>
+    </div>
+    <button type="button" class="b-button b-button--primary" data-onto-new-type>{{ icon('plus') }}Neuer Typ</button>
+</section>
+<script type="application/json" id="b-onto-catalog">{{ ontology.catalog | tojson }}</script>
+{% endif %}
+
+<datalist id="b-ed-families">{% for f in ontology.families %}<option value="{{ f }}">{% endfor %}</datalist>
+<datalist id="b-ed-relation-names">{% for n in ontology.relation_names %}<option value="{{ n }}">{% endfor %}</datalist>
+
+{% if own_types or own_relations %}
+<dialog class="b-dialog" id="b-onto-reset" aria-labelledby="b-onto-reset-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-onto-reset-title">Ontologie zurücksetzen</h2>
+            <p class="b-muted">{{ current_workspace.name }}</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <p>Der Entwurf verliert alle eigenen Typen und Beziehungen der Firma: <strong>{{ own_types | length }} Typen</strong> und <strong>{{ own_relations | length }} Beziehungen</strong>, auch die der EUO-Ebene. Der Kern und die Branchenpakete bleiben.</p>
+            <p class="b-muted">Prozesse, Zuordnungen und Seiten, die diese Typen nennen, zeigen danach Probleme. «Rückgängig» holt alles in einem Schritt zurück. Beim Mandanten ändert sich erst etwas nach Probelauf, Freigabe und Veröffentlichung.</p>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--danger">Zurücksetzen</button>
+        </div>
+    </form>
+</dialog>
+{% endif %}
+
+<dialog class="b-dialog" id="b-onto-new-type" aria-labelledby="b-onto-new-type-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-onto-new-type-title">Neuer Typ</h2>
+            <p class="b-muted">Ein Typ der Firma, unter einem Typ des Kerns, eines Pakets oder der Firma.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <div class="b-field">
+                <label class="b-label" for="b-nt-key">Schlüssel</label>
+                <input class="b-input b-mono" id="b-nt-key" name="key" required autocomplete="off" spellcheck="false" placeholder="z. B. Invoice" aria-describedby="b-nt-key-hint">
+                <span class="b-hint" id="b-nt-key-hint">Großbuchstabe am Anfang, nur Buchstaben und Ziffern.</span>
+            </div>
+            <div class="b-ed-pair">
+                <div class="b-field"><label class="b-label" for="b-nt-de">Name (de)</label><input class="b-input" id="b-nt-de" name="label_de" autocomplete="off"></div>
+                <div class="b-field"><label class="b-label" for="b-nt-en">Name (en)</label><input class="b-input" id="b-nt-en" name="label_en" autocomplete="off"></div>
+            </div>
+            <div class="b-field">
+                <label class="b-label" for="b-nt-parent">Untertyp von</label>
+                <select class="b-select" id="b-nt-parent" name="parent"><option value="">– kein Elterntyp –</option></select>
+            </div>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Typ anlegen</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog class="b-dialog b-dialog--wide" id="b-onto-new-relation" aria-labelledby="b-onto-new-relation-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-onto-new-relation-title">Beziehung</h2>
+            <p class="b-muted">Ein Name aus der Liste erweitert diese Beziehung; ein neuer Name legt eine an.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <div class="b-field">
+                <label class="b-label" for="b-nr-key">Name</label>
+                <input class="b-input b-mono" id="b-nr-key" name="key" list="b-ed-relation-names" required autocomplete="off" spellcheck="false" placeholder="z. B. billed_to" aria-describedby="b-nr-key-hint">
+                <span class="b-hint" id="b-nr-key-hint">Klein geschrieben, Wörter mit Unterstrich getrennt.</span>
+            </div>
+            <p class="b-callout" data-ed-existing hidden></p>
+            <div data-ed-new-only>
+                <div class="b-ed-pair">
+                    <div class="b-field"><label class="b-label" for="b-nr-family">Familie</label><input class="b-input" id="b-nr-family" name="family" list="b-ed-families" autocomplete="off"></div>
+                    <div class="b-field"><label class="b-label" for="b-nr-inverse">Umkehrung</label><input class="b-input b-mono" id="b-nr-inverse" name="inverse" autocomplete="off" spellcheck="false" placeholder="z. B. contains"></div>
+                </div>
+                <div class="b-ed-pair">
+                    <div class="b-field"><label class="b-label" for="b-nr-de">Name (de)</label><input class="b-input" id="b-nr-de" name="label_de" autocomplete="off"></div>
+                    <div class="b-field"><label class="b-label" for="b-nr-en">Name (en)</label><input class="b-input" id="b-nr-en" name="label_en" autocomplete="off"></div>
+                </div>
+                <div class="b-field"><label class="b-label" for="b-nr-sentence">Lesart</label><textarea class="b-textarea" id="b-nr-sentence" name="sentence" rows="2"></textarea></div>
+                <div class="b-field"><label class="b-label" for="b-nr-reason">Begründung</label><textarea class="b-textarea" id="b-nr-reason" name="reason" rows="2"></textarea></div>
+            </div>
+            <div class="b-ed-pair">
+                <div class="b-field" data-ed-side="domain"><label class="b-label" for="b-nr-domain">Von (Definitionsbereich)</label><select class="b-select" id="b-nr-domain" name="domain" multiple size="7"></select></div>
+                <div class="b-field" data-ed-side="range"><label class="b-label" for="b-nr-range">Nach (Wertebereich)</label><select class="b-select" id="b-nr-range" name="range" multiple size="7"></select></div>
+            </div>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Beziehung anlegen</button>
+        </div>
+    </form>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/builder/ontology-edit.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/builder/ontology.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

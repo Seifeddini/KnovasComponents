@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # DocBridge-Knovas Integration Dockerfile
 
 FROM python:3.11-slim
@@ -88,6 +89,22 @@ print(f"knovas-extract {got} ({'git ' + commit if commit else 'PyPI'})")
 if not ref and got != want:
     raise SystemExit(f"knovas-extract {got} installed, KNOVAS_EXTRACT_VERSION is {want}")
 PY
+
+# brain-runner (Sync von GitHub, WP KC-0.2): the knowledge base's mapping runner as a pinned release, installed
+# from its git tag's commit; the Platform imports the installed package, never code from the repository.
+# The repository is private: the build reads a read-only token from the BuildKit secret `kb_read_token`, through
+# git's url rewrite, so it lands in no layer and no log. docker-compose.yml passes KB_READ_TOKEN from knovas.env:
+#   KB_READ_TOKEN=github_pat_... in knovas.env, then ./scripts/start.sh (or docker compose --env-file knovas.env build)
+# Without compose: docker build --secret id=kb_read_token,env=KB_READ_TOKEN .
+# --no-deps: its dependencies are the Platform's (requirements.txt pins PyYAML, jsonschema and requests; jmespath
+# and defusedxml are pinned there at the package's versions). The package takes requests >=2.32.0,<3, so the
+# Platform's 2.32.0 satisfies it.
+ARG BRAIN_RUNNER_VERSION=0.3.2
+ARG BRAIN_RUNNER_GIT_REF=961b2f72bd178ce86998070b53caa70363451f06
+# "yes" when a token is given (docker-compose.yml). A secret is not part of the layer cache: without this, a
+# layer built once without the token stays cached, and adding the token later never runs the install.
+ARG KB_READ_TOKEN_GIVEN=no
+RUN --mount=type=secret,id=kb_read_token,required=false     if [ -s /run/secrets/kb_read_token ]; then       git config --global url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf "https://github.com/"       && pip install --no-cache-dir --no-deps         "brain-runner @ git+https://github.com/Seifeddini/KnowledgeBase.git@${BRAIN_RUNNER_GIT_REF}#subdirectory=scripts/brain_runner"       && git config --global --unset-all url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf       && python -c "import brain_runner, os; assert brain_runner.__version__ == os.environ['BRAIN_RUNNER_VERSION'], brain_runner.__version__; print('brain-runner', brain_runner.__version__)";     else       echo "brain-runner not installed: no kb_read_token build secret (Sync von GitHub stays unavailable)";     fi
 
 # Copy application code
 COPY src/ ./src/

@@ -1,0 +1,13 @@
+{
+  "schema": "result.schema.json",
+  "description": "The staged change was withdrawn.",
+  "instance": {
+    "status": "ok",
+    "code": null,
+    "duration_ms": 350,
+    "review": {
+      "state": "withdrawn",
+      "stage_ref": "stage-example-41"
+    }
+  }
+}

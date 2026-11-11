@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/connector/v2/declaration.schema.json",
+  "title": "Connector declaration (connector protocol 2.0, draft)",
+  "description": "What one connector at a site serves and can do: the source kind it serves (an opaque string), the streams it reads, whether it fetches originals, the actions it can preview and carry out, and the conformance properties its package passed. The Brain, Knovas Link and the Builder decide only on this declaration, never on the source kind (GI-CONN-08). Closed: a declaration is a promise, so a field a receiver does not know is refused, not ignored.",
+  "type": "object",
+  "required": ["protocol", "connector", "source_kind", "streams", "fetch", "actions", "conformance"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol": {"type": "string", "pattern": "^2\\.[0-9]{1,3}$", "description": "The protocol version the connector speaks, 2.x."},
+    "connector": {
+      "type": "object",
+      "required": ["name", "version", "package_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"$ref": "#/$defs/token", "description": "The connector's name as it registers with Knovas Link."},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]{1,40})?$"},
+        "package_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the connector package (or image digest without its prefix) the conformance report was made for."}
+      }
+    },
+    "source_kind": {"$ref": "#/$defs/token", "description": "Opaque. Matched only by equality with the kind of the sources a person maps to this connector; no rule anywhere depends on its value."},
+    "streams": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "enum": ["document", "record", "tombstone", "generation", "state", "principal", "group", "membership", "permission"]},
+      "description": "The stream message types the connector produces when it reads its source. Empty for a connector that only writes."
+    },
+    "fetch": {"type": "boolean", "description": "Whether it answers fetch jobs (an item's original bytes)."},
+    "actions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/action"},
+      "description": "The actions it can preview and carry out under a permit. Empty for a read-only connector."
+    },
+    "conformance": {
+      "type": "object",
+      "required": ["suite", "passed", "report_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "suite": {"type": "string", "pattern": "^2\\.[0-9]{1,3}\\.[0-9]{1,3}$", "description": "The conformance suite's version (the connector kit)."},
+        "passed": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "enum": ["replay_changes_nothing", "deletion_guard", "preview_equals_receipt", "exactly_once", "permit_refusals", "no_credential_leaves_site", "review_outcome"]},
+          "description": "The properties the package passed. Reading needs replay_changes_nothing, deletion_guard and no_credential_leaves_site; writing needs preview_equals_receipt, exactly_once, permit_refusals and no_credential_leaves_site; native_review staging also needs review_outcome."
+        },
+        "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  },
+  "$defs": {
+    "token": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,62}$"},
+    "action": {
+      "type": "object",
+      "required": ["name", "target_kind", "params", "preview", "staging", "grouping", "inverse"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"$ref": "#/$defs/token", "description": "The connector's own name of the operation. The tenant's ontology maps its action types to it (WB-02)."},
+        "target_kind": {"$ref": "#/$defs/token", "description": "Opaque: the kind of item the action changes, as the connector's stream calls it."},
+        "params": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/param"}
+        },
+        "preview": {"type": "string", "enum": ["exact", "none"], "description": "exact: the connector computes, without writing, exactly what will change. none: it cannot, and the action can never be approved (SPEC-write-back-06)."},
+        "staging": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "enum": ["direct", "native_review"]},
+          "description": "direct: written to the item after the Brain's approval, only while the item is still at the expected version. native_review: staged for the source's own review step; applied only when the source accepts it."
+        },
+        "grouping": {"type": "string", "enum": ["atomic", "item", "none"], "description": "atomic: several steps of one act job on this source are written all or none, on any items. item: several steps of one act job on one item are written all or none; the Brain sends one act job per item, each with its own permits and receipts, and steps on several items in one act job are refused. none: one step per job, each with its own outcome. Several steps in one act job are allowed only when no step's action says none, and only on one item when one of them says item (v2.0 as amended 2026-11-10, D-24)."},
+        "inverse": {
+          "oneOf": [{"$ref": "#/$defs/token"}, {"type": "null"}],
+          "description": "The action that undoes this one from a receipt's before-values, or null when there is none."
+        }
+      }
+    },
+    "param": {
+      "type": "object",
+      "required": ["name", "kind", "required"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"$ref": "#/$defs/token"},
+        "kind": {"type": "string", "enum": ["string", "integer", "boolean", "date", "datetime", "enum", "reference"]},
+        "required": {"type": "boolean"},
+        "values": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 200}, "description": "The allowed values of an enum parameter."},
+        "max_length": {"type": "integer", "minimum": 1, "maximum": 65536}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "enum"}}}, "then": {"required": ["values"]}}
+      ]
+    }
+  }
+}

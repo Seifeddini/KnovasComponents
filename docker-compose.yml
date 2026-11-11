@@ -87,10 +87,21 @@ services:
       - knovas-internal
 
   docbridge-web:
-    image: docbridge-web-clientbundle:latest
+    # Built here by default. A released image instead (V1-G10, .github/workflows/release-images.yml): set
+    # DOCBRIDGE_WEB_IMAGE in knovas.env to the image by digest the release run names, then
+    # `docker compose --env-file knovas.env pull docbridge-web` and `up -d --no-build`; never build with it set
+    # (KnovasPlatform/docs/deployment/release-images.md).
+    image: ${DOCBRIDGE_WEB_IMAGE:-docbridge-web-clientbundle:latest}
     build:
       context: ./KnovasPlatform/components/docbridge_integration
       dockerfile: Dockerfile
+      # Build-time only: installs brain-runner (sources, dry run and publish in
+      # the Brain Builder, Sync von GitHub). Empty KB_READ_TOKEN builds without it.
+      secrets:
+        - kb_read_token
+      args:
+        # Not the token: only whether there is one, so the brain-runner layer is rebuilt when one is added.
+        KB_READ_TOKEN_GIVEN: ${KB_READ_TOKEN:+yes}
     env_file:
       - ./KnovasPlatform/.env.generated
     environment:
@@ -316,6 +327,39 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # The image of a sync component (connector protocol v1). It runs at a company, started with the line the Platform's
+  # wizard shows; here only to build it: docker compose --env-file knovas.env --profile sync-component build sync-component
+  sync-component:
+    profiles: ["sync-component"]
+    image: sync-component:0.1.0
+    build:
+      context: ./KnovasPlatform/components/sync_component
+      secrets:
+        - kb_read_token
+
+  # The Jira connector (connector protocol 2.0). It runs at a company's site beside Knovas Link, with the site's own
+  # compose file (KnovasConnectorJira/deploy/docker-compose.jira.yml); here only to build it and to dump one Jira
+  # source's record stream without Link (KnovasConnectorJira/README.md, "dump-stream"). Off unless its profile is named:
+  #   docker compose --env-file knovas.env --profile jira-connector build jira-connector
+  #   docker compose --env-file knovas.env --profile jira-connector run --rm -T \
+  #     -v "$PWD/jira-settings.json:/settings.json:ro" jira-connector \
+  #     dump-stream --source <source key> --settings /settings.json --out - > <source key>.jsonl
+  # The credential comes only from the file JIRA_CONNECTOR_ENV_FILE names (a site's knovas-jira.env, the connector's
+  # own: SYNC_CREDENTIAL_<KEY> and SYNC_CREDENTIAL_<KEY>_HOST), never from knovas.env and never from a file another
+  # service reads; unset, the service has none.
+  jira-connector:
+    profiles: ["jira-connector"]
+    image: jira-connector:0.1.0
+    build:
+      context: ./KnovasConnectorJira
+    env_file:
+      - ${JIRA_CONNECTOR_ENV_FILE:-/dev/null}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
 networks:
   knovas-internal:
     driver: bridge
@@ -347,3 +391,8 @@ secrets:
   # `docker inspect`, in the process list, or in a support bundle.
   platform_db_password:
     file: ./secrets/platform_db_password
+  # Read-only GitHub token for the private KnowledgeBase repository, used only
+  # while docbridge-web is built (KB_READ_TOKEN in knovas.env). A build secret:
+  # it lands in no image layer, no build log and no `docker inspect`.
+  kb_read_token:
+    environment: KB_READ_TOKEN

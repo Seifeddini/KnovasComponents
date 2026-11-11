@@ -1,0 +1,15 @@
+{
+  "schema": "permit-keys.schema.json",
+  "description": "The Brain's permit key, as Link pins it (an example key used nowhere else).",
+  "instance": {
+    "keys": [
+      {
+        "kid": "wbp-ed927a48f49e85f6",
+        "alg": "EdDSA",
+        "public_key": "Rl3ycyUvIWk4v774DY9wD5ugWZvwX539xKhUvZ4-qlE",
+        "not_before": "2026-11-01T00:00:00Z",
+        "not_after": "2027-11-01T00:00:00Z"
+      }
+    ]
+  }
+}

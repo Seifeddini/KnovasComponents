@@ -1,0 +1,23 @@
+id: partner
+audience: Partner
+description: Prüft Verträge und sieht, wo jeder Vertrag eines Mandats in der Prüfung steht.
+delivered_through: Platform
+lens:
+  spines: []
+  types: [Contract, Matter, Client]
+  relations: [belongs_to_matter, matter_of]
+views:
+  - id: contract-board
+    label: Vertragsprüfung
+    render: board
+    definition:
+      description: Jeder Vertrag in der Spalte seines Prüfschritts, mit dem, was ihm zum nächsten Schritt fehlt.
+      process: PROC-contract-review
+      root_types: [Contract]
+      columns: [status, term_end]
+pages: []
+actions: []
+context_packs: []
+rights:
+  read: ["*"]
+  write: none

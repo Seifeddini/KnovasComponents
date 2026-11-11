@@ -1,0 +1,15 @@
+id: dms-mandates
+version: 1
+description: "Mandate folders of the DMS: one Mandate per folder."
+source:
+  extractor: folder_tree
+  glob: "Mandate/*"
+  as: m
+edit_policy: source_owned
+emits:
+  - type: Mandate
+    identify: [key]
+    key: "m.number"
+    name: m.title
+    facts:
+      status: {value: m.state, priority: 10}

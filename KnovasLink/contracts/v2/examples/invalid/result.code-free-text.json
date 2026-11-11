@@ -1,0 +1,12 @@
+{
+  "schema": "result.schema.json",
+  "description": "A code is a code, never a sentence.",
+  "breaks": [
+    "code"
+  ],
+  "instance": {
+    "status": "refused",
+    "code": "Permit was used before",
+    "duration_ms": 3
+  }
+}

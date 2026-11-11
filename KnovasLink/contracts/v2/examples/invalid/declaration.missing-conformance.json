@@ -1,0 +1,71 @@
+{
+  "schema": "declaration.schema.json",
+  "description": "A declaration states the properties its package passed.",
+  "breaks": [
+    "conformance"
+  ],
+  "instance": {
+    "protocol": "2.0",
+    "connector": {
+      "name": "example-records",
+      "version": "0.1.0",
+      "package_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "source_kind": "example-records",
+    "streams": [
+      "record",
+      "tombstone",
+      "generation",
+      "state"
+    ],
+    "fetch": false,
+    "actions": [
+      {
+        "name": "set_fields",
+        "target_kind": "matter",
+        "params": [
+          {
+            "name": "owner",
+            "kind": "reference",
+            "required": false
+          },
+          {
+            "name": "due_date",
+            "kind": "date",
+            "required": false
+          }
+        ],
+        "preview": "exact",
+        "staging": [
+          "direct",
+          "native_review"
+        ],
+        "grouping": "atomic",
+        "inverse": "set_fields"
+      },
+      {
+        "name": "transition",
+        "target_kind": "matter",
+        "params": [
+          {
+            "name": "state",
+            "kind": "enum",
+            "required": true,
+            "values": [
+              "open",
+              "waiting",
+              "closed"
+            ]
+          }
+        ],
+        "preview": "exact",
+        "staging": [
+          "direct",
+          "native_review"
+        ],
+        "grouping": "none",
+        "inverse": null
+      }
+    ]
+  }
+}

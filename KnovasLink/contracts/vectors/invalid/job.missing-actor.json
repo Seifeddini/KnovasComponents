@@ -1,0 +1,19 @@
+{
+  "schema": "job.schema.json",
+  "description": "A job with no actor is refused.",
+  "breaks": [
+    "actor"
+  ],
+  "instance": {
+    "id": "1b4e28ba-2fa1-4d2b-883f-0016d3cca427",
+    "kind": "fetch",
+    "source": "handbook",
+    "target_serial": null,
+    "deadline": "2026-11-05T10:15:20Z",
+    "args": {
+      "external_id": "policies/travel.md",
+      "version": "ff7b4c62979180d16e75356492b21cc64a58c830",
+      "max_bytes": 26214400
+    }
+  }
+}

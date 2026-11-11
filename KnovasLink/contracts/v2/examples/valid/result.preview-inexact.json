@@ -1,0 +1,21 @@
+{
+  "schema": "result.schema.json",
+  "description": "The connector cannot compute the change exactly: not approvable.",
+  "instance": {
+    "status": "ok",
+    "code": "preview_inexact",
+    "duration_ms": 512,
+    "preview": {
+      "exact": false,
+      "inexact_code": "computed_field",
+      "read_versions": [
+        {
+          "target": "items/matter-17",
+          "version": "v-4811"
+        }
+      ],
+      "changes": [],
+      "grouping": "atomic"
+    }
+  }
+}

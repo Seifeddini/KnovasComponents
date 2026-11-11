@@ -1,0 +1,10 @@
+{
+  "version": "1.2.0",
+  "files": {
+    "codes.json": "b5576e0f7f79758e398d4d011f6003889396650e2457e58d5dc33b201246720f",
+    "job-result.schema.json": "1824be17c609a6fee5c57962bac3bac52c0b5b452ab912dbe7e945011f95274c",
+    "job.schema.json": "b0b53daac40ad7b5e13a176a530e8aea8a74f070dc6c1599abcfe3ef1b20fb4b",
+    "local-api.md": "91627d503964002fe658fdabc707b7fdec831058aeccc6b9195e1c920d65f604",
+    "stream-message.schema.json": "94c02690dd4a649b83c54bb0c5deb31241481c8f350485800946c02fca1fa35c"
+  }
+}

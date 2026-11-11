@@ -1,0 +1,18 @@
+{
+  "schema": "job-result.schema.json",
+  "description": "bytes_sha256 is 64 lower-case hex digits.",
+  "breaks": [
+    "bytes_sha256"
+  ],
+  "instance": {
+    "status": "ok",
+    "code": null,
+    "version": "ff7b4c62979180d16e75356492b21cc64a58c830",
+    "bytes_sha256": "050A6FA01A96D4D876179F790470680F7C2EF2B2292DC7660122C8295BAA1263",
+    "mime": "text/markdown",
+    "bytes": 56,
+    "parts": 1,
+    "source_ref": null,
+    "duration_ms": 412
+  }
+}

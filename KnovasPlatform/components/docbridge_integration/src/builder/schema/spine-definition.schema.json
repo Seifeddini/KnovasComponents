@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/client-zero/spine-definition.schema.json",
+  "title": "Client Zero spine definitions",
+  "description": "The file generated/spine-definitions.json: the four spines of spines.yaml, each an ordered list of levels with the node types allowed at the level and the relation linking a node to its parent level. The Platform draws trees and matrices from it.",
+  "type": "object",
+  "required": ["version", "generated_at", "spines"],
+  "properties": {
+    "version": {"type": "integer", "minimum": 1},
+    "generated_at": {"type": "string"},
+    "source": {"type": "string"},
+    "spines": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/spine"}}
+  },
+  "$defs": {
+    "link": {
+      "type": "object",
+      "required": ["relation", "direction"],
+      "properties": {
+        "relation": {"type": "string"},
+        "direction": {"type": "string", "enum": ["out", "in"], "description": "out: the edge goes from the child to the parent; in: from the parent to the child."},
+        "verified": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "level": {
+      "type": "object",
+      "required": ["id", "name", "types"],
+      "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "types": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "link_to_parent": {"$ref": "#/$defs/link"},
+        "links_to_parent": {"type": "object", "additionalProperties": {"$ref": "#/$defs/link"}, "description": "One link per allowed type when the types link differently."},
+        "filter": {"type": "object", "properties": {"key_prefix": {"type": "string"}}, "additionalProperties": false},
+        "verified": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "chain": {
+      "type": "object",
+      "required": ["key", "name", "levels"],
+      "properties": {
+        "key": {"type": "string"},
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "levels": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/level"}}
+      }
+    },
+    "spine": {
+      "allOf": [{"$ref": "#/$defs/chain"}],
+      "properties": {
+        "key": {"type": "string", "pattern": "^SPINE-[a-z-]+$"},
+        "branches": {"type": "array", "items": {"$ref": "#/$defs/chain"}}
+      }
+    }
+  }
+}

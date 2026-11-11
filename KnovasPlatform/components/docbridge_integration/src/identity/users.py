@@ -358,11 +358,49 @@ class UserRepository:
     # ── access groups (what B2 signs) ──────────────────────────────────────
 
     def access_groups_of(self, user_id: UUID | str) -> tuple[str, ...]:
+        """The groups this user is granted today: a grant past its end date no longer counts (B14)."""
         rows = self._conn.execute(
-            "SELECT group_id FROM user_access_groups WHERE user_id = %s ORDER BY group_id",
+            "SELECT group_id FROM user_access_groups WHERE user_id = %s "
+            "AND (ends_on IS NULL OR ends_on >= current_date) ORDER BY group_id",
             (str(user_id),),
         ).fetchall()
         return tuple(r[0] for r in rows)
+
+    def access_grants_of(self, user_id: UUID | str) -> list[dict]:
+        """Every group grant of this user with its end date, ended ones too (the access window shows them)."""
+        rows = self._conn.execute(
+            "SELECT group_id, source, ends_on, granted_at FROM user_access_groups WHERE user_id = %s ORDER BY group_id",
+            (str(user_id),),
+        ).fetchall()
+        return [{"group_id": r[0], "source": r[1], "ends_on": r[2].isoformat() if r[2] else None,
+                 "granted_at": r[3].isoformat() if r[3] else None} for r in rows]
+
+    def grant_access_group(self, user_id: UUID | str, group_id: str, *, ends_on: str | None = None,
+                           by: UUID | str | None = None) -> None:
+        """Grant one group (a second grant replaces the first, with its end date)."""
+        self._conn.execute(
+            "INSERT INTO user_access_groups (user_id, group_id, source, granted_by, ends_on) "
+            "VALUES (%s, %s, 'manual', %s, %s) ON CONFLICT (user_id, group_id) DO UPDATE "
+            "SET ends_on = EXCLUDED.ends_on, granted_by = EXCLUDED.granted_by, granted_at = now()",
+            (str(user_id), str(group_id), str(by) if by else None, ends_on),
+        )
+
+    def revoke_access_group(self, user_id: UUID | str, group_id: str) -> bool:
+        row = self._conn.execute(
+            "DELETE FROM user_access_groups WHERE user_id = %s AND group_id = %s RETURNING group_id",
+            (str(user_id), str(group_id)),
+        ).fetchone()
+        return row is not None
+
+    def members_of_groups(self) -> dict[str, list[str]]:
+        """{group id: [user ids]} of the grants that run today."""
+        rows = self._conn.execute(
+            "SELECT group_id, user_id FROM user_access_groups WHERE ends_on IS NULL OR ends_on >= current_date"
+        ).fetchall()
+        out: dict[str, list[str]] = {}
+        for gid, uid in rows:
+            out.setdefault(str(gid), []).append(str(uid))
+        return out
 
     def set_access_groups(
         self,

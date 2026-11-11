@@ -132,6 +132,18 @@ def test_optional_icon_name_passes_through_sanitized(tmp_path):
     assert "icon" not in types[data["types"][1]["id"]]
 
 
+def test_the_count_of_a_type_follows_its_entities(tmp_path):
+    path = _fixture(tmp_path, {"types": [{"id": "dienst", "label": "Dienst"}], "relations": [], "entities": []})
+    store = load_ontology(path)
+    entity = store.create_entity("Neuer Dienst", "dienst")
+    assert store.summary()["types"][0]["count"] == 1
+    assert load_ontology(path).summary()["types"][0]["count"] == 1, "written to the file too"
+    store.create_entity("neuer dienst", "dienst")
+    assert store.summary()["types"][0]["count"] == 1, "the same entity again is no new one"
+    assert store.delete_entity(entity["id"])
+    assert load_ontology(path).summary()["types"][0]["count"] == 0
+
+
 def test_create_entity_and_relation_persist_to_fixture(tmp_path):
     """Der Graph ist kuratiert: Anlegen muss die Fixture fortschreiben."""
     path = _fixture(tmp_path, VALID)
@@ -282,3 +294,25 @@ def test_delete_type_relation_and_relation(tmp_path):
     assert store.delete_relation(e2, "arbeitet mit", e1) is True
     assert store.delete_relation(e2, "arbeitet mit", e1) is False
     assert load_ontology(path).entity_detail(e2)["relations"] == []
+
+
+def test_update_type_and_entity_persist(tmp_path):
+    path = _fixture(tmp_path, VALID)
+    store = load_ontology(path)
+    type_id = VALID["types"][0]["id"]
+    entity_id = VALID["entities"][0]["id"]
+
+    assert store.update_type(type_id, "  Mandant neu ")["label"] == "Mandant neu"
+    assert store.update_type(type_id, "") is None
+    assert store.update_type("fehlt", "X") is None
+    renamed = store.update_entity(entity_id, label="  Müller neu ", description="Notiz")
+    assert renamed["label"] == "Müller neu"
+    assert renamed["description"] == "Notiz"
+    assert store.update_entity(entity_id, label="  ") is None
+    assert store.update_entity("fehlt", label="X") is None
+
+    frisch = load_ontology(path)
+    assert frisch.summary()["types"][0]["label"] == "Mandant neu"
+    detail = frisch.entity_detail(entity_id)
+    assert detail["entity"]["label"] == "Müller neu"
+    assert detail["entity"]["description"] == "Notiz"

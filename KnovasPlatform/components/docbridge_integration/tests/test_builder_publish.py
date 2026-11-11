@@ -1,0 +1,611 @@
+"""Review and publish (build plan step B5): change set, dry run, approval, apply.
+
+On the harness with a stand-in engine (builder_harness.FakeEngine), a tenant
+held in memory. test_builder_store.py holds the PostgreSQL store to the same
+behaviour; the bundle's identity with brain-runner's own is checked here when
+a brain-runner with ontology support is installed.
+"""
+import os
+from pathlib import Path
+
+import pytest
+
+from builder import package, publisher, review
+from builder_harness import SAMPLE_PACKAGE, FakeEngine, MemoryWorkspaceStore, StandInUser, make_app
+
+TENANT = "test-tenant-0001"
+
+
+@pytest.fixture
+def setup():
+    author, reviewer = StandInUser({"admin"}, "Alex Beispiel"), StandInUser({"admin"}, "Robin Muster")
+    store = MemoryWorkspaceStore({str(author.id): author.display_name, str(reviewer.id): reviewer.display_name})
+    engine = FakeEngine(tenant_types={"Mandate": set()})
+    app = make_app(author, store, tenant=TENANT, engine=engine)
+    model = package.read_package(package.files_from_directory(SAMPLE_PACKAGE)).model
+    workspace_id = store.create(name="Beispiel AG", model=model, actor_id=None, source={"kind": "zip"}, tenant=TENANT)
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session["builder_workspace"] = workspace_id
+    gate = app.extensions["builder_gate"]
+    return {"client": client, "store": store, "engine": engine, "id": workspace_id, "gate": gate,
+            "author": author, "reviewer": reviewer}
+
+
+def _edit(s, **op):
+    response = s["client"].post(f"/builder/api/w/{s['id']}/ontology", json=op)
+    assert response.status_code == 200, response.get_json()
+
+
+def _post(s, what, **body):
+    return s["client"].post(f"/builder/api/w/{s['id']}/{what}", json=body)
+
+
+def _hash(s):
+    return s["store"].draft(s["id"])["content_hash"]
+
+
+def _as(s, who):
+    s["gate"].user = s[who]
+
+
+class TestTheChangeSet:
+    def test_changes_fold_per_element_and_an_undone_edit_is_nothing(self, setup):
+        s = setup
+        _edit(s, op="type.create", key="Invoice")
+        _edit(s, op="attribute.add", key="Invoice", attribute={"name": "number"})
+        _edit(s, op="type.create", key="Reminder")
+        s["client"].post(f"/builder/api/w/{s['id']}/undo")
+        changes = review.change_set(s["store"].draft_changes(s["id"]))
+        [types] = changes["sections"]
+        assert [g["key"] for g in types["elements"]] == ["Invoice"]
+        assert types["elements"][0]["state"] == "added" and "number" in types["elements"][0]["lines"][0]["text"]
+        assert changes["origin"]["label"] == "Angelegt"
+
+    def test_the_author_filter(self, setup):
+        s = setup
+        _edit(s, op="type.create", key="Invoice")
+        _as(s, "reviewer")
+        _edit(s, op="type.create", key="Reminder")
+        rows = s["store"].draft_changes(s["id"])
+        mine = review.change_set(rows, author=str(s["author"].id))
+        assert [g["key"] for sec in mine["sections"] for g in sec["elements"]] == ["Invoice"]
+        page = s["client"].get(f"/builder/pruefen?autor={s['author'].id}").get_data(as_text=True)
+        assert "Invoice" in page and "Reminder" not in page.split("Probelauf")[0].split("Änderungen", 1)[1]
+
+    def test_a_retirement_is_destructive(self, setup):
+        s = setup
+        _edit(s, op="type.create", key="Invoice")
+        key = next(t["key"] for t in s["store"].model(s["id"])["ontology"]["types"] if t["level"] == "company")
+        _edit(s, op="type.retire", key=key)
+        assert [g["key"] for g in review.destructive(review.change_set(s["store"].draft_changes(s["id"])))] == [key]
+
+
+class TestPublishing:
+    def test_the_whole_way_dry_run_approval_by_a_second_person_apply(self, setup):
+        s = setup
+        _edit(s, op="type.create", key="Invoice")
+        _edit(s, op="attribute.add", key="Invoice", attribute={"name": "status", "datatype": "enum"})
+        _edit(s, op="attribute.update", key="Invoice", name="status", set={"enum_values": ["open", "paid"]})
+
+        dry = _post(s, "dry-run").get_json()
+        assert dry["success"] and dry["counts"]["create"] >= 2
+        assert {"element": "Invoice", "status": "create", "detail": "Typ anlegen"} in dry["rows"]
+        assert "Invoice" not in s["engine"].tenant  # a dry run writes nothing
+
+        assert _post(s, "approve", content_hash=_hash(s)).status_code == 403  # the author cannot
+        _as(s, "reviewer")
+        assert _post(s, "approve", content_hash=_hash(s)).get_json()["success"]
+
+        _as(s, "author")
+        published = _post(s, "publish", content_hash=_hash(s))
+        body = published.get_json()
+        assert published.status_code == 200 and body["status"] == "ok", body
+        assert s["engine"].tenant["Invoice"] == {"status"}
+        assert s["store"].draft(s["id"]) is None
+        assert s["store"].published_bundle(s["id"])["number"] == 1
+        bundle = s["client"].get(f"/builder/api/w/{s['id']}/bundle").get_json()
+        assert bundle["header"]["format"] == "brain-definitions-bundle" and "Invoice" in bundle["sections"]["types"]
+        kinds = [(r["kind"], r["status"]) for r in s["store"].runs(s["id"])]
+        assert kinds == [("apply", "ok"), ("dry_run", "ok")]
+
+        # The next edit starts the next draft.
+        _edit(s, op="type.create", key="Reminder")
+        assert s["store"].draft(s["id"])["number"] == 2
+
+    def test_an_edit_after_the_approval_voids_it(self, setup):
+        s = setup
+        _edit(s, op="type.create", key="Invoice")
+        _post(s, "dry-run")
+        _as(s, "reviewer")
+        _post(s, "approve", content_hash=_hash(s))
+        _as(s, "author")
+        _edit(s, op="type.update", key="Invoice", set={"example": "Invoice 7."})
+        response = _post(s, "publish", content_hash=_hash(s))
+        assert response.status_code == 409 and "nicht freigegeben" in response.get_json()["error"]
+
+    def test_no_approval_before_a_dry_run(self, setup):
+        s = setup
+        _edit(s, op="type.create", key="Invoice")
+        _as(s, "reviewer")
+        assert _post(s, "approve", content_hash=_hash(s)).status_code == 409
+
+    def test_retirements_need_their_own_confirmation(self, setup):
+        s = setup
+        key = next(t["key"] for t in s["store"].model(s["id"])["ontology"]["types"] if t["level"] == "company")
+        _edit(s, op="type.retire", key=key)
+        _post(s, "dry-run")
+        _as(s, "reviewer")
+        _post(s, "approve", content_hash=_hash(s))
+        refused = _post(s, "publish", content_hash=_hash(s))
+        assert refused.status_code == 409 and refused.get_json()["details"] == [f"ontology.types/{key}"]
+        assert _post(s, "publish", content_hash=_hash(s), confirm_destructive=[f"ontology.types/{key}"]).status_code == 200
+
+    def test_refusals_show_in_the_dry_run_and_the_result(self, setup):
+        s = setup
+        s["engine"].refuse = {"Invoice"}
+        _edit(s, op="type.create", key="Invoice")
+        dry = _post(s, "dry-run").get_json()
+        assert dry["status"] == "refused" and dry["counts"]["refused"] == 1
+        page = s["client"].get("/builder/pruefen").get_data(as_text=True)
+        assert "ablehnen" in page
+
+    def test_only_the_platform_s_own_tenant(self, setup):
+        s = setup
+        s["store"].rows[s["id"]]["tenant"] = "someone-else"
+        _edit(s, op="type.create", key="Invoice")
+        response = _post(s, "dry-run")
+        assert response.status_code == 409 and "anderen Mandanten" in response.get_json()["error"]
+
+    def test_without_a_linked_tenant_it_offers_this_platform_s(self, setup):
+        s = setup
+        s["store"].rows[s["id"]]["tenant"] = None
+        _edit(s, op="type.create", key="Invoice")
+        assert _post(s, "dry-run").status_code == 409
+        assert "Mit diesem Mandanten verbinden" in s["client"].get("/builder/pruefen").get_data(as_text=True)
+        assert _post(s, "tenant").get_json()["success"]
+        assert s["store"].get(s["id"]).tenant == TENANT
+
+    def test_an_engine_that_cannot_plan_says_so(self, setup):
+        s = setup
+        s["engine"]._missing = "brain-runner 0.1.0.dev2 kann die Ontologie noch nicht planen."
+        _edit(s, op="type.create", key="Invoice")
+        assert _post(s, "dry-run").status_code == 503
+        assert "noch nicht planen" in s["client"].get("/builder/pruefen").get_data(as_text=True)
+
+    def test_without_a_builder_role_nothing(self, setup):
+        s = setup
+        s["gate"].user = StandInUser({"member"})
+        for what in ("dry-run", "approve", "publish", "tenant"):
+            assert _post(s, what, content_hash="x").status_code == 403
+
+
+def test_the_plan_leaves_out_the_types_the_engine_installs(monkeypatch):
+    """A workspace started from the tenant before the import left them out holds the engine's Unclassified type;
+    the tenant has no schema for it (404), so the plan must not ask."""
+    from types import SimpleNamespace
+
+    model = package.read_package(package.blank_package("Muster")).model
+    model["ontology"]["types"] = [{"key": "Unclassified", "level": "company", "attributes": []},
+                                  {"key": "Invoice", "level": "company", "attributes": []}]
+    planned = {}
+
+    def write(self, m, root):
+        planned["types"] = [t["key"] for t in m["ontology"]["types"]]
+        return {}, root / "package.yaml"
+
+    modules = {"config": SimpleNamespace(load=lambda manifest: manifest),
+               "ontology": SimpleNamespace(plan=lambda cfg, api: {
+                   "items": [], "not_configured": [{"type": "Unclassified"}, {"type": "Old"}]})}
+    monkeypatch.setattr(publisher.BrainRunnerEngine, "_module", staticmethod(lambda name: modules[name]))
+    monkeypatch.setattr(publisher.BrainRunnerEngine, "_write", write)
+    plan = publisher.BrainRunnerEngine(lambda: None).plan(model, TENANT)
+    assert planned["types"] == ["Invoice"]
+    assert plan["not_configured"] == [{"type": "Old"}]
+    assert [t["key"] for t in model["ontology"]["types"]] == ["Unclassified", "Invoice"]  # the draft is untouched
+
+
+def test_an_alias_goes_under_its_class_s_ancestor():
+    """A type that names its own class as parent (a glossary term under euo:Designation, a code symbol under
+    eng:CodeArtifact) and that brain-runner leaves unresolved on the tenant goes where the class sits."""
+    model = package.read_package(package.blank_package("Muster")).model
+    model["ontology"]["types"] = [
+        {"key": "GlossaryTerm", "level": "core", "iri": "euo:Designation", "parent": "euo:Designation", "attributes": []},
+        {"key": "SourceFile", "level": "pack", "iri": "eng:CodeArtifact", "parent": "euo:InformationContentEntity",
+         "attributes": []},
+        {"key": "Symbol", "level": "pack", "iri": "eng:CodeArtifact", "parent": "eng:CodeArtifact", "attributes": []},
+        {"key": "Invoice", "level": "company", "parent": "euo:Transaction", "attributes": []},
+    ]
+    unresolved = {"GlossaryTerm", "Symbol"}
+    parents = {t["key"]: t.get("parent") for t in publisher.for_engine(model, unresolved)["ontology"]["types"]}
+    assert parents == {"GlossaryTerm": "euo:InformationContentEntity", "SourceFile": "euo:InformationContentEntity",
+                       "Symbol": "euo:Software", "Invoice": "euo:Transaction"}
+    assert model["ontology"]["types"][0]["parent"] == "euo:Designation"   # the draft is untouched
+
+
+#: The aliases of the placement tests, in this order: by brain-runner's rule the last type carrying an iri stands
+#: for it, so Record (not Asset) stands for euo:Document.
+ALIASES = [
+    {"key": "Term", "level": "company", "iri": "euo:Designation", "parent": "euo:Designation", "attributes": []},
+    {"key": "Collection", "level": "company", "iri": "euo:Dataset", "parent": "euo:Dataset", "attributes": []},
+    {"key": "Asset", "level": "company", "iri": "euo:Document", "parent": "euo:Document", "attributes": []},
+    {"key": "Record", "level": "company", "iri": "euo:Document", "parent": "euo:InformationContentEntity",
+     "attributes": []},
+    {"key": "Invoice", "level": "company", "parent": "euo:Transaction", "attributes": []},
+]
+#: The tenant's core types and whether tenant types may specialise them: a designation and a document class are
+#: reserved, as the store reserves them.
+CORE = {"euo:Designation": False, "euo:Document": False, "euo:Dataset": True, "euo:InformationContentEntity": True,
+        "euo:Transaction": True, "euo:Entity": True}
+
+
+def _alias_model():
+    model = package.read_package(package.blank_package("Muster")).model
+    model["ontology"]["types"] = [dict(t) for t in ALIASES]
+    # The type description prints the parent, as a company's manifest may ask (runner.ontology.type_description).
+    model["package"]["manifest"]["runner"] = {"ontology": {"type_description": {"header": "[parent={parent}]",
+                                                                                "fallback": "{name}"}}}
+    return model
+
+
+class _Refused(RuntimeError):
+    def __init__(self, status):
+        super().__init__(f"GET {status}")
+        self.status = status
+
+
+class _Tenant:
+    """The node-type routes brain-runner's ontology plan reads, in memory."""
+
+    def __init__(self, types=(), hierarchy=True):
+        self.types = {t["name"]: dict(t) for t in types}
+        self.hierarchy = hierarchy
+
+    def get(self, path):
+        if path == "secured/graph/node-types?include=core":
+            if not self.hierarchy:
+                raise _Refused(409)
+            core = [{"id": c, "name": c.split(":")[1], "managed_by": "bundle:core", "specializable": s}
+                    for c, s in CORE.items()]
+            return {"node_types": [*self.types.values(), *core]}
+        if path == "secured/graph/node-types":
+            return {"node_types": list(self.types.values())}
+        if path.endswith("/schema"):
+            return {"attributes": []}
+        raise KeyError(path)
+
+
+def _stated(model):
+    """{type: the description brain-runner plans from the model as it stands} (what a loader wrote)."""
+    import tempfile
+
+    config, ontology = pytest.importorskip("brain_runner.config"), pytest.importorskip("brain_runner.ontology")
+    with tempfile.TemporaryDirectory() as tmp:
+        for path, data in package.write_package(model).items():
+            (Path(tmp) / path).parent.mkdir(parents=True, exist_ok=True)
+            (Path(tmp) / path).write_bytes(data)
+        return {n: w["description"] for n, w in ontology.wanted(config.load(Path(tmp) / package.PACKAGE_FILE)).items()}
+
+
+def _tenant_with(descriptions, **kw):
+    return _Tenant([{"id": f"t-{n}", "name": n, "description": d, "parent_type_id": None, "managed_by": "tenant"}
+                    for n, d in descriptions.items()], **kw)
+
+
+def test_only_an_unresolved_alias_moves_and_only_under_a_parent_the_tenant_takes():
+    model = _alias_model()
+    stated = {t["key"]: t.get("parent") for t in ALIASES}
+    # Without the tenant's answer nothing is known to be unresolved: nothing moves.
+    assert publisher.for_engine(model) is model
+    named = {t["key"]: t.get("parent") for t in publisher.for_engine(model, {"Term", "Invoice"}, CORE)["ontology"]["types"]}
+    assert named == {**stated, "Term": "euo:InformationContentEntity"}   # Invoice is no alias: it keeps its parent
+    # An ancestor the tenant reserves is passed over.
+    reserved = publisher.alias_parents(model, {"Term"}, {**CORE, "euo:InformationContentEntity": False})
+    assert next(t for t in reserved["ontology"]["types"] if t["key"] == "Term")["parent"] == "euo:Entity"
+
+
+def test_stated_descriptions_keep_what_a_moved_type_says():
+    plan = {"items": [{"op": "create_type", "type": "New", "description": "[parent=X] new", "parent": {"core": "X"}},
+                      {"op": "update_type", "type": "Moved", "type_id": "t1", "from": "[parent=A] m", "to": "[parent=X] m"},
+                      {"op": "update_type", "type": "Other", "type_id": "t2", "from": "o", "to": "o2"},
+                      {"op": "reparent_type", "type": "Moved", "type_id": "t1", "from": None, "to": {"core": "X"}}],
+            "not_configured": [], "unresolved_parents": []}
+    out = publisher.stated_descriptions(plan, {"New": "[parent=A] new", "Moved": "[parent=A] m", "Gone": "g"},
+                                        {"Moved": {"id": "t1", "description": "[parent=A] m"}})
+    assert [(i["op"], i["type"]) for i in out["items"]] == [("create_type", "New"), ("update_type", "Other"),
+                                                            ("reparent_type", "Moved")]
+    assert out["items"][0]["description"] == "[parent=A] new" and out["items"][0]["parent"] == {"core": "X"}
+    drifted = publisher.stated_descriptions(plan, {"Moved": "[parent=A] m"}, {"Moved": {"id": "t1", "description": "x"}})
+    assert {"op": "update_type", "type": "Moved", "type_id": "t1", "from": "x", "to": "[parent=A] m"} in drifted["items"]
+    assert drifted["items"][-1]["op"] == "reparent_type"
+
+
+class TestTheAliasesOnTheTenant:
+    """With brain-runner (0.1.1 or newer: type parents). Publishing the model as it stands changes nothing the
+    model states: only an alias brain-runner cannot place moves, and its description stays (KB-10)."""
+
+    @pytest.fixture(autouse=True)
+    def _runner(self):
+        ontology = pytest.importorskip("brain_runner.ontology")
+        if not hasattr(ontology, "resolve_parents"):
+            pytest.skip("brain-runner without type parents")
+
+    def test_a_tenant_that_holds_the_model_gets_parents_and_nothing_else(self):
+        model = _alias_model()
+        plan = publisher.BrainRunnerEngine(lambda: _tenant_with(_stated(model))).plan(model, TENANT)
+        assert [i for i in plan["items"] if i["op"] != "reparent_type"] == []
+        assert {i["type"]: i["to"] for i in plan["items"]} == {
+            "Term": {"core": "euo:InformationContentEntity"},   # euo:Designation is reserved: it moves
+            "Collection": {"core": "euo:Dataset"},               # the tenant takes euo:Dataset: it stays
+            "Asset": {"type": "Record"},                         # Record stands for euo:Document: it stays
+            "Record": {"core": "euo:InformationContentEntity"},
+            "Invoice": {"core": "euo:Transaction"}}
+        assert plan["unresolved_parents"] == []
+
+    def test_a_new_alias_is_created_with_the_stated_description(self):
+        model = _alias_model()
+        stated = _stated(model)
+        plan = publisher.BrainRunnerEngine(lambda: _Tenant()).plan(model, TENANT)
+        created = {i["type"]: i for i in plan["items"] if i["op"] == "create_type"}
+        assert {n: i["description"] for n, i in created.items()} == stated
+        assert stated["Term"].startswith("[parent=euo:Designation]")
+        assert created["Term"]["parent"] == {"core": "euo:InformationContentEntity"}
+        order = [i["type"] for i in plan["items"] if i["op"] == "create_type"]
+        assert order.index("Record") < order.index("Asset")
+
+    def test_a_description_written_from_the_moved_parent_goes_back_to_the_stated_one(self):
+        model = _alias_model()
+        stated = _stated(model)
+        tenant = _tenant_with({**stated, "Term": stated["Term"].replace("euo:Designation", "euo:InformationContentEntity")})
+        plan = publisher.BrainRunnerEngine(lambda: tenant).plan(model, TENANT)
+        [update] = [i for i in plan["items"] if i["op"] == "update_type"]
+        assert (update["type"], update["type_id"], update["to"]) == ("Term", "t-Term", stated["Term"])
+        assert plan["items"][-1]["op"] == "reparent_type"
+
+    def test_without_a_type_hierarchy_nothing_moves(self):
+        model = _alias_model()
+        plan = publisher.BrainRunnerEngine(lambda: _tenant_with(_stated(model), hierarchy=False)).plan(model, TENANT)
+        assert plan["items"] == [] and plan["hierarchy"] is False
+
+
+class _Listed(_Tenant):
+    """A tenant that lists its types, the core's included, in the reverse order."""
+
+    def get(self, path):
+        found = super().get(path)
+        return {k: list(reversed(v)) for k, v in found.items()} if path.startswith("secured/graph/node-types") else found
+
+
+def _models() -> dict:
+    sample = package.read_package(package.files_from_directory(SAMPLE_PACKAGE)).model
+    sample["mappings"] = []          # its mapping is a sketch brain-runner does not load; the ontology is the point
+    return {"sample": sample, "aliases": _alias_model()}
+
+
+def _held() -> dict:
+    """The descriptions the tenant holds, written once (as a loader or an earlier publish wrote them)."""
+    models = _models()
+    drifted = _stated(models["aliases"])
+    drifted["Term"] = drifted["Term"].replace("euo:Designation", "euo:InformationContentEntity")
+    return {"sample": _stated(models["sample"]), "aliases": drifted}
+
+
+def _digests(reverse_listing: bool, held: dict) -> dict:
+    """For three plans of the installed brain-runner: what an approval holds, computed as the dry run and the publish
+    compute it (builder_routes: review.review_hash over summarise_plan's rows of BrainRunnerEngine.plan), and the
+    plan's values in any order (what publish applies: a parent's target, a description's text, an attribute's body,
+    none of which the rows carry). The tenants: one without the model (types and attributes to create, parents it does
+    not know), one holding it without parents (parents to set), and one holding the aliases with a drifted description
+    (an alias moved, a description back, a type standing for another's iri)."""
+    import json
+
+    def values(plan):
+        return sorted(json.dumps([part, item], sort_keys=True) for part in ("items", "not_configured",
+                                                                            "unresolved_parents")
+                      for item in plan.get(part) or [])
+
+    tenant, models, out = (_Listed if reverse_listing else _Tenant), _models(), {}
+    for name, model, descriptions in (("empty", "sample", {}), ("held", "sample", held["sample"]),
+                                      ("aliases", "aliases", held["aliases"])):
+        types = [{"id": f"t-{n}", "name": n, "description": d, "parent_type_id": None, "managed_by": "tenant"}
+                 for n, d in descriptions.items()]
+        plan = publisher.BrainRunnerEngine(lambda: tenant(types)).plan(models[model], TENANT)
+        out[name] = {"digest": review.review_hash(base_hash=None, content_hash=package.content_hash(models[model]),
+                                                  plan_rows=publisher.summarise_plan(plan)["rows"],
+                                                  effects={"access": None, "roles": None}),
+                     "plan": values(plan)}
+    return out
+
+
+class TestTheDigestAnApprovalHolds:
+    """An approval holds the dry run's digest (BB-07, B1). Publish plans again, in another request and often in
+    another worker process, and refuses (409) unless the fresh digest is the same. So brain-runner's plan of the same
+    draft on the same tenant must give the same digest in a fresh interpreter (another PYTHONHASHSEED: another set
+    order) and when the tenant lists its types in another order; otherwise every publish is refused. The digest's rows
+    do not carry the plan's values (a parent's target, a description), so those are compared too: the publish must
+    apply what the dry run planned. Measured on Knovas's package with brain-runner 0.3.0 on 2026-11-07: stable."""
+
+    @pytest.fixture(autouse=True)
+    def _runner(self):
+        ontology = pytest.importorskip("brain_runner.ontology")
+        if not hasattr(ontology, "resolve_parents"):
+            pytest.skip("brain-runner without type parents")
+
+    def test_the_same_in_another_process_and_another_listing_order(self):
+        import json
+        import subprocess
+        import sys
+
+        held = _held()
+        here = _digests(False, held)
+        assert len({d["digest"] for d in here.values()}) == 3 and here == _digests(True, held)
+        code = ("import json, sys, test_builder_publish as t; "
+                "print(json.dumps(t._digests(True, json.loads(sys.stdin.read()))))")
+        for seed in ("0", "1", "4242"):
+            run = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).parent, capture_output=True,
+                                 text=True, input=json.dumps(held),
+                                 env={**os.environ, "PYTHONHASHSEED": seed,
+                                      "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)})
+            assert run.returncode == 0, run.stderr[-2000:]
+            assert json.loads(run.stdout.strip().splitlines()[-1]) == here, f"PYTHONHASHSEED={seed}"
+
+
+def test_an_unresolved_parent_reads_as_a_sentence():
+    [row] = publisher._rows({"unresolved_parents": [
+        {"type": "Symbol", "parent": "eng:CodeArtifact", "reason": "parent eng:CodeArtifact is neither ..."}]})
+    assert row["element"] == "Symbol" and row["status"] == "refused"
+    assert row["detail"].startswith("Elterntyp eng:CodeArtifact kennt der Mandant nicht")
+
+
+class TestTheBundle:
+    """With a brain-runner that has the bundle and ontology modules (0.1.0 or newer)."""
+
+    def test_the_bundle_is_brain_runner_s_own(self):
+        bundle_mod = pytest.importorskip("brain_runner.bundle")
+        pytest.importorskip("brain_runner.ontology")
+        import subprocess
+        import sys
+        import tempfile
+
+        from builder import editing
+
+        model = package.read_package(package.blank_package("Kanzlei Muster")).model
+        editing.apply(model, {"op": "pack.apply", "pack": "legal"})
+        compiled = publisher.BrainRunnerEngine(lambda: None).compile(model)
+        assert compiled.bundle["header"]["format"] == "brain-definitions-bundle"
+        assert compiled.bundle["header"]["format_version"] == 1
+        with tempfile.TemporaryDirectory() as tmp:
+            for path, data in package.write_package(model).items():
+                (Path(tmp) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(tmp) / path).write_bytes(data)
+            out = Path(tmp) / publisher.BUNDLE_FILE
+            subprocess.run([sys.executable, "-m", "brain_runner", "bundle", "--config",
+                            str(Path(tmp) / package.PACKAGE_FILE), "--out", str(out)], check=True,
+                           env={**os.environ})
+            assert out.read_bytes() == compiled.bundle_bytes
+        assert bundle_mod.FORMAT == "brain-definitions-bundle"
+
+    def test_client_zero_matches_the_bundle_knowledgebase_committed(self):
+        pytest.importorskip("brain_runner.ontology")
+        import json
+
+        root = os.environ.get("KNOWLEDGEBASE_CLIENT_ZERO")
+        if not root:
+            pytest.skip("set KNOWLEDGEBASE_CLIENT_ZERO")
+        model = package.read_package(package.files_from_directory(Path(root))).model
+        compiled = publisher.BrainRunnerEngine(lambda: None).compile(model)
+        committed = json.loads((Path(root) / "ontology/generated/bundle.json").read_text(encoding="utf-8"))
+        assert compiled.content_hash == committed["header"]["content_hash"]
+        assert compiled.bundle["sections"] == committed["sections"]
+
+
+def test_the_plan_table():
+    table = publisher.summarise_plan({
+        "items": [{"op": "create_type", "type": "Invoice"}, {"op": "update_attribute", "type": "Mandate", "attribute": "status"}],
+        "not_configured": [{"type": "Invoice", "attribute": "number"}], "unresolved_parents": ["Hearing"]})
+    assert table["counts"] == {"create": 1, "update": 1, "refused": 1, "not_configured": 1}
+    assert table["rows"][1] == {"element": "Mandate.status", "status": "update", "detail": "Attribut ändern"}
+
+
+class TestAfterThePublish:
+    def test_a_run_event_and_the_views(self, setup):
+        s = setup
+        handed = []
+        from builder_harness import make_app
+
+        app = make_app(s["author"], s["store"], tenant=TENANT, engine=s["engine"],
+                       publish_sink=lambda text, **info: handed.append((text, info)))
+        client = app.test_client()
+        gate = app.extensions["builder_gate"]
+        client.post(f"/builder/api/w/{s['id']}/ontology", json={"op": "type.create", "key": "Invoice"})
+        client.post(f"/builder/api/w/{s['id']}/dry-run")
+        gate.user = s["reviewer"]
+        client.post(f"/builder/api/w/{s['id']}/approve", json={"content_hash": _hash(s)})
+        gate.user = s["author"]
+        result = client.post(f"/builder/api/w/{s['id']}/publish", json={"content_hash": _hash(s)}).get_json()["result"]
+        assert result["run_event"] == {"written": True, "key": "EVT-builder-publish-v1", "errors": [], "why": None}
+        assert s["engine"].events[0]["version"] == 1 and s["engine"].events[0]["condition"] == "Ready"
+        assert result["views"] == {"adopted": True}
+        [(text, info)] = handed
+        assert info["source"] == "builder-v1" and '"brain-definitions-bundle"' in text
+
+    def test_a_configured_source_keeps_the_views_and_the_publish_says_so(self, setup):
+        s = setup
+        handed = []
+        from builder_harness import make_app
+
+        app = make_app(s["author"], s["store"], tenant=TENANT, engine=s["engine"],
+                       publish_sink=lambda text, **info: handed.append(info),
+                       views_source=lambda: "github:acme/kb@main:generated/bundle.json")
+        client = app.test_client()
+        gate = app.extensions["builder_gate"]
+        client.post(f"/builder/api/w/{s['id']}/ontology", json={"op": "type.create", "key": "Invoice"})
+        client.post(f"/builder/api/w/{s['id']}/dry-run")
+        gate.user = s["reviewer"]
+        client.post(f"/builder/api/w/{s['id']}/approve", json={"content_hash": _hash(s)})
+        gate.user = s["author"]
+        result = client.post(f"/builder/api/w/{s['id']}/publish", json={"content_hash": _hash(s)}).get_json()["result"]
+        assert result["views"] == {"adopted": False, "elsewhere": True}, "the page must not say the views read this version"
+        assert handed, "kept, so that emptying the setting is enough"
+
+    def test_without_the_sync_the_views_keep_their_source(self, setup):
+        s = setup
+        s["client"].post(f"/builder/api/w/{s['id']}/ontology", json={"op": "type.create", "key": "Invoice"})
+        _post(s, "dry-run")
+        _as(s, "reviewer")
+        _post(s, "approve", content_hash=_hash(s))
+        _as(s, "author")
+        result = _post(s, "publish", content_hash=_hash(s)).get_json()["result"]
+        assert result["views"]["adopted"] is False
+
+
+class FakeBrainApi:
+    def __init__(self, types=("RunEvent",)):
+        self.posts = []
+        self.types = [{"name": t, "id": f"id-{t}"} for t in types]
+
+    def get(self, path):
+        if path == "secured/graph/node-types":
+            return {"node_types": self.types}
+        return {"attributes": [{"name": n, "id": f"a-{n}"} for n in ("key", "occurred_at", "condition", "observed")]}
+
+    def post(self, path, body):
+        self.posts.append((path, body))
+        return 201, {"node": {"id": "n1"}} if path == "secured/graph/nodes" else {"fact": {"id": "f"}}
+
+
+class TestTheRunEvent:
+    def test_it_is_a_node_with_the_run_facts(self):
+        import datetime as dt
+
+        from builder import run_event
+
+        api = FakeBrainApi()
+        model = package.read_package(package.blank_package("Muster")).model
+        got = run_event.write(api, model, version=3, condition="Ready", reason="Published", message="",
+                              observed="5 written", now=dt.datetime(2026, 10, 31, 12, 0, 5, tzinfo=dt.timezone.utc))
+        assert got == {"written": True, "key": "EVT-builder-publish-v3-2026-10-31-120005", "errors": [], "why": None}
+        node = api.posts[0]
+        assert node[0] == "secured/graph/nodes" and node[1]["node_type_id"] == "id-RunEvent"
+        facts = {b["label"]: b for p, b in api.posts[1:]}
+        assert set(facts) == {"key", "occurred_at", "condition", "reason", "observed"}
+        assert facts["key"]["attribute_id"] == "a-key" and "attribute_id" not in facts["reason"]
+
+    def test_the_configuration_names_type_prefix_and_actor(self):
+        from builder import run_event
+
+        api = FakeBrainApi(types=("Event",))
+        model = package.read_package(package.blank_package("Muster")).model
+        model["package"]["manifest"]["runner"] = {"run_record": {"type": "Event", "key_prefix": "EVT-x-",
+                                                                 "actor": {"key": "AGENT-builder"}}}
+        got = run_event.write(api, model, version=1, condition="Ready", reason="Published", message="", observed="")
+        assert got["key"].startswith("EVT-x-publish-v1-")
+        assert ("actor" in {b["label"] for _, b in api.posts[1:]})
+
+    def test_a_tenant_without_the_type_gets_none(self):
+        from builder import run_event
+
+        model = package.read_package(package.blank_package("Muster")).model
+        got = run_event.write(FakeBrainApi(types=()), model, version=1, condition="Ready", reason="Published",
+                              message="", observed="")
+        assert got["written"] is False and "RunEvent" in got["why"]

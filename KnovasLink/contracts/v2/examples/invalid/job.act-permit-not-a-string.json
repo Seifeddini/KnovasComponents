@@ -1,0 +1,39 @@
+{
+  "schema": "job.schema.json",
+  "description": "A permit travels as a token, a string.",
+  "breaks": [
+    "permits",
+    0
+  ],
+  "instance": {
+    "id": "22222222-3333-4444-8555-666666666666",
+    "kind": "act",
+    "protocol": "2.0",
+    "source": "records-main",
+    "target_serial": "731948205517",
+    "deadline": "2026-11-10T14:10:00Z",
+    "actor": {
+      "kind": "user",
+      "id": "person-example-approver"
+    },
+    "args": {
+      "steps": [
+        {
+          "action": "set_fields",
+          "target": "items/matter-17",
+          "params": {
+            "owner": "person-example-7",
+            "due_date": "2026-12-01"
+          },
+          "expected_version": "v-4811"
+        }
+      ],
+      "staging": "direct"
+    },
+    "permits": [
+      {
+        "payload": "x"
+      }
+    ]
+  }
+}

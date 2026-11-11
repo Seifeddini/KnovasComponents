@@ -1,0 +1,95 @@
+{
+  "schema": "declaration.schema.json",
+  "description": "Grouping is atomic, item or none.",
+  "instance": {
+    "protocol": "2.0",
+    "connector": {
+      "name": "example-tickets",
+      "version": "0.1.0",
+      "package_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "source_kind": "example-tickets",
+    "streams": [
+      "record",
+      "tombstone",
+      "generation",
+      "state"
+    ],
+    "fetch": false,
+    "actions": [
+      {
+        "name": "set_owner",
+        "target_kind": "ticket",
+        "params": [
+          {
+            "name": "owner",
+            "kind": "reference",
+            "required": true
+          }
+        ],
+        "preview": "exact",
+        "staging": [
+          "direct"
+        ],
+        "grouping": "per_item",
+        "inverse": null
+      },
+      {
+        "name": "set_due_date",
+        "target_kind": "ticket",
+        "params": [
+          {
+            "name": "due_date",
+            "kind": "date",
+            "required": true
+          }
+        ],
+        "preview": "exact",
+        "staging": [
+          "direct"
+        ],
+        "grouping": "item",
+        "inverse": null
+      },
+      {
+        "name": "move",
+        "target_kind": "ticket",
+        "params": [
+          {
+            "name": "state",
+            "kind": "enum",
+            "required": true,
+            "values": [
+              "open",
+              "done"
+            ]
+          }
+        ],
+        "preview": "exact",
+        "staging": [
+          "direct"
+        ],
+        "grouping": "none",
+        "inverse": null
+      }
+    ],
+    "conformance": {
+      "suite": "2.0.0",
+      "passed": [
+        "replay_changes_nothing",
+        "deletion_guard",
+        "preview_equals_receipt",
+        "exactly_once",
+        "permit_refusals",
+        "no_credential_leaves_site",
+        "review_outcome"
+      ],
+      "report_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "breaks": [
+    "actions",
+    0,
+    "grouping"
+  ]
+}

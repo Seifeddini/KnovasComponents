@@ -1,0 +1,35 @@
+{
+  "schema": "result.schema.json",
+  "description": "The preview of two actions on one item: one version read, and each change names the step it belongs to.",
+  "instance": {
+    "status": "ok",
+    "code": null,
+    "duration_ms": 640,
+    "preview": {
+      "exact": true,
+      "read_versions": [
+        {
+          "target": "items/matter-17",
+          "version": "v-4811"
+        }
+      ],
+      "changes": [
+        {
+          "step": 0,
+          "target": "items/matter-17",
+          "field": "owner",
+          "before": "person-example-3",
+          "after": "person-example-7"
+        },
+        {
+          "step": 1,
+          "target": "items/matter-17",
+          "field": "state",
+          "before": "open",
+          "after": "closed"
+        }
+      ],
+      "grouping": "none"
+    }
+  }
+}

@@ -1,0 +1,235 @@
+/* Brain Builder -- design tokens.
+
+   The only file in the builder that names a colour value. Everything else
+   (builder.css, templates, scripts) uses these custom properties, and a test
+   (tests/test_builder_shell.py) keeps hex values out of the other files.
+
+   Themes: light is the default. Dark applies when the system asks for it,
+   unless the page says data-theme="light"; data-theme="dark" forces it. Any
+   element can carry data-theme, which is how the style guide shows both
+   themes side by side.
+
+   Colours start from the Knovas brand guide: Royal Blue carries text, links
+   and the primary button (7.6:1 on white); Azure is decorative only (focus
+   ring, never text); Slate Blue is the text colour. */
+
+/* IBM Plex, self-hosted (SIL OFL). No CDN: clients run the Platform on their
+   own servers, often offline. */
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../../fonts/IBMPlexSans-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../../fonts/IBMPlexSans-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../../fonts/IBMPlexSans-SemiBold.woff2') format('woff2');
+    font-weight: 600;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../../fonts/IBMPlexMono-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../../fonts/IBMPlexMono-SemiBold.woff2') format('woff2');
+    font-weight: 600;
+    font-display: swap;
+}
+
+/* ---- Theme-independent: type, spacing, radii, borders, motion ---------- */
+
+:root {
+    --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+    /* Type scale, size / line height. Base is 14/20. */
+    --text-xs: 12px;   --leading-xs: 16px;
+    --text-base: 14px; --leading-base: 20px;
+    --text-md: 16px;   --leading-md: 24px;
+    --text-lg: 20px;   --leading-lg: 28px;
+    --text-xl: 24px;   --leading-xl: 32px;
+    --text-2xl: 32px;  --leading-2xl: 40px;
+
+    --weight-regular: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+
+    /* Spacing in steps of 8. --space-half is the one exception, for the gap
+       between an icon and its label. */
+    --space-half: 4px;
+    --space-1: 8px;
+    --space-2: 16px;
+    --space-3: 24px;
+    --space-4: 32px;
+    --space-5: 40px;
+    --space-6: 48px;
+    --space-8: 64px;
+
+    --control-height: 32px;
+    --control-height-lg: 40px;
+    --rail-width: 256px;
+    --topbar-height: 56px;
+    --panel-width-default: 400px;
+    --panel-width-min: 320px;
+    --panel-width-max: 720px;
+    --content-max: 960px;
+
+    --radius-s: 4px;      /* controls: buttons, inputs, checkboxes */
+    --radius-m: 8px;      /* surfaces: cards, panels, toasts */
+    --radius-pill: 999px; /* tags and badges */
+
+    --border-width: 1px;
+    --border-width-strong: 2px;
+    --focus-width: 2px;
+    --focus-offset: 2px;
+
+    --duration-fast: 120ms;
+    --duration-panel: 200ms;
+    --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    --z-panel: 20;
+    --z-menu: 30;
+    --z-drawer: 40;
+    --z-toast: 50;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --duration-fast: 0ms;
+        --duration-panel: 0ms;
+    }
+}
+
+/* ---- Light ------------------------------------------------------------- */
+
+:root,
+[data-theme="light"] {
+    color-scheme: light;
+
+    --color-bg: #F5F7FB;
+    --color-surface: #FFFFFF;
+    --color-surface-sunken: #EDF0F7;
+    --color-surface-hover: #F0F3FA;
+    --color-border: #D6DCE8;
+    --color-border-strong: #A6B0C4;
+
+    --color-text: #1F2A3A;
+    --color-text-muted: #536175;
+    --color-text-disabled: #8C97A8;
+
+    --color-accent: #1A45C7;
+    --color-accent-hover: #193284;
+    --color-on-accent: #FFFFFF;
+    --color-accent-soft: #E4EAFA;
+    --color-accent-soft-text: #193284;
+    --color-focus: #3B79F2;
+
+    --color-good: #1A6B4A;
+    --color-good-soft: #E1F2E9;
+    --color-warning: #8A5A00;
+    --color-warning-soft: #FBEFD5;
+    --color-critical: #B42318;
+    --color-critical-hover: #8F1B12;
+    --color-on-critical: #FFFFFF;
+    --color-critical-soft: #FBE5E3;
+
+    --color-canvas: #EFF2F8;
+    --color-canvas-dot: #C5CDDD;
+    --color-scrim: rgba(31, 42, 58, 0.32);
+
+    --shadow-raised: 0 1px 2px rgba(31, 42, 58, 0.06), 0 4px 16px rgba(31, 42, 58, 0.10);
+    --shadow-overlay: 0 8px 32px rgba(31, 42, 58, 0.18);
+}
+
+/* ---- Dark -------------------------------------------------------------- */
+
+/* The same block twice: once for the system preference, once for an explicit
+   choice. CSS cannot share a declaration block between an @media rule and a
+   plain selector. Keep the two identical. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+
+        --color-bg: #0F1420;
+        --color-surface: #171D2B;
+        --color-surface-sunken: #0B0F19;
+        --color-surface-hover: #1E2536;
+        --color-border: #2B3448;
+        --color-border-strong: #4A556E;
+
+        --color-text: #E5E9F1;
+        --color-text-muted: #9AA5B9;
+        --color-text-disabled: #5F6A80;
+
+        --color-accent: #7E9CF6;
+        --color-accent-hover: #A3B9FA;
+        --color-on-accent: #0B1233;
+        --color-accent-soft: #1E2A4E;
+        --color-accent-soft-text: #BCCBFB;
+        --color-focus: #7FA6FF;
+
+        --color-good: #5FC596;
+        --color-good-soft: #12301F;
+        --color-warning: #E9B24E;
+        --color-warning-soft: #33270E;
+        --color-critical: #F28379;
+        --color-critical-hover: #F7A59E;
+        --color-on-critical: #2A0B08;
+        --color-critical-soft: #3A1714;
+
+        --color-canvas: #121826;
+        --color-canvas-dot: #2A3348;
+        --color-scrim: rgba(5, 8, 15, 0.56);
+
+        --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.30), 0 4px 16px rgba(0, 0, 0, 0.35);
+        --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.50);
+    }
+}
+
+[data-theme="dark"] {
+    color-scheme: dark;
+
+    --color-bg: #0F1420;
+    --color-surface: #171D2B;
+    --color-surface-sunken: #0B0F19;
+    --color-surface-hover: #1E2536;
+    --color-border: #2B3448;
+    --color-border-strong: #4A556E;
+
+    --color-text: #E5E9F1;
+    --color-text-muted: #9AA5B9;
+    --color-text-disabled: #5F6A80;
+
+    --color-accent: #7E9CF6;
+    --color-accent-hover: #A3B9FA;
+    --color-on-accent: #0B1233;
+    --color-accent-soft: #1E2A4E;
+    --color-accent-soft-text: #BCCBFB;
+    --color-focus: #7FA6FF;
+
+    --color-good: #5FC596;
+    --color-good-soft: #12301F;
+    --color-warning: #E9B24E;
+    --color-warning-soft: #33270E;
+    --color-critical: #F28379;
+    --color-critical-hover: #F7A59E;
+    --color-on-critical: #2A0B08;
+    --color-critical-soft: #3A1714;
+
+    --color-canvas: #121826;
+    --color-canvas-dot: #2A3348;
+    --color-scrim: rgba(5, 8, 15, 0.56);
+
+    --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.30), 0 4px 16px rgba(0, 0, 0, 0.35);
+    --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.50);
+}

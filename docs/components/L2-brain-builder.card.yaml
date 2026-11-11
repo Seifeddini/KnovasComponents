@@ -1,0 +1,3078 @@
+card: 2
+id: L2-BRAIN-BUILDER
+name: Brain Builder
+kind: code
+owner: ROLE-ENGINE-OWNER
+level: 2
+parent: L1-BUILDER
+source_paths:
+- KnovasPlatform/components/docbridge_integration/src/builder
+- KnovasPlatform/components/docbridge_integration/src/web_interface/builder_routes.py
+- KnovasPlatform/components/docbridge_integration/src/web_interface/connector_protocol.py
+- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/builder
+- KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/builder
+- KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/builder
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0011_builder.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0012_builder_change_batch.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0013_builder_publish.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0014_builder_component.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0015_builder_review.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0016_builder_team.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0017_builder_components.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0019_builder_workspace_delete.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0020_builder_self_approval.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0021_builder_source_checks.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0022_builder_sites.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0023_builder_review_binding.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0024_builder_site_certificate.sql
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0025_builder_declared_component_kind.sql
+purpose: Where a person sets up a company's Brain in the Platform - workspaces, ontology, processes, sources and mappings, views and access - reviews and publishes it, and connects and watches the company's sites and components.
+responsible_for:
+- id: L2-BRAIN-BUILDER/R-1
+  statement: 'Workspaces and their draft: the ontology, processes, sources, mappings, views and access design, edited with undo, imported from and exported to a configuration package.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/builder/store.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/editing.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/package.py
+- id: L2-BRAIN-BUILDER/R-2
+  statement: 'Review and publish: the dry run, the four-eyes approval bound to the digest of what publishing changes, and the apply to the tenant through brain-runner.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/builder/review.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/publisher.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/builder_routes.py
+- id: L2-BRAIN-BUILDER/R-3
+  statement: 'Components and sites: enrolment, tokens, the install package, the certificate step, commands, runs, held plans, schedules (also «bei neuen Commits»), the switch «automatisch anwenden» per source, the sync status per source, and the Platform''s side of connector protocol v1.2.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/builder/components.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/sites.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/protocol.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/connector_protocol.py
+- id: L2-BRAIN-BUILDER/R-4
+  statement: The sources' two switches and the mapping panels «Zugriff» and «Zurückschreiben».
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/builder/sources.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/source_edits.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/mappings.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/mapping_edits.py
+- id: L2-BRAIN-BUILDER/R-5
+  statement: '«Betrieb»: «Freigaben» for write proposals and, with BUILDER_PROTOCOL_V2 on, change sets with their
+    previews (write back v2, approved only on exact previews), and «Verbindung», one health card per site.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/builder/approvals.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/connection.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/connection_api.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/codes.py
+- id: L2-BRAIN-BUILDER/R-6
+  statement: 'Who may do what in the Builder: roles, grants on one workspace, comments and the access log; and the access window over the tenant''s groups and folder rules.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/builder/team.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/access.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/access_edits.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/access_backend.py
+- id: L2-BRAIN-BUILDER/R-7
+  statement: 'Connector protocol 2.0 (draft, BUILDER_PROTOCOL_V2, off by default): the connector declarations Knovas
+    Link reports, checked and kept on each component; writing back offered where the serving component declared
+    actions for the source''s kind and passed the conformance suite''s write properties; the declared actions listed
+    with the ways each can write (native_review only with review_outcome passed); with the switch on, the declaration
+    decides whether a source of a kind can be written, never the Platform''s catalogue of kinds (SPEC-write-back-13);
+    the staging per source (direct unless set, plan C-Q1), sent with each approval; a source of a kind a connector
+    at a site declared and the Builder has no form for, created and edited with the generic settings form (names and
+    values, never a credential) and served to the site as entered, so a new source kind needs no Platform change
+    (SPEC-write-back-13).'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/builder/protocol_v2.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/protocol.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/sources.py
+  - KnovasPlatform/components/docbridge_integration/src/builder/source_edits.py
+not_responsible_for:
+- Reading a company's sources at the company; components do (the sync component, behind Knovas Link).
+- Storing or showing a source's original documents; they pass through Link from the source.
+- Signing a site's certificate; a Knovas admin signs it, the Builder records it.
+- Sign-in and the Platform's roles; the Platform's identity gate gives them.
+terms:
+- 'workspace (one company''s model: a draft and published versions)'
+- site (one machine at a company running Knovas Link)
+- write proposal (a change of a fact an agent proposed, decided in «Freigaben»)
+- change set (named actions of the tenant's ontology with the connector's preview, approved or rejected in «Freigaben»; write back v2)
+- staging (how an approved write reaches a source - direct, or native_review in the source's own review step; kept per source)
+- generic settings form (a source's settings as names and values, for a kind a connector declared that the Builder has no form of its own for)
+- digest (the hash of everything a publish changes, which an approval holds)
+operations:
+- id: home
+  name: GET /builder/ - the entry, redirects to the first stage
+  entrance: http
+  ref: GET /builder/
+- id: stage
+  name: GET /builder/{slug} - one of the eight stages (arbeitsbereich, verbinden, ontologie, prozesse, quellen, ansichten, pruefen, betrieb)
+  entrance: http
+  ref: GET /builder/{slug}
+- id: workspace
+  name: GET /builder/w/{workspace_id} - a workspace's overview; chooses it
+  entrance: http
+  ref: GET /builder/w/{workspace_id}
+- id: workspace-delete
+  name: POST /builder/api/w/{workspace_id}/delete - delete a workspace, its name typed again
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/delete
+- id: pack-update
+  name: GET /builder/w/{workspace_id}/pakete/{pack_id} - what updating a pack would change
+  entrance: http
+  ref: GET /builder/w/{workspace_id}/pakete/{pack_id}
+- id: definitions-page
+  name: GET /builder/w/{workspace_id}/definitionen - what adopting the tenant's definitions would add
+  entrance: http
+  ref: GET /builder/w/{workspace_id}/definitionen
+- id: definitions-adopt
+  name: POST /builder/api/w/{workspace_id}/definitions/adopt - adopt the tenant's definitions into the draft
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/definitions/adopt
+- id: export
+  name: GET /builder/w/{workspace_id}/export - the workspace as a configuration package (zip)
+  entrance: http
+  ref: GET /builder/w/{workspace_id}/export
+- id: import-preview
+  name: POST /builder/api/import/preview - what a package holds, before the import
+  entrance: http
+  ref: POST /builder/api/import/preview
+- id: import
+  name: POST /builder/api/import - a workspace from an uploaded configuration package
+  entrance: http
+  ref: POST /builder/api/import
+- id: workspace-create
+  name: POST /builder/api/workspaces - a new workspace, empty, from packs or from the tenant
+  entrance: http
+  ref: POST /builder/api/workspaces
+- id: ontology-edit
+  name: POST /builder/api/w/{workspace_id}/ontology - one edit of the draft (ontology, processes, sources, mappings, views)
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/ontology
+- id: undo
+  name: POST /builder/api/w/{workspace_id}/undo
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/undo
+- id: redo
+  name: POST /builder/api/w/{workspace_id}/redo
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/redo
+- id: brain-shape
+  name: GET and POST /builder/api/w/{workspace_id}/brain-shape - relations and hierarchies the tenant's links show, as proposals; take some over
+  entrance: http
+  ref: /builder/api/w/{workspace_id}/brain-shape
+- id: views-assistant
+  name: POST /builder/api/w/{workspace_id}/views/assistant - views from a description, by the views assistant
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/views/assistant
+- id: views-preview
+  name: POST /builder/api/w/{workspace_id}/views/preview - a profile's start view and one page, on sample data
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/views/preview
+- id: comments
+  name: GET /builder/api/w/{workspace_id}/comments?target=T
+  entrance: http
+  ref: GET /builder/api/w/{workspace_id}/comments
+- id: comment-add
+  name: POST /builder/api/w/{workspace_id}/comments
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/comments
+- id: comment-resolve
+  name: POST /builder/api/w/{workspace_id}/comments/{comment_id}/resolve
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/comments/{comment_id}/resolve
+- id: team-page
+  name: GET /builder/w/{workspace_id}/team - who may work on the workspace, and the access log
+  entrance: http
+  ref: GET /builder/w/{workspace_id}/team
+- id: grant-access
+  name: POST /builder/api/w/{workspace_id}/access - invite a consultant to this workspace only
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/access
+- id: revoke-access
+  name: POST /builder/api/w/{workspace_id}/access/{grant_id}/revoke
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/access/{grant_id}/revoke
+- id: activity
+  name: GET /builder/w/{workspace_id}/aktivitaet - who changed what, when
+  entrance: http
+  ref: GET /builder/w/{workspace_id}/aktivitaet
+- id: type-review
+  name: POST /builder/api/w/{workspace_id}/reviews - a type's health reviewed
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/reviews
+- id: component-page
+  name: 'GET /builder/komponenten/{component_id} - one component: what it serves and runs, schedule, runs, held plans, events, commands, checks'
+  entrance: http
+  ref: GET /builder/komponenten/{component_id}
+- id: component-enrol
+  name: 'POST /builder/api/components/enrol - the wizard: a component and its one-time enrolment token'
+  entrance: http
+  ref: POST /builder/api/components/enrol
+- id: component-rotate
+  name: POST /builder/api/components/{component_id}/rotate - «Token erneuern»
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/rotate
+- id: component-revoke
+  name: POST /builder/api/components/{component_id}/revoke
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/revoke
+- id: component-delete
+  name: POST /builder/api/components/{component_id}/delete
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/delete
+- id: component-run
+  name: 'POST /builder/api/components/{component_id}/run - run now: a dry run or an apply'
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/run
+- id: component-check
+  name: POST /builder/api/components/{component_id}/check - «Verbindung prüfen»
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/check
+- id: component-pause
+  name: POST /builder/api/components/{component_id}/pause
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/pause
+- id: component-resume
+  name: POST /builder/api/components/{component_id}/resume
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/resume
+- id: component-schedule
+  name: POST /builder/api/components/{component_id}/schedule
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/schedule
+- id: component-auto-apply
+  name: POST /builder/api/components/{component_id}/auto_apply - «Automatisch anwenden, wenn nichts zur Freigabe ansteht», per source
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/auto_apply
+- id: component-settings
+  name: POST /builder/api/components/{component_id}/settings - name, site, owner
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/settings
+- id: component-plan
+  name: POST /builder/api/components/{component_id}/plans/{plan_id} - approve or reject a held plan
+  entrance: http
+  ref: POST /builder/api/components/{component_id}/plans/{plan_id}
+- id: component-register
+  name: POST /builder/api/components - register a component the Platform reaches (adapter kinds)
+  entrance: http
+  ref: POST /builder/api/components
+- id: site-page
+  name: 'GET /builder/standorte/{site_id} - a site: the one command, the certificate step, the checklist and the package'
+  entrance: http
+  ref: GET /builder/standorte/{site_id}
+- id: site-create
+  name: POST /builder/api/sites - «Standort anlegen»
+  entrance: http
+  ref: POST /builder/api/sites
+- id: site-package
+  name: POST /builder/api/sites/{site_id}/package - «Installationspaket herunterladen»
+  entrance: http
+  ref: POST /builder/api/sites/{site_id}/package
+- id: site-rotate
+  name: POST /builder/api/sites/{site_id}/rotate - «Token erneuern»
+  entrance: http
+  ref: POST /builder/api/sites/{site_id}/rotate
+- id: site-certificate
+  name: POST /builder/api/sites/{site_id}/certificate - «Zertifikat erfassen»
+  entrance: http
+  ref: POST /builder/api/sites/{site_id}/certificate
+- id: site-probe
+  name: POST /builder/api/sites/{site_id}/probe - «Jetzt prüfen»
+  entrance: http
+  ref: POST /builder/api/sites/{site_id}/probe
+- id: approvals-page
+  name: 'GET /builder/betrieb/freigaben - «Freigaben»: open write proposals and what became of the decided ones'
+  entrance: http
+  ref: GET /builder/betrieb/freigaben
+- id: approvals-count
+  name: GET /builder/api/freigaben/count - the badge
+  entrance: http
+  ref: GET /builder/api/freigaben/count
+- id: approval-accept
+  name: POST /builder/api/freigaben/{proposal_id}/accept
+  entrance: http
+  ref: POST /builder/api/freigaben/{proposal_id}/accept
+- id: approval-reject
+  name: POST /builder/api/freigaben/{proposal_id}/reject
+  entrance: http
+  ref: POST /builder/api/freigaben/{proposal_id}/reject
+- id: change-set-approve
+  name: POST /builder/api/freigaben/change-sets/{change_set_id}/approve - «Freigeben» of a change set (write back v2)
+  entrance: http
+  ref: POST /builder/api/freigaben/change-sets/{change_set_id}/approve
+- id: change-set-reject
+  name: POST /builder/api/freigaben/change-sets/{change_set_id}/reject - «Ablehnen» of a change set (write back v2)
+  entrance: http
+  ref: POST /builder/api/freigaben/change-sets/{change_set_id}/reject
+- id: connection-page
+  name: 'GET /builder/betrieb/verbindung - «Verbindung»: one health card per site'
+  entrance: http
+  ref: GET /builder/betrieb/verbindung
+- id: access-page
+  name: 'GET /builder/zugriff - the access window: group tree, a group, its people'
+  entrance: http
+  ref: GET /builder/zugriff
+- id: access-preview
+  name: POST /builder/api/access/preview - what a structural change would do
+  entrance: http
+  ref: POST /builder/api/access/preview
+- id: access-apply
+  name: POST /builder/api/access/apply - the change, after its preview
+  entrance: http
+  ref: POST /builder/api/access/apply
+- id: access-rule-add
+  name: POST /builder/api/access/rules - a folder assigned to a group
+  entrance: http
+  ref: POST /builder/api/access/rules
+- id: access-rule-remove
+  name: POST /builder/api/access/rules/remove
+  entrance: http
+  ref: POST /builder/api/access/rules/remove
+- id: access-members
+  name: POST /builder/api/access/members - a person into or out of a group
+  entrance: http
+  ref: POST /builder/api/access/members
+- id: access-explain
+  name: POST /builder/api/access/explain - why a person sees a document, or why not
+  entrance: http
+  ref: POST /builder/api/access/explain
+- id: access-posture
+  name: POST /builder/api/access/posture - ask to switch RBAC enforcement
+  entrance: http
+  ref: POST /builder/api/access/posture
+- id: access-posture-approve
+  name: POST /builder/api/access/posture/{request_id}/approve
+  entrance: http
+  ref: POST /builder/api/access/posture/{request_id}/approve
+- id: mapping-page
+  name: GET /builder/zuordnung/{mapping_id} - a mapping's page with the panels «Zugriff» and «Zurückschreiben»
+  entrance: http
+  ref: GET /builder/zuordnung/{mapping_id}
+- id: mapping-preview
+  name: POST /builder/api/w/{workspace_id}/mappings/{mapping_id}/preview
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/mappings/{mapping_id}/preview
+- id: mapping-dry-run
+  name: POST /builder/api/w/{workspace_id}/mappings/{mapping_id}/dry-run
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/mappings/{mapping_id}/dry-run
+- id: source-credential
+  name: POST /builder/api/w/{workspace_id}/sources/{key}/credential
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/sources/{key}/credential
+- id: source-test
+  name: POST /builder/api/w/{workspace_id}/sources/{key}/test - reach the source and list what it holds
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/sources/{key}/test
+- id: source-sample
+  name: POST /builder/api/w/{workspace_id}/sources/{key}/sample
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/sources/{key}/sample
+- id: tenant-link
+  name: POST /builder/api/w/{workspace_id}/tenant - link the workspace to this Platform's tenant
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/tenant
+- id: dry-run
+  name: POST /builder/api/w/{workspace_id}/dry-run - compile the draft and plan it against the tenant
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/dry-run
+- id: approve
+  name: POST /builder/api/w/{workspace_id}/approve - a reviewer approves the draft as dry-run
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/approve
+- id: publish
+  name: POST /builder/api/w/{workspace_id}/publish - apply the approved draft to the tenant
+  entrance: http
+  ref: POST /builder/api/w/{workspace_id}/publish
+- id: bundle
+  name: GET /builder/api/w/{workspace_id}/bundle - the newest published bundle
+  entrance: http
+  ref: GET /builder/api/w/{workspace_id}/bundle
+- id: styleguide
+  name: GET /builder/_styleguide?ansicht=beide|hell|dunkel - the design system's page
+  entrance: http
+  ref: GET /builder/_styleguide
+- id: protocol-enrol
+  name: POST /api/connectors/v1/enrol - a component presents its one-time token and its certificate request
+  entrance: http
+  ref: POST /api/connectors/v1/enrol
+- id: protocol-heartbeat
+  name: POST /api/connectors/v1/heartbeat
+  entrance: http
+  ref: POST /api/connectors/v1/heartbeat
+- id: protocol-config
+  name: GET /api/connectors/v1/config
+  entrance: http
+  ref: GET /api/connectors/v1/config
+- id: protocol-package
+  name: GET /api/connectors/v1/package
+  entrance: http
+  ref: GET /api/connectors/v1/package
+- id: protocol-runs
+  name: POST /api/connectors/v1/runs
+  entrance: http
+  ref: POST /api/connectors/v1/runs
+- id: protocol-command-done
+  name: POST /api/connectors/v1/commands/{command_id}/done
+  entrance: http
+  ref: POST /api/connectors/v1/commands/{command_id}/done
+- id: protocol-events
+  name: POST /api/connectors/v1/events
+  entrance: http
+  ref: POST /api/connectors/v1/events
+- id: protocol-checks
+  name: POST /api/connectors/v1/checks
+  entrance: http
+  ref: POST /api/connectors/v1/checks
+- id: call.builder-blueprint
+  name: create_builder_blueprint(...) - the Builder's blueprint under /builder
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/builder_routes.py#create_builder_blueprint
+- id: call.user-may-build
+  name: user_may_build(user, grants) - whether the app offers the Builder
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/builder_routes.py#user_may_build
+- id: call.protocol-blueprint
+  name: create_connector_protocol_blueprint(...) - connector protocol v1 under /api/connectors/v1
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/connector_protocol.py#create_connector_protocol_blueprint
+- id: call.protocol-endpoints
+  name: ENDPOINTS - the protocol's endpoint names the identity gate lets through without a session
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/connector_protocol.py#ENDPOINTS
+- id: call.workspace-store
+  name: WorkspaceStore - the Builder's records in the Platform's database
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/builder/store.py#WorkspaceStore
+- id: call.brain-runner-engine
+  name: BrainRunnerEngine - compile, plan, apply and the RunEvent through brain-runner
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/builder/publisher.py#BrainRunnerEngine
+- id: call.brain-connection
+  name: BrainConnection - the tenant's connection routes (write proposals, job counts)
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/builder/connection_api.py#BrainConnection
+- id: call.brain-access
+  name: BrainAccess - the access window over the Brain
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/builder/access_backend.py#BrainAccess
+- id: call.github-runner-adapter
+  name: GitHubRunnerAdapter - the Platform's own GitHub sync as a component
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/builder/adapters.py#GitHubRunnerAdapter
+- id: call.knovas-connector-adapter
+  name: KnovasConnectorAdapter - the Knovas Connector as a component
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/builder/adapters.py#KnovasConnectorAdapter
+- id: call.github-reader
+  name: GitHubReader - a GitHub source read for test and sample
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/builder/sources.py#GitHubReader
+- id: call.http-json-reader
+  name: HttpJsonReader - an HTTP/JSON source read for test and sample
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/builder/sources.py#HttpJsonReader
+- id: call.knovas-connector-reader
+  name: KnovasConnectorReader - a folder through the Knovas Connector
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/builder/sources.py#KnovasConnectorReader
+- id: call.reader-error
+  name: ReaderError - a reader's refusal, for the page
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/builder/sources.py#ReaderError
+contract:
+  home:
+    needs:
+    - id: L2-BRAIN-BUILDER/home/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_shell.py
+        checks:
+        - TestTheShell::test_the_entry_point_opens_the_first_stage
+    promises:
+    - id: L2-BRAIN-BUILDER/home/P-1
+      statement: Redirects to the first stage, «Arbeitsbereich».
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_shell.py
+        checks:
+        - TestTheShell::test_the_entry_point_opens_the_first_stage
+  stage:
+    needs:
+    - id: L2-BRAIN-BUILDER/stage/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_shell.py
+        checks:
+        - TestTheGate::test_a_person_without_a_builder_role_is_refused
+    promises:
+    - id: L2-BRAIN-BUILDER/stage/P-1
+      statement: Renders the stage for the workspace chosen in the session, or its empty state; an unknown stage is 404 before anything is looked up.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_shell.py
+        checks:
+        - TestTheShell::test_each_stage_marks_itself_current_and_shows_its_empty_state
+        - TestTheGate::test_an_unknown_stage_is_refused_before_it_is_looked_up
+    - id: L2-BRAIN-BUILDER/stage/P-2
+      statement: 'With BUILDER_PROTOCOL_V2 on, «Quellen» offers each source kind a connector at a site declared that
+        the Builder has no form of its own for, on the components that declared it and passed the read properties
+        (replay_changes_nothing, deletion_guard, no_credential_leaves_site), with the generic settings form and the
+        source key; such a source shows its settings, its site, its credential line and the connector''s own file
+        it goes into (knovas-<kind>.env, never knovas-sources.env), the declared actions,
+        the switches and the staging as for a known kind. Known kinds keep their forms; with the switch off no such
+        kind and no generic form is offered (SPEC-write-back-13).'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_generic_kind.py
+        checks:
+        - test_a_declared_kind_without_a_form_is_offered_with_the_generic_form
+        - test_a_source_of_a_declared_kind_is_created_with_its_key_kind_site_and_typed_settings
+        - test_the_switches_and_the_staging_follow_the_declaration
+        - test_a_known_kind_keeps_its_form
+        - test_with_the_switch_off_the_generic_form_is_hidden
+  workspace:
+    needs:
+    - id: L2-BRAIN-BUILDER/workspace/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestConsultants::test_a_consultant_sees_and_edits_one_workspace
+    promises:
+    - id: L2-BRAIN-BUILDER/workspace/P-1
+      statement: Shows the workspace's counts, its last ten changes and its packs with available updates, and makes it the session's workspace; an unknown one is 404.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestTheScreens::test_the_overview_counts_every_section_and_shows_the_last_change
+        - TestTheScreens::test_an_unknown_workspace_is_404
+  workspace-delete:
+    needs:
+    - id: L2-BRAIN-BUILDER/workspace-delete/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestDeletingAWorkspace::test_only_who_manages_the_builder_deletes
+    promises:
+    - id: L2-BRAIN-BUILDER/workspace-delete/P-1
+      statement: With the workspace's name typed exactly, the workspace leaves every list and page and its history is kept; otherwise 400 and nothing changes.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestDeletingAWorkspace::test_the_name_confirms_and_the_workspace_leaves_every_list
+  pack-update:
+    needs:
+    - id: L2-BRAIN-BUILDER/pack-update/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/pack-update/P-1
+      statement: Shows the diff an update of the shipped pack would make to the draft, without applying it; an unknown pack is 404.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestStartingFromPacks::test_the_overview_offers_an_update_and_the_diff_shows_it
+  definitions-page:
+    needs:
+    - id: L2-BRAIN-BUILDER/definitions-page/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/definitions-page/P-1
+      statement: Shows what adopting the tenant's definitions bundle would add or complete in the draft, without applying it; a workspace of another tenant, or a Platform without a bundle source, is refused on the page.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_tenant_definitions.py
+        checks:
+        - TestAdoptingIntoAWorkspace::test_the_workspace_page_offers_it_and_the_review_counts
+        - TestAdoptingIntoAWorkspace::test_a_workspace_of_another_tenant_is_refused
+  definitions-adopt:
+    needs:
+    - id: L2-BRAIN-BUILDER/definitions-adopt/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/definitions-adopt/P-1
+      statement: Adopts the tenant's definitions bundle (read here, never sent by the browser) into the draft as one logged edit that one undo takes back; a bundle that cannot be read is said (502).
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_tenant_definitions.py
+        checks:
+        - TestAdoptingIntoAWorkspace::test_adopting_is_one_edit_that_undo_takes_back
+        - TestAdoptingIntoAWorkspace::test_a_bundle_that_cannot_be_read_is_said_so
+  export:
+    needs:
+    - id: L2-BRAIN-BUILDER/export/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/export/P-1
+      statement: Downloads the whole workspace as a configuration package (brain-config.yaml with brain-builder.yaml beside it); two exports of one state are the same bytes; every export is written to the access log, a role holder's too.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestTheExport::test_it_downloads_the_package_with_the_same_data
+        - TestTheExport::test_two_exports_are_the_same_bytes
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_import_limits_and_export_audit.py
+        checks:
+        - TestTheExportIsLogged::test_a_role_holder_s_export_leaves_a_row
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sources.py
+        checks:
+        - TestTheRoutes::test_the_export_holds_the_sources_and_an_import_reads_them_back
+  import-preview:
+    needs:
+    - id: L2-BRAIN-BUILDER/import-preview/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestTheImportApi::test_the_api_refuses_without_a_builder_role
+    promises:
+    - id: L2-BRAIN-BUILDER/import-preview/P-1
+      statement: Reads the uploaded zip and answers its counts and the suggested name; a broken package is explained (422) and nothing is made.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestTheImportApi::test_preview_counts_what_the_package_holds
+        - TestTheImportApi::test_preview_explains_a_broken_package
+        - TestTheImportApi::test_preview_without_a_file
+  import:
+    needs:
+    - id: L2-BRAIN-BUILDER/import/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestTheImportApi::test_the_api_refuses_without_a_builder_role
+    - id: L2-BRAIN-BUILDER/import/N-2
+      statement: A name of 1 to 120 characters; a package that binds a source to a site's component needs «manage» as well (BB-07 B2); in the app the CSRF header.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestTheImportApi::test_import_needs_a_name
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_runs_published.py
+        checks:
+        - TestWhoMayBindASourceToASite::test_an_import_that_binds_a_source_to_a_site_needs_it_too
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_in_the_app.py
+        checks:
+        - test_an_import_needs_the_csrf_header_and_lands_in_the_database
+    promises:
+    - id: L2-BRAIN-BUILDER/import/P-1
+      statement: Creates the workspace with the package as its one draft (the import is its first change) and chooses it; publishing an imported package unchanged changes nothing the package states.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestTheImportApi::test_import_creates_the_workspace_and_chooses_it
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_store.py
+        checks:
+        - test_an_import_becomes_a_workspace_with_one_draft
+        - test_the_import_is_the_first_change
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_import_review.py
+        checks:
+        - TestTheReproduction::test_the_review_shows_everything_the_import_brought
+    limits:
+    - id: L2-BRAIN-BUILDER/import/L-1
+      statement: A zip holds at most 20,000 entries and 200 MB uncompressed, a YAML file at most 8 MB and at most 2,000,000 nodes after its aliases are expanded; a YAML alias bomb or a self-containing alias is refused before it grows, and nothing is made.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_import_limits_and_export_audit.py
+        checks:
+        - TestAliases::test_a_billion_laughs_is_refused_before_it_grows
+        - TestAliases::test_an_alias_that_contains_itself_is_refused
+        - TestAliases::test_an_upload_with_one_is_refused_and_nothing_made
+  workspace-create:
+    needs:
+    - id: L2-BRAIN-BUILDER/workspace-create/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestCreatingAWorkspace::test_it_refuses_without_a_builder_role
+    promises:
+    - id: L2-BRAIN-BUILDER/workspace-create/P-1
+      statement: Creates a workspace with a name of 1 to 120 characters - empty, from the chosen packs, or from the tenant's ontology - and links it to this Platform's tenant only when asked, the tenant taken from the Platform's certificate, never from the request.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestCreatingAWorkspace::test_it_creates_an_empty_workspace_and_chooses_it
+        - TestCreatingAWorkspace::test_it_needs_a_name
+        - TestStartingFromPacks::test_a_workspace_from_two_packs_linked_to_the_tenant
+        - TestStartingFromPacks::test_the_tenant_never_comes_from_the_request
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_tenant_ontology.py
+        checks:
+        - TestTheWizard::test_a_tenant_that_cannot_be_read_is_said_so
+  ontology-edit:
+    needs:
+    - id: L2-BRAIN-BUILDER/ontology-edit/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_a_viewer_reads_and_changes_nothing
+    promises:
+    - id: L2-BRAIN-BUILDER/ontology-edit/P-1
+      statement: Applies one edit to the draft, written with actor, before and after, and answers the redrawn view; a refused edit changes nothing; an edit that binds a source to a site's component needs «manage».
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_editing.py
+        checks:
+        - TestTheRoutes::test_an_edit_answers_with_the_view_and_is_logged
+        - TestTheRoutes::test_a_refused_edit_changes_nothing
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_runs_published.py
+        checks:
+        - TestWhoMayBindASourceToASite::test_a_consultant_with_a_grant_on_one_workspace_cannot
+        - TestWhoMayBindASourceToASite::test_who_manages_the_sites_can
+    - id: L2-BRAIN-BUILDER/ontology-edit/P-2
+      statement: 'With BUILDER_PROTOCOL_V2 on, the switch edit source.switches takes staging (direct or native_review):
+        kept on the source in the draft, refused (409) where the component serving the source did not declare it for
+        the source''s kind, and refused (409) with the switch off; the sources page shows the draft''s and the
+        published staging, direct where none is set (plan C-Q1).'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_the_staging_is_chosen_per_source_and_shown
+        - test_a_staging_the_component_does_not_offer_is_refused
+        - test_without_the_switch_no_staging_is_chosen
+    - id: L2-BRAIN-BUILDER/ontology-edit/P-3
+      statement: 'With BUILDER_PROTOCOL_V2 on, source.create takes a kind the Builder has no form for where the chosen
+        component declared that kind and passed the read properties (else 409), with its key and its settings as names
+        and values: text, a number, yes/no or a list of texts, kept as typed, lower-case names, empty values left out
+        (else 400, nothing written). A setting whose name or value looks like a credential (token, password, secret,
+        key material, an address with a user or a secret in its query, an authorization value, account:secret, a long
+        random word) is refused (400) without repeating the value, naming the line and the connector''s own file
+        (knovas-<kind>.env) at the site. source.update changes such settings, and the component only to one that declared the kind, under the
+        same checks; with the switch off both are refused (400 on create, 409 on update). The fetch switch follows the
+        declaration''s fetch, the write switch and the staging its actions, as for a known kind (SPEC-write-back-13).'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_generic_kind.py
+        checks:
+        - test_a_source_of_a_declared_kind_is_created_with_its_key_kind_site_and_typed_settings
+        - test_empty_values_are_left_out_and_text_is_trimmed
+        - test_settings_the_generic_form_does_not_take_are_refused_and_nothing_is_written
+        - test_a_setting_named_like_a_credential_is_refused_and_said_to_belong_at_the_site
+        - test_a_value_that_looks_like_a_credential_is_refused_without_repeating_it
+        - test_names_and_values_that_are_not_credentials_are_kept
+        - test_a_component_that_did_not_declare_the_kind_or_pass_the_read_properties_is_refused
+        - test_its_settings_are_edited_as_an_edit_of_the_draft
+        - test_the_switches_and_the_staging_follow_the_declaration
+        - test_fetching_is_offered_where_the_connector_declared_fetch
+        - test_writing_is_not_offered_without_the_write_properties
+        - test_with_the_switch_off_the_generic_form_is_hidden
+    limits:
+    - id: L2-BRAIN-BUILDER/ontology-edit/L-1
+      statement: 'The credential check of the generic settings form is a pattern check: it refuses known token forms,
+        key material, credentials in addresses and long random words, and cannot recognise every secret (a short
+        password typed under an ordinary name passes). The credential''s place is the site; the form says so.'
+      risk_class: critical
+  undo:
+    needs:
+    - id: L2-BRAIN-BUILDER/undo/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/undo/P-1
+      statement: Takes back the person's last edit batch of this workspace (held in the session) unless the draft changed there since.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_editing.py
+        checks:
+        - TestTheRoutes::test_undo_then_redo
+        - TestUndoRedo::test_a_change_made_since_is_not_overwritten
+  redo:
+    needs:
+    - id: L2-BRAIN-BUILDER/redo/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/redo/P-1
+      statement: Repeats the last batch undone; a redo that would bind a source to a site's component needs «manage», as the edit did.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_editing.py
+        checks:
+        - TestTheRoutes::test_undo_then_redo
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_runs_published.py
+        checks:
+        - TestWhoMayBindASourceToASite::test_redo_cannot_bind_it_for_someone_who_may_not
+  brain-shape:
+    needs:
+    - id: L2-BRAIN-BUILDER/brain-shape/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_brain_shape.py
+        checks:
+        - TestTheRoute::test_without_a_builder_role_nothing
+    promises:
+    - id: L2-BRAIN-BUILDER/brain-shape/P-1
+      statement: GET derives proposals from the tenant's links through the Platform's certificate; POST {chosen} derives them again here (the browser sends ids, never operations) and takes them into the draft as one batch; nothing chosen, or a workspace of another tenant, is refused.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_brain_shape.py
+        checks:
+        - TestTheRoute::test_proposals_then_one_batch_one_undo
+        - TestTheRoute::test_nothing_chosen_and_another_tenant_are_refused
+  views-assistant:
+    needs:
+    - id: L2-BRAIN-BUILDER/views-assistant/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_assistant.py
+        checks:
+        - TestTheRoute::test_without_a_builder_role_nothing
+    promises:
+    - id: L2-BRAIN-BUILDER/views-assistant/P-1
+      statement: A language model tries view operations on a copy of the draft until the checks are clean; the kept ones are applied as one batch (one undo), a question back changes nothing; the description is never logged; without an API key in the settings registry it says it is not set up.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_assistant.py
+        checks:
+        - TestTheRoute::test_the_answer_is_one_batch_and_one_undo_takes_it_back
+        - TestTheRoute::test_a_question_back_changes_nothing
+        - TestTheRoute::test_the_page_offers_it_and_says_when_it_is_not_set_up
+  views-preview:
+    needs:
+    - id: L2-BRAIN-BUILDER/views-preview/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/views-preview/P-1
+      statement: Draws a profile's start view and one of its pages from sample data made from the workspace's definitions, never from the tenant; an unknown profile is 404.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_views.py
+        checks:
+        - TestTheRoutes::test_the_preview
+  comments:
+    needs:
+    - id: L2-BRAIN-BUILDER/comments/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/comments/P-1
+      statement: Answers the comments on one element and whether the caller may comment and resolve.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestComments::test_a_thread_on_an_element
+  comment-add:
+    needs:
+    - id: L2-BRAIN-BUILDER/comment-add/N-1
+      statement: The caller holds the Builder permission «comment» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_a_viewer_reads_and_changes_nothing
+    promises:
+    - id: L2-BRAIN-BUILDER/comment-add/P-1
+      statement: Adds a comment of 1 to 4000 characters to one element; the text is never logged; an open comment holds the approval back.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestComments::test_a_comment_needs_a_target_and_text
+        - TestComments::test_open_comments_hold_the_approval_back
+  comment-resolve:
+    needs:
+    - id: L2-BRAIN-BUILDER/comment-resolve/N-1
+      statement: The caller holds the Builder permission «resolve» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/comment-resolve/P-1
+      statement: Resolves an open comment; one that is not open is 404.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestComments::test_a_thread_on_an_element
+  team-page:
+    needs:
+    - id: L2-BRAIN-BUILDER/team-page/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/team-page/P-1
+      statement: Shows the workspace's grants with their state (active, expired, revoked) and the last 100 rows of its access log.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestConsultants::test_access_ends_by_itself
+  grant-access:
+    needs:
+    - id: L2-BRAIN-BUILDER/grant-access/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestConsultants::test_only_an_admin_invites_and_the_input_is_checked
+    promises:
+    - id: L2-BRAIN-BUILDER/grant-access/P-1
+      statement: Grants a person, by e-mail, roles on this workspace only until a day; an account that does not exist is made once with a one-time password shown once; inviting oneself is refused.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestConsultants::test_an_invitation_makes_an_account_once
+        - TestConsultants::test_a_consultant_sees_and_edits_one_workspace
+        - TestConsultants::test_access_ends_by_itself
+  revoke-access:
+    needs:
+    - id: L2-BRAIN-BUILDER/revoke-access/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/revoke-access/P-1
+      statement: 'Revokes a grant at once: it opens nothing any more; an unknown grant is 404.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestConsultants::test_a_revoked_grant_opens_nothing
+  activity:
+    needs:
+    - id: L2-BRAIN-BUILDER/activity/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/activity/P-1
+      statement: Shows the workspace's edits, runs, approvals (a self-approval and an importer's approval named as such), comments and access, newest first.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestTheActivityFeed::test_who_changed_what_when
+        - TestEveryRoute::test_an_administrator_approves_their_own_changes_only_deliberately
+  type-review:
+    needs:
+    - id: L2-BRAIN-BUILDER/type-review/N-1
+      statement: The caller holds the Builder permission «review» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/type-review/P-1
+      statement: Records that the owner reviewed a type's health, so its next review is due review_every later; a type the health part does not list is 404.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_operate.py
+        checks:
+        - TestTheStage::test_a_review_moves_the_next_one
+  component-page:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-page/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/component-page/P-1
+      statement: Shows the component's state, what it serves (published), its last 30 runs, its held plans, its last 50 events, its commands, and per source whether it can read it; Knovas Link's page does not call it a test setup.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_commands_runs_and_a_held_plan
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestThePages::test_link_s_page_no_longer_calls_it_a_test_setup
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestChecks::test_right_after_it_starts_its_page_says_what_is_wrong
+  component-enrol:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-enrol/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestEnrolment::test_only_an_admin_enrols
+    promises:
+    - id: L2-BRAIN-BUILDER/component-enrol/P-1
+      statement: Makes a pending component of a kind the wizard offers and answers its one-time enrolment token once, kept as a hash, valid 24 hours; the planned database kind cannot be enrolled; a Platform that does not know its tenant refuses (409).
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestEnrolment::test_the_token_is_shown_once_and_kept_as_a_hash
+        - TestEnrolment::test_the_planned_database_kind_cannot_be_enrolled
+        - TestEnrolment::test_an_expired_token_is_refused
+  component-rotate:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-rotate/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/component-rotate/P-1
+      statement: 'A new one-time token: the component enrols again (a new certificate and control token) instead of failing for good; the old control token stops.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_rotate_and_revoke
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestNewToken::test_token_erneuern_enrols_again_instead_of_failing_for_good
+  component-revoke:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-revoke/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/component-revoke/P-1
+      statement: 'Revokes the component: its tokens stop opening anything.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_rotate_and_revoke
+  component-delete:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-delete/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestDeletingAComponent::test_only_who_manages_may
+    - id: L2-BRAIN-BUILDER/component-delete/N-2
+      statement: The component never enrolled or is revoked (one that runs is 409), and no published or draft source reads through it or, for Knovas Link, through one of its components (409, naming them).
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestDeletingAComponent::test_one_that_runs_must_be_revoked_first
+        - TestDeletingAComponent::test_a_source_that_reads_through_it_must_go_first
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestASite::test_link_is_not_deleted_while_a_source_reads_through_its_component
+    promises:
+    - id: L2-BRAIN-BUILDER/component-delete/P-1
+      statement: Deletes the component with its runs, events and commands, clears its tokens and frees its name.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestDeletingAComponent::test_one_that_never_enrolled_goes_its_token_dies_and_its_name_is_free
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_store.py
+        checks:
+        - test_deleting_a_component_takes_its_runs_events_and_commands_and_frees_its_name
+  component-run:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-run/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    - id: L2-BRAIN-BUILDER/component-run/N-2
+      statement: kind is dry_run or apply; an apply needs «publish» and, for a component on site, a dry run (ok or held) among its last five runs; a paused, revoked or pending component is 409.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_pause_resume_schedule_and_config
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestConnectorLink::test_a_dry_run_reports_counts_and_an_apply_needs_a_persons_command
+    promises:
+    - id: L2-BRAIN-BUILDER/component-run/P-1
+      statement: For a component on site, queues the command run {kind}, which it gets with its next heartbeat and runs on the published version; for one behind an adapter, runs it there.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_commands_runs_and_a_held_plan
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_runs_published.py
+        checks:
+        - TestTheReproduction::test_an_apply_on_the_component_runs_the_published_version
+  component-check:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-check/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/component-check/P-1
+      statement: Queues the command check for an enrolled component on site (else 409); it answers with its next heartbeat, through Knovas Link for a component behind it; nothing is read into the Platform.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestChecks::test_a_person_can_ask_again_and_it_answers_with_the_next_heartbeat
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_credentials.py
+        checks:
+        - test_verbindung_pruefen_asks_the_component_through_link
+  component-pause:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-pause/N-1
+      statement: The caller holds the Builder permission «publish» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/component-pause/P-1
+      statement: 'Marks the component paused and queues pause: its heartbeat says paused and a run is refused until it is resumed.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_pause_resume_schedule_and_config
+  component-resume:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-resume/N-1
+      statement: The caller holds the Builder permission «publish» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/component-resume/P-1
+      statement: Clears paused and queues resume.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_pause_resume_schedule_and_config
+  component-schedule:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-schedule/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/component-schedule/P-1
+      statement: Stores a checked schedule (manual, interval from 1 minute, a window of days and hours from 5, or «bei neuen Commits» polling every 15 to 3600 seconds), answers it as text, and the component's heartbeat answer and configuration carry it; behind Knovas Link it reaches that component alone (its entry in Link's components). Knovas Link's own schedule is not set (409), and «bei neuen Commits» is refused for a component that reports capabilities without poll_commits.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_pause_resume_schedule_and_config
+        - TestTheRules::test_a_schedule
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestTheSchedule::test_a_component_behind_link_gets_its_own_schedule_and_pause_through_link
+        - TestTheSchedule::test_link_runs_nothing_so_its_own_schedule_is_not_set
+        - TestTheSchedule::test_a_component_that_cannot_poll_is_not_given_the_schedule
+        - TestTheSchedule::test_a_direct_component_gets_the_schedule_in_its_heartbeat_and_config
+        - TestTheSchedule::test_the_page_offers_bei_neuen_commits
+  component-auto-apply:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-auto-apply/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role; authors, reviewers, publishers and viewers get 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestAutomaticApply::test_only_whoever_manages_sites_switches_it
+    promises:
+    - id: L2-BRAIN-BUILDER/component-auto-apply/P-1
+      statement: Switches a source's automatic apply on or off on the component that serves it (published version), off by default; it reaches the component as auto_apply in its configuration; every change is an event (auto_apply.on, auto_apply.off) and a line in the access log and sends reload_config; a source the component does not serve is 404, and switching on is refused 409 for a component that does not declare auto_apply.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestAutomaticApply::test_off_by_default_and_on_only_where_switched
+        - TestAutomaticApply::test_every_change_is_an_event_and_tells_the_component_to_read_its_configuration
+        - TestAutomaticApply::test_a_source_the_component_does_not_serve_or_a_component_that_cannot_is_refused
+        - TestAutomaticApply::test_a_direct_component_gets_it_in_its_config
+  component-settings:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-settings/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/component-settings/P-1
+      statement: Changes the component's name (1 to 120 characters), site and owner and, for a component on site, queues reload_config; what it runs changes only through a workspace draft and its review.
+      risk_class: low
+  component-plan:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-plan/N-1
+      statement: The caller holds the Builder permission «review» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    - id: L2-BRAIN-BUILDER/component-plan/N-2
+      statement: An approval needs a reason and «publish» (it lets the component retire nodes on the tenant); for the GitHub runner, every mapping held in the same dry run is confirmed.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheSecurityFixes::test_approving_a_held_plan_needs_publish
+        - TestTheSecurityFixes::test_the_github_runner_releases_its_whole_dry_run_only_when_all_are_confirmed
+    promises:
+    - id: L2-BRAIN-BUILDER/component-plan/P-1
+      statement: Records the decision on the held plan and queues approve_plan or reject_plan with the mapping and the reason; a plan that is no longer held is 404.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_commands_runs_and_a_held_plan
+  component-register:
+    needs:
+    - id: L2-BRAIN-BUILDER/component-register/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sources.py
+        checks:
+        - TestTheRoutes::test_only_a_builder_role
+    promises:
+    - id: L2-BRAIN-BUILDER/component-register/P-1
+      statement: Registers a component for the Platform's tenant with a name of 1 to 120 characters, of a kind offered, and for a connector an http(s) address; a name taken is 409; without a known tenant none is registered.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sources.py
+        checks:
+        - TestTheRoutes::test_components_are_registered_for_the_platform_s_tenant
+        - TestTheRoutes::test_without_a_tenant_no_component
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestAdapters::test_an_adapter_component_in_the_registry
+  site-page:
+    needs:
+    - id: L2-BRAIN-BUILDER/site-page/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestASite::test_sites_and_packages_need_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/site-page/P-1
+      statement: Shows the one command (docker compose up -d), the certificate step as DEC-0056 decided with the request's fingerprint to compare, the setup checklist ticked from what the site reported, and the compose file the package holds.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestASite::test_the_site_page
+        - TestASite::test_the_checklist_ticks_off_as_the_site_comes_up
+        - TestASite::test_the_certificate_step_is_the_one_dec_0056_decided
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheRequestIsRecorded::test_enrolment_records_the_request_s_fingerprint_and_the_page_shows_it
+    - id: L2-BRAIN-BUILDER/site-page/P-2
+      statement: «Quellen und Abgleich» shows per source the site's components serve the last synced commit (seven hex digits, linked to the commit on GitHub for a GitHub source), when, what the last apply wrote (counts only, and whether it ran on its own), the next check, the schedule, a newer commit planned but not applied and why, and the switch «automatisch anwenden»; the «Standorte» list on «Verbinden» and the component's page show the same.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestTheSyncStatus::test_link_s_heartbeat_carries_it_and_the_site_page_shows_it
+        - TestTheSyncStatus::test_the_component_page_shows_it_too
+        - TestTheSyncStatus::test_rows_link_only_github_commits
+  site-create:
+    needs:
+    - id: L2-BRAIN-BUILDER/site-create/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestASite::test_sites_and_packages_need_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/site-create/P-1
+      statement: Creates a site of the tenant (a unique name, known options) and its Knovas Link as a pending component; if Link cannot be made, the site stays and its page makes Link again.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestASite::test_creating_a_site_makes_a_pending_knovas_link
+        - TestTheRules::test_a_site_needs_a_name_and_known_options
+  site-package:
+    needs:
+    - id: L2-BRAIN-BUILDER/site-package/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestASite::test_sites_and_packages_need_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/site-package/P-1
+      statement: 'A zip with docker-compose.yml, knovas-link.env and knovas-sources.env: Link''s one-time token only in knovas-link.env (a new one per download while Link has not enrolled, the earlier one stops; none once it runs), the sync component''s sources'' credential lines only in knovas-sources.env, which only the sync component reads (a connector of its own kind added beside the package reads its own knovas-<kind>.env, and the Builder names that file for its sources, so its credential never reaches the sync component; verifier KC-3 N5); services pinned by digest on the internal network knovas-site and the egress network knovas-egress; only Link holds what reaches Knovas.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestASite::test_the_package_carries_a_token_link_enrols_with
+        - TestTheRules::test_the_compose_file
+        - TestTheRules::test_only_knovas_link_holds_what_reaches_knovas
+        - TestTheRules::test_the_env_files_split_link_s_token_from_the_sources_credentials
+        - TestTheRules::test_a_ticked_share_is_mounted_read_only_from_a_placeholder
+        - TestTheRules::test_a_kind_a_connector_declared_has_its_credential_in_that_connectors_own_file
+        - TestTheJiraFileBesideThePackage::test_the_jira_lines_reach_the_jira_connector_and_no_other_service
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_credentials.py
+        checks:
+        - test_no_value_is_typed_into_the_platform_for_it
+    limits:
+    - id: L2-BRAIN-BUILDER/site-package/L-1
+      statement: 'A Platform address given by the page must be http(s)://host[:port]/api/connectors/v1 (else 400); a revoked Link gets no package (409); the answer is not cached (Cache-Control: no-store).'
+      risk_class: standard
+  site-rotate:
+    needs:
+    - id: L2-BRAIN-BUILDER/site-rotate/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestASite::test_sites_and_packages_need_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/site-rotate/P-1
+      statement: 'Link enrols again: its control token stops at once, the next package carries a new token, and both recorded fingerprints (request and certificate) are forgotten.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestASite::test_renewing_the_token
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheRequestIsRecorded::test_renewing_the_token_forgets_both_fingerprints
+  site-certificate:
+    needs:
+    - id: L2-BRAIN-BUILDER/site-certificate/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestWhatIsRecorded::test_only_who_manages_the_sites_records
+    - id: L2-BRAIN-BUILDER/site-certificate/N-2
+      statement: A PEM certificate (at most 64 KiB, else 413) for the key of the request Link enrolled with, for this tenant, for client authentication, valid now, and signed by the client CA where one is configured; otherwise refused with a code and nothing is recorded.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestWhatIsRecorded::test_a_certificate_not_for_this_site_is_refused_and_nothing_recorded
+        - TestWhatIsRecorded::test_without_a_configured_client_ca_the_key_and_the_tenant_still_bind_it
+    promises:
+    - id: L2-BRAIN-BUILDER/site-certificate/P-1
+      statement: Records the certificate's SHA-256 fingerprint for the site's Link; from then on every connector call of this Link must carry that fingerprint, and the checklist ticks the certificate.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheReproduction::test_once_recorded_every_call_needs_that_certificate
+        - TestThePages::test_the_checklist_ticks_the_certificate_only_once_recorded
+  site-probe:
+    needs:
+    - id: L2-BRAIN-BUILDER/site-probe/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestASite::test_sites_and_packages_need_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/site-probe/P-1
+      statement: Queues the command probe for the site's enrolled Link (else 409); Link goes round the work channel and reports the round trip with its next heartbeat.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestASite::test_a_probe_on_request_goes_to_link
+  approvals-page:
+    needs:
+    - id: L2-BRAIN-BUILDER/approvals-page/N-1
+      statement: The caller holds the Builder permission «view» from a Platform role; a grant on one workspace is not enough (the page is the tenant's); otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
+        checks:
+        - test_a_consultant_with_a_grant_sees_no_proposals
+    promises:
+    - id: L2-BRAIN-BUILDER/approvals-page/P-1
+      statement: Shows the tenant's open write proposals with what each changes, and the last 50 decided ones with their outcome, read through the Platform's certificate; when the Brain cannot be read, the page says so instead of showing none.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
+        checks:
+        - test_the_open_proposals_with_what_they_change
+        - test_without_a_tenant_client_the_page_says_so
+    - id: L2-BRAIN-BUILDER/approvals-page/P-2
+      statement: With BUILDER_PROTOCOL_V2 on (off by default), also the tenant's open change sets, each action with its
+        type, source item, parameters and the connector's preview (before and after per field, the version read,
+        exact or not with the reason in German), and the last 50 decided ones with their state and receipts; «Freigeben»
+        is offered only where every action's preview is exact, no type is held, the Brain says approvable and the
+        sources give one staging the connectors declared and their components offer (native_review only with
+        review_outcome passed); otherwise the reasons are shown. With the switch off nothing
+        of it is read.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_with_the_switch_off_nothing_of_change_sets_is_read_or_offered
+        - test_an_open_change_set_shows_each_action_with_its_preview
+        - test_the_whole_content_shows_its_diff
+        - test_changes_that_name_their_step_are_shown_per_step
+        - test_an_action_without_an_exact_preview_is_never_offered_nor_approved
+        - test_what_the_brain_does_not_approve_is_not_offered
+        - test_a_staging_the_connector_did_not_declare_is_not_offered
+        - test_without_a_tenant_client_the_page_says_so
+        - test_a_brain_that_cannot_be_read_is_said_not_shown_as_empty
+  approvals-count:
+    needs:
+    - id: L2-BRAIN-BUILDER/approvals-count/N-1
+      statement: The caller holds the Builder permission «view» from a Platform role; a grant on one workspace is not enough (the page is the tenant's); otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
+        checks:
+        - test_a_consultant_with_a_grant_sees_no_proposals
+    promises:
+    - id: L2-BRAIN-BUILDER/approvals-count/P-1
+      statement: Answers how many proposals wait, with BUILDER_PROTOCOL_V2 on open change sets included; 0 without a
+        line to the tenant, null when the Brain could not be read.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
+        checks:
+        - test_the_badge_counts_open_proposals
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_the_badge_counts_open_change_sets_too
+  approval-accept:
+    needs:
+    - id: L2-BRAIN-BUILDER/approval-accept/N-1
+      statement: The caller holds the Builder permission «publish» from a Platform role; a grant on one workspace is not enough (the page is the tenant's); otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
+        checks:
+        - test_deciding_needs_publish
+        - test_a_publisher_decides
+    promises:
+    - id: L2-BRAIN-BUILDER/approval-accept/P-1
+      statement: Accepts the proposal in the Brain with the signed-in person as the declared actor, once (no retry), and answers the new status and the pull request's address once there is one; a refusal of the Brain is said in German with its code.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
+        checks:
+        - test_accepting_declares_the_person_and_shows_the_outcome
+        - test_a_refusal_of_the_brain_is_said_in_german
+        - test_the_brain_connection_calls_the_routes
+  approval-reject:
+    needs:
+    - id: L2-BRAIN-BUILDER/approval-reject/N-1
+      statement: The caller holds the Builder permission «publish» from a Platform role; a grant on one workspace is not enough (the page is the tenant's); otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
+        checks:
+        - test_deciding_needs_publish
+    - id: L2-BRAIN-BUILDER/approval-reject/N-2
+      statement: A reason of 3 to 500 characters; otherwise 400 and nothing is sent.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
+        checks:
+        - test_rejecting_needs_a_reason
+    promises:
+    - id: L2-BRAIN-BUILDER/approval-reject/P-1
+      statement: Rejects the proposal in the Brain with the signed-in person as the declared actor and the reason.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
+        checks:
+        - test_rejecting_needs_a_reason
+        - test_the_brain_connection_calls_the_routes
+  change-set-approve:
+    needs:
+    - id: L2-BRAIN-BUILDER/change-set-approve/N-1
+      statement: BUILDER_PROTOCOL_V2 is on; otherwise 404 and nothing is read or sent.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_with_the_switch_off_nothing_of_change_sets_is_read_or_offered
+    - id: L2-BRAIN-BUILDER/change-set-approve/N-2
+      statement: The caller holds the Builder permission «publish» from a Platform role; a grant on one workspace is not
+        enough (the page is the tenant's); otherwise 403 and nothing is read or sent.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_deciding_needs_publish
+        - test_a_consultant_with_a_grant_sees_no_change_sets
+    - id: L2-BRAIN-BUILDER/change-set-approve/N-3
+      statement: 'The change set, read again from the Brain, is open and approvable as the page shows it: every action
+        has a preview the connector marked exact and that read a version (GI-CONN-10; Alloy
+        write_back_actions.als::approvalNeedsExactPreview), the Brain names no reason and no held type, and its sources
+        give one published staging that every action''s connector declared; otherwise 409 not_approvable with the
+        reasons in German and nothing is sent to the Brain.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_an_action_without_an_exact_preview_is_never_offered_nor_approved
+        - test_what_the_brain_does_not_approve_is_not_offered
+        - test_a_staging_the_connector_did_not_declare_is_not_offered
+        - test_sources_that_write_differently_are_not_approved_together
+        - test_a_change_set_decided_meanwhile_is_not_approved
+        - test_native_review_without_review_outcome_is_not_approved
+    promises:
+    - id: L2-BRAIN-BUILDER/change-set-approve/P-1
+      statement: Approves the change set in the Brain once (no retry) with the signed-in person as the declared actor
+        and the staging of its sources as published (direct unless set, plan C-Q1), and answers the new state in
+        German; a refusal of the Brain is said in German with its code.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_approving_sends_the_person_and_the_default_staging_direct
+        - test_a_source_published_with_native_review_is_approved_so
+        - test_a_refusal_of_the_brain_is_said_in_german
+        - test_the_brain_connection_calls_the_change_set_routes
+  change-set-reject:
+    needs:
+    - id: L2-BRAIN-BUILDER/change-set-reject/N-1
+      statement: BUILDER_PROTOCOL_V2 is on (else 404); the caller holds «publish» from a Platform role (else 403); a
+        reason of 3 to 500 characters (else 400); nothing is sent otherwise.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_with_the_switch_off_nothing_of_change_sets_is_read_or_offered
+        - test_deciding_needs_publish
+        - test_rejecting_needs_a_reason_and_sends_it_as_the_note
+    promises:
+    - id: L2-BRAIN-BUILDER/change-set-reject/P-1
+      statement: Rejects the change set in the Brain with the signed-in person as the declared actor and the reason as
+        its note, also one whose preview is not exact.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_rejecting_needs_a_reason_and_sends_it_as_the_note
+        - test_an_inexact_change_set_can_still_be_rejected
+        - test_the_brain_connection_calls_the_change_set_routes
+  connection-page:
+    needs:
+    - id: L2-BRAIN-BUILDER/connection-page/N-1
+      statement: The caller holds the Builder permission «view» from a Platform role; a grant on one workspace is not enough (the page is the tenant's); otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_monitoring_mvp.py
+        checks:
+        - TestTheCard::test_a_consultant_with_a_grant_does_not_see_it
+    promises:
+    - id: L2-BRAIN-BUILDER/connection-page/P-1
+      statement: 'One card per site: green only when Link is online with its certificate, the channel connected and a probe gone round in the last 10 minutes; what nobody measured is «unbekannt», never green; each alert says what to do; the last 24 hours of jobs and proposals come from the Brain.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_monitoring_mvp.py
+        checks:
+        - TestTheCard::test_everything_green
+        - TestTheCard::test_no_probe_for_ten_minutes_turns_it_red_and_says_what_to_do
+        - TestTheCard::test_what_is_not_known_is_unbekannt_never_green
+        - TestTheCard::test_waiting_for_the_certificate
+        - TestTheCard::test_alerts_of_the_mvp
+    limits:
+    - id: L2-BRAIN-BUILDER/connection-page/L-1
+      statement: The cards refresh every 30 seconds; Knovas Link counts as unreachable after 10 minutes without a beat, other kinds after 30.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_monitoring_mvp.py
+        checks:
+        - TestTheCard::test_it_refreshes_every_30_seconds
+        - TestTheLimits::test_link_is_unreachable_after_ten_minutes_other_kinds_keep_thirty
+  access-page:
+    needs:
+    - id: L2-BRAIN-BUILDER/access-page/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/access-page/P-1
+      statement: Shows the live tree to administrators and, for everyone else, the draft's design of it; a person's effective access is highlighted.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
+        checks:
+        - TestTheWindow::test_the_live_tree_is_for_administrators_only
+        - TestTheWindow::test_a_person_s_effective_access_is_highlighted
+        - TestTheDesign::test_a_consultant_designs_the_tree_of_their_workspace
+  access-preview:
+    needs:
+    - id: L2-BRAIN-BUILDER/access-preview/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/access-preview/P-1
+      statement: Answers who gains or loses sight of how many items before a change is made; nothing changes.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
+        checks:
+        - TestTheWindow::test_a_move_shows_its_impact_first
+  access-apply:
+    needs:
+    - id: L2-BRAIN-BUILDER/access-apply/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/access-apply/P-1
+      statement: Makes the change only after its preview was shown and confirmed (else 409), checked again first; the engine's limits hold (unique names, at most 32 levels, no delete while anything is assigned); a Brain that cannot move groups says so.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
+        checks:
+        - TestTheWindow::test_a_move_shows_its_impact_first
+        - TestTheWindow::test_a_brain_that_cannot_move_says_so
+        - TestTheWindow::test_delete_while_assigned_and_the_admin_group
+        - TestTheDesign::test_the_design_keeps_the_engine_s_limits
+  access-rule-add:
+    needs:
+    - id: L2-BRAIN-BUILDER/access-rule-add/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/access-rule-add/P-1
+      statement: Assigns a folder (a path prefix of a sync component's source, no «..») to groups, live or in the draft's design.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
+        checks:
+        - TestTheWindow::test_a_three_level_tree_a_rule_and_two_people
+        - TestTheDesign::test_a_draft_designs_the_tree_and_publishing_creates_it
+  access-rule-remove:
+    needs:
+    - id: L2-BRAIN-BUILDER/access-rule-remove/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/access-rule-remove/P-1
+      statement: Removes a folder rule by its id, live or in the draft's design.
+      risk_class: critical
+  access-members:
+    needs:
+    - id: L2-BRAIN-BUILDER/access-members/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/access-members/P-1
+      statement: Puts a person in a group until a day, if given, or takes them out; the Platform asserts the membership to the Brain; it ends on its day by itself.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
+        checks:
+        - TestTheWindow::test_a_membership_ends_on_its_day
+        - TestTheWindow::test_a_three_level_tree_a_rule_and_two_people
+  access-explain:
+    needs:
+    - id: L2-BRAIN-BUILDER/access-explain/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/access-explain/P-1
+      statement: Answers the Brain's verdict for that person and the path through the tree, or why there is none.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
+        checks:
+        - TestTheWindow::test_a_partner_sees_the_meier_documents_and_another_team_does_not
+        - TestTheTree::test_explain_names_the_path_or_why_not
+  access-posture:
+    needs:
+    - id: L2-BRAIN-BUILDER/access-posture/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/access-posture/P-1
+      statement: Records a request to switch the tenant's RBAC enforcement off or on; nothing switches until a second administrator approves.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
+        checks:
+        - TestTheWindow::test_switching_enforcement_takes_a_second_administrator
+  access-posture-approve:
+    needs:
+    - id: L2-BRAIN-BUILDER/access-posture-approve/N-1
+      statement: The caller holds the Builder permission «manage» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    - id: L2-BRAIN-BUILDER/access-posture-approve/N-2
+      statement: A second person (not the one who asked); switching to enforcing waits until the Brain's ACL backfill is complete (409).
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
+        checks:
+        - TestTheWindow::test_switching_enforcement_takes_a_second_administrator
+        - TestTheWindow::test_enforcing_waits_for_the_backfill
+  mapping-page:
+    needs:
+    - id: L2-BRAIN-BUILDER/mapping-page/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_mappings.py
+        checks:
+        - TestTheRoutes::test_only_a_builder_role
+    promises:
+    - id: L2-BRAIN-BUILDER/mapping-page/P-1
+      statement: Shows the mapping of the session's workspace with its steps, what it does in one sentence, the «Zugriff» choice (none preselected) and the facts «Zurückschreiben» may write back, refused while the source's write switch is off.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_mappings.py
+        checks:
+        - TestTheRoutes::test_the_page_the_edits_and_the_preview
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_mapping_writes.py
+        checks:
+        - TestAccess::test_no_choice_is_preselected
+        - TestWrites::test_the_panel_lists_what_may_be_written
+        - TestWrites::test_refused_while_the_source_s_write_switch_is_off
+        - test_what_this_mapping_does_in_one_sentence
+  mapping-preview:
+    needs:
+    - id: L2-BRAIN-BUILDER/mapping-preview/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/mapping-preview/P-1
+      statement: Answers the fields of the items the mapping reads and the first nodes, facts and edges it would make; nothing is written.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_mappings.py
+        checks:
+        - TestTheRoutes::test_the_page_the_edits_and_the_preview
+  mapping-dry-run:
+    needs:
+    - id: L2-BRAIN-BUILDER/mapping-dry-run/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/mapping-dry-run/P-1
+      statement: brain-runner's plan of the mapping against the tenant (added, modified, retired, drift, the deletion guard), writing nothing; it needs the tenant and a mapping without problems (409); a source read by a component points to that component instead.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_mappings.py
+        checks:
+        - TestTheRoutes::test_the_dry_run_needs_the_tenant_and_a_clean_mapping
+        - TestTheRoutes::test_the_dry_run_of_a_published_mapping_needs_no_draft
+        - TestTheRoutes::test_a_source_read_by_a_component_points_to_it_with_or_without_a_draft
+  source-credential:
+    needs:
+    - id: L2-BRAIN-BUILDER/source-credential/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_credentials.py
+        checks:
+        - test_a_viewer_sees_the_line_but_cannot_write_a_credential
+    promises:
+    - id: L2-BRAIN-BUILDER/source-credential/P-1
+      statement: Writes or removes a source's credential in the settings registry; it is never sent back or logged; a source on a site gets no credential here - its page shows the env line instead.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sources.py
+        checks:
+        - TestTheRoutes::test_the_credential_is_written_only
+        - TestTheRoutes::test_a_source_that_moves_loses_its_credential
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_credentials.py
+        checks:
+        - test_no_value_is_typed_into_the_platform_for_it
+        - test_a_source_on_a_site_shows_the_line_for_the_env_file
+    - id: L2-BRAIN-BUILDER/source-credential/P-2
+      statement: A source of a kind only a connector at a site declares (SPEC-write-back-13) gets no credential here, wherever its component is (409, naming its line and the connector's own file, knovas-<kind>.env, never knovas-sources.env); nothing is written.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_generic_kind.py
+        checks:
+        - test_the_credential_is_never_entered_in_the_builder
+  source-test:
+    needs:
+    - id: L2-BRAIN-BUILDER/source-test/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/source-test/P-1
+      statement: Reaches the source through its reader and answers what it holds with counts; the log carries counts only; a reader that cannot open is answered as JSON; HTTP/JSON only from the public network.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sources.py
+        checks:
+        - TestTheRoutes::test_a_test_and_a_sample_log_counts_only
+        - TestTheRoutes::test_a_reader_that_cannot_open_is_answered_as_json
+        - TestTheReaders::test_json_only_from_the_public_network
+    - id: L2-BRAIN-BUILDER/source-test/P-2
+      statement: A source of a kind only a connector at a site declares (SPEC-write-back-13) is never read by the Platform; the test answers 502 saying the component at the site reads it.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_generic_kind.py
+        checks:
+        - test_it_is_read_at_the_site_never_by_the_platform
+  source-sample:
+    needs:
+    - id: L2-BRAIN-BUILDER/source-sample/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/source-sample/P-1
+      statement: Answers up to 50 items of one collection with the profile of their fields; the log carries counts only.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sources.py
+        checks:
+        - TestTheRoutes::test_a_test_and_a_sample_log_counts_only
+        - TestTheProfile::test_types_empty_share_distinct_and_examples
+  tenant-link:
+    needs:
+    - id: L2-BRAIN-BUILDER/tenant-link/N-1
+      statement: The caller holds the Builder permission «publish» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_author_edits_but_neither_approves_nor_publishes
+    promises:
+    - id: L2-BRAIN-BUILDER/tenant-link/P-1
+      statement: Links the workspace to the tenant of the Platform's certificate, never one the request names; a Platform that does not know its tenant refuses (409).
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py
+        checks:
+        - TestPublishing::test_only_the_platform_s_own_tenant
+        - TestPublishing::test_without_a_linked_tenant_it_offers_this_platform_s
+  dry-run:
+    needs:
+    - id: L2-BRAIN-BUILDER/dry-run/N-1
+      statement: The caller holds the Builder permission «edit» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_a_viewer_reads_and_changes_nothing
+    promises:
+    - id: L2-BRAIN-BUILDER/dry-run/P-1
+      statement: Compiles the draft and plans it against the linked tenant, writing nothing there; records the run with the plan, the diff against the published version, what publish writes beside the ontology (access design, role mapping) and the digest of all of it, which an approval holds.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_import_review.py
+        checks:
+        - TestTheReproduction::test_the_dry_run_shows_what_publish_writes_beside_the_ontology
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py
+        checks:
+        - TestPublishing::test_refusals_show_in_the_dry_run_and_the_result
+        - TestPublishing::test_an_engine_that_cannot_plan_says_so
+        - TestTheDigestAnApprovalHolds::test_the_same_in_another_process_and_another_listing_order
+  approve:
+    needs:
+    - id: L2-BRAIN-BUILDER/approve/N-1
+      statement: The caller holds the Builder permission «review» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_author_edits_but_neither_approves_nor_publishes
+    - id: L2-BRAIN-BUILDER/approve/N-2
+      statement: The draft's content hash as loaded, a dry run of this draft whose digest is the newest (409 otherwise), no open comment, and a reviewer who changed nothing in the draft - an administrator who did may approve only as a self-approval with a reason of 3 to 500 characters.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_a_reviewer_approves_but_not_what_they_changed
+        - TestEveryRoute::test_an_administrator_approves_their_own_changes_only_deliberately
+        - TestComments::test_open_comments_hold_the_approval_back
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py
+        checks:
+        - TestPublishing::test_no_approval_before_a_dry_run
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_import_review.py
+        checks:
+        - TestTheApprovalBindsToTheDiff::test_an_approval_of_a_digest_the_newest_dry_run_does_not_have_is_refused
+    promises:
+    - id: L2-BRAIN-BUILDER/approve/P-1
+      statement: Records the approval with the digest it approved; an approval by the person whose import or creation the draft started from is allowed and recorded as such.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_store.py
+        checks:
+        - test_an_approval_keeps_the_digest_it_approved_and_who_approved_their_own_import
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_import_review.py
+        checks:
+        - TestTheReproduction::test_the_importer_may_approve_and_publish_and_it_is_recorded_as_such
+        - TestTheReproduction::test_a_second_person_s_approval_is_not_marked
+  publish:
+    needs:
+    - id: L2-BRAIN-BUILDER/publish/N-1
+      statement: The caller holds the Builder permission «publish» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_a_publisher_applies
+    - id: L2-BRAIN-BUILDER/publish/N-2
+      statement: The draft's content hash is approved, every retirement is confirmed one by one, and what publishing changes now - planned again - has the digest the approval holds; a changed tenant, access group, folder rule, role mapping, published state or content voids the approval (409).
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py
+        checks:
+        - TestPublishing::test_an_edit_after_the_approval_voids_it
+        - TestPublishing::test_retirements_need_their_own_confirmation
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_import_review.py
+        checks:
+        - TestTheApprovalBindsToTheDiff::test_a_folder_rule_made_live_since_voids_it
+        - TestTheApprovalBindsToTheDiff::test_a_group_made_live_since_voids_it
+        - TestTheApprovalBindsToTheDiff::test_a_changed_role_mapping_on_the_platform_voids_it
+        - TestTheApprovalBindsToTheDiff::test_a_changed_tenant_ontology_voids_it
+        - TestTheApprovalBindsToTheDiff::test_an_approval_without_a_digest_does_not_publish
+    promises:
+    - id: L2-BRAIN-BUILDER/publish/P-1
+      statement: Applies the plan to the tenant through brain-runner, keeps the compiled bundle as the next published version, writes a RunEvent, hands the bundle to the views and the role mapping and access design to the Platform and the tenant, and records who imported, approved and published.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py
+        checks:
+        - TestPublishing::test_the_whole_way_dry_run_approval_by_a_second_person_apply
+        - TestAfterThePublish::test_a_run_event_and_the_views
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
+        checks:
+        - TestTheDesign::test_a_draft_designs_the_tree_and_publishing_creates_it
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_import_review.py
+        checks:
+        - TestTheApprovalBindsToTheDiff::test_a_new_dry_run_and_approval_publish_it
+    limits:
+    - id: L2-BRAIN-BUILDER/publish/L-1
+      statement: A failed apply is recorded as failed and answered 502; a RunEvent or views hand-over that fails is reported and does not undo the publish.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py
+        checks:
+        - TestAfterThePublish::test_without_the_sync_the_views_keep_their_source
+  bundle:
+    needs:
+    - id: L2-BRAIN-BUILDER/bundle/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/bundle/P-1
+      statement: Answers the bundle of the newest published version, as the views read it; none published is 404.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py
+        checks:
+        - TestPublishing::test_the_whole_way_dry_run_approval_by_a_second_person_apply
+  styleguide:
+    needs:
+    - id: L2-BRAIN-BUILDER/styleguide/N-1
+      statement: The caller holds the Builder permission «view» (ENDPOINT_PERMISSIONS), from a Platform role or a running grant on the workspace; otherwise 403.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+    promises:
+    - id: L2-BRAIN-BUILDER/styleguide/P-1
+      statement: Renders every design-system component in the light and the dark theme, or one of them; an unknown view falls back to both.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_shell.py
+        checks:
+        - TestTheStyleGuide::test_it_renders_every_component_in_both_themes
+        - TestTheStyleGuide::test_an_unknown_view_falls_back_to_both
+  protocol-enrol:
+    needs:
+    - id: L2-BRAIN-BUILDER/protocol-enrol/N-1
+      statement: The one-time enrolment token, unused and at most 24 hours old, and a certificate request signed by its own key (Knovas Link does not enrol without one); otherwise refused, and a Knovas Link refused for its request keeps its token.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestEnrolment::test_an_expired_token_is_refused
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheRequestIsRecorded::test_a_link_without_a_valid_request_does_not_enrol_and_keeps_its_token
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestConnectorLink::test_a_used_token_says_so_and_does_not_show_itself
+    promises:
+    - id: L2-BRAIN-BUILDER/protocol-enrol/P-1
+      statement: Answers 201 with the component id, a control token shown this once and kept as a hash, the certificate the Brain signed when BUILDER_CONNECTOR_ISSUE_CERTIFICATES is true, brain_url, brain_ca, the Platform's tenant and the client CA; records the request's public-key fingerprint.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestEnrolment::test_a_component_enrols_and_appears_online
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheRequestIsRecorded::test_enrolment_records_the_request_s_fingerprint_and_the_page_shows_it
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestConnectorLink::test_the_brains_ca_comes_from_the_enrolment_and_nothing_is_copied_by_hand
+        - TestRealEnrolment::test_a_brain_that_will_not_sign_is_an_answer_and_the_token_still_works
+        - TestWithoutSigning::test_a_component_enrols_with_a_control_token_and_nothing_is_signed
+  protocol-heartbeat:
+    needs:
+    - id: L2-BRAIN-BUILDER/protocol-heartbeat/N-1
+      statement: The caller sends Authorization Bearer with its control token and X-Component with its id, and, while BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT is true (the default), X-Client-Cert-Fingerprint equal to the certificate issued at enrolment or recorded for Knovas Link; a Knovas Link with no recorded certificate may still beat, and gets no command; otherwise 401 or 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_every_call_needs_the_control_token
+        - TestTheSecurityFixes::test_without_the_certificate_fingerprint_a_call_is_refused
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheReproduction::test_without_a_recorded_certificate_the_control_token_opens_the_heartbeat_only
+        - TestTheReproduction::test_once_recorded_every_call_needs_that_certificate
+    promises:
+    - id: L2-BRAIN-BUILDER/protocol-heartbeat/P-1
+      statement: Answers paused, schedule and the commands for the caller, each delivered once (for Knovas Link also its components', each naming the component, and since 1.2 each component's own paused and schedule in components); Link's site object is kept as telemetry, with each source's sync status (commits, times, codes, counts), and its components become child rows; a direct component's sync status (sources) is kept likewise; names and free text are refused, unknown fields dropped.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestTheHeartbeat::test_the_site_object_is_kept_and_its_components_become_children
+        - TestTheHeartbeat::test_names_and_free_text_are_refused
+        - TestTheHeartbeat::test_a_field_this_platform_does_not_know_is_dropped_not_stored
+        - TestTheHeartbeat::test_only_knovas_link_reports_a_site
+        - TestTheHeartbeat::test_a_child_s_command_is_delivered_through_link
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestTheSchedule::test_a_component_behind_link_gets_its_own_schedule_and_pause_through_link
+        - TestTheSyncStatus::test_link_s_heartbeat_carries_it_and_the_site_page_shows_it
+        - TestTheSyncStatus::test_names_and_free_text_are_refused
+        - TestTheSyncStatus::test_a_source_without_a_sync_status_keeps_the_1_1_shape
+        - TestTheSyncStatus::test_a_direct_component_reports_it_in_its_own_heartbeat
+    - id: L2-BRAIN-BUILDER/protocol-heartbeat/P-2
+      statement: 'Protocol 2.0 (draft): a component in Link''s site may carry its connector declaration; every
+        declaration the protocol''s schema allows (KnovasLink/contracts/v2/declaration.schema.json, a byte-identical
+        copy in builder/contracts, limits from the schema only) is kept on the component in its checked form
+        (protocol, source kind, streams, actions with their parameters, preview, staging, grouping and inverse, the
+        conformance properties passed); one the schema does not allow is not kept and named by its field
+        (declaration_refused), and the rest of the heartbeat is kept. With BUILDER_PROTOCOL_V2 on it offers writing
+        back for its kind when it declared actions and passed every write property, native_review only with
+        review_outcome passed.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_protocol_v2.py
+        checks:
+        - test_the_platform_keeps_a_checked_declaration_from_the_heartbeat
+        - test_a_declaration_the_protocol_does_not_allow_is_dropped_and_the_heartbeat_kept
+        - test_every_declaration_the_schema_allows_is_kept
+        - test_the_platform_checks_against_the_protocols_own_schema
+        - test_native_review_is_offered_only_with_review_outcome
+        - test_a_refused_declaration_is_named_where_writing_is_not_offered
+        - test_a_kind_the_catalogue_does_not_write_is_written_where_the_declaration_says_so
+        - test_with_the_switch_on_a_declared_and_conformant_connector_is_offered_writing
+        - test_with_the_switch_off_the_declaration_offers_nothing
+        - test_a_connector_that_did_not_pass_the_write_properties_is_not_offered_writing
+        - test_a_declaration_for_another_kind_offers_nothing_for_this_one
+        - test_the_sources_page_lists_the_declared_actions_and_how_each_writes
+    - id: L2-BRAIN-BUILDER/protocol-heartbeat/P-3
+      statement: 'With BUILDER_PROTOCOL_V2 on, a component in Link''s site of a kind this Platform does not know is
+        kept under its own kind when it carries a declaration the protocol''s schema allows, so a source of the kind it
+        declared is read through it without a Platform change (SPEC-write-back-13; migration 0025 lets only a child
+        behind Link take such a kind, and never a child Link''s own kind knovas_link, refused by the database too). One
+        without such a declaration, and one of Link''s own or the adapter-only kind, is not stored and is counted (site.component_unknown_kind) as before; with the switch off nothing changes
+        (C-8, decided by the programme''s coordinator on 2026-11-10).'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_generic_kind.py
+        checks:
+        - test_a_component_of_the_connectors_own_kind_is_kept_and_shown
+        - test_a_component_of_an_unknown_kind_without_a_valid_declaration_is_dropped_as_before
+        - test_link_s_own_kind_is_never_a_child_s_even_with_a_declaration
+        - test_with_the_switch_off_a_component_of_an_unknown_kind_is_dropped_as_before
+        - test_the_migration_lets_only_a_child_take_its_connector_s_kind
+    limits:
+    - id: L2-BRAIN-BUILDER/protocol-heartbeat/L-1
+      statement: A body is at most 256 KiB (413 too_large); a Platform that does not know its tenant answers 503 no_tenant; this holds for every call of the protocol.
+      risk_class: standard
+  protocol-config:
+    needs:
+    - id: L2-BRAIN-BUILDER/protocol-config/N-1
+      statement: The caller sends Authorization Bearer with its control token and X-Component with its id, and, while BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT is true (the default), X-Client-Cert-Fingerprint equal to the certificate issued at enrolment or recorded for Knovas Link; a Knovas Link with no recorded certificate is refused 403 certificate_not_recorded; otherwise 401 or 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_every_call_needs_the_control_token
+        - TestTheSecurityFixes::test_without_the_certificate_fingerprint_a_call_is_refused
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheReproduction::test_without_a_recorded_certificate_the_control_token_opens_the_heartbeat_only
+        - TestTheReproduction::test_once_recorded_every_call_needs_that_certificate
+    promises:
+    - id: L2-BRAIN-BUILDER/protocol-config/P-1
+      statement: Answers what the caller runs as last published - sources with their settings, switches (fetch, access) and mappings, never a draft, each source with auto_apply as set on the component that serves it; for Knovas Link those of every component behind it, each naming the component, and each component's own paused and schedule (components).
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestSubComponents::test_link_s_configuration_names_the_component_serving_each_source
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_runs_published.py
+        checks:
+        - TestTheReproduction::test_a_draft_address_does_not_reach_link_s_config
+        - TestTheReproduction::test_it_reaches_the_site_once_published
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_source_switches.py
+        checks:
+        - test_fetch_reaches_the_component_only_once_published
+        - test_a_source_published_before_neither_fetches_nor_writes
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_autosync.py
+        checks:
+        - TestAutomaticApply::test_off_by_default_and_on_only_where_switched
+  protocol-package:
+    needs:
+    - id: L2-BRAIN-BUILDER/protocol-package/N-1
+      statement: The caller sends Authorization Bearer with its control token and X-Component with its id, and, while BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT is true (the default), X-Client-Cert-Fingerprint equal to the certificate issued at enrolment or recorded for Knovas Link; a Knovas Link with no recorded certificate is refused 403 certificate_not_recorded; otherwise 401 or 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_every_call_needs_the_control_token
+        - TestTheSecurityFixes::test_without_the_certificate_fingerprint_a_call_is_refused
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheReproduction::test_without_a_recorded_certificate_the_control_token_opens_the_heartbeat_only
+        - TestTheReproduction::test_once_recorded_every_call_needs_that_certificate
+    promises:
+    - id: L2-BRAIN-BUILDER/protocol-package/P-1
+      statement: Answers the published configuration package of each workspace the caller serves (files as base64); a draft mapping never reaches it.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_runs_published.py
+        checks:
+        - TestTheReproduction::test_a_draft_mapping_does_not_reach_link_s_package
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component.py
+        checks:
+        - TestTheConfiguration::test_the_package_is_the_compiled_workspace
+  protocol-runs:
+    needs:
+    - id: L2-BRAIN-BUILDER/protocol-runs/N-1
+      statement: The caller sends Authorization Bearer with its control token and X-Component with its id, and, while BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT is true (the default), X-Client-Cert-Fingerprint equal to the certificate issued at enrolment or recorded for Knovas Link; a Knovas Link with no recorded certificate is refused 403 certificate_not_recorded; otherwise 401 or 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_every_call_needs_the_control_token
+        - TestTheSecurityFixes::test_without_the_certificate_fingerprint_a_call_is_refused
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheReproduction::test_without_a_recorded_certificate_the_control_token_opens_the_heartbeat_only
+        - TestTheReproduction::test_once_recorded_every_call_needs_that_certificate
+    promises:
+    - id: L2-BRAIN-BUILDER/protocol-runs/P-1
+      statement: Stores a run report of codes and counts (kind, status, times, added, changed, retired, errors, held plans) as the caller's, or as the component behind Knovas Link that X-Sub-Component or sub_component names (they must agree; an unknown one is refused); answers 201 with the run id.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestSubComponents::test_runs_events_and_checks_land_on_the_child
+        - TestSubComponents::test_a_field_names_the_sub_component_too
+        - TestSubComponents::test_an_unknown_sub_component_is_refused
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_reports_carry_codes_and_counts_only
+  protocol-command-done:
+    needs:
+    - id: L2-BRAIN-BUILDER/protocol-command-done/N-1
+      statement: The caller sends Authorization Bearer with its control token and X-Component with its id, and, while BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT is true (the default), X-Client-Cert-Fingerprint equal to the certificate issued at enrolment or recorded for Knovas Link; a Knovas Link with no recorded certificate is refused 403 certificate_not_recorded; otherwise 401 or 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_every_call_needs_the_control_token
+        - TestTheSecurityFixes::test_without_the_certificate_fingerprint_a_call_is_refused
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheReproduction::test_without_a_recorded_certificate_the_control_token_opens_the_heartbeat_only
+        - TestTheReproduction::test_once_recorded_every_call_needs_that_certificate
+    promises:
+    - id: L2-BRAIN-BUILDER/protocol-command-done/P-1
+      statement: Marks the command done (ok, failed or refused) for the caller, or for the component behind Knovas Link that it names.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - TestSubComponents::test_a_child_s_command_is_done_as_the_child_s
+  protocol-events:
+    needs:
+    - id: L2-BRAIN-BUILDER/protocol-events/N-1
+      statement: The caller sends Authorization Bearer with its control token and X-Component with its id, and, while BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT is true (the default), X-Client-Cert-Fingerprint equal to the certificate issued at enrolment or recorded for Knovas Link; a Knovas Link with no recorded certificate is refused 403 certificate_not_recorded; otherwise 401 or 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_every_call_needs_the_control_token
+        - TestTheSecurityFixes::test_without_the_certificate_fingerprint_a_call_is_refused
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheReproduction::test_without_a_recorded_certificate_the_control_token_opens_the_heartbeat_only
+        - TestTheReproduction::test_once_recorded_every_call_needs_that_certificate
+    promises:
+    - id: L2-BRAIN-BUILDER/protocol-events/P-1
+      statement: Stores events of codes and counts only, as the caller's or its named sub-component's; a count named like a file is refused.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_reports_carry_codes_and_counts_only
+        - TestTheRules::test_event_counts_carry_no_names
+  protocol-checks:
+    needs:
+    - id: L2-BRAIN-BUILDER/protocol-checks/N-1
+      statement: The caller sends Authorization Bearer with its control token and X-Component with its id, and, while BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT is true (the default), X-Client-Cert-Fingerprint equal to the certificate issued at enrolment or recorded for Knovas Link; a Knovas Link with no recorded certificate is refused 403 certificate_not_recorded; otherwise 401 or 403.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_every_call_needs_the_control_token
+        - TestTheSecurityFixes::test_without_the_certificate_fingerprint_a_call_is_refused
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheReproduction::test_without_a_recorded_certificate_the_control_token_opens_the_heartbeat_only
+        - TestTheReproduction::test_once_recorded_every_call_needs_that_certificate
+    promises:
+    - id: L2-BRAIN-BUILDER/protocol-checks/P-1
+      statement: Keeps the latest check per source the caller serves (a source it does not serve is dropped); no name or address can reach the Platform through a check.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestChecks::test_no_name_or_address_can_reach_the_platform_through_a_check
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_monitoring_mvp.py
+        checks:
+        - TestTheCard::test_a_source_check_failing_on_a_component_behind_link
+  call.builder-blueprint:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.builder-blueprint/P-1
+      statement: The blueprint authorises every route in a before_request by ENDPOINT_PERMISSIONS (an endpoint not listed needs «manage»), from the caller's Platform roles or a running grant; the app passes the gate, the store, the tenant provider and the Brain clients in.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
+        checks:
+        - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_in_the_app.py
+        checks:
+        - test_an_admin_opens_every_stage_and_is_offered_the_builder
+  call.user-may-build:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.user-may-build/P-1
+      statement: True when the user holds a builder role or a running grant on a workspace; nobody signed in may not.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_in_the_app.py
+        checks:
+        - test_a_member_is_refused_and_not_offered_the_builder
+        - test_an_admin_opens_every_stage_and_is_offered_the_builder
+  call.protocol-blueprint:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.protocol-blueprint/P-1
+      statement: require_client_certificate and issue_certificates are true unless the deployment says otherwise (BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT, BUILDER_CONNECTOR_ISSUE_CERTIFICATES); a deployment without a terminator says so explicitly.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_connector_kinds.py
+        checks:
+        - TestWithoutSigning::test_signing_stays_the_default
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheSecurityFixes::test_a_deployment_without_a_terminator_says_so_explicitly
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_certificate.py
+        checks:
+        - TestTheReproduction::test_a_deployment_without_a_terminator_says_so_and_keeps_the_token_alone
+  call.protocol-endpoints:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.protocol-endpoints/P-1
+      statement: Names exactly the protocol's eight endpoints; each refuses every request without the component's own credential.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheProtocol::test_every_call_needs_the_control_token
+  call.workspace-store:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.workspace-store/P-1
+      statement: Keeps workspaces (one draft at a time, published versions kept whole), changes, runs, approvals with their digest, comments, grants and the access log, components with their runs, events, commands and held plans, and sites, in the builder_* tables; a component is served the published version only.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_store.py
+        checks:
+        - test_the_database_allows_one_draft_per_workspace
+        - test_review_and_publish
+        - test_a_component_is_served_the_published_version_only
+        - test_components_enrol_run_hold_and_take_commands
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sites.py
+        checks:
+        - test_the_migration_and_the_store
+  call.brain-runner-engine:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.brain-runner-engine/P-1
+      statement: Compiles a model into brain-runner's own bundle, plans the tenant's ontology and applies it with the API client the app builds on the Platform's certificate; the plan's digest is the same in another process.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py
+        checks:
+        - TestTheBundle::test_the_bundle_is_brain_runner_s_own
+        - TestTheDigestAnApprovalHolds::test_the_same_in_another_process_and_another_listing_order
+        - TestTheRunEvent::test_it_is_a_node_with_the_run_facts
+  call.brain-connection:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.brain-connection/P-1
+      statement: Calls the source-writes, change-set and job-stats routes once each (no retry, no body in a log) with the signed-in person's assertion; a refusal is raised with the Brain's status and code; an answer not in the route's shape is 502 bad_answer.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_approvals.py
+        checks:
+        - test_the_brain_connection_calls_the_routes
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_change_sets.py
+        checks:
+        - test_the_brain_connection_calls_the_change_set_routes
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_monitoring_mvp.py
+        checks:
+        - TestTheCard::test_the_stats_are_read_as_the_route_answers_them
+  call.brain-access:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.brain-access/P-1
+      statement: Reads and changes the tenant's access groups, folder rules and posture through the Platform's certificate; a Brain that cannot move a group answers move_unsupported (501).
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
+        checks:
+        - TestTheWindow::test_a_brain_that_cannot_move_says_so
+  call.github-runner-adapter:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.github-runner-adapter/P-1
+      statement: Observes the Platform's own sync as a heartbeat would and runs, pauses and releases its held plans; brain-runner releases a whole dry run, never one mapping of it.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestAdapters::test_the_github_runner_over_the_sync
+        - TestTheSecurityFixes::test_the_github_runner_releases_its_whole_dry_run_only_when_all_are_confirmed
+  call.knovas-connector-adapter:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.knovas-connector-adapter/P-1
+      statement: Observes the Knovas Connector through its health and sync status and pauses and resumes it; it cannot dry-run.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestAdapters::test_the_knovas_connector_over_its_status
+  call.github-reader:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.github-reader/P-1
+      statement: Lists and samples a repository through brain-runner with the source's credential; GitHub's refusals are said, the token never shown.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sources.py
+        checks:
+        - TestTheReaders::test_a_repository_through_brain_runner
+        - TestWhyARepositoryIsNotRead::test_the_token_is_never_shown
+  call.http-json-reader:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.http-json-reader/P-1
+      statement: Reads JSON over HTTPS from the public network only.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sources.py
+        checks:
+        - TestTheReaders::test_json_over_https
+        - TestTheReaders::test_json_only_from_the_public_network
+  call.knovas-connector-reader:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.knovas-connector-reader/P-1
+      statement: Lists a folder of the Knovas Connector's share for test and sample.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sources.py
+        checks:
+        - TestTheReaders::test_a_folder_through_the_connector
+  call.reader-error:
+    promises:
+    - id: L2-BRAIN-BUILDER/call.reader-error/P-1
+      statement: Carries a sentence for the person and no address, token or value.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sources.py
+        checks:
+        - TestTheRoutes::test_a_reader_that_cannot_open_is_answered_as_json
+  '*':
+    always:
+    - id: L2-BRAIN-BUILDER/*/A-1
+      statement: Logs carry ids, codes and counts only - never a document's name, a comment, a description, a credential or a value; a credential is never sent back to a browser.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_sources.py
+        checks:
+        - TestTheRoutes::test_the_credential_is_written_only
+        - TestTheRoutes::test_a_test_and_a_sample_log_counts_only
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_components.py
+        checks:
+        - TestTheRules::test_event_counts_carry_no_names
+    - id: L2-BRAIN-BUILDER/*/A-2
+      statement: The tenant is always this Platform's, from its certificate; no request names it.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_workspaces.py
+        checks:
+        - TestStartingFromPacks::test_the_tenant_never_comes_from_the_request
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py
+        checks:
+        - TestPublishing::test_only_the_platform_s_own_tenant
+    - id: L2-BRAIN-BUILDER/*/A-3
+      statement: Nothing is written to a tenant without a dry run of the same content that a second person approved (or an administrator deliberately, with a reason), bound to the digest of everything the publish changes.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_publish.py
+        checks:
+        - TestPublishing::test_the_whole_way_dry_run_approval_by_a_second_person_apply
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_import_review.py
+        checks:
+        - TestTheApprovalBindsToTheDiff::test_a_content_change_after_the_approval_voids_it
+    - id: L2-BRAIN-BUILDER/*/A-4
+      statement: 'What a site runs is the published version only: a draft''s settings, switches and mappings never reach a component; a source switch is off until switched on and published.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_site_runs_published.py
+        checks:
+        - TestTheReproduction::test_a_draft_address_does_not_reach_link_s_config
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_source_switches.py
+        checks:
+        - test_a_source_published_before_neither_fetches_nor_writes
+        - test_the_switches_keep_the_old_routes_strict
+    - id: L2-BRAIN-BUILDER/*/A-5
+      statement: The connection layer's files name no client (tenant, company, repository, mapping or type).
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_connection_generic.py
+uses:
+- component: EXT-BRAIN-API
+  operations:
+  - source-writes
+  - source-write-accept
+  - source-write-reject
+  - change-sets
+  - change-set
+  - change-set-approve
+  - change-set-reject
+  - connector-job-stats
+  - sign-certificate
+  - graph-routes
+  - access-routes
+  expects:
+  - EXT-BRAIN-API/*/A-1
+  - EXT-BRAIN-API/source-writes/P-1
+  - EXT-BRAIN-API/source-write-accept/P-1
+  - EXT-BRAIN-API/source-write-reject/P-1
+  - EXT-BRAIN-API/change-sets/P-1
+  - EXT-BRAIN-API/change-set/P-1
+  - EXT-BRAIN-API/change-set-approve/P-1
+  - EXT-BRAIN-API/change-set-reject/P-1
+  - EXT-BRAIN-API/connector-job-stats/P-1
+  - EXT-BRAIN-API/sign-certificate/P-1
+  - EXT-BRAIN-API/graph-routes/P-1
+  - EXT-BRAIN-API/access-routes/P-1
+  method: through the Platform's own client on the Platform's certificate (knovas_client, passed in by the app)
+  protocol: HTTPS with mTLS
+- component: EXT-BRAIN-RUNNER
+  operations:
+  - call.publish-api
+  - call.mapping-api
+  expects:
+  - EXT-BRAIN-RUNNER/call.publish-api/P-1
+  - EXT-BRAIN-RUNNER/call.mapping-api/P-1
+  method: imported in the Platform's process (publisher.py, mappings.py, sources.py)
+- component: L3-KNOVAS-LINK
+  operations:
+  - cli.knovas_link.__main__
+  expects:
+  - L3-KNOVAS-LINK/cli.knovas_link.__main__/N-1
+  - L3-KNOVAS-LINK/heartbeat-loop/P-1
+  - L3-KNOVAS-LINK/local.config/P-1
+  method: the site's install package starts Link's image with LINK_PLATFORM_URL and the one-time token in knovas-link.env, and points the components at its local API (http://knovas-link:8460); Link calls the protocol, the Builder never calls Link
+- component: L3-SYNC-COMPONENT
+  operations:
+  - cli.sync_component.__main__
+  expects:
+  - L3-SYNC-COMPONENT/cli.sync_component.__main__/N-1
+  method: the install package starts the sync component in link mode (SYNC_LINK_URL, Link's token folder mounted read only, its sources' credential lines in knovas-sources.env, which no connector of its own kind shares)
+hides:
+- The layout of the builder_* tables and the workspace model's JSON.
+- The German texts of the pages and of the codes (codes.py).
+- How a component's state and alerts are computed from its heartbeat (components.py LIMITS).
+- The shipped packs and their versions (builder/packs).
+decisions:
+- id: DEC-0056
+  statement: 'A site''s certificate: Knovas''s client CA signs Link''s request; the Builder records it and from then on requires its fingerprint (option A, A1).'
+- id: CL-4
+  statement: Accepting or rejecting a write proposal needs «publish»; «Freigaben» and «Verbindung» are read with a Platform role.
+- id: C-Q1
+  statement: 'Write back v2 (FEAT-2026-11-10-write-back, decided A by the founder on 2026-11-10): the Builder keeps the
+    staging per source (direct unless set, D-3) and sends it with each approval; the Brain refuses a mode the
+    connector did not declare.'
+- id: C-8
+  statement: 'A source kind the Builder has no form for gets one generic settings form (names and values), not a
+    protocol change (option B, the programme''s coordinator, 2026-11-10; SPEC-write-back-13). The declaration
+    describes no settings, so no field is typed from it (typed fields deferred to WB-20). A component behind Link
+    whose declaration the schema allows is kept whatever its component kind (the coordinator, 2026-11-10, Q1).'
+risks:
+- id: L2-BRAIN-BUILDER/RISK-01
+  statement: The Builder records who accepted a proposal or approved a change set, but the Brain does not yet bind the accept or the approval to a verified person (I2, WB-40).
+  mitigation: The declared actor is recorded; verification comes with I2 (connection-layer.md, "What is built and what is not").
+review:
+- at: /owner
+  why: Proposed owner; one role per component is confirmed by a person (Software Map K4).
+- at: /status
+  why: The Builder runs for its first tenant from a branch; its connection-layer pages are built and not deployed at a company. Live or planned is not read from the code.
+- at: /source_paths
+  why: 'Differs from the entry L2-BRAIN-BUILDER in the Brain''s own component manifest (kept where the Brain is built): adds connector_protocol.py (the HTTP binding of builder/protocol.py), static/css/builder and the builder migrations; leaves out scripts/builder_*.py (development tools). The manifest entry is to follow this card (boundaries.yaml says why).'
+- at: L2-BRAIN-BUILDER/component-settings/P-1
+  why: No evidence; no test calls the settings route.
+- at: L2-BRAIN-BUILDER/access-rule-remove/P-1
+  why: No evidence; no test calls the rule-removal route.
+- at: L2-BRAIN-BUILDER/site-package/L-1
+  why: No evidence; read from builder_routes.py (_PLATFORM_URL, the revoked check, the response headers).
+- at: L2-BRAIN-BUILDER/protocol-heartbeat/L-1
+  why: No evidence; MAX_BODY and the no_tenant answer in connector_protocol.py. Stated once for all eight protocol calls.
+- at: /contract
+  why: Every route's first need is its permission from ENDPOINT_PERMISSIONS; the test named shows that every endpoint is in the table and that the gate enforces it for representative roles, not each route's permission one by one.
+- at: /uses
+  why: 'Not declared because they have no card yet: the Platform''s web app and its client (web_interface/app.py, knovas_client.py) that wire the Builder; the Knovas Connector''s HTTP API (adapter and reader); the language-model API of the views assistant; GitHub (read through brain-runner).'
+- at: /operations
+  why: The page scripts (static/js/builder) are not read by the code reader (Python only); what they call is in the routes listed here.

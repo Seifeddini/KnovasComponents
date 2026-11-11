@@ -1,0 +1,567 @@
+{
+ "description": {
+  "de": "Treuhand und Buchhaltung: Aufträge, Geschäftsjahre, Abschlüsse, Steuern, MWST, Belege und Löhne.",
+  "en": "Accounting and fiduciary services: engagements, fiscal years, closings, taxes, VAT, vouchers and payroll."
+ },
+ "id": "fiduciary",
+ "name": {
+  "de": "Treuhand",
+  "en": "Fiduciary"
+ },
+ "process_templates": [],
+ "relations": [
+  {
+   "domain": [
+    "TaxReturn",
+    "VatReturn",
+    "PayrollRun"
+   ],
+   "family": "Structure",
+   "inverse": "contains",
+   "iri": "int:partOf",
+   "key": "part_of",
+   "label": {
+    "de": "ist Teil von",
+    "en": "is part of"
+   },
+   "level": "pack",
+   "pack": "fiduciary",
+   "range": [
+    "Engagement"
+   ],
+   "sentence": "Tax return is part of Engagement — the work belongs to this engagement."
+  },
+  {
+   "domain": [
+    "AnnualClosing",
+    "TaxReturn"
+   ],
+   "family": "Structure",
+   "key": "for_period",
+   "label": {
+    "de": "betrifft",
+    "en": "is for"
+   },
+   "level": "pack",
+   "pack": "fiduciary",
+   "range": [
+    "FiscalYear"
+   ],
+   "sentence": "Annual closing is for Fiscal year — the year it closes or reports on."
+  },
+  {
+   "domain": [
+    "TaxReturn",
+    "VatReturn"
+   ],
+   "family": "Process",
+   "key": "due_by",
+   "label": {
+    "de": "fällig bis",
+    "en": "is due by"
+   },
+   "level": "pack",
+   "pack": "fiduciary",
+   "range": [
+    "FilingDeadline"
+   ],
+   "sentence": "Tax return is due by Filing deadline — the day it must be filed."
+  },
+  {
+   "domain": [
+    "Voucher"
+   ],
+   "family": "Data",
+   "key": "booked_in",
+   "label": {
+    "de": "gebucht in",
+    "en": "is booked in"
+   },
+   "level": "pack",
+   "pack": "fiduciary",
+   "range": [
+    "FiscalYear"
+   ],
+   "sentence": "Voucher is booked in Fiscal year — the year whose books hold it."
+  },
+  {
+   "domain": [
+    "AnnualClosing"
+   ],
+   "family": "Verification",
+   "key": "evidenced_by",
+   "label": {
+    "de": "belegt durch",
+    "en": "is evidenced by"
+   },
+   "level": "pack",
+   "pack": "fiduciary",
+   "range": [
+    "Voucher"
+   ],
+   "sentence": "Annual closing is evidenced by Voucher — the documents the closing rests on."
+  }
+ ],
+ "types": [
+  {
+   "attributes": [
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Which service the engagement covers."
+     },
+     "enum_values": [
+      "bookkeeping",
+      "annual_closing",
+      "tax",
+      "payroll",
+      "audit",
+      "advisory"
+     ],
+     "label": {
+      "de": "Leistung",
+      "en": "Service"
+     },
+     "level": "pack",
+     "name": "service",
+     "required": true
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Where it stands."
+     },
+     "enum_values": [
+      "active",
+      "paused",
+      "ended"
+     ],
+     "label": {
+      "de": "Status",
+      "en": "Status"
+     },
+     "level": "pack",
+     "name": "status"
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The day the engagement started."
+     },
+     "label": {
+      "de": "Begonnen am",
+      "en": "Started on"
+     },
+     "level": "pack",
+     "name": "started_on"
+    }
+   ],
+   "description": {
+    "en": "A service the firm provides to a client, such as bookkeeping, tax or payroll."
+   },
+   "example": "Bookkeeping and annual closing for a small joinery, since 2024.",
+   "iri": "fid:Engagement",
+   "key": "Engagement",
+   "label": {
+    "de": "Auftrag",
+    "en": "Engagement"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "The mandate contract sets the terms; the engagement is the work done under it.",
+   "pack": "fiduciary",
+   "parent": "euo:Case"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The first day."
+     },
+     "label": {
+      "de": "Beginnt am",
+      "en": "Starts on"
+     },
+     "level": "pack",
+     "name": "starts_on",
+     "required": true
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The last day."
+     },
+     "label": {
+      "de": "Endet am",
+      "en": "Ends on"
+     },
+     "level": "pack",
+     "name": "ends_on",
+     "required": true
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Where it stands."
+     },
+     "enum_values": [
+      "open",
+      "closing",
+      "closed"
+     ],
+     "label": {
+      "de": "Status",
+      "en": "Status"
+     },
+     "level": "pack",
+     "name": "status"
+    }
+   ],
+   "description": {
+    "en": "A client's accounting year, from its first to its last day."
+   },
+   "example": "Fiscal year 2025, 1 January to 31 December.",
+   "iri": "fid:FiscalYear",
+   "key": "FiscalYear",
+   "label": {
+    "de": "Geschäftsjahr",
+    "en": "Fiscal year"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A tax period is the authority's period; the fiscal year is the company's.",
+   "pack": "fiduciary",
+   "parent": "euo:Period"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "date",
+     "description": {
+      "en": "When the accounts must be ready."
+     },
+     "label": {
+      "de": "Fällig am",
+      "en": "Due on"
+     },
+     "level": "pack",
+     "name": "due_on"
+    }
+   ],
+   "description": {
+    "en": "The work of closing a fiscal year's books and preparing the annual accounts."
+   },
+   "example": "Annual closing 2025, in review with the client.",
+   "iri": "fid:AnnualClosing",
+   "key": "AnnualClosing",
+   "label": {
+    "de": "Jahresabschluss",
+    "en": "Annual closing"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "The annual accounts are the document; the annual closing is the work that produces them.",
+   "pack": "fiduciary",
+   "parent": "Engagement"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The year the return is for, e.g. 2025."
+     },
+     "label": {
+      "de": "Steuerjahr",
+      "en": "Tax year"
+     },
+     "level": "pack",
+     "name": "tax_year"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Whose return it is."
+     },
+     "enum_values": [
+      "individual",
+      "company"
+     ],
+     "label": {
+      "de": "Art",
+      "en": "Kind"
+     },
+     "level": "pack",
+     "name": "kind"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Where it stands."
+     },
+     "enum_values": [
+      "preparing",
+      "filed",
+      "assessed"
+     ],
+     "label": {
+      "de": "Status",
+      "en": "Status"
+     },
+     "level": "pack",
+     "name": "status"
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The day it was filed."
+     },
+     "label": {
+      "de": "Eingereicht am",
+      "en": "Filed on"
+     },
+     "level": "pack",
+     "name": "filed_on"
+    }
+   ],
+   "description": {
+    "en": "A tax return the firm prepares and files for a client."
+   },
+   "example": "Company tax return 2025, filed in June.",
+   "iri": "fid:TaxReturn",
+   "key": "TaxReturn",
+   "label": {
+    "de": "Steuererklärung",
+    "en": "Tax return"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "The tax assessment is the authority's answer to the return.",
+   "pack": "fiduciary",
+   "parent": "euo:Document"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The period it covers, e.g. 2026-Q3."
+     },
+     "label": {
+      "de": "Periode",
+      "en": "Period"
+     },
+     "level": "pack",
+     "name": "period",
+     "required": true
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "How VAT is settled."
+     },
+     "enum_values": [
+      "effective",
+      "net_rate"
+     ],
+     "label": {
+      "de": "Methode",
+      "en": "Method"
+     },
+     "level": "pack",
+     "name": "method"
+    },
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The day it was filed."
+     },
+     "label": {
+      "de": "Eingereicht am",
+      "en": "Filed on"
+     },
+     "level": "pack",
+     "name": "filed_on"
+    }
+   ],
+   "description": {
+    "en": "A value added tax return for one period."
+   },
+   "example": "VAT return Q3 2026, effective method.",
+   "iri": "fid:VatReturn",
+   "key": "VatReturn",
+   "label": {
+    "de": "MWST-Abrechnung",
+    "en": "VAT return"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A VAT return is periodic; the tax return is yearly.",
+   "pack": "fiduciary",
+   "parent": "euo:Document"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The date on the voucher."
+     },
+     "label": {
+      "de": "Belegdatum",
+      "en": "Voucher date"
+     },
+     "level": "pack",
+     "name": "voucher_date",
+     "required": true
+    },
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The amount, as value and currency, e.g. 1200 CHF."
+     },
+     "label": {
+      "de": "Betrag",
+      "en": "Amount"
+     },
+     "level": "pack",
+     "name": "amount"
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "What kind of voucher it is."
+     },
+     "enum_values": [
+      "invoice",
+      "receipt",
+      "bank",
+      "other"
+     ],
+     "label": {
+      "de": "Art",
+      "en": "Kind"
+     },
+     "level": "pack",
+     "name": "kind"
+    }
+   ],
+   "description": {
+    "en": "A receipt, invoice or bank document that a booking rests on."
+   },
+   "example": "Supplier invoice of 14 October for 1200 CHF.",
+   "iri": "fid:Voucher",
+   "key": "Voucher",
+   "label": {
+    "de": "Beleg",
+    "en": "Voucher"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A voucher is the evidence; the booking is the entry in the ledger.",
+   "pack": "fiduciary",
+   "parent": "euo:Document"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "date",
+     "description": {
+      "en": "The last day to file."
+     },
+     "label": {
+      "de": "Fällig am",
+      "en": "Due on"
+     },
+     "level": "pack",
+     "name": "due_on",
+     "required": true
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Where it stands."
+     },
+     "enum_values": [
+      "open",
+      "met",
+      "extended",
+      "missed"
+     ],
+     "label": {
+      "de": "Status",
+      "en": "Status"
+     },
+     "level": "pack",
+     "name": "status"
+    }
+   ],
+   "description": {
+    "en": "The last day to file a return or report with an authority."
+   },
+   "example": "Company tax return due 30 June, extended to 30 September.",
+   "iri": "fid:FilingDeadline",
+   "key": "FilingDeadline",
+   "label": {
+    "de": "Einreichefrist",
+    "en": "Filing deadline"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A filing deadline is set by an authority; an internal due date is the firm's own plan.",
+   "pack": "fiduciary",
+   "parent": "euo:Deadline"
+  },
+  {
+   "attributes": [
+    {
+     "datatype": "text",
+     "description": {
+      "en": "The month it pays, e.g. 2026-10."
+     },
+     "label": {
+      "de": "Monat",
+      "en": "Month"
+     },
+     "level": "pack",
+     "name": "month",
+     "required": true
+    },
+    {
+     "datatype": "enum",
+     "description": {
+      "en": "Where it stands."
+     },
+     "enum_values": [
+      "prepared",
+      "approved",
+      "paid"
+     ],
+     "label": {
+      "de": "Status",
+      "en": "Status"
+     },
+     "level": "pack",
+     "name": "status"
+    }
+   ],
+   "description": {
+    "en": "One month's payroll for a client: payslips calculated, approved and paid."
+   },
+   "example": "Payroll October 2026 for 14 employees.",
+   "iri": "fid:PayrollRun",
+   "key": "PayrollRun",
+   "label": {
+    "de": "Lohnlauf",
+    "en": "Payroll run"
+   },
+   "level": "pack",
+   "level_label": "pack",
+   "not_to_confuse": "A payslip is one employee's document; the payroll run is the month's work for all.",
+   "pack": "fiduciary",
+   "parent": "euo:PlannedProcess"
+  }
+ ],
+ "version": "1.0"
+}

@@ -1,0 +1,11 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "A generation carries a payload.",
+  "breaks": [
+    "payload"
+  ],
+  "instance": {
+    "type": "generation",
+    "source": "handbook"
+  }
+}

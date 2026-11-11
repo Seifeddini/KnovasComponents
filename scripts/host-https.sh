@@ -8,12 +8,21 @@
 # from the internet (Let's Encrypt checks it; the site answers nothing else
 # there but a redirect), nginx and certbot installed (the Azure cloud-init does
 # both). Safe to re-run: it renews nothing early and rewrites only its own files.
+#
+# Brain Builder sites (connector protocol, S-6): a third argument, the PEM file of the client CA that signs the
+# sites' certificates, switches on the client-certificate terminator (knovas-client-cert.js): nginx then verifies a
+# client certificate when one is offered and sends its SHA-256 as X-Client-Cert-Fingerprint, which
+# BUILDER_CONNECTOR_REQUIRE_CLIENT_CERT=true needs. It needs nginx's njs module (sudo apt-get install -y
+# libnginx-mod-http-js). Once given, later runs keep it (/etc/nginx/knovas/connector-client-ca.pem).
+#
+#   sudo ./scripts/host-https.sh knovas.example.ch it@example.ch /path/to/connector-client-ca.pem
 set -euo pipefail
 
 FQDN="${1:-}"
 EMAIL="${2:-}"
+CONNECTOR_CA_IN="${3:-}"
 if [[ -z "$FQDN" || -z "$EMAIL" ]]; then
-  echo "Usage: sudo $0 <public name, e.g. knovas.example.ch> <email for Let's Encrypt notices>" >&2
+  echo "Usage: sudo $0 <public name, e.g. knovas.example.ch> <email for Let's Encrypt notices> [connector client CA, PEM]" >&2
   exit 1
 fi
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -40,6 +49,23 @@ if [[ -f "$KNOVAS_ENV" ]]; then
 fi
 
 SITE=/etc/nginx/sites-available/knovas
+CONNECTOR_CA=/etc/nginx/knovas/connector-client-ca.pem
+if [[ -n "$CONNECTOR_CA_IN" ]]; then
+  openssl x509 -in "$CONNECTOR_CA_IN" -noout 2>/dev/null \
+    || { echo "Not a PEM certificate: $CONNECTOR_CA_IN" >&2; exit 1; }
+  install -D -m 0644 "$CONNECTOR_CA_IN" "$CONNECTOR_CA"
+fi
+CONNECTOR_MTLS=false
+if [[ -f "$CONNECTOR_CA" ]]; then
+  if ! grep -Rqs ngx_http_js_module /etc/nginx/modules-enabled/ /etc/nginx/nginx.conf; then
+    echo "The connector terminator needs nginx's njs module: sudo apt-get install -y libnginx-mod-http-js" >&2
+    exit 1
+  fi
+  install -D -m 0644 "$ROOT_DIR/KnovasPlatform/deploy/host-nginx/knovas-client-cert.js" /etc/nginx/njs/knovas-client-cert.js
+  install -m 0644 "$ROOT_DIR/KnovasPlatform/deploy/host-nginx/knovas-connector-mtls.conf" \
+    /etc/nginx/conf.d/knovas-connector-mtls.conf
+  CONNECTOR_MTLS=true
+fi
 WEBROOT=/var/www/letsencrypt
 LIVE="/etc/letsencrypt/live/$FQDN"
 mkdir -p "$WEBROOT"
@@ -53,6 +79,12 @@ render() {
       -e "s#/etc/ssl/private/knovas\.example\.internal\.key#$LIVE/privkey.pem#" \
       -e "s#proxy_pass http://127\.0\.0\.1:8081;#proxy_pass http://127.0.0.1:$PORT;#g" \
       "$TEMPLATE" \
+  | if [[ "$CONNECTOR_MTLS" == true ]]; then
+      sed -e 's/^\([[:space:]]*\)#connector-mtls /\1/' \
+          -e 's/proxy_set_header X-Client-Cert-Fingerprint "";/proxy_set_header X-Client-Cert-Fingerprint $knovas_client_cert_sha256;/'
+    else
+      cat
+    fi \
   | if [[ "$1" == bootstrap ]]; then
       # Only the port 80 server block: nginx refuses a TLS block whose
       # certificate does not exist yet.

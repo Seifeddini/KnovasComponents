@@ -1,0 +1,57 @@
+{# A pack update for review (build plan step B4): what applying the shipped
+   version of a pack would change in the workspace, as diff lines, and the
+   button that applies it. Expects current_workspace, pack (the shipped
+   pack's card), taken (the version the workspace has, or None), diff
+   (groups of lines), refusal, edit_url and done_url. #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% set ws = current_workspace %}
+{% block title %}Paket {{ pack.name.de or pack.id }} · {{ ws.name }}{% endblock %}
+{% block main %}
+<header class="b-page-head">
+    <p class="b-step-count b-small"><a href="{{ url_for('builder.workspace', workspace_id=ws.id) }}">{{ ws.name }}</a></p>
+    <h1 class="b-h1">Paket {{ pack.name.de or pack.id }}: Version {{ taken.version if taken else '–' }} → {{ pack.version }}</h1>
+    <p class="b-muted">Was die neue Version im Arbeitsbereich ändert. Eigene Attribute, Untertypen und Beziehungen der Firma bleiben; was das Paket nicht mehr hat, wird stillgelegt, nicht gelöscht. Übernehmen lässt sich rückgängig machen.</p>
+</header>
+
+{% if refusal %}
+<div class="b-callout b-callout--critical" role="alert">
+    <p class="b-callout-title">{{ refusal.message }}</p>
+    {% if refusal.details %}<ul>{% for d in refusal.details %}<li class="b-mono">{{ d }}</li>{% endfor %}</ul>{% endif %}
+</div>
+{% elif not diff %}
+<div class="b-callout b-callout--good"><p class="b-callout-title">Keine Änderungen: der Arbeitsbereich hat diesen Stand schon.</p></div>
+{% else %}
+<div class="b-tag-row b-pack-counts">
+    {% set added = diff | selectattr('state', 'equalto', 'added') | list | length %}
+    {% set changed = diff | selectattr('state', 'equalto', 'changed') | list | length %}
+    {% set removed = diff | selectattr('state', 'equalto', 'removed') | list | length %}
+    <span class="b-tag b-tag--good">{{ added }} neu</span>
+    <span class="b-tag b-tag--accent">{{ changed }} geändert</span>
+    <span class="b-tag b-tag--critical">{{ removed }} stillgelegt</span>
+</div>
+<div class="b-pack-diff">
+    {% for group in diff %}
+    <section class="b-pack-diff-group" aria-label="{{ group.kind }} {{ group.key }}">
+        <h2 class="b-h3"><span class="b-muted">{{ group.kind }}</span> <span class="b-mono">{{ group.key }}</span></h2>
+        <div class="b-diff">
+            {% for line in group.lines %}
+            <div class="b-diff-line b-diff-line--{{ line.sign }}">
+                <span class="b-diff-sign" aria-hidden="true">{{ {'added': '+', 'removed': '−', 'changed': '~'}[line.sign] }}</span>
+                <span class="b-diff-body"><span class="b-visually-hidden">{{ {'added': 'Neu: ', 'removed': 'Entfällt: ', 'changed': 'Geändert: '}[line.sign] }}</span>{{ line.text }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+</div>
+<div class="b-page-actions b-pack-apply" data-pack-apply data-edit-url="{{ edit_url }}" data-done-url="{{ done_url }}" data-pack="{{ pack.id }}">
+    <a class="b-button b-button--quiet" href="{{ url_for('builder.workspace', workspace_id=ws.id) }}">Abbrechen</a>
+    <button type="button" class="b-button b-button--primary" data-pack-apply-button>Version {{ pack.version }} übernehmen</button>
+</div>
+<div class="b-callout b-callout--critical" data-pack-error role="alert" hidden></div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/pack-update.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

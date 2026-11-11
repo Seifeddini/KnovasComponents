@@ -1,0 +1,183 @@
+{# «Freigaben» (connection layer MVP-27): write proposals of the tenant, accepted or rejected here. Expects proposals
+   ({open, decided}, builder.approvals.rows), error, may_decide. Read from the Brain when the page opens; nothing of it is
+   stored. static/js/builder/approvals.js sends «Annehmen» and «Ablehnen».
+   Write back v2 (FEAT-2026-11-10-write-back C-2, BUILDER_PROTOCOL_V2): change_sets ({open, decided},
+   builder.approvals.change_set_rows, None while the switch is off) and change_set_error; «Freigeben» only where a row is
+   approvable (every preview exact, GI-CONN-10), «Ablehnen» with a reason. #}
+{% extends 'builder/_base.html' %}
+{% block title %}Freigaben{% endblock %}
+
+{% macro changes(p) -%}
+<ul class="b-small">
+    {% for c in p.changes %}<li><span class="b-mono">{{ c.fact }}</span>: <span class="b-muted">{{ c.current if c.current is not none else 'unbekannt' }}</span> → <strong>{{ c.proposed }}</strong></li>{% endfor %}
+</ul>
+{%- endmacro %}
+
+{% macro preview(a) -%}
+{% if a.preview %}
+<ul class="b-small" data-preview>
+    {% for c in a.preview.changes %}<li>{% if c.step is not none %}<span class="b-muted">Schritt {{ c.step + 1 }}:</span> {% endif %}{% if c.whole %}<span class="b-muted">ganzer Inhalt</span>{% else %}<span class="b-mono">{{ c.field }}</span>{% endif %}: <span class="b-muted">{{ c.before if c.before is not none else 'leer' }}</span> → <strong>{{ c.after if c.after is not none else 'leer' }}</strong>{% if c.diff %}<details><summary>Unterschied</summary><pre class="b-mono b-small">{{ c.diff }}</pre></details>{% endif %}</li>{% else %}<li class="b-muted">Keine Änderung berechnet.</li>{% endfor %}
+</ul>
+<p class="b-small b-muted">Gelesen in Version <span class="b-mono">{{ a.preview.read_version or 'unbekannt' }}</span></p>
+{% else %}
+<p class="b-small b-muted">Noch keine Vorschau der Komponente.</p>
+{% endif %}
+{% if a.exact %}<span class="b-tag b-tag--good" data-exact="true">genau</span>
+{% else %}<span class="b-tag b-tag--critical" data-exact="false">nicht genau</span>{% if a.code_text %} <span class="b-small"><strong>{{ a.code_text.title }}</strong>: {{ a.code_text.explanation }}</span>{% endif %}{% endif %}
+{%- endmacro %}
+
+{% macro change_set_actions(cs) -%}
+<ol class="b-small">
+    {% for a in cs.actions %}
+    <li data-action="{{ a.id }}">
+        <span class="b-mono">{{ a.action }}</span>{% if a.risk_class %} <span class="b-tag">Risiko {{ a.risk_class }}</span>{% endif %}
+        · <span class="b-mono">{{ a.source }}</span> · <span class="b-mono">{{ a.item or a.node_id }}</span>
+        {% if a.params %}<br><span class="b-muted">Angaben:</span> {% for p in a.params %}<span class="b-mono">{{ p.name }}</span> = {{ p.value }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+        {{ preview(a) }}
+        {% if a.receipt %}<p class="b-small">Quittung: {{ a.receipt.outcome_text or a.receipt.outcome }}{% if a.receipt.new_version %}, neue Version <span class="b-mono">{{ a.receipt.new_version }}</span>{% endif %}{% if a.receipt.differences %}, {{ a.receipt.differences }} Abweichungen{% endif %}</p>{% endif %}
+    </li>
+    {% endfor %}
+</ol>
+{%- endmacro %}
+
+{% block main %}
+<header class="b-page-head">
+    <p class="b-step-count b-small"><a href="{{ url_for('builder.stage', slug='betrieb') }}">Betrieb</a> · <a href="{{ url_for('builder.connection_page') }}">Verbindung</a> · Freigaben</p>
+    <h1 class="b-h1">Freigaben</h1>
+    <p class="b-muted">Änderungen, die Agenten oder Personen für die Quellen vorschlagen. Angenommen wird ein Vorschlag als Änderung, die die Quelle selbst prüft (bei GitHub ein Pull Request); das Brain zeigt den neuen Wert erst nach der nächsten Synchronisation.</p>
+</header>
+
+{% if error %}
+<div class="b-callout b-callout--warning" role="status"><p>{{ error }}</p></div>
+{% endif %}
+<div class="b-callout" role="note"><p class="b-small">Wer vorschlägt und für wen, steht so da, wie es angegeben wurde; geprüft wird es noch nicht. Wer annimmt, wird mit seiner Kennung festgehalten.</p></div>
+
+<section class="b-comp-section" aria-labelledby="b-approvals-open">
+    <h2 class="b-h2" id="b-approvals-open">Offen <span class="b-tab-count">{{ proposals.open | length }}</span></h2>
+    {% if proposals.open %}
+    <div class="b-table-wrap">
+        <table class="b-table" data-approvals>
+            <thead><tr><th scope="col">Knoten</th><th scope="col">Änderung</th><th scope="col">Quelle und Datei</th><th scope="col">Wer, für wen</th><th scope="col">Wann</th><th scope="col">Grund</th><th scope="col">Zuordnung erlaubt</th><th scope="col">Stand</th><th scope="col"><span class="b-visually-hidden">Entscheiden</span></th></tr></thead>
+            <tbody>
+            {% for p in proposals.open %}
+            <tr data-proposal="{{ p.id }}" data-allowed="{{ 'true' if p.allowed else ('false' if p.allowed is not none else 'unknown') }}">
+                <th scope="row">{{ p.node }}</th>
+                <td>{{ changes(p) }}</td>
+                <td class="b-small"><span class="b-mono">{{ p.source }}</span><br><span class="b-mono">{{ p.file }}</span></td>
+                <td class="b-small">{{ p.actor }}</td>
+                <td class="b-small">{{ p.at | b_datetime }}</td>
+                <td class="b-small">{{ p.reason }}</td>
+                <td>{% if p.allowed %}<span class="b-tag b-tag--good">ja</span>{% elif p.allowed is none %}<span class="b-tag">unbekannt</span>{% else %}<span class="b-tag b-tag--critical">nein</span>{% endif %}</td>
+                <td><span class="b-tag b-tag--{{ p.tone }}" data-proposal-status>{{ p.status_text }}</span></td>
+                <td>
+                    {% if may_decide %}
+                    <button type="button" class="b-button b-button--primary b-button--small" data-accept-url="{{ url_for('builder.approval_accept', proposal_id=p.id) }}">Annehmen</button>
+                    <button type="button" class="b-button b-button--quiet b-button--small" data-reject-url="{{ url_for('builder.approval_reject', proposal_id=p.id) }}">Ablehnen</button>
+                    {% else %}
+                    <span class="b-small b-muted">Annehmen und Ablehnen darf, wer veröffentlicht.</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="b-muted">Kein Vorschlag wartet.</p>
+    {% endif %}
+</section>
+
+{% if change_sets is not none %}
+<section class="b-comp-section" aria-labelledby="b-change-sets-open" data-change-sets>
+    <h2 class="b-h2" id="b-change-sets-open">Änderungssätze <span class="b-tab-count">{{ change_sets.open | length }}</span></h2>
+    <p class="b-muted b-small">Benannte Aktionen, die die Komponente am Standort vorab berechnet hat, ohne zu schreiben: je Feld der Wert vorher und nachher. Freigegeben wird nur, was genau berechnet ist; geschrieben wird mit der Schreibweise der Quelle (Standard: direkt nach der Freigabe). Das Brain zeigt den neuen Wert erst nach der nächsten Synchronisation.</p>
+    {% if change_set_error %}
+    <div class="b-callout b-callout--warning" role="status"><p>{{ change_set_error }}</p></div>
+    {% endif %}
+    {% if change_sets.open %}
+    <div class="b-table-wrap">
+        <table class="b-table" data-change-sets-open>
+            <thead><tr><th scope="col">Aktionen und Vorschau</th><th scope="col">Wer, für wen</th><th scope="col">Wann</th><th scope="col">Grund</th><th scope="col">Schreibweise</th><th scope="col">Stand</th><th scope="col"><span class="b-visually-hidden">Entscheiden</span></th></tr></thead>
+            <tbody>
+            {% for cs in change_sets.open %}
+            <tr data-change-set="{{ cs.id }}" data-approvable="{{ 'true' if cs.approvable else 'false' }}">
+                <td>{{ change_set_actions(cs) }}
+                    {% if cs.evidence_missing %}<span class="b-tag">ohne Beleg</span>{% endif %}
+                    {% if cs.irreversible %}<span class="b-tag">nicht umkehrbar</span>{% endif %}
+                    {% if cs.writes_individually %}<span class="b-tag">wird einzeln geschrieben</span>{% endif %}</td>
+                <td class="b-small">{{ cs.actor }}</td>
+                <td class="b-small">{{ cs.at | b_datetime }}</td>
+                <td class="b-small">{{ cs.reason }}</td>
+                <td class="b-small">{{ cs.staging_text or '—' }}</td>
+                <td><span class="b-tag b-tag--{{ cs.tone }}" data-proposal-status>{{ cs.state_text }}</span></td>
+                <td>
+                    {% if may_decide %}
+                    {% if cs.approvable %}
+                    <button type="button" class="b-button b-button--primary b-button--small" data-accept-url="{{ url_for('builder.change_set_approve', change_set_id=cs.id) }}">Freigeben</button>
+                    {% else %}
+                    <p class="b-small" data-not-approvable>{% for why in cs.not_approvable %}{{ why }}{% if not loop.last %} {% endif %}{% endfor %}</p>
+                    {% endif %}
+                    <button type="button" class="b-button b-button--quiet b-button--small" data-reject-url="{{ url_for('builder.change_set_reject', change_set_id=cs.id) }}">Ablehnen</button>
+                    {% else %}
+                    <span class="b-small b-muted">Freigeben und Ablehnen darf, wer veröffentlicht.</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="b-muted">Kein Änderungssatz wartet.</p>
+    {% endif %}
+    {% if change_sets.decided %}
+    <h3 class="b-h3">Entschiedene Änderungssätze</h3>
+    <div class="b-table-wrap">
+        <table class="b-table b-table--compact">
+            <thead><tr><th scope="col">Aktionen</th><th scope="col">Wer, für wen</th><th scope="col">Schreibweise</th><th scope="col">Stand</th></tr></thead>
+            <tbody>
+            {% for cs in change_sets.decided %}
+            <tr data-change-set="{{ cs.id }}" data-state="{{ cs.state }}">
+                <td>{{ change_set_actions(cs) }}</td>
+                <td class="b-small">{{ cs.actor }}</td>
+                <td class="b-small">{{ cs.staging_text or '—' }}</td>
+                <td><span class="b-tag b-tag--{{ cs.tone }}">{{ cs.state_text }}</span>
+                    {% if cs.state_code_text %}<br><span class="b-small"><strong>{{ cs.state_code_text.title }}</strong>: {{ cs.state_code_text.fix }}</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</section>
+{% endif %}
+
+<section class="b-comp-section" aria-labelledby="b-approvals-decided">
+    <h2 class="b-h2" id="b-approvals-decided">Entschieden</h2>
+    {% if proposals.decided %}
+    <div class="b-table-wrap">
+        <table class="b-table b-table--compact">
+            <thead><tr><th scope="col">Knoten</th><th scope="col">Änderung</th><th scope="col">Datei</th><th scope="col">Wer, für wen</th><th scope="col">Stand</th></tr></thead>
+            <tbody>
+            {% for p in proposals.decided %}
+            <tr data-proposal="{{ p.id }}" data-status="{{ p.status }}">
+                <th scope="row">{{ p.node }}</th>
+                <td>{{ changes(p) }}</td>
+                <td class="b-small b-mono">{{ p.file }}</td>
+                <td class="b-small">{{ p.actor }}</td>
+                <td><span class="b-tag b-tag--{{ p.tone }}">{{ p.status_text }}</span>
+                    {% if p.pull_request %}<br><a class="b-small" href="{{ p.pull_request }}" rel="noopener noreferrer" target="_blank">Pull Request öffnen</a> <span class="b-mono b-small b-muted">{{ p.pull_request }}</span>{% endif %}
+                    {% if p.code_text %}<br><span class="b-small"><strong>{{ p.code_text.title }}</strong>: {{ p.code_text.fix }}</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="b-muted">Noch nichts entschieden.</p>
+    {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/approvals.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

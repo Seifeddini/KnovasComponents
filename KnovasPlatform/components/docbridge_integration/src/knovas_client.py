@@ -3,6 +3,7 @@ Knovas API client for document synchronization.
 Handles communication with Knovas knowledge base API.
 """
 
+import contextlib
 import requests
 import logging
 from typing import Iterator, List, Dict, Any, Optional, Tuple, Union
@@ -1585,6 +1586,26 @@ class KnovasAPIClient:
                 )
                 self._attempt_certificate_renewal()
     
+    @contextlib.contextmanager
+    def asserting_for(self, user):
+        """Requests in this block carry ``user``'s principal assertion instead of the signed-in person's.
+
+        For the access window's "explain access" (Brain Builder B14) only: an administrator asks the Brain
+        whether *that* person may read a document, and the Brain answers with its own policy. Per thread, so a
+        concurrent request of someone else keeps its own principal.
+        """
+        import threading
+
+        local = getattr(self, "_principal_local", None)
+        if local is None:
+            local = self._principal_local = threading.local()
+        previous = getattr(local, "user", None)
+        local.user = user
+        try:
+            yield
+        finally:
+            local.user = previous
+
     def attach_principal_broker(self, broker) -> None:
         """Bind the broker that signs the current user into every outbound body.
 
@@ -1604,7 +1625,8 @@ class KnovasAPIClient:
         """
         if self._principal_broker is None:
             return data
-        user = self._principal_broker.current_user()
+        # The access window asks "may this person read it?" as that person (asserting_for); otherwise the signed-in user.
+        user = getattr(getattr(self, "_principal_local", None), "user", None) or self._principal_broker.current_user()
         if user is None:
             raise PermissionError(
                 "No authenticated user for this request; refusing to call "
@@ -1714,16 +1736,20 @@ class KnovasAPIClient:
         data: Optional[Dict] = None,
         params: Optional[Dict] = None,
         timeout: Optional[float] = None,
+        as_person: bool = True,
     ) -> requests.Response:
         """
         Single HTTP request without tenacity retries (used for analytics feedback;
         avoids duplicate submissions on transient failures). ``timeout``
-        replaces ``http_read_timeout`` for this one request.
+        replaces ``http_read_timeout`` for this one request. ``as_person=False``
+        sends no assertion: only for a call that reads nothing a person's access
+        could narrow.
         """
         self._rate_limit()
         self._ensure_certificate_freshness()
         url = f"{self.base_url}{endpoint}"
-        data = self._with_principal(data)
+        if as_person:
+            data = self._with_principal(data)
         response = self._session.request(
             method=method,
             url=url,
@@ -1911,8 +1937,13 @@ class KnovasAPIClient:
         csr_pem: str,
         validity_days: Optional[int] = None,
         organisation: Optional[str] = None,
+        as_person: bool = True,
     ) -> Dict[str, Any]:
-        """POST /secured/sign_certificate — sign a tenant CSR (recommended renewal path)."""
+        """POST /secured/sign_certificate — sign a tenant CSR (recommended renewal path).
+
+        ``as_person=False``: a sync component enrolling has no signed-in person; its one-time token authorised this
+        (builder.protocol.enrol). The route reads nothing, so the assertion's fail-closed rule has nothing to protect.
+        """
         csr = str(csr_pem or '').strip()
         if not csr or 'BEGIN CERTIFICATE REQUEST' not in csr:
             raise ValueError('csr must be a PEM certificate signing request')
@@ -1927,7 +1958,7 @@ class KnovasAPIClient:
             if org:
                 body['organisation'] = org
         endpoint = self.endpoints.get('sign_certificate', '/secured/sign_certificate')
-        response = self._request_no_retry('POST', endpoint, data=body)
+        response = self._request_no_retry('POST', endpoint, data=body, as_person=as_person)
         return response.json() if response.content else {}
     
     def sync_document_batch(
@@ -2280,6 +2311,72 @@ class KnovasAPIClient:
             'edges': ([item for item in edges if isinstance(item, dict)]
                       if isinstance(edges, list) else []),
         }
+
+    def graph_get_many(
+        self,
+        calls: List[Tuple[str, Optional[Dict[str, Any]]]],
+        *,
+        workers: int = 4,
+        acquire: Optional[Any] = None,
+        max_retries: int = 3,
+    ) -> List[Tuple[int, Any]]:
+        """Several read-only ``GET /secured/graph<path>`` calls, in parallel.
+
+        For the views (docs/superpowers/plans/2026-10-27-process-and-spine-views.md,
+        D3): a board needs the facts of a few dozen nodes, and the 200 ms
+        spacing of ``_rate_limit`` alone would put that over its budget. Pacing
+        here is the caller's ``acquire()``, a token bucket kept under the
+        tenant's limit; a 429 waits for its ``Retry-After`` and is tried again.
+
+        Every call gets its own principal assertion, minted here on the
+        request thread: an assertion is single-use (``jti``), and the worker
+        threads have no request context to mint one from.
+
+        Returns ``(status, payload)`` per call, in order; status 599 when no
+        response came back. Nothing is raised for a single failed call, so one
+        unreadable node does not blank a whole view.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        if not calls:
+            return []
+        self._ensure_certificate_freshness()
+        bodies = [self._with_principal(None) for _ in calls]
+        headers = self._get_headers()
+
+        def one(index: int) -> Tuple[int, Any]:
+            path, params = calls[index]
+            url = f"{self.base_url}/secured/graph{path}"
+            status, payload = 599, None
+            for attempt in range(max_retries + 1):
+                if acquire is not None:
+                    acquire()
+                try:
+                    response = self._session.request(
+                        method='GET', url=url, json=bodies[index], params=params,
+                        headers=headers, timeout=self.http_read_timeout,
+                        allow_redirects=False,
+                    )
+                except _RETRYABLE_REQUEST_EXCEPTIONS as exc:
+                    logger.warning("Graph read %s failed: %s", path, type(exc).__name__)
+                    continue
+                status = response.status_code
+                if status in (429, 503) and attempt < max_retries:
+                    try:
+                        wait = float(response.headers.get('Retry-After') or 1)
+                    except ValueError:
+                        wait = 1.0
+                    time.sleep(min(max(wait, 0.1), 10.0))
+                    continue
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = None
+                break
+            return status, payload
+
+        with ThreadPoolExecutor(max_workers=max(1, min(int(workers), len(calls)))) as pool:
+            return list(pool.map(one, range(len(calls))))
 
     # -- Kuratieren (der Graph wird vom Client gepflegt, nicht abgeleitet) --
 
@@ -2892,6 +2989,15 @@ class KnovasAPIClient:
         return self._rbac_request(
             'PATCH', f'/secured/access_groups/{quote(str(identifier), safe="")}',
             data={'name': name})
+
+    def move_access_group(self, identifier: str, parent: str) -> Optional[Dict[str, Any]]:
+        """PATCH /secured/access_groups/<id> with ``parent`` - hang the group under another (Brain Builder B14).
+
+        A Brain that does not move groups yet ignores the field; the caller reads the tree back to know.
+        """
+        return self._rbac_request(
+            'PATCH', f'/secured/access_groups/{quote(str(identifier), safe="")}',
+            data={'parent': str(parent)})
 
     def delete_access_group(self, identifier: str) -> bool:
         """DELETE /secured/access_groups/<id>. True, wenn geloescht."""

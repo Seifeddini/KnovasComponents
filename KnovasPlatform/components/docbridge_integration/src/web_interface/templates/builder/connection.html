@@ -1,0 +1,18 @@
+{# «Betrieb» › «Verbindung» (connection layer MVP-28): one card per site. Expects cards, note, refresh_seconds. #}
+{% extends 'builder/_base.html' %}
+{% block title %}Verbindung{% endblock %}
+{% block main %}
+<header class="b-page-head">
+    <p class="b-step-count b-small"><a href="{{ url_for('builder.stage', slug='betrieb') }}">Betrieb</a> · Verbindung · <a href="{{ url_for('builder.approvals_page') }}">Freigaben</a></p>
+    <h1 class="b-h1">Verbindung</h1>
+    <p class="b-muted">Je Standort: läuft alles, was geschah in den letzten 24 Stunden, und was zu tun ist, wo nicht. Grün heißt: eine Probe ging in den letzten 10 Minuten über den Arbeitskanal. Was die Plattform nicht weiß, steht als «unbekannt» da.</p>
+    <p class="b-small b-muted" data-conn-stand>Stand: <span data-conn-at>gerade eben</span> <button type="button" class="b-button b-button--quiet b-button--small" data-conn-refresh>Aktualisieren</button></p>
+</header>
+{% if note %}<div class="b-callout" role="status"><p>{{ note }}</p></div>{% endif %}
+<section data-connection data-refresh-seconds="{{ refresh_seconds }}" data-url="{{ url_for('builder.connection_page', teil='karten') }}" aria-live="polite">
+    {% include 'builder/_connection_cards.html' %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder/connection.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

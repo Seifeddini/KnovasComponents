@@ -1,0 +1,192 @@
+# Component card (format 2) of EXT-JIRA-API; written for FEAT-2026-11-10-write-back J-0 (BET-2026-11-write-back WB-07,
+# DEC-0068: the map grows per project). What the Jira connector (L3-JIRA-CONNECTOR) relies on in Jira Cloud's REST API,
+# version 3, as Atlassian's OpenAPI document of the platform API describes it (read 2026-11-10). Edit this file, then
+# `brain-runner card render`; the page beside it is generated.
+card: 2
+id: EXT-JIRA-API
+name: Jira Cloud REST API (external)
+kind: external
+owner: ROLE-ENGINE-OWNER
+status: planned
+purpose: Jira Cloud's REST API (version 3) on a company's own site, as far as the Jira connector reads a project's
+  issues through it and changes an issue's assignee, due date and status, always with the source's own credential at
+  the site.
+not_responsible_for:
+- Holding a credential; each call carries the source's credential from the site's environment, to the one host the
+  site names beside it there.
+- Deciding what may be written; the Brain's permits and Knovas Link do (connector protocol 2.0).
+terms:
+- change log (an issue's list of change entries; each change to a tracked field adds one with a new id)
+- edit metadata (the fields of an issue the calling account may set, and how)
+- transition (a workflow step that moves an issue to another status)
+- entity property (a JSON value an app stores on an issue under a key; not part of the change log)
+operations:
+- id: search-jql
+  name: POST /rest/api/3/search/jql - the enhanced JQL search, paged with nextPageToken and isLast, with the change
+    log and the edit metadata expanded
+  entrance: http
+  ref: /rest/api/3/search/jql
+- id: issue-read
+  name: GET /rest/api/3/issue/{issueIdOrKey} with fields, expand=changelog,editmeta and properties - one issue, its
+    newest change-log entries, its edit metadata and the properties asked for
+  entrance: http
+  ref: /rest/api/3/issue/{issueIdOrKey}
+- id: editmeta
+  name: GET /rest/api/3/issue/{issueIdOrKey}/editmeta - the fields the account may set on the issue
+  entrance: http
+  ref: /rest/api/3/issue/{issueIdOrKey}/editmeta
+- id: issue-edit
+  name: PUT /rest/api/3/issue/{issueIdOrKey} with fields and properties - set fields and issue properties in one
+    request
+  entrance: http
+  ref: /rest/api/3/issue/{issueIdOrKey}
+- id: transitions
+  name: GET /rest/api/3/issue/{issueIdOrKey}/transitions (expand=transitions.fields) and POST with transition and
+    properties - the transitions available from the issue's status, and carrying one out
+  entrance: http
+  ref: /rest/api/3/issue/{issueIdOrKey}/transitions
+- id: assignable-users
+  name: GET /rest/api/3/user/assignable/search?issueKey=&accountId= - whether an account may be assigned the issue
+  entrance: http
+  ref: /rest/api/3/user/assignable/search
+contract:
+  '*':
+    always:
+    - id: EXT-JIRA-API/*/A-1
+      statement: A call is authenticated by its Authorization header - basic with an account's email and API token, or
+        a bearer token; a wrong or missing credential answers 401. The site is the company's own host, the one the
+        site's environment binds the credential to, and the API answers there itself; a redirect is not followed.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasConnectorJira/tests/test_client.py
+        checks:
+        - test_a_wrong_credential_is_unauthorized_and_the_error_carries_no_secret
+        - test_an_email_and_token_is_basic_a_bare_token_is_bearer_and_none_is_refused
+        - test_a_redirect_to_another_host_is_not_followed_so_the_credential_never_reaches_it
+    limits:
+    - id: EXT-JIRA-API/*/L-1
+      statement: Jira limits the rate of calls and answers 429 with Retry-After when the limit is reached.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasConnectorJira/tests/test_client.py
+        checks:
+        - test_a_rate_limit_waits_as_jira_says_then_answers
+    - id: EXT-JIRA-API/*/L-2
+      statement: There is no conditional edit (no expected version or ETag on an edit or a transition); a change that
+        lands between a read and a write is not refused by Jira.
+      risk_class: critical
+  search-jql:
+    promises:
+    - id: EXT-JIRA-API/search-jql/P-1
+      statement: A bounded query (project = KEY) answers the issues the account may browse, page by page; a page names
+        the next one by nextPageToken until the page marked isLast true; expand changelog lists each issue's recent
+        change-log entries newest first, expand editmeta its edit metadata.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasConnectorJira/tests/test_read.py
+        checks:
+        - test_a_complete_listing_over_several_pages_reports_a_deleted_issue
+        - test_a_cut_listing_reports_no_absence_and_no_state
+        - test_the_version_is_the_newest_entry_also_when_jira_returns_only_the_recent_ones
+    limits:
+    - id: EXT-JIRA-API/search-jql/L-1
+      statement: The search is eventually consistent ("recent updates might not be immediately visible"); a listing
+        may lag a change made a moment before.
+      risk_class: standard
+  issue-read:
+    promises:
+    - id: EXT-JIRA-API/issue-read/P-1
+      statement: Every change to a tracked field (assignee, due date, status, resolution, links) adds a change-log entry
+        whose id is an integer larger than every earlier entry's; setting an issue property adds none.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasConnectorJira/tests/test_read.py
+        checks:
+        - test_the_version_is_the_newest_change_log_entry_and_moves_with_every_change
+    - id: EXT-JIRA-API/issue-read/P-2
+      statement: An issue read with properties answers the properties asked for that exist; an issue that does not
+        exist or the account may not see answers 404.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasConnectorJira/tests/test_actions.py
+        checks:
+        - test_a_repeat_writes_nothing_and_answers_the_receipt
+        - test_a_step_that_cannot_be_carried_out_is_refused
+  editmeta:
+    promises:
+    - id: EXT-JIRA-API/editmeta/P-1
+      statement: The edit metadata lists the fields visible to and editable by the account on that issue, with the
+        operations each allows (set among them); a field it does not list cannot be set through the edit.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasConnectorJira/tests/test_read.py
+        checks:
+        - test_the_edit_metadata_is_read_per_issue_when_the_search_does_not_expand_it
+      - kind: test
+        ref: KnovasConnectorJira/tests/test_actions.py
+        checks:
+        - test_a_field_missing_from_the_edit_metadata_makes_the_preview_inexact
+  issue-edit:
+    promises:
+    - id: EXT-JIRA-API/issue-edit/P-1
+      statement: An edit sets the fields of its body and the issue properties of its body in one request, as one
+        change-log entry for all its fields, and answers 204; a field the account may not set answers 400 and nothing
+        changes.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasConnectorJira/tests/test_actions.py
+        checks:
+        - test_a_direct_write_sends_the_change_and_the_permit_marker_in_one_request
+        - test_a_write_whose_answer_was_lost_is_found_by_its_marker_and_not_written_again
+        - test_two_field_edits_of_one_issue_are_one_edit_one_change_log_entry_and_one_receipt_per_step
+  transitions:
+    promises:
+    - id: EXT-JIRA-API/transitions/P-1
+      statement: The transitions listed are those available from the issue's current status, each with its target
+        status (to.name) and, with transitions.fields, the fields its screen requires; carrying one out moves the
+        status, may set other fields by the workflow's post functions (the resolution), and sets the issue properties
+        of its body in the same request.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasConnectorJira/tests/test_actions.py
+        checks:
+        - test_a_transition_to_done_names_what_jira_set_besides_as_side_effects
+        - test_a_step_that_cannot_be_carried_out_is_refused
+  assignable-users:
+    promises:
+    - id: EXT-JIRA-API/assignable-users/P-1
+      statement: Asked with an issue key and an account id, it answers that account when the account may be assigned
+        the issue, else an empty list.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasConnectorJira/tests/test_actions.py
+        checks:
+        - test_a_step_that_cannot_be_carried_out_is_refused
+uses: []
+review:
+- at: /contract
+  why: The evidence runs against an in-process stand-in of Jira Cloud (KnovasConnectorJira/tests/fake_jira.py), written
+    from Atlassian's OpenAPI document of the REST API version 3 (read 2026-11-10); it shows what is relied on, not that
+    Jira keeps it. A live smoke on the pilot project waits for the token at the site (P-3, J-4).
+- at: EXT-JIRA-API/*/A-1
+  why: Changed after the verification of 2026-11-10 (finding KC N1) - the site is the host bound to the credential at
+    the site, and the connector relies on the API answering there without a redirect; a person marks it compatible or
+    not.
+- at: EXT-JIRA-API/*/L-2
+  why: No evidence; read from the API document (an edit and a transition take no expected version).
+- at: EXT-JIRA-API/search-jql/L-1
+  why: No evidence; read from the API document of the enhanced search.
+- at: EXT-JIRA-API/issue-edit/P-1
+  why: Changed - one change-log entry for all the fields of one edit (the connector writes field edits of one issue
+    together); read from the API's behaviour as documented, to be confirmed by the live smoke (J-4).
+- at: /owner
+  why: Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4).

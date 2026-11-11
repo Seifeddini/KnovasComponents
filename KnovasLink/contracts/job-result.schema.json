@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knovas.ch/connector/v1.1/job-result.schema.json",
+  "title": "Job result (connector protocol 1.1)",
+  "description": "A component's answer to one job, which Knovas Link passes on unchanged. Closed: it holds codes, counts, versions, hashes and one reference, never text. A fetch's bytes arrive as numbered parts before it.",
+  "type": "object",
+  "required": ["status", "duration_ms"],
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ok", "refused", "conflict", "unsupported", "unreachable", "failed"]
+    },
+    "code": {
+      "type": ["string", "null"],
+      "description": "A code from codes.json, or a component's own of the same shape; never a sentence.",
+      "pattern": "^[a-z][a-z0-9_.]{1,60}$"
+    },
+    "version": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The source's version of what was read, or found on a conflict."
+    },
+    "bytes_sha256": {
+      "type": ["string", "null"],
+      "description": "SHA-256 over all parts in order, lower-case hex.",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "mime": {"type": ["string", "null"], "minLength": 1},
+    "bytes": {"type": ["integer", "null"], "minimum": 0, "maximum": 26214400},
+    "parts": {"type": ["integer", "null"], "minimum": 0},
+    "source_ref": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "A string: the address where the source staged an applied write; for GitHub the pull request's URL. Null or absent for every other result."
+    },
+    "duration_ms": {"type": "integer", "minimum": 0}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema": "stream-message.schema.json",
+  "description": "payload.path is required.",
+  "breaks": [
+    "payload",
+    "path"
+  ],
+  "instance": {
+    "type": "document",
+    "source": "handbook",
+    "external_id": "policies/travel.md",
+    "version": "ff7b4c62979180d16e75356492b21cc64a58c830",
+    "content_hash": "1448f89881ca845b2c1b5909045dde0c4d35345dd5085150f647c29dbf827a75",
+    "payload": {
+      "title": "Travel policy",
+      "text": "# Travel policy\n\nBook trains for trips under six hours.\n"
+    }
+  }
+}

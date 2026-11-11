@@ -1,0 +1,9 @@
+{
+  "schema": "result.schema.json",
+  "description": "A permit for another site: refused.",
+  "instance": {
+    "status": "refused",
+    "code": "permit_wrong_site",
+    "duration_ms": 2
+  }
+}

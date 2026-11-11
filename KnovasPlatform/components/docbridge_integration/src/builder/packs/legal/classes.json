@@ -1,0 +1,190 @@
+{
+ "name": {
+  "de": "Legal",
+  "en": "Legal"
+ },
+ "pack": "legal",
+ "source": "DataModels/Semantic Data Model (SeDM)/ontology/domains/legal/legal.ttl",
+ "types": [
+  {
+   "abstract": false,
+   "id": "legal:Claim",
+   "label": {
+    "de": "Forderung",
+    "en": "Claim"
+   },
+   "name": "Claim",
+   "parents": [
+    "euo:Right"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:Clause",
+   "label": {
+    "de": "Klausel",
+    "en": "Clause"
+   },
+   "name": "Clause",
+   "parents": [
+    "euo:Agreement"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:CounselRole",
+   "label": {
+    "de": "Rechtsvertreterrolle",
+    "en": "Counsel Role"
+   },
+   "name": "CounselRole",
+   "parents": [
+    "euo:RepresentativeRole"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:Court",
+   "label": {
+    "de": "Gericht",
+    "en": "Court"
+   },
+   "name": "Court",
+   "parents": [
+    "euo:PublicAuthority"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:CourtDecision",
+   "label": {
+    "de": "Urteil",
+    "en": "Court Decision"
+   },
+   "name": "CourtDecision",
+   "parents": [
+    "euo:Decision"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:DefendantRole",
+   "label": {
+    "de": "Beklagtenrolle",
+    "en": "Defendant Role"
+   },
+   "name": "DefendantRole",
+   "parents": [
+    "euo:PartyRole"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:LimitationPeriod",
+   "label": {
+    "de": "Verjährungsfrist",
+    "en": "Limitation Period"
+   },
+   "name": "LimitationPeriod",
+   "parents": [
+    "euo:Period"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:Matter",
+   "label": {
+    "de": "Mandat (Fall)",
+    "en": "Matter"
+   },
+   "name": "Matter",
+   "parents": [
+    "euo:Case"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:PlaintiffRole",
+   "label": {
+    "de": "Klägerrolle",
+    "en": "Plaintiff Role"
+   },
+   "name": "PlaintiffRole",
+   "parents": [
+    "euo:PartyRole"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:PowerOfAttorney",
+   "label": {
+    "de": "Vollmacht",
+    "en": "Power of Attorney"
+   },
+   "name": "PowerOfAttorney",
+   "parents": [
+    "euo:Right"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:ProceduralDeadline",
+   "label": {
+    "de": "Prozessuale Frist",
+    "en": "Procedural Deadline"
+   },
+   "name": "ProceduralDeadline",
+   "parents": [
+    "euo:Deadline"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:Proceeding",
+   "label": {
+    "de": "Verfahren",
+    "en": "Proceeding"
+   },
+   "name": "Proceeding",
+   "parents": [
+    "euo:PlannedProcess"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:Statute",
+   "label": {
+    "de": "Gesetz",
+    "en": "Statute"
+   },
+   "name": "Statute",
+   "parents": [
+    "euo:Regulation"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:StatuteProvision",
+   "label": {
+    "de": "Gesetzesbestimmung",
+    "en": "Statute Provision"
+   },
+   "name": "StatuteProvision",
+   "parents": [
+    "euo:Regulation"
+   ]
+  },
+  {
+   "abstract": false,
+   "id": "legal:Submission",
+   "label": {
+    "de": "Rechtsschrift",
+    "en": "Submission"
+   },
+   "name": "Submission",
+   "parents": [
+    "euo:Document"
+   ]
+  }
+ ]
+}

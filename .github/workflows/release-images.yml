@@ -1,5 +1,6 @@
-# Release images: build, sign (keyless) and push the Platform, Knovas Link and the sync component to GHCR from the
-# branch a person picks (V1-G10, FEAT-2026-11-05-knovas-brain-v1). Guide: KnovasPlatform/docs/deployment/release-images.md.
+# Release images: build, sign (keyless) and push the Platform, Knovas Link, the sync component and the Jira connector to
+# GHCR from the branch a person picks (V1-G10, FEAT-2026-11-05-knovas-brain-v1; the Jira connector since
+# FEAT-2026-11-10-write-back J-4). Guide: KnovasPlatform/docs/deployment/release-images.md.
 #
 # Started by hand only, on any branch: Actions > release-images > Run workflow > "Use workflow from: <branch>", or
 #   gh workflow run release-images.yml --ref <branch> -f images=all
@@ -14,7 +15,8 @@
 #     image's own Dockerfile (the one docker-compose.yml builds). The Platform and the sync component install
 #     brain-runner from the private knowledge base: the read-only secret KB_READ_TOKEN reaches that one step as a
 #     BuildKit secret (no layer, no log), and the release refuses to build either image without it;
-#   - checks the image (brain-runner installed where it must be; no token left in it);
+#   - checks the image (brain-runner installed where it must be, else the image's own package imports; no token left
+#     in it);
 #   - pushes ghcr.io/<owner>/<package>:<first 12 of the commit> and :<branch, sanitised> with this run's GITHUB_TOKEN;
 #   - signs the pushed digest keylessly with checksum-pinned cosign (the version KnowledgeBase's
 #     brain-engine-image.yml signs with) and verifies the signature against this run's own identity
@@ -22,15 +24,16 @@
 #   - writes the image by digest, the branch and the commit into the run's summary.
 # Tags move; deployments name the digest.
 #
-# Packages (scripts/ci/release_image.sh): docbridge-web-clientbundle (platform), knovas-link, sync-component. Each
-# must grant this repository's Actions "Write" (package settings > Manage Actions access) and stay private.
+# Packages (scripts/ci/release_image.sh): docbridge-web-clientbundle (platform), knovas-link, sync-component,
+# jira-connector. Each must grant this repository's Actions "Write" (package settings > Manage Actions access) and stay
+# private.
 name: release-images
 
 on:
   workflow_dispatch:
     inputs:
       images:
-        description: "Which images to build from this branch (site = knovas-link and sync-component)"
+        description: "Which images to build from this branch (site = knovas-link, sync-component and jira-connector)"
         type: choice
         default: all
         options:
@@ -39,6 +42,7 @@ on:
           - site
           - knovas-link
           - sync-component
+          - jira-connector
 
 permissions: {}
 
@@ -60,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: ${{ fromJSON('{"all":["platform","knovas-link","sync-component"],"platform":["platform"],"site":["knovas-link","sync-component"],"knovas-link":["knovas-link"],"sync-component":["sync-component"]}')[inputs.images] }}
+        image: ${{ fromJSON('{"all":["platform","knovas-link","sync-component","jira-connector"],"platform":["platform"],"site":["knovas-link","sync-component","jira-connector"],"knovas-link":["knovas-link"],"sync-component":["sync-component"],"jira-connector":["jira-connector"]}')[inputs.images] }}
     env:
       COSIGN_VERSION: v2.6.1
       COSIGN_SHA256: 064954c5d8c7e3b28188eee5b1727b31c411550bc5fefd41aa672d3c761d103a
@@ -88,6 +92,19 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: bash scripts/ci/release_image.sh "$IMAGE_KEY" "$GITHUB_REPOSITORY_OWNER" "$REF_NAME" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
 
+      # A package this run's token creates takes the repository's visibility, and a public repository would publish
+      # the images. A person creates the packages private first and confirms it with the repository variable
+      # GHCR_PACKAGES_PRIVATE=confirmed (release-images.md, "Once per repository"). Without it nothing is pushed.
+      - name: The packages exist and are private
+        env:
+          CONFIRMED: ${{ vars.GHCR_PACKAGES_PRIVATE }}
+          IMAGE: ${{ steps.what.outputs.repository }}
+        run: |
+          if [ "${CONFIRMED:-}" != "confirmed" ]; then
+            echo "::error title=Packages not confirmed private::A first push from this workflow would create $IMAGE with this repository's visibility. Create the packages private first, then set the repository variable GHCR_PACKAGES_PRIVATE=confirmed (release-images.md, \"Once per repository\")."
+            exit 1
+          fi
+
       # This job's own Docker config: the login below and cosign read only it.
       - name: Log in to GHCR
         env:
@@ -104,6 +121,7 @@ jobs:
           IMAGE: ${{ steps.what.outputs.repository }}
           CONTEXT: ${{ steps.what.outputs.context }}
           RUNNER: ${{ steps.what.outputs.runner }}
+          MODULE: ${{ steps.what.outputs.module }}
           SHORT_TAG: ${{ steps.what.outputs.short_tag }}
           REF_NAME: ${{ github.ref_name }}
           # Read-only (Contents: read on the knowledge base), for brain-runner's install only. Never printed.
@@ -137,8 +155,9 @@ jobs:
               echo "::error::a token is left in the image's git configuration"; exit 1
             fi
           else
-            docker run --rm --entrypoint python "$IMAGE:$SHORT_TAG" \
-              -c "import knovas_link; print('knovas-link', knovas_link.VERSION)"
+            # The image's own package imports, from the image's own path (the Jira connector: its vendored kit too).
+            docker run --rm --entrypoint python -e MODULE="$MODULE" "$IMAGE:$SHORT_TAG" \
+              -c "import importlib, os; m = importlib.import_module(os.environ['MODULE']); print(m.__name__, m.VERSION)"
           fi
 
       - name: Push
@@ -209,6 +228,7 @@ jobs:
             platform)       line="DOCBRIDGE_WEB_IMAGE=${IMAGE}@${DIGEST}" ;;
             knovas-link)    line="KNOVAS_LINK_DIGEST=${DIGEST}" ;;
             sync-component) line="SYNC_COMPONENT_DIGEST=${DIGEST}" ;;
+            jira-connector) line="JIRA_CONNECTOR_DIGEST=${DIGEST}" ;;
           esac
           {
             echo "### ${IMAGE_KEY}"

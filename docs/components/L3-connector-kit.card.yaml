@@ -1,0 +1,230 @@
+# Component card (format 2) of L3-CONNECTOR-KIT; written for FEAT-2026-11-10-write-back Phase A (BET-2026-11-write-back
+# WB-11, DEC-0068: the map grows per project). Edit this file, then `brain-runner card render`; the page beside it is
+# generated.
+card: 2
+id: L3-CONNECTOR-KIT
+name: Connector kit
+kind: code
+owner: ROLE-ENGINE-OWNER
+status: planned
+level: 3
+parent: L2-CONNECTION
+source_paths:
+- KnovasConnectorKit/src/knovas_connector_kit
+- KnovasConnectorKit/pyproject.toml
+- KnovasConnectorKit/requirements.txt
+- KnovasPlatform/components/sync_component/src/knovas_connector_kit
+- KnovasConnectorJira/vendor/knovas_connector_kit
+purpose: The base every connector of protocol v2 is built on, and the conformance suite a connector package passes
+  before its declaration may name a property, so that a new kind of source is one connector package and no change to
+  the Brain, Knovas Link, the runner or the Platform.
+responsible_for:
+- id: L3-CONNECTOR-KIT/R-1
+  statement: The protocol's v2 messages for a connector - a copy of Link's v2 contracts checked against their lock,
+    canonical JSON, the parameter hash a permit binds, decoding and verifying permits.
+  code:
+  - KnovasConnectorKit/src/knovas_connector_kit/contracts.py
+  - KnovasConnectorKit/src/knovas_connector_kit/canonical.py
+  - KnovasConnectorKit/src/knovas_connector_kit/permits.py
+- id: L3-CONNECTOR-KIT/R-2
+  statement: The base class that answers a job - the job and the answer checked against the contract, each permit
+    re-checked against its own step, an exception answered as failed internal and logged by its type only.
+  code:
+  - KnovasConnectorKit/src/knovas_connector_kit/connector.py
+- id: L3-CONNECTOR-KIT/R-3
+  statement: The conformance suite - seven properties on a connector's harness, the write properties for each staging
+    the connector declares, with a reproducible report, and a reference of Link's permit checks (in the order of the
+    Alloy model, a permit reserved before the connector runs, every refusal in the write log) that the suite plays
+    Link with.
+  code:
+  - KnovasConnectorKit/src/knovas_connector_kit/conformance
+  - KnovasConnectorKit/src/knovas_connector_kit/gate.py
+- id: L3-CONNECTOR-KIT/R-4
+  statement: A fake source of records and an example connector over it, the reference of a conformant connector.
+  code:
+  - KnovasConnectorKit/src/knovas_connector_kit/example.py
+not_responsible_for:
+- Reading or writing any real source; each connector package does (the GitHub connector in Phase C, Jira in Phase D).
+- Checking permits at a site; Knovas Link does it with its own code (A-5). The kit's gate is a reference for tests.
+- Signing permits; the Brain signs them. The kit's Signer serves only the suite and tests.
+- Holding a credential; a connector keeps its source's credential at the site.
+terms:
+- connector (a program at the site that reads one kind of source and carries out the actions it declares)
+- declaration (what a connector serves, reads and can carry out, and the conformance properties it passed)
+- permit (a single-use, signed approval of one action, bound to tenant, site, source, action, parameters, version)
+- harness (what a connector package gives the suite - a fresh connector over a source the suite may change)
+operations:
+- id: call.knovas_connector_kit.PROTOCOL
+  name: PROTOCOL
+  entrance: call
+  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/__init__.py#PROTOCOL
+- id: call.knovas_connector_kit.SUITE_VERSION
+  name: SUITE_VERSION
+  entrance: call
+  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/__init__.py#SUITE_VERSION
+- id: call.knovas_connector_kit.connector.Connector
+  name: Connector - the base class a connector subclasses; handle(job) answers one job
+  entrance: call
+  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/connector.py#Connector
+- id: call.knovas_connector_kit.connector.outcome
+  name: outcome - a result without its duration
+  entrance: call
+  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/connector.py#outcome
+- id: cli.knovas_connector_kit.conformance.__main__
+  name: python -m knovas_connector_kit.conformance MODULE:FACTORY - run the suite on a connector's harness
+  entrance: cli
+  ref: knovas_connector_kit.conformance
+contract:
+  '*':
+    always:
+    - id: L3-CONNECTOR-KIT/*/A-1
+      statement: The kit names no source kind, no source operation and no source field (SPEC-write-back-16).
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasConnectorKit/tests/test_generic.py
+        checks:
+        - test_the_kit_names_no_source_kind
+    - id: L3-CONNECTOR-KIT/*/A-2
+      statement: Its v2 contracts are Link's, byte for byte, and are used only while they match their lock.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasConnectorKit/tests/test_contracts_and_permits.py
+        checks:
+        - test_the_kits_contracts_are_links_v2_contracts_byte_for_byte
+    - id: L3-CONNECTOR-KIT/*/A-3
+      statement: A permit verifies only when it is the one canonical encoding (canonical JSON, each part in
+        base64url's one spelling), names EdDSA and a pinned key whose window holds the permit's iat, lives at most
+        10800 seconds (3 hours, D-15), and its signature verifies; else permit_bad_signature. An unreadable token (a
+        time past the year 9999, deep nesting) is permit_bad_signature too, never another error.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasConnectorKit/tests/test_contracts_and_permits.py
+        checks:
+        - test_a_key_is_checked_at_the_permits_iat_not_at_the_verifiers_clock
+        - test_a_permit_lives_up_to_three_hours_and_not_a_second_longer
+        - test_a_token_has_one_encoding_and_a_changed_payload_fails
+        - test_the_examples_permits_verify_and_bind_their_steps
+        - test_an_untrusted_token_is_refused_and_never_raises
+        - test_a_part_spelled_another_way_is_refused
+  call.knovas_connector_kit.connector.Connector:
+    promises:
+    - id: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.Connector/P-1
+      statement: handle(job) answers every job with one result that is valid against v2's result.schema.json - a job
+        that is not valid is failed invalid_job, an action or staging the declaration lacks is refused, an act whose
+        permits do not bind their own steps is refused permit_mismatch (or permit_missing), an act whose steps the
+        actions' grouping does not allow (one step for none, one item for item, D-24) is refused grouping_unsupported, a
+        preview's or act's
+        answer whose changes, values, differences or conflict do not each name a step of the job on that step's
+        target is failed internal (D-14), and an exception is failed internal, logged by its type only.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasConnectorKit/tests/test_conformance_suite.py
+        checks:
+        - test_the_suite_fails_the_mutant_on_its_property_only
+        - test_the_example_connector_passes_every_property
+        - test_an_answer_whose_change_names_no_step_of_the_job_leaves_as_failed_internal
+        - test_an_act_that_spans_items_is_never_written_by_an_item_connector
+  call.knovas_connector_kit.connector.outcome:
+    promises:
+    - id: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.outcome/P-1
+      statement: A result with its status, code and the given fields; Connector.handle adds duration_ms and checks it
+        against the contract before it leaves.
+      risk_class: low
+      evidence:
+      - kind: test
+        ref: KnovasConnectorKit/tests/test_conformance_suite.py
+        checks:
+        - test_the_example_connector_passes_every_property
+  cli.knovas_connector_kit.conformance.__main__:
+    needs:
+    - id: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/N-1
+      statement: A harness factory that gives a fresh connector over a source the suite may change, as
+        conformance/harness.py describes (same_item_steps optional; without it the suite pairs a step with itself;
+        the sample steps' actions may declare direct, native_review or both).
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasConnectorKit/tests/test_conformance_suite.py
+        checks:
+        - test_the_example_connector_passes_every_property
+        - test_a_connector_that_only_stages_can_pass_every_property
+    promises:
+    - id: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/P-1
+      statement: Reports each of the seven properties as passed, failed (with a code, never a value) or not
+        applicable, with the report's SHA-256, and exits 1 when one failed; a connector that breaks one property
+        fails exactly that one. preview_equals_receipt also checks that every change, value, difference and conflict
+        names its own step, with two steps on one item (D-14); the suite signs permits for the longest lifetime, 3
+        hours (D-15). The write properties check each staging the connector declares, so a connector that only
+        stages can pass them - preview_equals_receipt with the accepted review's receipts and a stale item never
+        staged, exactly_once with a repeated staging act answering its one stage, permit_refusals with the
+        connector's own binding of the staging and the site. preview_equals_receipt also checks grouping (D-24) - the
+        preview names the grouping its steps share, several steps of one item in one act are written all or none,
+        and an act spanning items while one action declares item is refused with nothing written.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasConnectorKit/tests/test_conformance_suite.py
+        checks:
+        - test_the_suite_fails_the_mutant_on_its_property_only
+        - test_the_extra_mutants_fail_their_property_only
+        - test_a_connector_that_names_changes_by_item_fails_on_two_actions_on_one_item
+        - test_the_report_is_reproducible
+        - test_a_read_only_connector_is_not_offered_for_writing
+        - test_a_connector_that_only_stages_can_pass_every_property
+        - test_a_connector_that_only_stages_fails_each_staging_mutant_on_its_property_only
+        - test_a_repeated_staging_act_answers_its_stage_and_never_stages_twice
+        - test_a_connector_whose_field_action_groups_by_item_passes_every_property
+        - test_an_item_connector_that_mixes_items_or_writes_an_item_partly_fails_on_its_property_only
+        - test_an_act_that_spans_items_is_never_written_by_an_item_connector
+    limits:
+    - id: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/L-1
+      statement: The report is the connector package's own statement; nothing signs it yet (an open question of the
+        protocol text).
+      risk_class: standard
+uses: []
+hides:
+- The fake source's version numbering and its review queue.
+decisions:
+- id: DEC-0071
+  statement: Every write is a typed action carried out by a connector at the site through one generic protocol v2;
+    the protocol names no source kind.
+review:
+- at: /parent
+  why: Placed under L2-CONNECTION like Link and the sync component; the domain is confirmed by a person (Software Map
+    K5).
+- at: /owner
+  why: Proposed owner; one role per component is confirmed by a person (Software Map K4).
+- at: /operations
+  why: The code reader sees only the suite's command line; the base class, the permit functions and the reference
+    gate become operations of their own when a connector package (the GitHub connector, Phase C) imports them.
+- at: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/L-1
+  why: No evidence; a known limit stated in the protocol text's open questions.
+- at: L3-CONNECTOR-KIT/*/A-3
+  why: Changed 2026-11-10 by the amendment of protocol v2.0 (D-15, the founder - a permit may live 3 hours); the
+    kit now accepts permits up to 10800 s instead of 3600 s, a looser rule. map-check reports the line as changed and
+    not marked compatible; a person confirms it (compatible, reviewed_by). Tightened the same day after the
+    independent verification of Phase A (L1, L5) - another base64url spelling of a part is refused, and an
+    unreadable token is refused instead of raising.
+- at: L3-CONNECTOR-KIT/call.knovas_connector_kit.connector.Connector/P-1
+  why: Extended 2026-11-10 by the amendment of protocol v2.0 (D-14) - an answer whose changes do not name the job's
+    steps leaves as failed internal; a connector built before the amendment, which names no step, now fails. Extended
+    again by D-24 - grouping item allows several steps on one item. A person confirms whether that is compatible
+    (nothing of v2 was released).
+- at: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/N-1
+  why: Extended 2026-11-10 (D-14) by the optional same_item_steps of a harness, and after the verification of Phase A
+    (M3) by harnesses whose steps only stage; compatible additions, to be marked compatible by a person who reviews
+    them.
+- at: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/P-1
+  why: Extended 2026-11-10 by the amendment of protocol v2.0 (D-14, D-15) - preview_equals_receipt also checks each
+    change's step, so a connector that passed before may fail now. Extended again the same day after the independent
+    verification of Phase A (M3) - the write properties check each declared staging (a connector that only stages can
+    pass; one that stages twice, stages a stale item or ignores the staging or site binding now fails). A person
+    confirms whether that is compatible (nothing of v2 was released; the example, GitHub and Jira connectors pass).
+    Extended again by the amendment D-24 - the grouping checks of preview_equals_receipt (grouping item).
+- at: /source_paths
+  why: Added 2026-11-10 for FEAT-2026-11-10-write-back J-4 - the copy under KnovasConnectorJira/vendor/ for the Jira
+    connector's image, byte for byte (KnovasConnectorJira/tests/test_image.py), as the sync component's copy.

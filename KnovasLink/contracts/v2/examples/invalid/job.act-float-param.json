@@ -1,0 +1,41 @@
+{
+  "schema": "job.schema.json",
+  "description": "No floating-point parameters: a decimal travels as a string.",
+  "breaks": [
+    "args",
+    "steps",
+    0,
+    "params",
+    "amount"
+  ],
+  "instance": {
+    "id": "22222222-3333-4444-8555-666666666666",
+    "kind": "act",
+    "protocol": "2.0",
+    "source": "records-main",
+    "target_serial": "731948205517",
+    "deadline": "2026-11-10T14:10:00Z",
+    "actor": {
+      "kind": "user",
+      "id": "person-example-approver"
+    },
+    "args": {
+      "steps": [
+        {
+          "action": "set_fields",
+          "target": "items/matter-17",
+          "params": {
+            "owner": "person-example-7",
+            "due_date": "2026-12-01",
+            "amount": 12.5
+          },
+          "expected_version": "v-4811"
+        }
+      ],
+      "staging": "direct"
+    },
+    "permits": [
+      "eyJhbGciOiJFZERTQSIsImtpZCI6IndicC1lZDkyN2E0OGY0OWU4NWY2IiwidHlwIjoia25vdmFzLXBlcm1pdCtqd3MifQ.eyJhY3Rpb24iOiJzZXRfZmllbGRzIiwiYWN0aW9uX2lkIjoiMGYxZTJkM2MtNGI1YS00OTY4LTg3NzYtNjU1NDQzMzIyMTEwIiwiY2hhbmdlX3NldF9pZCI6ImM1ZDZlN2Y4LTBhMWItNGMyZC04ZTNmLTRhNWI2YzdkOGU5ZiIsImV4cCI6MTc5NDQwOTIwMCwiZXhwZWN0ZWRfdmVyc2lvbiI6InYtNDgxMSIsImlhdCI6MTc5NDQwNTYwMCwicGFyYW1zX2hhc2giOiJzaGEyNTY6ZDRkNTI5NGU0ZTRhY2EwZjk1ODhmNTgzOGNiYzdjYzM3ZjJiYzg2M2FjYjFlZmY3YWE0ZWFlMmFhMTUzYjc4YyIsInBlcm1pdF9pZCI6IjZlNWQ0YzNiLTJhMTktNGYwOC04ZTdkLTZjNWI0YTM5MjgxNyIsInNpdGUiOiI3MzE5NDgyMDU1MTciLCJzb3VyY2UiOiJyZWNvcmRzLW1haW4iLCJzdGFnaW5nIjoiZGlyZWN0IiwidGVuYW50IjoiM2YwYzJhOGUtNWIxZC00YzdhLTllMjEtNmQ0YjhhMGYxYzU1IiwidiI6MX0.5bAbUzTtel9o9LVdL8EQTg91l5jm3pAVv5dy3DujcmaPv3ZyUWZdp5wp1t_OWvUKmX1e9cCDHKhEJQID7FTICw"
+    ]
+  }
+}

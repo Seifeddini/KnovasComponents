@@ -1,0 +1,150 @@
+{# Stage 4 (build plan step B6): a company's processes as flows. Expects
+   current_workspace, history ({undo, redo} counts) and processes
+   (builder.processes.build). static/js/builder/processes.js draws the list,
+   the flow canvas, the panels and the check from the JSON below, and sends
+   every edit to the same edit route as the ontology (builder.editing). #}
+{% extends 'builder/_base.html' %}
+{% from 'builder/_icons.html' import icon %}
+{% set c = processes.counts %}
+{% block title %}{{ stage.label }} · {{ current_workspace.name }}{% endblock %}
+{% block main %}
+<header class="b-onto-head">
+    <div class="b-page-head" style="margin-bottom: 0">
+        <p class="b-step-count b-small">Stufe {{ stage_number }} von {{ stages | length }} · {{ current_workspace.name }}</p>
+        <h1 class="b-h1">{{ stage.label }}</h1>
+    </div>
+    <div class="b-tag-row" data-proc-head>
+        <span class="b-tag">{{ c.processes }} Prozesse</span>
+        <span class="b-tag">{{ c.steps }} Schritte</span>
+        {% if c.problems.critical %}<span class="b-tag b-tag--critical"><span class="b-tag-dot"></span>{{ c.problems.critical }} {{ 'Problem' if c.problems.critical == 1 else 'Probleme' }}</span>{% endif %}
+        {% if c.problems.warning %}<span class="b-tag b-tag--warning"><span class="b-tag-dot"></span>{{ c.problems.warning }} {{ 'Warnung' if c.problems.warning == 1 else 'Warnungen' }}</span>{% endif %}
+        <span class="b-tag b-tag--accent">Entwurf {{ current_workspace.draft_number or '' }}</span>
+    </div>
+    <div class="b-onto-edit-bar" data-proc-edit
+         data-edit-url="{{ url_for('builder.edit_ontology', workspace_id=current_workspace.id, view='processes') }}"
+         data-undo-url="{{ url_for('builder.undo', workspace_id=current_workspace.id, view='processes') }}"
+         data-redo-url="{{ url_for('builder.redo', workspace_id=current_workspace.id, view='processes') }}"
+         data-undo="{{ history.undo }}" data-redo="{{ history.redo }}">
+        <button type="button" class="b-button b-button--quiet" data-proc-undo {% if not history.undo %}disabled{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Rückgängig</button>
+        <button type="button" class="b-button b-button--quiet" data-proc-redo {% if not history.redo %}disabled{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>Wiederherstellen</button>
+        <button type="button" class="b-button b-button--secondary" data-proc-new-step {% if not processes.processes %}hidden{% endif %}>{{ icon('plus') }}Neuer Schritt</button>
+        <button type="button" class="b-button b-button--primary" data-proc-new {% if not processes.available %}disabled title="Das Paket hat keine Prozessdatei."{% endif %}>{{ icon('plus') }}Neuer Prozess</button>
+    </div>
+</header>
+
+<div class="b-proc-layout">
+    <nav class="b-proc-list" aria-label="Prozesse">
+        <ul data-proc-list></ul>
+        <p class="b-muted b-small" data-proc-list-empty {% if processes.processes %}hidden{% endif %}>Noch keine Prozesse. Legen Sie den ersten an.</p>
+        <section class="b-proc-check" aria-labelledby="b-proc-check-title" data-proc-check>
+            <h2 class="b-h3" id="b-proc-check-title">Prüfung</h2>
+            <ul class="b-proc-check-list" aria-live="polite" data-proc-check-list></ul>
+        </section>
+    </nav>
+
+    <div class="b-onto-work b-proc-work">
+        <div class="b-canvas" data-proc-canvas>
+            <div class="b-onto-graph" id="b-proc-graph" role="img" aria-label="Schritte und Übergänge des gewählten Prozesses"></div>
+            <div class="b-onto-empty" data-proc-canvas-empty hidden></div>
+            <div class="b-toolbar" role="toolbar" aria-label="Fläche">
+                <button type="button" class="b-tool b-tool-text" aria-pressed="false" data-proc-connect
+                        title="Übergang ziehen: von einem Schritt auf einen anderen ziehen (auch mit gedrückter Umschalttaste). Zurück zu einem früheren Schritt wird Nacharbeit.">Übergang ziehen</button>
+                <button type="button" class="b-tool b-tool-text" data-proc-details title="Name, Rolle, Instanztypen und Statuszuordnung des Prozesses">Prozessangaben</button>
+                <span class="b-tool-sep" aria-hidden="true"></span>
+                <button type="button" class="b-tool" aria-label="Vergrößern" data-proc-zoom="in">{{ icon('zoom-in') }}</button>
+                <button type="button" class="b-tool" aria-label="Verkleinern" data-proc-zoom="out">{{ icon('zoom-out') }}</button>
+                <button type="button" class="b-tool" aria-label="Alles zeigen" data-proc-zoom="fit">{{ icon('fit') }}</button>
+            </div>
+            <div class="b-onto-legend" aria-hidden="true">
+                <span><span class="b-onto-line b-proc-line"></span>Übergang</span>
+                <span><span class="b-onto-line b-proc-line b-proc-line--rework"></span>Nacharbeit</span>
+                <span><span class="b-onto-swatch b-proc-swatch--resting"></span>Ruheschritt</span>
+                <span><span class="b-onto-swatch b-onto-swatch--problem"></span>Mit Problem</span>
+            </div>
+        </div>
+
+        <aside class="b-panel" id="b-proc-panel" aria-labelledby="b-proc-panel-title" data-panel hidden style="--panel-width: 420px">
+            <button type="button" class="b-panel-resize" role="separator" aria-orientation="vertical"
+                    aria-label="Breite der Seitenleiste" aria-valuemin="320" aria-valuemax="720" aria-valuenow="420"
+                    data-panel-resize></button>
+            <div class="b-panel-head">
+                <div>
+                    <h2 class="b-h3" id="b-proc-panel-title" data-proc-panel-title></h2>
+                    <span class="b-mono b-muted" data-proc-panel-key></span>
+                </div>
+                <button type="button" class="b-button b-button--quiet b-button--icon" data-panel-close aria-label="Seitenleiste schließen">{{ icon('close') }}</button>
+            </div>
+            <div class="b-panel-body" data-proc-panel-body></div>
+        </aside>
+    </div>
+</div>
+
+<script type="application/json" id="b-proc-data">{{ processes | tojson }}</script>
+<datalist id="b-proc-roles">{% for r in processes.roles %}<option value="{{ r }}">{% endfor %}</datalist>
+
+<dialog class="b-dialog" id="b-proc-new" aria-labelledby="b-proc-new-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-proc-new-title">Neuer Prozess</h2>
+            <p class="b-muted">Ein Ablauf, den Vorgänge eines Typs durchlaufen.</p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <div class="b-field">
+                <label class="b-label" for="b-np-key">Schlüssel</label>
+                <input class="b-input b-mono" id="b-np-key" name="key" required autocomplete="off" spellcheck="false" value="PROC-" aria-describedby="b-np-key-hint">
+                <span class="b-hint" id="b-np-key-hint">PROC- und kleine Wörter mit Bindestrich, z. B. PROC-mandatsaufnahme.</span>
+            </div>
+            <div class="b-field"><label class="b-label" for="b-np-name">Name</label><input class="b-input" id="b-np-name" name="name" autocomplete="off"></div>
+            <div class="b-field">
+                <label class="b-label" for="b-np-type">Instanztyp</label>
+                <select class="b-select" id="b-np-type" name="instance_type"></select>
+                <span class="b-hint">Der Typ, dessen Vorgänge den Prozess durchlaufen.</span>
+            </div>
+            <div class="b-field"><label class="b-label" for="b-np-role">Verantwortliche Rolle</label><input class="b-input b-mono" id="b-np-role" name="owner_role" list="b-proc-roles" autocomplete="off" spellcheck="false" placeholder="z. B. ROLE-PARTNER"></div>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Prozess anlegen</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog class="b-dialog" id="b-proc-new-step" aria-labelledby="b-proc-new-step-title">
+    <div class="b-dialog-head">
+        <div>
+            <h2 class="b-h2" id="b-proc-new-step-title">Neuer Schritt</h2>
+            <p class="b-muted" data-ns-process></p>
+        </div>
+        <button type="button" class="b-button b-button--quiet b-button--icon" data-ed-close aria-label="Dialog schließen">{{ icon('close') }}</button>
+    </div>
+    <form novalidate>
+        <div class="b-dialog-body">
+            <div class="b-field">
+                <label class="b-label" for="b-ns-id">Schritt-ID</label>
+                <input class="b-input b-mono" id="b-ns-id" name="id" required autocomplete="off" spellcheck="false" placeholder="z. B. sicherheitspruefung" aria-describedby="b-ns-id-hint">
+                <span class="b-hint" id="b-ns-id-hint">Klein geschrieben, Wörter mit Bindestrich.</span>
+            </div>
+            <div class="b-field"><label class="b-label" for="b-ns-name">Name</label><input class="b-input" id="b-ns-name" name="name" autocomplete="off"></div>
+            <div class="b-field">
+                <label class="b-label" for="b-ns-after">Nach dem Schritt</label>
+                <select class="b-select" id="b-ns-after" name="after"></select>
+            </div>
+            <div class="b-callout b-callout--critical" data-ed-error role="alert" hidden></div>
+        </div>
+        <div class="b-dialog-foot">
+            <button type="button" class="b-button b-button--quiet" data-ed-close>Abbrechen</button>
+            <button type="submit" class="b-button b-button--primary">Schritt anlegen</button>
+        </div>
+    </form>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/vendor/cytoscape.min.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/builder/processes.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knovas-connector-jira"
+version = "0.1.0"
+description = "Knovas Jira connector (connector protocol 2.0): a Jira Cloud project's issues as record streams, and three actions under the Brain's permits"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "knovas-connector-kit==0.1.0",
+    "requests>=2.32.0,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4,<9", "PyYAML>=6,<7"]
+
+[project.scripts]
+knovas-connector-jira = "knovas_connector_jira.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["knovas_connector_jira*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "tests", "../KnovasConnectorKit/src"]
+testpaths = ["tests"]
