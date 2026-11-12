@@ -105,7 +105,7 @@ network is closed (`builder/sites.py`).
 - **No image is released yet.** GitHub offers the release workflow only once its file is on the default branch
   ([release-images.md](deployment/release-images.md), "Once per repository").
 - **Images behind Link need brain-runner 0.3.2 or later.** The Platform's and the sync component's Dockerfiles pin
-  0.3.3 (`BRAIN_RUNNER_VERSION`, `BRAIN_RUNNER_GIT_REF`, KnowledgeBase commit `426e5e3c8`) since 2026-11-12 (0.3.2,
+  0.3.3 (`BRAIN_RUNNER_VERSION`, `BRAIN_RUNNER_GIT_REF`, KnowledgeBase commit `c618c7bed`) since 2026-11-12 (0.3.2,
   `961b2f72b`, before); both builds stop on another version. 0.3.2 refuses the `records` extractor (`jira-issues`). 0.3.1 has no `affected --source github`, so «bei neuen Commits» would plan every mapping;
   0.1.1 cannot call the Brain through Link (`BRAIN_LOCAL_TOKEN`) and has no `compile-write` (sync component README,
   "Release coupling"). The release run prints the version in its step "Build and check the image".

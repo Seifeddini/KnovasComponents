@@ -209,7 +209,7 @@ The image installs a pinned release; the Platform never imports or runs code fro
 **Set-up, once:**
 
 1. **The package in the image.**
-   - The Dockerfile installs brain-runner at `BRAIN_RUNNER_GIT_REF` (today `0.3.3`, commit `426e5e3c8`, tag
+   - The Dockerfile installs brain-runner at `BRAIN_RUNNER_GIT_REF` (today `0.3.3`, commit `c618c7bed`, tag
      `brain-runner-v0.3.3` on KnowledgeBase: fetch, plan and apply for the sync and the builder, Brain calls through
      Link, write jobs, `affected` for «bei neuen Commits», and the `records` extractor for record streams). The tag is set by a person on that commit; until it
      exists the pin is the commit itself.
@@ -798,7 +798,7 @@ On the same machine as the Platform (CL-8). Generic reference: [../connect-a-sit
   step "Build and check the image" prints `brain-runner <version>`. **Stop if** it prints an older version: 0.3.1 has
   no `affected --source github`, so «bei neuen Commits» plans every mapping on each new commit; 0.1.1 (the pin before
   2026-11-07) can neither reach the Brain through Link (`BRAIN_LOCAL_TOKEN`) nor compile a write (`compile-write`).
-  Both Dockerfiles pin 0.3.3 (`BRAIN_RUNNER_GIT_REF=426e5e3c8…`, and the build stops on another version); release from
+  Both Dockerfiles pin 0.3.3 (`BRAIN_RUNNER_GIT_REF=c618c7bed…`, and the build stops on another version); release from
   a checkout that has that pin (Brain v1 plan, step 8; the sync component's README, "Release coupling").
 
 ### 5.1 Create the site and download the package (browser)
