@@ -41,7 +41,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 0.3.2 or later: `affected --source github` for «bei neuen Commits» (KG-2); the build stops on any other version.
 # 0.3.3 adds the `records` extractor (J-3) and the runner's 429 handling (KG-2).
 ARG BRAIN_RUNNER_VERSION=0.3.3
-ARG BRAIN_RUNNER_GIT_REF=7961dd1e52b984c4d17d49cb6ae54a69f7f0022b
+ARG BRAIN_RUNNER_GIT_REF=426e5e3c83fd94f33750ee16e0d4f05e6713a6bf
 RUN --mount=type=secret,id=kb_read_token,required=true \
     git config --global url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf "https://github.com/" \
     && pip install --no-cache-dir --no-deps \

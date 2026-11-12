@@ -13,7 +13,7 @@ import yaml
 
 CI = Path(__file__).resolve().parents[4] / ".github" / "workflows" / "ci.yml"
 SETUP_PYTHON_PIN = "actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c"
-DEFAULT_RUNNER_SHA = "7961dd1e52b984c4d17d49cb6ae54a69f7f0022b"
+DEFAULT_RUNNER_SHA = "426e5e3c83fd94f33750ee16e0d4f05e6713a6bf"
 
 
 def _jobs():
