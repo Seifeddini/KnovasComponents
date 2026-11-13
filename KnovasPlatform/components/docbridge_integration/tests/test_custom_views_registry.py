@@ -370,3 +370,23 @@ def test_folder_refusal_inside_documents_and_writable(tmp_path, monkeypatch):
     reg = Registry(settings(writable))
     assert ids(reg.views()) == ["valid"]
     assert reg.refusal() is None
+
+
+def test_an_unsafe_or_undecodable_view_is_invalid(root):
+    """The document's checks (SS-626) run in the scan: an unsafe entry or a non-UTF-8 file makes the view invalid."""
+    make_view(root, "a-script", files={"index.html": "<p>x</p><script>alert(1)</script>"})
+    make_view(root, "b-handler", files={"index.html": '<img src="data:image/png," onerror="f()">'})
+    make_view(root, "c-latin1", files={"index.html": "<p>Grüsse</p>".encode("latin-1")})
+    make_view(root, "d-script-latin1", files={"index.html": "<p>x</p>", "app.js": "var s = 'ä';".encode("latin-1")},
+              scripts=["app.js"])
+    make_view(root, "e-good", files={"index.html": "<p>x</p>", "app.js": "var s = '</script>';"}, scripts=["app.js"])
+
+    reg = Registry(settings(root))
+
+    assert ids(reg.views()) == ["e-good"]
+    assert reg.invalid() == [
+        Invalid("a-script", "Die Einstiegsdatei (entry) darf kein Element „script“ enthalten."),
+        Invalid("b-handler", "Die Einstiegsdatei (entry) darf keine Ereignis-Attribute („on…“) enthalten."),
+        Invalid("c-latin1", "Datei „index.html“ ist nicht UTF-8-kodiert."),
+        Invalid("d-script-latin1", "Datei „app.js“ ist nicht UTF-8-kodiert."),
+    ]
