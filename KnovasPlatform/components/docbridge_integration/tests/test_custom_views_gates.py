@@ -80,6 +80,55 @@ def test_with_accounts_on_only_all_four_give_the_entry_and_the_routes(
             "page": 404, "list": 404, "document": 404, "read": 404}
 
 
+def _fill_without_a_valid_view(folder, contents: str) -> None:
+    if contents == "invalid":
+        (write_view(folder, "kaputt") / "view.json").write_text("{not json", encoding="utf-8")
+    elif contents == "nobody":
+        write_view(folder, "niemand", roles=[])
+    else:
+        assert contents == "empty"
+
+
+@needs_db
+@pytest.mark.parametrize("graph_mode", [True, False])
+@pytest.mark.parametrize("role,contents,offered", [
+    ("admin", "invalid", True),     # the admin must be able to read why (spec P-1)
+    ("admin", "nobody", True),
+    ("admin", "empty", False),
+    ("member", "invalid", False),
+    ("member", "nobody", False),
+])
+def test_without_a_valid_view_only_an_admin_gets_the_entry_and_the_page_while_a_view_folder_exists(
+        platform_db, identity_repo, tmp_path, monkeypatch, graph_mode, role, contents, offered):
+    folder = views_folder(tmp_path, monkeypatch)
+    _fill_without_a_valid_view(folder, contents)
+    app = identity_app(platform_db, tmp_path, monkeypatch, folder, graph_mode=graph_mode)
+    person = _person(identity_repo, "pat@kanzlei.ch", "Pat", role)
+    client = _signed_in(app, person.email)
+
+    home = client.get("/").data.decode("utf-8")
+    page = client.get("/custom-views")
+    listing = client.get("/api/custom-views")
+    per_view = [client.get(f"/api/custom-views/{view_id}/document").status_code
+                for view_id in ("kaputt", "niemand")]
+    per_view += [client.post(f"/api/custom-views/{view_id}/read", json=READ).status_code
+                 for view_id in ("kaputt", "niemand")]
+
+    if offered and graph_mode:
+        assert NAV_LABEL in home
+        assert page.status_code == 200
+        assert listing.status_code == 200
+        body = listing.get_json()
+        assert body["views"] == []
+        assert body["invalid"] == ([{"id": "kaputt", "reason": "Die Datei view.json ist kein gültiges JSON."}]
+                                   if contents == "invalid" else [])
+    else:
+        assert NAV_LABEL not in home
+        assert (page.status_code, listing.status_code) == (404, 404)
+    # a view must be valid and allowed for its own routes, admin or not
+    assert per_view == [404, 404, 404, 404]
+
+
 @pytest.mark.parametrize("switch,graph_mode,has_view", COMBINATIONS)
 def test_with_accounts_off_there_is_never_an_entry_or_a_route(tmp_path, monkeypatch, switch, graph_mode, has_view):
     folder = views_folder(tmp_path, monkeypatch)

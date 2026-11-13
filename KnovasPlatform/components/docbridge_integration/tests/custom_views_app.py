@@ -19,7 +19,12 @@ NAV_LABEL = "Eigene Ansichten"
 
 def client_class(graph: Optional[FixtureGraph] = None, base: type = FakeViewsClient) -> type:
     """A Knovas client class for create_app: the views' fake over ``graph``
-    (client_zero_graph by default) with what DummyKnovasClient provides."""
+    (client_zero_graph by default) with what DummyKnovasClient provides.
+
+    The broker is kept as ``_principal_broker``, where KnovasAPIClient keeps it
+    (knovas_client.py, attach_principal_broker): ``subject_key`` reads it, so
+    every read lands in the signed-in person's own cache slot, as in production.
+    """
 
     class Client(base, DummyKnovasClient):
         instances: list = []
@@ -28,6 +33,16 @@ def client_class(graph: Optional[FixtureGraph] = None, base: type = FakeViewsCli
             DummyKnovasClient.__init__(self, config)
             base.__init__(self, graph if graph is not None else client_zero_graph())
             Client.instances.append(self)
+
+        def attach_principal_broker(self, broker):
+            DummyKnovasClient.attach_principal_broker(self, broker)
+            self._principal_broker = broker
+
+        def current_email(self) -> Optional[str]:
+            """Whom this call is made for (the broker's user), as a fake that answers per person needs."""
+            broker = getattr(self, "_principal_broker", None)
+            user = broker.current_user() if broker is not None else None
+            return getattr(user, "email", None)
 
     return Client
 

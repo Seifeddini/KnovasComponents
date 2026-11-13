@@ -6,6 +6,7 @@ under tmp_path; the fake Brain of the views tests behind the Knovas client.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 import threading
@@ -246,6 +247,48 @@ def test_a_read_answers_and_is_recorded(make_app, folder, member, platform_db):
     assert row["detail"] == {"type": "Invariant", "nodes": 3, "complete": True, "outcome": "ok"}
 
 
+def test_two_people_read_through_their_own_cache_slots(make_app, folder, identity_repo):
+    """The topology and the facts a read caches are per person (subject_key over the client's
+    ``_principal_broker``): what Knovas shows one person never reaches another through the cache."""
+    write_view(folder, "uebersicht")
+    alice = _person(identity_repo, "alice@kanzlei.ch", "Alice", "member")
+    bob = _person(identity_repo, "bob@kanzlei.ch", "Bob", "member")
+    hidden_for = {}
+
+    class PerPerson(FakeViewsClient):
+        """Knovas hides a node from Bob: in the topology, in the edges and in the facts."""
+
+        @property
+        def hidden(self):
+            return hidden_for.get(self.current_email(), set())
+
+        @hidden.setter
+        def hidden(self, value):
+            pass
+
+    cls = client_class(base=PerPerson)
+    app = make_app(client_cls=cls)
+    walled = cls.instances[0].g.by_key["GI-GRAPH-01"]
+    hidden_for[bob.email] = {walled}
+    as_alice, as_bob = _signed_in(app, alice.email), _signed_in(app, bob.email)
+    body = {"type": "Invariant", "facts": ["key"]}
+
+    def read(client):
+        response = client.post("/api/custom-views/uebersicht/read", json=body)
+        assert response.status_code == 200
+        return [(n["name"], n["facts"].get("key")) for n in response.get_json()["nodes"]]
+
+    everything = [("GI-GRAPH-00", "GI-GRAPH-00"), ("GI-GRAPH-01", "GI-GRAPH-01"), ("GI-GRAPH-02", "GI-GRAPH-02")]
+    assert read(as_alice) == everything               # Alice first: her topology and facts are cached
+    assert read(as_bob) == [everything[0], everything[2]]
+    assert read(as_alice) == everything
+    slots = app.extensions["views"].cache._states
+    assert sorted(json.loads(key)[1] for key in slots) == sorted([str(alice.id), str(bob.id)])
+    # Alice's facts were read once, Bob's on their own, without the walled node; Alice's second read hit her cache
+    batches = cls.instances[0].batch_bodies
+    assert len(batches) == 2 and walled in batches[0]["node_ids"] and walled not in batches[1]["node_ids"]
+
+
 def test_a_read_outside_the_manifest_is_one_403_and_is_recorded(make_app, folder, member, platform_db):
     write_view(folder, "uebersicht")
     cls = client_class()
@@ -384,5 +427,39 @@ def test_a_views_folder_inside_the_documents_folder_keeps_the_feature_off(
     assert NAV_LABEL not in client.get("/").data.decode("utf-8")
     assert client.get("/custom-views").status_code == 404
     assert client.get("/api/custom-views").status_code == 404
-    assert any("liegt im Dokumentenordner" in r.getMessage() and r.levelno == logging.WARNING
-               and r.name == "web_interface.app" for r in caplog.records)
+    # read at start, so the log says it before the first request; once, not again per request
+    refused = [r for r in caplog.records if "liegt im Dokumentenordner" in r.getMessage()]
+    assert [(r.levelno, r.name) for r in refused] == [(logging.WARNING, "custom_views.registry")]
+
+
+def test_a_failing_feature_check_counts_as_off_and_warns_once(make_app, folder, member, monkeypatch, caplog):
+    from custom_views.registry import Registry
+
+    write_view(folder, "uebersicht")
+    client = _signed_in(make_app(), member.email)
+
+    def broken(self):
+        raise OSError("simulated")
+
+    monkeypatch.setattr(Registry, "refusal", broken)
+    caplog.set_level(logging.WARNING, logger="web_interface.app")
+    for _ in range(3):
+        home = client.get("/")
+        assert home.status_code == 200 and NAV_LABEL not in home.data.decode("utf-8")
+    assert client.get("/custom-views").status_code == 404
+    warned = [r for r in caplog.records if "Eigene Ansichten nicht ermittelbar" in r.getMessage()]
+    assert len(warned) == 1
+
+
+def test_once_per_window_lets_one_call_through_a_minute():
+    from web_interface.custom_views_routes import OncePer
+
+    now = [100.0]
+    gate = OncePer(60.0, clock=lambda: now[0])
+    assert gate.ready() is True
+    assert gate.ready() is False
+    now[0] = 159.9
+    assert gate.ready() is False
+    now[0] = 160.0
+    assert gate.ready() is True
+    assert gate.ready() is False

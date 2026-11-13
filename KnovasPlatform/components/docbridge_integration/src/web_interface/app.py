@@ -1053,9 +1053,12 @@ def create_app(config_path: Optional[str] = None):
     # the AutoDoc documents, so the registry knows where they are.
     from custom_views.registry import Registry as CustomViewsRegistry
     from custom_views.settings import load_settings as load_custom_views_settings
+    from web_interface.custom_views_routes import OncePer, may_enter as custom_views_may_enter
 
     custom_views_settings = load_custom_views_settings(config)
     custom_views_registry = None
+    # A broken check would otherwise warn on every page; once a minute says it.
+    custom_views_check_warning = OncePer(60.0)
     if custom_views_settings.enabled:
         if identity_gate is None:
             logger.warning(
@@ -1065,10 +1068,9 @@ def create_app(config_path: Optional[str] = None):
         else:
             custom_views_registry = CustomViewsRegistry(
                 custom_views_settings, documents_root=file_handler.autodoc_path)
-            _custom_views_refusal = custom_views_registry.refusal()
-            if _custom_views_refusal is not None:
-                logger.warning('Eigene Ansichten bleiben aus, solange der Ordner abgewiesen wird: %s',
-                               _custom_views_refusal)
+            # The first scan, now: a refused folder is logged at WARNING at start
+            # (by the registry, once per change) and keeps the feature off.
+            custom_views_registry.refusal()
 
     weak_secret_values = {
         '',
@@ -1773,7 +1775,7 @@ def create_app(config_path: Optional[str] = None):
         """Eigene Ansichten are on for this request: switch, accounts, graph
         mode, and the views folder not refused (re-read at most every
         rescan_seconds, so a fixed folder switches the feature on without a
-        restart). A failure counts as off."""
+        restart). A failure counts as off, with a warning at most once a minute."""
         if custom_views_registry is None or identity_gate is None:
             return False
         try:
@@ -1781,22 +1783,23 @@ def create_app(config_path: Optional[str] = None):
             # only called here, at request time.
             return _ontology_source_is_graph() and custom_views_registry.refusal() is None
         except Exception as exc:  # noqa: BLE001 - off rather than a 500
-            logger.warning('Eigene Ansichten nicht ermittelbar: %s', exc)
+            if custom_views_check_warning.ready():
+                logger.warning('Eigene Ansichten nicht ermittelbar: %s', exc)
             return False
 
     def _custom_views_nav() -> bool:
         """Whether the sidebar offers Eigene Ansichten: the feature is on and the
-        signed-in person may open at least one valid view. Presentation only --
-        the routes refuse on their own -- so a failure hides the item."""
+        signed-in person may enter (custom_views_routes.may_enter: a valid view
+        they may open; an administrator, any view folder, so they can read why
+        a view is invalid). Presentation only -- the routes refuse on their
+        own -- so a failure hides the item."""
         if not _custom_views_on():
             return False
         try:
-            user = identity_gate.current_user()
-            if user is None:
-                return False
-            return bool(custom_views_registry.for_roles(user.roles))
+            return custom_views_may_enter(custom_views_registry, identity_gate.current_user())
         except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
-            logger.warning('Eintrag Eigene Ansichten nicht ermittelbar: %s', exc)
+            if custom_views_check_warning.ready():
+                logger.warning('Eintrag Eigene Ansichten nicht ermittelbar: %s', exc)
             return False
 
     def _builder_nav() -> bool:

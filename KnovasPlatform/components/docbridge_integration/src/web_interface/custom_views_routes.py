@@ -4,8 +4,9 @@ Blueprint-factory shape of views_routes: the app passes its collaborators in, so
 this module imports nothing from app.py. The blueprint's name is not one of the
 CSRF-exempt prefixes, so the app's header gate covers the read like every other
 POST. While the feature is off for a request (``enabled``), or the signed-in
-person may open no valid view, every route answers the same 404; a view the
-person may not open answers the 404 of a view that does not exist.
+person may open no valid view (an administrator: while no view folder exists at
+all, ``may_enter``), every route answers the same 404; a view the person may
+not open answers the 404 of a view that does not exist.
 
 Plan: docs/superpowers/plans/2026-11-13-custom-views.md (Task 9; SS-626, SS-627)
 """
@@ -13,6 +14,8 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
@@ -66,6 +69,36 @@ def _retry_after(seconds: float) -> str:
     return str(max(1, math.ceil(seconds)))
 
 
+def may_enter(registry: Registry, user: Any) -> bool:
+    """Whether this person gets the entry and the page: a valid view they may open; for an
+    administrator any view folder at all, valid or invalid, so they can read why a view is
+    invalid (spec P-1). A view's own routes still need it valid and allowed."""
+    if user is None:
+        return False
+    if registry.for_roles(user.roles):
+        return True
+    return "admin" in user.roles and bool(registry.views() or registry.invalid())
+
+
+class OncePer:
+    """Lets a call through at most once per ``seconds``: a warning that would otherwise repeat on
+    every request."""
+
+    def __init__(self, seconds: float, clock: Callable[[], float] = time.monotonic):
+        self._seconds = float(seconds)
+        self._clock = clock
+        self._last: Optional[float] = None
+        self._lock = threading.Lock()
+
+    def ready(self) -> bool:
+        with self._lock:
+            now = self._clock()
+            if self._last is not None and now - self._last < self._seconds:
+                return False
+            self._last = now
+            return True
+
+
 def create_custom_views_blueprint(*, gate: Any, registry: Registry, settings: CustomViewsSettings,
                                   client: Callable[[], Any], cache: Any, workers: int,
                                   enabled: Callable[[], bool], page_context: Callable[[], dict],
@@ -107,13 +140,13 @@ def create_custom_views_blueprint(*, gate: Any, registry: Registry, settings: Cu
 
     @bp.before_request
     def require_the_feature():
-        """Off, signed out or without a single view: nothing is here."""
+        """Off, signed out or without a view to enter by (``may_enter``): nothing is here."""
         if not enabled():
             return not_found()
         user = gate.current_user()
         if user is None:            # the identity gate refused first; this is the second line
             return _error(401, SIGNED_OUT) if is_api() else abort(404)
-        if not user_views(user):
+        if not may_enter(registry, user):
             return not_found()
         return None
 
