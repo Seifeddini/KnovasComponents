@@ -138,8 +138,9 @@ Put scripts and styles in their own files.
    Platform page, so the click leaves the frame's page instead of scrolling. Use a button and `scrollIntoView`.
 5. **No network from the view.** `fetch`, `XMLHttpRequest`, images and fonts from outside are blocked. Use
    `knovas.read`; to send a person to another site, use `knovas.open`. Never navigate the view itself
-   (`location`, a link or form into its own frame): that is blocked, and a browser may replace the whole view with
-   its "blocked" page until the page is reloaded.
+   (for example setting `location`): a navigation of the view itself is blocked, and a browser may replace the whole
+   view with its "blocked" page until the page is reloaded. A form post from the view is dropped by the sandbox and
+   does not replace the view.
 6. A view must work with an empty answer and with an answer that says it is incomplete (section 6).
 
 ### Four JavaScript constructs that the Platform rewrites
@@ -261,7 +262,8 @@ the check and remove it afterwards.
   navigation. Judge it from the page, not from the probe: the address bar stays on `/custom-views/…`, nothing is
   sent to `example.com`, and the other views open as before. Chromium browsers (Edge 157 tried) then replace the
   frame's document with their own "blocked" page, so the probe's lines are gone; the view is back after a reload.
-  The same holds for any view: a view that navigates itself (`location`, a link into its own frame) ends itself.
+  The same holds for any view: a navigation of the view itself (for example setting `location`) is blocked, and a browser may replace the whole
+  view with its blocked page; a form post from the view is dropped by the sandbox and does not replace the view.
 
 ## 11. Patterns that work
 

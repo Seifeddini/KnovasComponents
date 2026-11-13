@@ -1,7 +1,7 @@
 # Custom views: browser evidence (SS-628; FEAT-2026-11-13-custom-views)
 
 Plan Task 12, step 1: the probe view of Task 11 run in a Chromium browser against a local development server, plus
-the five checks the reviews added. Steps 2 and 3 (the other browsers, the founder's decision on failures) are open;
+the six checks the reviews added. Steps 2 and 3 (the other browsers, the founder's decision on failures) are open;
 the checklist for them is at the end.
 
 ## Summary
@@ -11,8 +11,8 @@ the checklist for them is at the end.
 | Date | 2026-11-13, run 1 14:04–14:26 (original probe), run 2 14:34–14:36 (probe fixed after the controller's rulings) (Europe/Zurich) |
 | Browser | **Microsoft Edge 157.0.4341.46** (Chromium 157; user agent `… Chrome/157.0.0.0 Safari/537.36 Edg/157.0.0.0`), Windows 11 Pro 10.0.26300, the founder's everyday profile with its extensions, driven by the Claude in Chrome extension. Google Chrome 157.0.8103.51 is installed on the machine but was not running and was **not** tested. |
 | Server | `create_app().run(host="127.0.0.1", port=5077)` from branch `feat/custom-views` (head `0397e1d`), accounts on (own PostgreSQL container), `ONTOLOGY_SOURCE=graph`, the Knovas tenant's Brain over mTLS (read only). |
-| Probe | `tests/fixtures/custom_views/probe/` unchanged (fixture run), and a **diagnostic variant** (`probe-diag`, outside the repository, described below) to read the lines the fixture run cannot show. Both were in the views folder for this run only and were removed afterwards. |
-| Result, run 1 | 13 of the 15 probe lines PASS, **2 FAIL**: `location.href` replaces the view with the browser's "blocked" page (F-1); the probe's form-post line reports FAIL although the post is blocked (F-2). All five review checks PASS. |
+| Probe | Run 1 only (run 2 uses the fixed probe): `tests/fixtures/custom_views/probe/` unchanged (fixture run), and a **diagnostic variant** (`probe-diag`, outside the repository and not committed, described below) to read the lines the fixture run cannot show. Both were in the views folder for this run only and were removed afterwards. |
+| Result, run 1 | 13 of the 15 probe lines PASS, **2 FAIL**: `location.href` replaces the view with the browser's "blocked" page (F-1); the probe's form-post line reports FAIL although the post is blocked (F-2). All six review checks PASS (check 6 by code reading, see its row). |
 | Result, run 2 | With the fixed probe (section "Run 2" below): all 11 unattended lines PASS (`PROBE DONE 11/12`), the allowed-link click makes it `12/12`, and the navigation probe, run last and judged from the page, is **blocked** as expected. |
 
 ## Run 1: why a diagnostic variant
@@ -64,6 +64,7 @@ The variant `probe-diag` is the fixture with these changes only (kept for the fo
 | 3 | `window.open` from the bridge's `open` after a click is not popup-blocked for an allowed host and is refused for others | PASS | lines 13 and 12 |
 | 4 | Opening `/api/custom-views/probe/document` directly shows JSON / is refused and runs nothing | PASS | line 15 |
 | 5 | A `postMessage` from another tab/window to the frame is ignored | PASS | A second same-origin window (opened from the page by a click) posted `{type: "knovas.port"}` with a fresh `MessagePort` to the view's frame, as fast as it could, from before the view was reloaded until 5 s after: 4,000 messages. The view counted **35 arriving before its real port and 3,898 after**; it took the parent's port, every read answered, and the second window's 4,000 ports received **0** messages (screenshot 08). A slower first run (25 messages, all after the port) gave the same. |
+| 6 | `frame-src` is never relaxed to network origins; the port is posted with target `"*"` only to the `srcdoc` frame | PASS (code reading) | **A code-reading check, not a separate browser observation.** `KnovasPlatform/components/docbridge_integration/src/web_interface/custom_views_routes.py` line 38 (inside `PAGE_HEADERS`, which starts at line 36) is the constant `Content-Security-Policy: frame-ancestors 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'`; no network origin appears in it. `src/web_interface/static/js/custom_views.js` line 494 posts the port with `frame.contentWindow.postMessage({type: 'knovas.port'}, '*', [channel.port2])`, and line 496 (`frame.srcdoc = documentAnswer.html`) shows that frame is a `srcdoc` frame. The browser observation behind it is check 2: the view loaded and worked under `frame-src 'none'`. |
 
 ## Findings for the controller
 
@@ -73,11 +74,12 @@ The variant `probe-diag` is the fixture with these changes only (kept for the fo
   until it is reloaded. Consequences: the fixture probe never reaches `PROBE DONE` in Chromium, so
   `KnovasPlatform/docs/custom-views.md` § 10 ("an unattended run ends with `PROBE DONE 11/12`") does not hold there.
   Reproduce: put the probe fixture into the views folder, open «Eigene Ansichten» → «Prüfansicht»; or use
-  `probe-diag` and click "Change location". Not changed here (no product or test code changes in this task).
+  `probe-diag` and click "Change location". Not changed in run 1 (no product or test code changes in this task); see the rulings and run 2 below.
 - **F-2 (line 9).** The probe's form-post check counts `securitypolicyviolation` events. In Chromium the frame's
   sandbox blocks the submission first, so no event fires and the line reads FAIL while the post is blocked. The check
   needs another signal (for example: the frame is still there and the view's script still runs afterwards).
   Reproduce: the probe's own line, or `probe-diag` (the violation list has no `form-action`).
+  Not changed in run 1; see the rulings and run 2 below.
 - **F-3 (browser).** The automated browser was Edge, not Google Chrome. Chrome, Firefox and Safari are still open
   (checklist below).
 - **F-4 (not a browser line; seen while running the views).** On this tenant (19,974 nodes, 25,006 edges; the edge
@@ -169,8 +171,9 @@ cannot be run here.
 
 Before: start the demo (`E:\Knovas\knovas-custom-views\README.txt`), then copy into `E:\Knovas\knovas-custom-views\`
 the folder `KnovasPlatform\components\docbridge_integration\tests\fixtures\custom_views\probe` (as `probe`), and for
-the optional step 5 also `E:\Knovas\knovas-custom-views\_harness\probe-diag` (as `probe-diag`; it still has the old
-form check, so ignore its form line). Wait 30 s. Sign in as `admin@demo.local`. Open the browser's developer tools,
+the optional step 5 also `E:\Knovas\knovas-custom-views\_harness\probe-diag` (as `probe-diag`). That variant lives
+outside the repository, on the founder's machine, and is not committed; the committed probe is
+`tests/fixtures/custom_views/probe/`. It still has the old form check, so ignore its form line). Wait 30 s. Sign in as `admin@demo.local`. Open the browser's developer tools,
 tab Network, to see requests to `example.com` (there must be none, except the tab of step 2).
 
 For each browser, write down the version (Chrome: `chrome://version`; Firefox: Menu → Help → About Firefox) and then:
