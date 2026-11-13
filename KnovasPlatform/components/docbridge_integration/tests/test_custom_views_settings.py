@@ -24,7 +24,7 @@ def _clean_env(monkeypatch):
 def _config(tmp_path, text=_BLOCK):
     path = tmp_path / "config.yaml"
     path.write_text(text, encoding="utf-8")
-    return config_loader.set_config(str(path))
+    return config_loader.ConfigLoader(str(path))
 
 
 def test_the_switch_is_off_by_default(tmp_path):
