@@ -34,7 +34,7 @@ What the frame and the bridge do guarantee, whatever the view contains:
 
 ## 2. The switch and the folder
 
-Both settings are read from `config.yaml` or the environment only. They are not on the settings page.
+These settings are read from `config.yaml` or the environment only. They are not on the settings page.
 
 | Setting | Environment | Default |
 | --- | --- | --- |
@@ -52,7 +52,28 @@ With Docker Compose (`docker-compose.yml`, service `docbridge-web`) the containe
 ```bash
 CUSTOM_VIEWS_ENABLED=true
 CUSTOM_VIEWS_PATH=/srv/knovas/custom-views     # the folder on the host; one sub-folder per view
+CUSTOM_VIEWS_FACTS_PER_MINUTE=60               # optional
 ```
+
+Then run `scripts/setup.sh` and restart the Platform (`docker compose --env-file knovas.env up -d docbridge-web`).
+How the values reach the container:
+
+- `scripts/setup.sh` runs `scripts/lib/expand_knovas_env.sh`, which writes every key of `knovas.env` that it does not
+  interpret itself (the list `CONSUMED_KEYS`, `expand_knovas_env.sh:156`) and that does not start with `RC_` into
+  `KnovasPlatform/.env.generated` (`passthrough_overrides`, `expand_knovas_env.sh:167` and `:285`). The `docbridge-web`
+  service loads that file through `env_file`. So `CUSTOM_VIEWS_ENABLED` and `CUSTOM_VIEWS_FACTS_PER_MINUTE` arrive
+  with no further step. (`CUSTOM_VIEWS_PATH` is copied too; the container never reads it.)
+  `.env.generated` is rewritten on every `setup.sh`: never edit it by hand.
+- `CUSTOM_VIEWS_FACTS_PER_MINUTE` reaches the container only this way: `docker-compose.yml` does not name it.
+- `CUSTOM_VIEWS_ENABLED` and `CUSTOM_VIEWS_DIR` are also named in the `environment:` block of `docbridge-web`, and
+  `environment:` wins over `env_file`. The switch there is `${CUSTOM_VIEWS_ENABLED:-false}`, which compose fills from
+  its own environment: the shell, or `--env-file knovas.env`. The one place to set the switch is therefore
+  `knovas.env`, and the Platform must be started with `docker compose --env-file knovas.env ...` (as every command in
+  this documentation does). Started without `--env-file`, compose does not see `knovas.env`, uses `false`, and
+  that overrides the value in `.env.generated`: the feature stays off. That fails in the safe direction, but it can
+  puzzle you; if the menu entry is missing, check this first.
+- `CUSTOM_VIEWS_PATH` is used only by compose, for the mount, so it too needs `--env-file knovas.env`; without it
+  the stand-in folder below is mounted and there are no views.
 
 If `CUSTOM_VIEWS_PATH` is not set, compose mounts `./data/no-custom-views`. The repository does not create it: Docker
 makes an empty folder there on the first start (owned by root). Inside the container it is read-only and empty, so
@@ -133,9 +154,10 @@ element early, it rewrites four constructs. Avoid them if you can; if you need t
 
 Ordinary strings, ordinary templates and normal regular expressions are not affected.
 
-## 5. The three bridge calls
+## 5. The bridge calls
 
-The Platform provides one object, `window.knovas`, before your script runs. It is frozen.
+The Platform provides one object, `window.knovas`, before your script runs. It is frozen. It has three calls, `read`,
+`open` and `resize`, and one helper, `ready`.
 
 - `knovas.read(query)` returns a promise of the answer (section 6). It rejects with an `Error` whose message is
   German text from the Platform and whose `status` is the HTTP status (for example 403 when the query leaves the
@@ -224,7 +246,9 @@ was complete and the outcome. Reads that are refused (outside the manifest, `for
 5. Check that the view still works with an empty answer, and read the audit entries (section 9) after a test read.
 
 A neutral view for checking the frame in a browser, `tests/fixtures/custom_views/probe/`, ships with the tests, not
-with the product; it runs the browser probes and prints `PASS` or `FAIL` per probe.
+with the product; it runs the browser probes and prints `PASS` or `FAIL` per probe. One probe (opening an allowed link
+in a new tab) needs a click on its button, so an unattended run ends with `PROBE DONE 11/12`; after the click it
+reads `12/12`.
 
 ## 11. Patterns that work
 
