@@ -8,7 +8,7 @@ person may open no valid view (an administrator: while no view folder exists at
 all, ``may_enter``), every route answers the same 404; a view the person may
 not open answers the 404 of a view that does not exist.
 
-Plan: docs/superpowers/plans/2026-11-13-custom-views.md (Task 9; SS-626, SS-627)
+Plan: docs/superpowers/plans/2026-11-13-custom-views.md (Task 9)
 """
 from __future__ import annotations
 

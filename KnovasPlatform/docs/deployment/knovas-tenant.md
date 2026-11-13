@@ -360,6 +360,8 @@ First sign-in:
 
 `./scripts/doctor.sh` checks the certificate and whether the tenant's Knowledge Graph answers.
 
+**Custom views (Eigene Ansichten)** stay off here: `CUSTOM_VIEWS_ENABLED` is `false` unless `knovas.env` sets it. View files are trusted code, so switch it on only for folders whose files you wrote or reviewed yourself. The switch, the folder (`CUSTOM_VIEWS_PATH`), the manifest, the limits and the checks are in [custom-views.md](../custom-views.md).
+
 ## 2. The views and their addresses
 
 Base address: `http://127.0.0.1:8081` with the compose default (`DOCBRIDGE_WEB_PORT`), or `https://<fqdn>` behind host nginx ([host-nginx-internal.md](host-nginx-internal.md)). The Cortex page (`/ontology`) links to `/views` ("Ansichten").

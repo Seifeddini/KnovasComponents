@@ -1,0 +1,8 @@
+.probe { font-family: sans-serif; padding: 8px; }
+.probe-title { font-size: 16px; margin: 0 0 8px; }
+.probe-results { list-style: none; margin: 0 0 8px; padding: 0; font-size: 13px; }
+.probe-pass { color: #0a6b2d; }
+.probe-fail { color: #b00020; font-weight: bold; }
+.probe-pending { color: #555; }
+.probe-target { display: block; }
+.probe-button { font-size: 13px; }

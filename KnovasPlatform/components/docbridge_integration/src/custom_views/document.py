@@ -1,6 +1,6 @@
 """The document of a custom view: one HTML page per request, shown in a sandboxed ``srcdoc`` iframe.
 
-Two lines of defence against script that arrives inside data (a Jira title, say) or inside a view's files:
+Two lines of defence against script that arrives inside data (a title from a connected source, say) or inside a view's files:
 the policy, a Content-Security-Policy meta tag that lets only this build's nonce'd scripts and styles run, and
 the entry check (``check_entry_markup``), which the registry applies to every view it scans, so an entry with
 script, outside addresses, event or style attributes makes the view invalid.

@@ -142,6 +142,10 @@ services:
       RC_OCR_ENGINE: ${RC_OCR_ENGINE:-}
       RC_OCR_DPI: ${RC_OCR_DPI:-}
       RC_TESSERACT_LANG: ${RC_TESSERACT_LANG:-}
+      # Eigene Ansichten: off unless set to true (KnovasPlatform/docs/custom-views.md). View files are trusted
+      # code; do not switch it on at a client installation until an administrator approves them.
+      CUSTOM_VIEWS_ENABLED: ${CUSTOM_VIEWS_ENABLED:-false}
+      CUSTOM_VIEWS_DIR: /mnt/custom-views
     secrets:
       - platform_db_password
     depends_on:
@@ -159,6 +163,9 @@ services:
       # repo: recreating the container without it silently rotates the key.
       - docbridge_broker_key:/app/secrets/broker
       - ${KNOVAS_DOCUMENTS_PATH:-${KNOVAS_DOCUMENTS_URL:+./data/no-local-documents}}:/mnt/autodoc:ro
+      # The folder of custom views, read-only. Not created here: when CUSTOM_VIEWS_PATH is unset, Docker makes an
+      # empty ./data/no-custom-views on first start (empty, read-only inside, so no views).
+      - ${CUSTOM_VIEWS_PATH:-./data/no-custom-views}:/mnt/custom-views:ro
       - ./certs:/app/certs:ro
       - rc-state:/var/rc-state:ro
       # The profile compiler validates against these schemas. The image also

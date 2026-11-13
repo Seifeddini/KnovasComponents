@@ -310,7 +310,7 @@ class Registry:
         # Checks on a loaded view's content go here; each raises ManifestError, which makes the view invalid.
         from custom_views.document import check_view  # imported here so the hook stays in this one place
 
-        check_view(view)  # every text file UTF-8, the entry markup safe (SS-626)
+        check_view(view)  # every text file UTF-8, the entry markup safe
         return view
 
     def _log_changes(self, old: Optional[_Scan], new: _Scan) -> None:
