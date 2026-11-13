@@ -29,6 +29,8 @@ _FILE_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,79}")
 
 _FOLDER = "Ordner für eigene Ansichten"
 _WINDOWS = os.name == "nt"
+# On Windows os.access reports every folder as writable, so the check would refuse every folder there.
+_CAN_CHECK_WRITE = not _WINDOWS
 # O_NOFOLLOW and O_NONBLOCK do not exist on Windows; there _redirected() stands in for O_NOFOLLOW.
 _OPEN_FLAGS = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
 # On POSIX the file is opened relative to its folder's descriptor, so a folder swapped for a link in between
@@ -96,7 +98,7 @@ def _confined(folder: str, name: str) -> Optional[str]:
 
 
 def folder_refusal(path: str, documents_root: Optional[str]) -> Optional[str]:
-    """Why the views folder must not be used, or None when it may."""
+    """Why the views folder must not be used, or None when it may (on Windows its writability is not checked)."""
     if not path:
         return f"{_FOLDER} fehlt."
     path = os.path.abspath(path)  # also drops a trailing separator, which would make lstat follow a link
@@ -115,7 +117,7 @@ def folder_refusal(path: str, documents_root: Optional[str]) -> Optional[str]:
             return f"{_FOLDER} liegt im Dokumentenordner."
         if _within(documents, folder):
             return f"{_FOLDER} enthält den Dokumentenordner."
-    if os.access(path, os.W_OK):
+    if _CAN_CHECK_WRITE and os.access(path, os.W_OK):
         return f"{_FOLDER} ist für die Plattform beschreibbar."
     return None
 
@@ -211,6 +213,7 @@ class Registry:
         self._log = log
         self._lock = threading.Lock()
         self._state: Optional[Tuple[_Scan, float]] = None  # (last complete scan, when it started)
+        self._said_write_unchecked = False
 
     def views(self) -> List[View]:
         return list(self._current().views)
@@ -254,6 +257,10 @@ class Registry:
         refusal = folder_refusal(settings.dir, self._documents_root)
         if refusal is not None:
             return _Scan(refusal=refusal)
+        if not _CAN_CHECK_WRITE and not self._said_write_unchecked:
+            self._said_write_unchecked = True  # under the scan lock
+            self._log.warning("custom_views: the views folder's write protection cannot be checked on Windows; "
+                              "make sure the Platform cannot write it")
         try:
             with os.scandir(settings.dir) as entries:
                 candidates = sorted(

@@ -344,6 +344,7 @@ def test_a_reader_during_a_rescan_gets_the_last_complete_scan(root, monkeypatch)
 
 
 def test_folder_refusal_inside_documents_and_writable(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "_CAN_CHECK_WRITE", True)  # the POSIX path, on any OS
     documents = tmp_path / "documents"
     inside = documents / "views"
     inside.mkdir(parents=True)
@@ -390,3 +391,40 @@ def test_an_unsafe_or_undecodable_view_is_invalid(root):
         Invalid("c-latin1", "Datei „index.html“ ist nicht UTF-8-kodiert."),
         Invalid("d-script-latin1", "Datei „app.js“ ist nicht UTF-8-kodiert."),
     ]
+
+
+def test_on_windows_the_write_protection_is_not_checked_and_the_log_says_so_once(tmp_path, monkeypatch, caplog):
+    """os.access says every folder is writable on Windows; the check would refuse every development folder."""
+    caplog.set_level(logging.INFO, logger="custom_views.registry")
+    monkeypatch.setattr(registry, "_CAN_CHECK_WRITE", False)  # the Windows path, on any OS
+    monkeypatch.setattr(os, "access", lambda path, mode, *a, **k: True)
+    folder = tmp_path / "views"
+    folder.mkdir()
+    make_view(folder, "valid")
+
+    assert folder_refusal(str(folder), None) is None
+    # Every other refusal still holds.
+    documents = tmp_path / "documents"
+    (documents / "inner").mkdir(parents=True)
+    (tmp_path / "a-file").write_text("x", encoding="utf-8")
+    assert folder_refusal(str(tmp_path / "missing"), None) == "Ordner für eigene Ansichten fehlt."
+    assert folder_refusal(str(tmp_path / "a-file"), None) == "Ordner für eigene Ansichten ist kein Ordner."
+    assert folder_refusal(str(documents / "inner"), str(documents)) == "Ordner für eigene Ansichten liegt im Dokumentenordner."
+    assert folder_refusal(str(tmp_path), str(documents)) == "Ordner für eigene Ansichten enthält den Dokumentenordner."
+
+    clock = Clock()
+    reg = Registry(settings(folder), clock=clock)
+    assert ids(reg.views()) == ["valid"]
+    assert reg.refusal() is None
+    clock.now = 30.0
+    assert ids(reg.views()) == ["valid"]  # a second scan
+
+    def warnings():
+        return [r for r in caplog.records if r.levelno == logging.WARNING and "write protection" in r.getMessage()]
+
+    assert [r.getMessage() for r in warnings()] == [
+        "custom_views: the views folder's write protection cannot be checked on Windows; "
+        "make sure the Platform cannot write it"
+    ]
+    Registry(settings(folder)).views()
+    assert len(warnings()) == 2  # once per Registry
