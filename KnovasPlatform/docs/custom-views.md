@@ -137,7 +137,9 @@ Put scripts and styles in their own files.
 4. **No `href="#..."` anchors.** The view runs in a `srcdoc` frame, which resolves `#name` against the address of the
    Platform page, so the click leaves the frame's page instead of scrolling. Use a button and `scrollIntoView`.
 5. **No network from the view.** `fetch`, `XMLHttpRequest`, images and fonts from outside are blocked. Use
-   `knovas.read`; to send a person to another site, use `knovas.open`.
+   `knovas.read`; to send a person to another site, use `knovas.open`. Never navigate the view itself
+   (`location`, a link or form into its own frame): that is blocked, and a browser may replace the whole view with
+   its "blocked" page until the page is reloaded.
 6. A view must work with an empty answer and with an answer that says it is incomplete (section 6).
 
 ### Four JavaScript constructs that the Platform rewrites
@@ -246,9 +248,20 @@ was complete and the outcome. Reads that are refused (outside the manifest, `for
 5. Check that the view still works with an empty answer, and read the audit entries (section 9) after a test read.
 
 A neutral view for checking the frame in a browser, `tests/fixtures/custom_views/probe/`, ships with the tests, not
-with the product; it runs the browser probes and prints `PASS` or `FAIL` per probe. One probe (opening an allowed link
-in a new tab) needs a click on its button, so an unattended run ends with `PROBE DONE 11/12`; after the click it
-reads `12/12`.
+with the product; it runs the browser probes and prints `PASS` or `FAIL` per probe. Put it into the folder only for
+the check and remove it afterwards.
+
+- An unattended run prints eleven lines and ends with `PROBE DONE 11/12`. The form-post line passes when the
+  document is still there after the submission (the frame's sandbox drops it; a post that went out would have
+  navigated the frame); check in the browser's network log that no request went to `example.com`.
+- **Open the allowed link** opens `https://example.com/` in a new tab (not blocked as a pop-up); the line turns
+  `PASS` and the count reads `12/12`.
+- **Last: leave the frame** is enabled only after `PROBE DONE`; click it last. The view then sets its own address
+  to `https://example.com/`. This is blocked by design: the page's policy (`frame-src 'none'`) allows the frame no
+  navigation. Judge it from the page, not from the probe: the address bar stays on `/custom-views/…`, nothing is
+  sent to `example.com`, and the other views open as before. Chromium browsers (Edge 157 tried) then replace the
+  frame's document with their own "blocked" page, so the probe's lines are gone; the view is back after a reload.
+  The same holds for any view: a view that navigates itself (`location`, a link into its own frame) ends itself.
 
 ## 11. Patterns that work
 

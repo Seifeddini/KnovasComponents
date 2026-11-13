@@ -8,13 +8,14 @@ the checklist for them is at the end.
 
 | | |
 | --- | --- |
-| Date | 2026-11-13, 14:04–14:26 (Europe/Zurich) |
+| Date | 2026-11-13, run 1 14:04–14:26 (original probe), run 2 14:34–14:36 (probe fixed after the controller's rulings) (Europe/Zurich) |
 | Browser | **Microsoft Edge 157.0.4341.46** (Chromium 157; user agent `… Chrome/157.0.0.0 Safari/537.36 Edg/157.0.0.0`), Windows 11 Pro 10.0.26300, the founder's everyday profile with its extensions, driven by the Claude in Chrome extension. Google Chrome 157.0.8103.51 is installed on the machine but was not running and was **not** tested. |
 | Server | `create_app().run(host="127.0.0.1", port=5077)` from branch `feat/custom-views` (head `0397e1d`), accounts on (own PostgreSQL container), `ONTOLOGY_SOURCE=graph`, the Knovas tenant's Brain over mTLS (read only). |
 | Probe | `tests/fixtures/custom_views/probe/` unchanged (fixture run), and a **diagnostic variant** (`probe-diag`, outside the repository, described below) to read the lines the fixture run cannot show. Both were in the views folder for this run only and were removed afterwards. |
-| Result | 13 of the 15 probe lines PASS, **2 FAIL**: `location.href` replaces the view with the browser's "blocked" page (F-1); the probe's form-post line reports FAIL although the post is blocked (F-2). All five review checks PASS. |
+| Result, run 1 | 13 of the 15 probe lines PASS, **2 FAIL**: `location.href` replaces the view with the browser's "blocked" page (F-1); the probe's form-post line reports FAIL although the post is blocked (F-2). All five review checks PASS. |
+| Result, run 2 | With the fixed probe (section "Run 2" below): all 11 unattended lines PASS (`PROBE DONE 11/12`), the allowed-link click makes it `12/12`, and the navigation probe, run last and judged from the page, is **blocked** as expected. |
 
-## Why a diagnostic variant
+## Run 1: why a diagnostic variant
 
 In the fixture run the probe's last probe sets `window.location.href = "https://example.com/"`. Edge refuses that
 navigation (the page's `frame-src 'none'`) and **replaces the frame's document with its "blocked content" page**
@@ -32,9 +33,9 @@ The variant `probe-diag` is the fixture with these changes only (kept for the fo
 - two `DIAG` lines after 6 s: the `{type: "knovas.port"}` window messages the view received (from the parent; from
   other windows before and after its port arrived), and every `securitypolicyviolation` (directive, blocked address).
 
-## The probe lines
+## Run 1: the probe lines
 
-"diag" = observed in the diagnostic variant; "fixture" = observed in the fixture run.
+"diag" = observed in the diagnostic variant; "fixture" = observed in the fixture run (the probe as it was then).
 
 | # | Line (Task 12 brief / probe text) | Result | How it was observed |
 | --- | --- | --- | --- |
@@ -94,6 +95,46 @@ Other observations: the probe asks for `knovas.resize` before it writes its line
 minimum and scrolls (a property of the probe, not of the Platform). The browser's extensions (a password manager and
 the automation extension) were active; none of the results depends on them.
 
+## Rulings (controller, fix round 1)
+
+- **F-1:** the product behaviour is accepted. A view that navigates itself is blocked by `frame-src 'none'`; nothing
+  leaves, the page stays, the view only ends itself. The probe was changed instead: the navigation probe runs last,
+  after every other line and `PROBE DONE`, and its expected outcome is **blocked (the frame shows the browser's blocked
+  page; the Platform page and other views are unaffected)**, judged from the page and recorded here, not by the probe.
+- **F-2:** the form-post probe now observes what the sandbox does (the document is still there after `form.submit()`,
+  which threw or did nothing; no request in the network log) instead of waiting for a CSP event.
+- **F-4:** the product default stays; the server's existing setting is raised (the founder's step); the demo keeps
+  `VIEWS_EDGE_BUDGET_SECONDS=10`.
+- **F-5:** recorded for the founder (existing Platform behaviour, tied to the RBAC work); no change.
+
+## Run 2: the fixed probe
+
+Same browser (Edge 157.0.4341.46), same server setup, 14:34–14:36. The fixture as committed with this report
+(`probe.js` sha256 starts `8871263a9d9c`, `index.html` `a5d24571069f`) was copied into the views folder for the run
+and removed afterwards. The `_top` link is now its own line in the chain; the self-navigation sits on a last button,
+"Last: leave the frame (ends this view)", which the entry ships disabled and the probe enables after `PROBE DONE`.
+The probe also resizes its frame once `PROBE DONE` is written, so every line is visible.
+
+| Line | Result | How it was observed |
+| --- | --- | --- |
+| read returns nodes of the one type | PASS | probe line; `POST /api/custom-views/probe/read 200` |
+| `document.cookie` is empty | PASS | probe line |
+| fetch of the Platform API rejects | PASS | probe line; no request from the frame in the server log |
+| fetch of an outside address rejects | PASS | probe line |
+| image from an outside address errors | PASS | probe line; no `example.com` request in the tab's network log |
+| `window.open` returns null | PASS | probe line |
+| form post is blocked | PASS | probe line "(submit did nothing; …)": the document was still there after 1.5 s; no `example.com` request in the network log |
+| markup string with script and style does not run or apply | PASS | probe line "(refused by Trusted Types)" |
+| a self-posted port is ignored | PASS | probe line; the second `POST …/read 200` |
+| open of a host the manifest does not name is refused | PASS | probe line |
+| link with target `_top` leaves the page and the frame unchanged | PASS | probe line; the address bar stayed on `/custom-views/probe` |
+| unattended run | `PROBE DONE 11/12` | screenshot 10; the last button became enabled |
+| open of an allowed host opens a tab (click) | PASS | a new tab `https://example.com/` opened (not blocked), closed again; `PROBE DONE 12/12` (screenshot 11) |
+| navigation probe (last button), expected **blocked** | **blocked, as expected** | judged from the page: the frame's document was replaced by Edge's blocked page (screenshot 12); the frame element fired exactly one more `load` (the browser's page) and is the same element; the address bar stayed `http://127.0.0.1:5077/custom-views/probe`; no `example.com` request in the network log. Then «Wetten» opened and read normally (`POST /api/custom-views/wetten/read 200`), and «Prüfansicht» opened again with all lines back. |
+
+The review checks are unchanged by the fix (run 1). Tests: `tests/test_custom_views_probe.py` and
+`tests/test_custom_views_generic.py`, 23 passed on Python 3.13.5 and on 3.11.15 (`python:3.11-slim`).
+
 ## Screenshots
 
 Data-free, in `docs/superpowers/reports/2026-11-custom-views-evidence/` (04–07 were taken with the variant before
@@ -110,6 +151,9 @@ its two `DIAG` lines were added; its probes were the same):
 | `07-probe-diag-location-change-frame-replaced.jpg` | diag: after "Change location", the frame shows the blocked page |
 | `08-probe-diag-foreign-window-ports-ignored.jpg` | diag: 35 foreign ports before, 3,898 after the real one |
 | `09-probe-diag-csp-violations.jpg` | diag: the CSP violations seen |
+| `10-fixed-probe-unattended-11-of-12.jpg` | run 2: every line PASS, `PROBE DONE 11/12`, the last button enabled |
+| `11-fixed-probe-after-allowed-open-12-of-12.jpg` | run 2: after the allowed-link click, `12/12` |
+| `12-fixed-probe-navigation-blocked.jpg` | run 2: after the last button, the frame shows Edge's blocked page; the page is unchanged |
 
 With Brain data, kept outside the repository in `E:\Knovas\knovas-custom-views\_harness\` (named only):
 `browser-evidence-2026-11-13-ziele.jpg`, `browser-evidence-2026-11-13-ziele-goals.jpg`,
@@ -124,27 +168,24 @@ Edge 157 is done (above). Repeat in **Google Chrome** and **Firefox** on this ma
 cannot be run here.
 
 Before: start the demo (`E:\Knovas\knovas-custom-views\README.txt`), then copy into `E:\Knovas\knovas-custom-views\`
-the folder `KnovasPlatform\components\docbridge_integration\tests\fixtures\custom_views\probe` (as `probe`) and
-`E:\Knovas\knovas-custom-views\_harness\probe-diag` (as `probe-diag`). Wait 30 s. Sign in as `admin@demo.local`.
+the folder `KnovasPlatform\components\docbridge_integration\tests\fixtures\custom_views\probe` (as `probe`), and for
+the optional step 5 also `E:\Knovas\knovas-custom-views\_harness\probe-diag` (as `probe-diag`; it still has the old
+form check, so ignore its form line). Wait 30 s. Sign in as `admin@demo.local`. Open the browser's developer tools,
+tab Network, to see requests to `example.com` (there must be none, except the tab of step 2).
 
 For each browser, write down the version (Chrome: `chrome://version`; Firefox: Menu → Help → About Firefox) and then:
 
-1. «Eigene Ansichten» → «Prüfansicht». After 5 s: does the frame show the probe's lines with `PROBE DONE 11/12`, or
-   the browser's blocked page (Edge: blocked page, F-1)?
-2. «Prüfansicht (Diagnose)». After 8 s, scroll inside the frame and note each line. Expected: PASS for read, cookie,
-   both fetches, image, `window.open`, markup string (Firefox may say "inert" instead of "refused by Trusted Types";
-   both are PASS), self-posted port, refused open, link `_top`; form post: note PASS or FAIL (Edge: FAIL, F-2); the
-   `DIAG` lines: "from the parent 1" and a violation list with `connect-src` twice, `img-src`, and in a browser with
-   Trusted Types `require-trusted-types-for`.
-3. Click "Open the allowed link": a tab with `https://example.com/` must open (not a popup-blocked notice); the line
-   turns PASS. Close that tab.
-4. Click "Open a not-allowed link": no tab; the line reads PASS with «Dieser Link ist für diese Ansicht nicht
-   freigegeben.»
-5. Click "Change location": note what the frame shows (Edge: blocked page). The address bar must stay on
-   `/custom-views/…`.
-6. Open `http://127.0.0.1:5077/api/custom-views/probe/document` in the address bar: a JSON line
+1. «Eigene Ansichten» → «Prüfansicht». After 5 s the frame shows eleven lines and `PROBE DONE 11/12`. Expected: all
+   PASS (Firefox may write "inert" instead of "refused by Trusted Types" on the markup line; both are PASS).
+2. Click "Open the allowed link": a tab with `https://example.com/` must open (no pop-up-blocked notice); the line
+   turns PASS and the count reads `12/12`. Close that tab.
+3. Click "Last: leave the frame (ends this view)". Expected: **blocked**. The address bar stays on
+   `/custom-views/probe`; no request to `example.com`; the frame shows the browser's blocked page (Edge) or something
+   else that is not `example.com` (note what). Then open «Wetten» (it must load) and «Prüfansicht» again (the lines
+   come back).
+4. Open `http://127.0.0.1:5077/api/custom-views/probe/document` in the address bar: a JSON line
    `{"error":"Diese Anfrage ist nicht erlaubt.","success":false}`, nothing else.
-7. Optional, the foreign-window check (developer tools, Console of the «Eigene Ansichten» tab, view «Prüfansicht
+5. Optional, the foreign-window check (developer tools, Console of the «Eigene Ansichten» tab, view «Prüfansicht
    (Diagnose)» open). Paste and run:
    ```js
    var w = window.open('', 'cv-attacker', 'popup,width=420,height=300');
@@ -154,7 +195,7 @@ For each browser, write down the version (Chrome: `chrome://version`; Firefox: M
    ```
    If the browser blocks the small window, allow pop-ups for `127.0.0.1:5077` for this test and run it again.
    After 10 s run `out` and close the small window (`w.close()`). Expected: `got: 0`, and the view's `DIAG` line shows
-   "from the parent 1" with a number of messages from other windows; every PASS line as in step 2.
-8. Remove `probe` and `probe-diag` from `E:\Knovas\knovas-custom-views\` again (only `ziele` and `wetten` stay).
+   "from the parent 1" with a number of messages from other windows; the read lines still PASS.
+6. Remove `probe` and `probe-diag` from `E:\Knovas\knovas-custom-views\` again (only `ziele` and `wetten` stay).
 
 Record per browser: version, each step PASS/FAIL with a note, in a new section of this report.

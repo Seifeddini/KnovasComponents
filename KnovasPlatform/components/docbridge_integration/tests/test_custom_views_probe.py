@@ -58,6 +58,29 @@ def test_the_probe_reads_one_type_and_one_fact_that_the_fixture_graph_has():
     assert facts[0] in {a["name"] for a in graph.schemas[graph.types[type_name]]}
 
 
+def test_the_self_navigation_runs_last_on_its_own_button():
+    """A view that navigates itself is blocked and may lose its document (browser evidence, F-1): the probe does it
+    only from a button that is disabled in the entry and enabled once "PROBE DONE" is written, never in the chain."""
+    script = (PROBE / "probe.js").read_text(encoding="utf-8")
+    entry = (PROBE / "index.html").read_text(encoding="utf-8")
+    assert re.search(r'id="probe-leave"[^>]*\sdisabled[\s>]', entry)
+    assert script.count("location.href") == 1
+    start = script.index("var probes = [")
+    chain = script[start:script.index("\n  ];", start)]
+    assert "location" not in chain
+    handler = script.index('getElementById("probe-leave").addEventListener')
+    assert handler < script.index("location.href")
+    enable = script.index('getElementById("probe-leave").disabled = false')
+    assert script.index('"PROBE DONE "') < enable
+
+
+def test_the_form_probe_judges_by_the_document_not_by_a_policy_event():
+    """The frame's sandbox drops the submission before any CSP check, so no violation event fires (F-2)."""
+    script = (PROBE / "probe.js").read_text(encoding="utf-8")
+    assert "securitypolicyviolation" not in script
+    assert "form.submit()" in script
+
+
 def test_the_probe_draws_with_textcontent():
     script = (PROBE / "probe.js").read_text(encoding="utf-8")
     assert len(re.findall(r"\.innerHTML\s*=", script)) == 1, "the one deliberate attack probe only"
