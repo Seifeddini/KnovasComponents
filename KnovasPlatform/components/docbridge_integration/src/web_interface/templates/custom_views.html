@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{{ brand }} Eigene Ansichten</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+</head>
+<body>
+    <div class="app-shell">
+        {% include '_sidebar.html' %}
+
+        <div class="app-content">
+        {# Platzhalter bis Task 10 (Auswahl, Rahmen, Bruecke). Alles aus einem
+           Manifest kommt hier durch Jinjas Autoescape, nie als Markup. #}
+        <div class="container" id="cvPage" data-view="{{ current_view or '' }}">
+            <header class="site-header">
+                <h1 class="site-greeting">Eigene Ansichten</h1>
+            </header>
+            <main>
+                <nav aria-label="Eigene Ansichten">
+                    <ul>
+                    {% for view in custom_views %}
+                        <li><a href="{{ url_for('custom_views.page', view_id=view.id) }}"
+                               {% if view.id == current_view %}aria-current="page"{% endif %}>{{ view.title }}</a></li>
+                    {% endfor %}
+                    </ul>
+                </nav>
+                {% if invalid_views %}
+                <section aria-labelledby="cvInvalidHeading">
+                    <h2 id="cvInvalidHeading">Ungültige Ansichten</h2>
+                    <ul>
+                    {% for item in invalid_views %}
+                        <li>{{ item.id }}: {{ item.reason }}</li>
+                    {% endfor %}
+                    </ul>
+                </section>
+                {% endif %}
+            </main>
+        </div>
+        </div>
+    </div>
+</body>
+</html>

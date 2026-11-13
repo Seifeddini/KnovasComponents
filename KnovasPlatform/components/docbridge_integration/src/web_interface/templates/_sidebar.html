@@ -1,11 +1,14 @@
 {# Plattform-Seitenleiste: eine Quelle fuer alle Module.
-   Erwartet: active_nav ('suche' | 'cortex' | 'experiments' | 'einstellungen'
-   | 'admin'), company_name, optional console_url (nur fuer Administratoren
-   gesetzt), optional experiments_nav (Experimente: Modul eingeschaltet und
-   die angemeldete Person hat eine Experimente-Rolle). Fehlt experiments_nav,
-   gibt es keinen Eintrag -- anders als Cortex ist das Modul standardmaessig
-   aus und fuer alle ohne Rolle unsichtbar. Optional builder_nav: die
-   angemeldete Person hat eine Builder-Rolle (bis Schritt B11: admin). #}
+   Erwartet: active_nav ('suche' | 'cortex' | 'experiments' | 'custom_views'
+   | 'einstellungen' | 'admin'), company_name, optional console_url (nur fuer
+   Administratoren gesetzt), optional experiments_nav (Experimente: Modul
+   eingeschaltet und die angemeldete Person hat eine Experimente-Rolle). Fehlt
+   experiments_nav, gibt es keinen Eintrag -- anders als Cortex ist das Modul
+   standardmaessig aus und fuer alle ohne Rolle unsichtbar. Optional
+   custom_views_nav (Eigene Ansichten): eingeschaltet, Benutzerkonten an,
+   Wissensnetz-Modus und mindestens eine gueltige Ansicht fuer diese Person;
+   sonst kein Eintrag. Optional builder_nav: die angemeldete Person hat eine
+   Builder-Rolle (bis Schritt B11: admin). #}
 <aside class="app-sidebar">
     <a class="app-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
         <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
@@ -48,6 +51,18 @@
                 <path d="M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3M7 15h10"/>
             </svg>
             Experimente
+        </a>
+        {% endif %}
+        {% if custom_views_nav is defined and custom_views_nav %}
+        <a href="{{ url_for('custom_views.page') }}" class="app-nav-item{% if active_nav == 'custom_views' %} active{% endif %}"
+           {% if active_nav == 'custom_views' %}aria-current="page"{% endif %}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            Eigene Ansichten
         </a>
         {% endif %}
         {% if builder_nav is defined and builder_nav %}
