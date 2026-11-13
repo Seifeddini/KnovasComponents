@@ -53,30 +53,39 @@ def test_defaults():
         None, None, None, {}, (), (), 200)
 
 
+S = "SENTINEL-ZQX"  # a value that must never appear in an error message
+
+
 @pytest.mark.parametrize(
     "body",
     [
-        [], "x", None, {}, {"type": ""}, {"type": 3}, {"type": "A", "bogus": 1},
-        {"type": "A", "ids": [str(i) for i in range(201)]},
-        {"type": "A", "ids": "1"}, {"type": "A", "ids": [1]},
+        [S], S, None, {}, {S: 1}, {"type": ""}, {"type": 3}, {"type": "A", S: 1},
+        {"type": "A", "ids": [S] * 201},
+        {"type": "A", "ids": []},
+        {"type": "A", "ids": S}, {"type": "A", "ids": [S, 1]},
         {"type": "A", "limit": 0}, {"type": "A", "limit": 201}, {"type": "A", "limit": True},
-        {"type": "A", "limit": "5"},
-        {"type": "A", "linked": {"to": ["1"], "relation": "r", "direction": "both"}},
+        {"type": "A", "limit": S},
+        {"type": "A", "linked": {"to": [S], "relation": "r", "direction": "both"}},
         {"type": "A", "linked": {"to": [], "relation": "r", "direction": "out"}},
-        {"type": "A", "linked": {"to": ["1"], "relation": "r"}},
-        {"type": "A", "linked": {"to": ["1"], "relation": "r", "direction": "out", "x": 1}},
-        {"type": "A", "where": {"f": [str(i) for i in range(21)]}},
-        {"type": "A", "where": {"f": 1}}, {"type": "A", "where": []},
-        {"type": "A", "facts": [str(i) for i in range(41)]},
-        {"type": "A", "links": [{"relation": "r", "direction": "out"}] * 11},
-        {"type": "A", "links": [{"relation": "r", "direction": "x"}]},
-        {"type": "A", "type2": 1}, {"type": "x" * 201},
+        {"type": "A", "linked": {"to": [S], "relation": "r"}},
+        {"type": "A", "linked": {"to": [S], "relation": "r", "direction": "out", S: 1}},
+        {"type": "A", "where": {"f": [S] * 21}},
+        {"type": "A", "where": {"f": []}},
+        {"type": "A", "where": {"f": 1}}, {"type": "A", "where": [S]},
+        {"type": "A", "facts": [S] * 41},
+        {"type": "A", "links": [{"relation": S, "direction": "out"}] * 11},
+        {"type": "A", "links": [{"relation": S, "direction": "x"}]},
+        {"type": "x" * 201 + S}, {"type": S, "ids": [""]},
     ],
 )
 def test_parse_refusals(body):
     with pytest.raises(QueryError) as exc:
         parse_query(body, max_nodes=200)
-    assert "bogus" not in str(exc.value)
+    assert S not in str(exc.value)
+
+
+def test_empty_where_object_means_no_filter():
+    assert dict(parse_query({"type": "A", "where": {}}, max_nodes=200).where) == {}
 
 
 def test_limit_bounds_use_max_nodes():

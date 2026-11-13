@@ -61,6 +61,12 @@ def _strings(value: Any, field: str, maximum: int) -> Tuple[str, ...]:
     return tuple(_string(item, field) for item in value)
 
 
+def _non_empty(value: Tuple[str, ...], field: str) -> Tuple[str, ...]:
+    if not value:
+        raise QueryError(f"Feld „{field}“ darf nicht leer sein.")
+    return value
+
+
 def _only_keys(value: Any, allowed: set, field: str) -> dict:
     if not isinstance(value, dict):
         raise QueryError(f"Feld „{field}“ muss ein Objekt sein.")
@@ -89,7 +95,7 @@ def parse_query(body: Any, *, max_nodes: int) -> Query:
         raise QueryError("Feld „type“ fehlt.")
     type_ = _string(body["type"], "type")
 
-    ids = _strings(body["ids"], "ids", MAX_IDS) if "ids" in body else None
+    ids = _non_empty(_strings(body["ids"], "ids", MAX_IDS), "ids") if "ids" in body else None
 
     linked_to: Optional[Tuple[str, ...]] = None
     linked: Optional[LinkSpec] = None
@@ -97,9 +103,7 @@ def parse_query(body: Any, *, max_nodes: int) -> Query:
         raw = _only_keys(body["linked"], _LINKED_KEYS, "linked")
         if not {"to", "relation", "direction"} <= set(raw):
             raise QueryError("Feld „linked“ braucht „to“, „relation“ und „direction“.")
-        linked_to = _strings(raw["to"], "linked.to", MAX_IDS)
-        if not linked_to:
-            raise QueryError("Feld „linked.to“ darf nicht leer sein.")
+        linked_to = _non_empty(_strings(raw["to"], "linked.to", MAX_IDS), "linked.to")
         linked = LinkSpec(_string(raw["relation"], "linked.relation"),
                           _direction(raw["direction"], "linked.direction"))
 
@@ -110,7 +114,7 @@ def parse_query(body: Any, *, max_nodes: int) -> Query:
         for fact, value in body["where"].items():
             name = _string(fact, "where")
             where[name] = (_string(value, "where"),) if isinstance(value, str) \
-                else _strings(value, "where", MAX_WHERE_VALUES)
+                else _non_empty(_strings(value, "where", MAX_WHERE_VALUES), "where")
 
     facts = _strings(body["facts"], "facts", MAX_FACTS) if "facts" in body else ()
 
