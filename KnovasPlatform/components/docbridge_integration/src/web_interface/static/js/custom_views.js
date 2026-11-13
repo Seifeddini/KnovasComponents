@@ -1,4 +1,4 @@
-// Eigene Ansichten: the picker and the bridge host (Task 10; SS-626).
+// Eigene Ansichten: the picker and the bridge host.
 //
 // A view runs in a sandboxed srcdoc iframe (scripts only, an opaque origin) cloned from the page's
 // <template id="cvFrameTemplate"> for every load and never reused. On the frame's load event the page posts it

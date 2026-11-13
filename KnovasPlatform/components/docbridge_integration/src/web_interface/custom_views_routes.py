@@ -173,6 +173,7 @@ def create_custom_views_blueprint(*, gate: Any, registry: Registry, settings: Cu
             **page_context(),
             custom_views=[{"id": v.manifest.id, "title": v.manifest.title.get("de", v.manifest.id)} for v in views],
             current_view=view_id,
+            is_admin=is_admin,
             invalid_views=[{"id": i.id, "reason": i.reason} for i in registry.invalid()] if is_admin else [],
         ))
         response.headers.update(PAGE_HEADERS)

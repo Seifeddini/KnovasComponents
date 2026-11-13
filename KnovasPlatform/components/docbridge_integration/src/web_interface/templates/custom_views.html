@@ -16,7 +16,7 @@
     {% set cv_selected = current_view or (custom_views[0].id if custom_views else '') %}
     {% set cv_title = custom_views | selectattr('id', 'equalto', cv_selected) | map(attribute='title') | first | default('') %}
     {% set cv_invalid = invalid_views | default([]) %}
-    {% set cv_admin = (is_admin is defined and is_admin) or cv_invalid %}
+    {% set cv_admin = is_admin | default(false) %}
     <div class="app-shell">
         {% include '_sidebar.html' %}
 
@@ -37,7 +37,7 @@
                     </ul>
                 </nav>
                 {% else %}
-                {# An administrator enters while no view is valid for them, to read why (spec P-1). #}
+                {# An administrator enters while no view is valid for them, to read why. #}
                 <p class="cv-hint">Es gibt keine gültige Ansicht, die Sie öffnen können.{% if cv_admin %}
                     Was fehlt, steht unter «Dateien und Prüfung».{% endif %}</p>
                 {% endif %}

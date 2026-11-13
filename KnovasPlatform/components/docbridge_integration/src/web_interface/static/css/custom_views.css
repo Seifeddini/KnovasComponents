@@ -1,4 +1,4 @@
-/* Eigene Ansichten: picker, administrator block, bar and the view's frame (Task 10; SS-626).
+/* Eigene Ansichten: picker, administrator block, bar and the view's frame.
    Only the Platform's tokens from style.css; no colour of its own. The frame fills the content width; its
    height comes from the view (knovas.resize), clamped by custom_views.js to 200..20000 px. */
 

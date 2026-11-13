@@ -16,9 +16,12 @@
     resolvePort = resolve;
   });
 
-  function failure(message, status) {
+  function failure(message, status, retryAfter) {
     var error = new Error(typeof message === "string" && message ? message : "Die Anfrage ist fehlgeschlagen.");
     error.status = typeof status === "number" ? status : 0;
+    if (typeof retryAfter === "number" && isFinite(retryAfter)) {
+      error.retryAfter = retryAfter; // seconds until a refused read may be tried again (a 429's retry_after)
+    }
     return error;
   }
 
@@ -32,7 +35,7 @@
     if (answer.ok === true) {
       waiting.resolve(answer.data);
     } else {
-      waiting.reject(failure(answer.error, answer.status));
+      waiting.reject(failure(answer.error, answer.status, answer.retry_after));
     }
   }
 

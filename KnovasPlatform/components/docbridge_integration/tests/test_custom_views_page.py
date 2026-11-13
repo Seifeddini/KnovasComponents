@@ -144,6 +144,26 @@ def test_the_admin_block_is_there_for_an_admin_only(make_app, folder, member, ad
     assert "cvAdminFiles" not in for_member and "kaputt" not in for_member
 
 
+@needs_db
+def test_an_admin_whose_views_are_all_valid_still_gets_the_block_and_a_member_never(make_app, folder, member,
+                                                                                   admin):
+    write_view(folder, "uebersicht")
+    write_view(folder, "zweite", order=2)
+    app = make_app()
+
+    for_admin = _signed_in(app, admin.email)
+    for_member = _signed_in(app, member.email)
+
+    for path in ("/custom-views", "/custom-views/zweite"):
+        admin_page = for_admin.get(path).data.decode("utf-8")
+        member_page = for_member.get(path).data.decode("utf-8")
+        assert 'id="cvAdmin"' in admin_page and "Dateien und Prüfung" in admin_page
+        assert 'id="cvAdminFiles"' in admin_page
+        assert "Alle Ansichten im Ordner sind gültig." in admin_page and "ungültig</span>" not in admin_page
+        assert 'id="cvAdmin"' not in member_page and "Dateien und Prüfung" not in member_page
+        assert "cvAdminFiles" not in member_page and "Alle Ansichten im Ordner" not in member_page
+
+
 # -- the files, as written ------------------------------------------------------------------
 
 

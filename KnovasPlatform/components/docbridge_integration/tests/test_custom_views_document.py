@@ -598,7 +598,7 @@ result.listenersBefore = listeners.length;
 function dispatch(source, data, ports) { for (const fn of listeners.slice()) fn({source, data, ports: ports || []}); }
 function settle(promise) {
   return promise.then((value) => ({ok: true, value: value === undefined ? "undefined" : value}),
-                      (error) => ({ok: false, message: error.message, status: error.status,
+                      (error) => ({ok: false, message: error.message, status: error.status, retryAfter: error.retryAfter,
                                    isError: Object.prototype.toString.call(error) === "[object Error]"}));
 }
 
@@ -623,11 +623,11 @@ function settle(promise) {
       page.postMessage("garbage");
       page.postMessage({id: m.id, ok: true, data: {rows: [1, 2]}});
     } else if (m.kind === "read") {
-      page.postMessage({id: m.id, ok: false, error: "Zu viele Abfragen.", status: 429});
+      page.postMessage({id: m.id, ok: false, error: "Zu viele Abfragen.", status: 429, retry_after: 7});
     } else if (m.kind === "open" && m.url === "#gut") {
       page.postMessage({id: m.id, ok: true});
     } else if (m.kind === "open") {
-      page.postMessage({id: m.id, ok: false, error: "Adresse nicht erlaubt.", status: 403});
+      page.postMessage({id: m.id, ok: false, error: "Adresse nicht erlaubt.", status: 403, retry_after: "5"});
     } else if (m.kind === "resize") {
       page.postMessage({id: m.id, ok: true});                 // an answer nobody waits for
     }
@@ -683,7 +683,8 @@ def test_the_bridge_client_speaks_the_protocol(tmp_path):
         "early": {"ok": True, "value": {"rows": [1, 2]}},
         "opened": {"ok": True, "value": "undefined"},
         "refused": {"ok": False, "message": "Adresse nicht erlaubt.", "status": 403, "isError": True},
-        "limited": {"ok": False, "message": "Zu viele Abfragen.", "status": 429, "isError": True},
+        # retry_after reaches the view as retryAfter, a number only (the refusal's "5" is dropped)
+        "limited": {"ok": False, "message": "Zu viele Abfragen.", "status": 429, "retryAfter": 7, "isError": True},
     }
     assert result["resizeReturns"] == "undefined"
     assert result["events"] == ["ready-early", "ready-late"]
