@@ -15,6 +15,7 @@ from __future__ import annotations
 import html
 import re
 import secrets
+from html.entities import html5 as html5_entities
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Tuple
@@ -40,7 +41,10 @@ REFUSED_ELEMENTS = (
 )
 _ELEMENT = re.compile(r"<\s*+(?:/\s*+)?(" + "|".join(REFUSED_ELEMENTS) + r")(?=[\s/>]|\Z)", re.I | re.A)
 _DOCTYPE = re.compile(r"<\s*+!\s*+doctype", re.I | re.A)
-_LOOSE_COMMENT_END = re.compile(r"--\s++>")  # ends a comment for the parser, not for a browser
+# Comment ends and declarations that readers take differently: Python 3.13.5 ends a comment at "-- >" (a browser
+# does not) and reads past "--!>", "<!-->" and "<!--->" (a browser and the rewritten parser of 3.11.15+ do not);
+# "<![" is a declaration for one parser and a comment for the other. Refused outright, whatever the Python version.
+_ODD_MARKUP = re.compile(r"--\s++>|--!>|<!---?>|<!\[")
 # An end tag must be a plain name, ASCII whitespace and ">". With more after the name the parser ends it at the
 # first ">" while a browser skips quoted values (and may run on into the bridge client's script tag); with any other
 # Unicode space around the name the parser closes the element and a browser does not ("</ math>" is a comment).
@@ -54,6 +58,11 @@ _ADDRESS_ATTRIBUTES = frozenset({
     "icon",
 })
 _WHITESPACE = "\t\n\f\r "
+_UNQUOTED_REFUSED = "\"'<`"  # parse errors in an unquoted value; a quote there starts a value for some readers
+# Named references without ";" that a browser keeps in an attribute value (followed by a letter, digit or "=") while
+# html.unescape, which the rewritten parser uses, decodes them; the older parser decodes as a browser does.
+_LEGACY_REFERENCES = frozenset(name for name in html5_entities if not name.endswith(";"))
+_REFERENCE = re.compile(r"&([A-Za-z][A-Za-z0-9]*+)(;?)")
 
 _ELEMENT_MESSAGE = "Die Einstiegsdatei (entry) darf kein Element „{}“ enthalten."
 _EVENT = "Die Einstiegsdatei (entry) darf keine Ereignis-Attribute („on…“) enthalten."
@@ -117,12 +126,33 @@ class _Refused(Exception):
     """Stops the parser at the first refused construct; carries the message."""
 
 
+def _odd_space(text: str) -> bool:
+    """Whitespace other than ASCII's: the older parser splits at it, a browser does not."""
+    return any(c.isspace() and c not in _WHITESPACE for c in text)
+
+
+def _ambiguous_reference(raw: str) -> bool:
+    """A named reference in an attribute value that a browser and html.unescape decode differently."""
+    for found in _REFERENCE.finditer(raw):
+        run, semicolon = found.groups()
+        if semicolon and run + ";" in html5_entities:
+            continue
+        if run in _LEGACY_REFERENCES:
+            if not semicolon and raw.startswith("=", found.end()):
+                return True  # "&amp=": a browser keeps it
+            continue
+        if any(run[:k] in _LEGACY_REFERENCES for k in range(1, min(len(run), 7))):
+            return True  # "&notx": a browser keeps it, html.unescape reads "¬x"
+    return False
+
+
 def _browser_tag(tag: str) -> Tuple[List[Tuple[str, Optional[str]]], bool]:
     """One start tag as a browser tokenizes it: its attributes (names lowercased, values decoded) and "/>".
 
-    The standard library parser reads some tags differently: href==#x is "#x" there and "=#x" in a browser, and it
-    splits unquoted values at any Unicode space where a browser splits at ASCII whitespace only. A tag a browser
-    ends elsewhere than the parser did is refused.
+    Refused (unreadable) wherever readers could differ: a tag a browser ends elsewhere than the parser did; an
+    attribute name with non-ASCII whitespace; an unquoted value that starts with "=" (href==#x is "#x" for the older
+    parser and "=#x" for a browser) or holds a quote, "<", "`" or non-ASCII whitespace; a value with an ambiguous
+    named reference.
     """
     attrs = []
     self_closing = False
@@ -147,6 +177,8 @@ def _browser_tag(tag: str) -> Tuple[List[Tuple[str, Optional[str]]], bool]:
         while i < n and tag[i] not in _WHITESPACE + "/=>":
             i += 1
         name = tag[start:i].lower()
+        if _odd_space(name):
+            raise _Refused(_UNREADABLE)
         while i < n and tag[i] in _WHITESPACE:
             i += 1
         value = None
@@ -163,6 +195,10 @@ def _browser_tag(tag: str) -> Tuple[List[Tuple[str, Optional[str]]], bool]:
                 while i < n and tag[i] not in _WHITESPACE + ">":
                     i += 1
                 value = tag[start:i]
+                if value.startswith("=") or any(c in _UNQUOTED_REFUSED for c in value) or _odd_space(value):
+                    raise _Refused(_UNREADABLE)
+            if _ambiguous_reference(value):
+                raise _Refused(_UNREADABLE)
             value = html.unescape(value)
         attrs.append((name, value))
     raise _Refused(_UNREADABLE)  # the parser's ">" lies inside a quoted value for a browser
@@ -187,7 +223,10 @@ def _check_attribute(tag: str, name: str, value: Optional[str]) -> None:
 
 
 class _EntryParser(HTMLParser):
-    CDATA_CONTENT_ELEMENTS = ()  # never raw text; script and style are refused before the parser runs
+    # Never raw text or RCDATA: those elements are refused before the parser runs. (The rewritten parser of
+    # Python 3.11.15+ also reads <plaintext> raw whatever these say; the raw scan refuses it as well.)
+    CDATA_CONTENT_ELEMENTS = ()
+    RCDATA_CONTENT_ELEMENTS = ()
 
     def __init__(self):
         # Raw text: a tag the parser gave up on reaches handle_data as "<x…", never decoded entities.
@@ -196,8 +235,10 @@ class _EntryParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         browser_attrs, self_closing = _browser_tag(self.get_starttag_text())
-        for name, value in (*attrs, *browser_attrs):
+        for name, value in browser_attrs:
             _check_attribute(tag, name, value)
+        if attrs != browser_attrs:  # the parser read the tag differently: fail closed
+            raise _Refused(_UNREADABLE)
         if tag in self.open and not (self_closing and tag in _SELF_CLOSING):
             self.open[tag] += 1
 
@@ -212,7 +253,8 @@ class _EntryParser(HTMLParser):
             raise _Refused(_UNREADABLE)
 
     def handle_comment(self, data):
-        # A browser ends a comment at "<!-->", "<!--->" and "--!>" as well; the parser reads on.
+        # A browser ends a comment at "<!-->", "<!--->" and "--!>" as well; the older parser reads on. The raw scan
+        # refuses these already; this stays for a parser that reads comments otherwise.
         if data.startswith((">", "->")) or "--!>" in data:
             raise _Refused(_UNREADABLE)
 
@@ -235,7 +277,7 @@ def check_entry_markup(markup: str) -> None:
         raise ManifestError(_ELEMENT_MESSAGE.format(found.group(1).lower()))
     if _DOCTYPE.search(markup):
         raise ManifestError(_ELEMENT_MESSAGE.format("!DOCTYPE"))
-    if _LOOSE_COMMENT_END.search(markup) or _LOOSE_END_TAG.search(markup):
+    if _ODD_MARKUP.search(markup) or _LOOSE_END_TAG.search(markup):
         raise ManifestError(_UNREADABLE)
     parser = _EntryParser()
     try:

@@ -326,7 +326,7 @@ DATA_TARGETS = ["data:image/png;base64,AAAA", "DATA:image/gif,x", "Data:text/htm
 
 def quoted(target):
     forms = [f'="{target}"', f"='{target}'", f' = "{target}"', f"\n=\n'{target}'"]
-    if target and not re.search(r"[\s\"'>]", target):
+    if target and not re.search(r"[\s\"'>]", target) and not target.startswith("="):  # href==#x is unreadable
         forms.append(f"={target}")
     return forms
 
@@ -391,15 +391,12 @@ def test_an_animation_may_not_target_an_address_event_or_style_attribute():
     assert messages(allowed) == {case: None for case in allowed}
 
 
-def test_a_value_that_starts_with_equals_is_read_as_a_browser_reads_it():
-    # The standard library parser drops the second "=" of href==#x; a browser keeps it (a relative address).
-    refused = {
-        "<a href==#x>x</a>": ADDRESS_MESSAGE.format("href"),
-        "<a href = = '#x'>x</a>": ADDRESS_MESSAGE.format("href"),
-        "<img src==data:image/png,x>": ADDRESS_MESSAGE.format("src"),
-    }
-    assert messages(refused) == refused
-    allowed = ["<p title==x>x</p>", "<img src=data:image/png;base64,AA== alt=x>"]
+def test_values_every_reader_reads_alike_are_allowed():
+    allowed = [
+        "<img src=data:image/png;base64,AA== alt=x>",  # "=" inside an unquoted value
+        '<p title="a==b" data-x="Q&A, AT&T, &amp;, &notin;, &copy; 2026, &lt">x</p>',
+        "<p title='x\xa0y'>x</p>",  # any space inside quotes belongs to the value
+    ]
     assert messages(allowed) == {case: None for case in allowed}
 
 
@@ -416,21 +413,47 @@ def test_a_value_that_starts_with_equals_is_read_as_a_browser_reads_it():
     "<?xml version='1.0'?>",
     "<!--><img src=x onerror=f()>-->",
     "<!---><img src=x onerror=f()>-->",
-    "<!-- a --!><img src=x onerror=f()>-->",
     "<!-- a -- ><p>x</p>",
     "<p>\x00</p>",
-    # Found by fuzzing against an HTML5 parser: a browser ends these tags at the first ">", the parser later,
-    # so the parser would never see the <img>.
+    # Comment ends and declarations that the parser versions read differently from each other or from a browser.
+    "<!-- a --!><img src=x onerror=f()>-->",
+    "<!-- a --!> b -->",
+    "<!-->x",
+    "<!--->x",
+    "<![x>",
+    # Found by fuzzing against an HTML5 parser: a browser ends these tags at the first ">"; the older parser read on
+    # and would not have seen the <img>.
     '<p a=\xa0"x><img src=x onerror=f()>">',
     '<p a=="x><img src=x onerror=f()>">',
     '<p a=x\xa0b="y>z">x</p>',
-    # End tags: the parser ends them at the first ">", a browser skips quoted values first.
+    # Unquoted values that start with "=" (the older parser drops it) or hold a quote, "<", "`" or non-ASCII
+    # whitespace; attribute names with non-ASCII whitespace.
+    "<p title==x>x</p>",
+    "<a href==#x>x</a>",
+    "<a href = = '#x'>x</a>",
+    "<img src==data:image/png,x>",
+    "<svg a=x\xa0b/>",
+    "<p a=x\N{IDEOGRAPHIC SPACE}b>x</p>",
+    "<p a=x\x85b>x</p>",
+    "<p a=x\x0bb>x</p>",
+    "<p a=x\"y>x</p>",
+    "<p a=x'y>x</p>",
+    "<p a=x<y>x</p>",
+    "<p a=x`y>x</p>",
+    '<p a="1"\xa0b="2">x</p>',
+    "<p a\xa0b=1>x</p>",
+    # Named references without ";" that a browser keeps in a value and html.unescape decodes.
+    '<p title="&notx">x</p>',
+    "<p title='&amp=1'>x</p>",
+    '<a href="#a&copyx">x</a>',
+    "<p title=&notin>x</p>",
+    # End tags: the older parser ends them at the first ">", a browser skips quoted values first.
     "</p title='>'>",
     "<p>x</p x>",
     "</td<use src=x>",
     "<p>x</p/>",
-    # The parser reads "\s" as any Unicode space: it closes <math> at these, a browser does not (a name "math\xa0",
-    # or a bogus comment), and the bridge client would become a MathML element.
+    # The older parser reads "\s" as any Unicode space: it closes <math> at these, a browser does not (a name
+    # "math\xa0", or a bogus comment), and the bridge client would become a MathML element.
     "<math></math\xa0>",
     "<math></math\x0b>",
     "<math></ math>",
@@ -438,8 +461,16 @@ def test_a_value_that_starts_with_equals_is_read_as_a_browser_reads_it():
     "<template></template\u3000>",
 ])
 def test_markup_the_parser_cannot_read_is_refused(markup):
-    with pytest.raises(ManifestError) as caught:
+    """Refused on every Python version; only the message may differ (3.11.15+ has the rewritten parser)."""
+    with pytest.raises(ManifestError):
         check_entry_markup(markup)
+
+
+def test_a_tag_the_two_readings_disagree_on_is_refused(monkeypatch):
+    # A guard: should the parser and the browser reading ever differ on an attribute, the tag is refused.
+    monkeypatch.setattr(document, "_browser_tag", lambda tag: ([("title", "other")], False))
+    with pytest.raises(ManifestError) as caught:
+        check_entry_markup('<p title="x">x</p>')
     assert str(caught.value) == UNREADABLE_MESSAGE
 
 
@@ -449,7 +480,6 @@ def test_an_end_tag_may_hold_whitespace_after_its_name():
 
 
 @pytest.mark.parametrize("markup", [
-    "<svg a=x\xa0b/>",  # the parser splits at the no-break space and sees "/>"; for a browser "/" is in the value
     "<svg/viewBox='0 0 1 1'><p>x</p>",  # a "/" between attributes does not close
     "<svg/ >",
 ])
@@ -459,11 +489,40 @@ def test_whether_a_tag_closes_itself_is_read_as_a_browser_reads_it(markup):
     assert str(caught.value) == UNCLOSED_MESSAGE.format("svg")
 
 
-def test_a_tag_a_browser_would_end_later_is_refused():
-    # A guard for other Python versions: the parser hands over a tag whose ">" a browser reads inside a value.
+@pytest.mark.parametrize("tag", [
+    "<p title==x>",  # an unquoted value that starts with "="
+    "<p a=x\x85b>",  # ... or holds non-ASCII whitespace
+    "<p a=x\xa0b>",
+    '<p a=x"y>',  # ... or a quote, "<" or "`"
+    "<p a=x'y>",
+    "<p a=x<y>",
+    "<p a=x`y>",
+    "<p a\xa0b=1>",  # a name with non-ASCII whitespace
+    '<p title="&notx">',  # a named reference a browser keeps and html.unescape decodes
+    "<p title='&amp=1'>",
+    "<p title=&notin>",
+    '<p a=x>y">',  # a browser ends the tag before the parser's end
+    '<p a=">',  # ... or after it
+])
+def test_the_browser_reading_refuses_what_readers_could_read_differently(tag):
+    # Each rule on its own: in the whole check another layer (the comparison of both readings) may refuse first.
     with pytest.raises(document._Refused):
-        document._browser_tag('<p a=">')
+        document._browser_tag(tag)
+
+
+def test_the_browser_reading_of_a_plain_tag():
     assert document._browser_tag("<svg a='>' b/>") == ([("a", ">"), ("b", None)], True)
+    assert document._browser_tag('<p t="&amp;&notin;&copy; Q&A" u=a==b>') == (
+        [("t", "&∉© Q&A"), ("u", "a==b")], False)
+
+
+def test_a_comment_a_browser_ends_earlier_is_refused_by_the_parser_guard():
+    # The raw scan refuses these first; the guard stays for a parser that reads comments otherwise.
+    parser = document._EntryParser()
+    for data in (">x", "->x", " a --!> b "):
+        with pytest.raises(document._Refused):
+            parser.handle_comment(data)
+    parser.handle_comment(" Kopf -> Inhalt ")
 
 
 def test_a_tag_the_parser_passes_on_as_text_is_refused():
