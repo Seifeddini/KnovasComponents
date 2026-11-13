@@ -102,3 +102,64 @@ def test_allows():
     assert m([]).allows(frozenset({"admin"})) is False
     assert m(["admin"]).allows(frozenset({"member"})) is False
     assert m(["admin"]).allows(frozenset({"admin", "member"})) is True
+
+
+# --- fix round 1 -----------------------------------------------------------
+
+def test_deep_nesting_is_a_manifest_error():
+    with pytest.raises(ManifestError):
+        parse_manifest("v", b"[" * 60_000)
+
+
+def test_huge_int_order_is_a_manifest_error():
+    data = json.dumps(VALID).replace("2.5", "1" + "0" * 400).encode()
+    with pytest.raises(ManifestError) as exc:
+        parse_manifest("v", data)
+    assert "order" in str(exc.value)
+
+
+@pytest.mark.parametrize("const", ["NaN", "Infinity", "-Infinity"])
+def test_non_finite_numbers_refused(const):
+    text = json.dumps(VALID).replace("2.5", const)
+    with pytest.raises(ManifestError):
+        parse_manifest("v", text.encode())
+
+
+@pytest.mark.parametrize(
+    "data,field",
+    [
+        (raw(entry="i.html\n"), "entry"),
+        (raw(scripts=["a.js\n"]), "scripts"),
+        (raw(styles=["a.css\n"]), "styles"),
+        (raw(links={"hosts": ["example.com\n"]}), "links"),
+        (raw(reads={"project": ["status\n"]}), "reads"),
+        (raw(reads={"project\n": ["status"]}), "reads"),
+        (raw(roles=["admin\n"]), "roles"),
+    ],
+)
+def test_trailing_newline_refused(data, field):
+    with pytest.raises(ManifestError) as exc:
+        parse_manifest("v", data)
+    assert field in str(exc.value)
+
+
+def _long_key():
+    return "<script>" + "x" * 60_000 + "</script>"
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        json.dumps({**VALID, _long_key(): 1}).encode(),
+        json.dumps({**VALID, "reads": {_long_key(): ["a"]}}).encode(),
+        json.dumps({**VALID, "reads": {"ok": ["a"], _long_key(): [1]}}).encode(),
+        json.dumps({**VALID, "title": {"de": "a", "en": "b", _long_key(): "c"}}).encode(),
+        json.dumps({**VALID, "zz\nQ": 1}).encode(),
+    ],
+    ids=["unknown-key", "reads-key", "reads-item", "title-key", "newline-key"],
+)
+def test_messages_do_not_echo_file_supplied_names(data):
+    with pytest.raises(ManifestError) as exc:
+        parse_manifest("v", data)
+    msg = str(exc.value)
+    assert "<" not in msg and "\n" not in msg and len(msg) < 200
