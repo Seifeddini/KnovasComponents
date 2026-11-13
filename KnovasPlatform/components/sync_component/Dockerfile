@@ -39,8 +39,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # The same release of the runner as the Platform's image (docbridge_integration/Dockerfile). The component needs
 # 0.3.2 or later: `affected --source github` for «bei neuen Commits» (KG-2); the build stops on any other version.
-ARG BRAIN_RUNNER_VERSION=0.3.2
-ARG BRAIN_RUNNER_GIT_REF=961b2f72bd178ce86998070b53caa70363451f06
+# 0.3.3 adds the `records` extractor (J-3) and the runner's 429 handling (KG-2).
+ARG BRAIN_RUNNER_VERSION=0.3.3
+ARG BRAIN_RUNNER_GIT_REF=c618c7bedab3b11c1936936d5eba5c6e03b16cb4
 RUN --mount=type=secret,id=kb_read_token,required=true \
     git config --global url."https://x-access-token:$(cat /run/secrets/kb_read_token)@github.com/".insteadOf "https://github.com/" \
     && pip install --no-cache-dir --no-deps \

@@ -99,8 +99,8 @@ PY
 # --no-deps: its dependencies are the Platform's (requirements.txt pins PyYAML, jsonschema and requests; jmespath
 # and defusedxml are pinned there at the package's versions). The package takes requests >=2.32.0,<3, so the
 # Platform's 2.32.0 satisfies it.
-ARG BRAIN_RUNNER_VERSION=0.3.2
-ARG BRAIN_RUNNER_GIT_REF=961b2f72bd178ce86998070b53caa70363451f06
+ARG BRAIN_RUNNER_VERSION=0.3.3
+ARG BRAIN_RUNNER_GIT_REF=c618c7bedab3b11c1936936d5eba5c6e03b16cb4
 # "yes" when a token is given (docker-compose.yml). A secret is not part of the layer cache: without this, a
 # layer built once without the token stays cached, and adding the token later never runs the install.
 ARG KB_READ_TOKEN_GIVEN=no
