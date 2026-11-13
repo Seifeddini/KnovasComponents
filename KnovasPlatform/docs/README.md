@@ -25,6 +25,8 @@
 | Knovas API (mTLS, ingestion) | [docs/KnovasAPI](../../docs/KnovasAPI/README.md) |
 | mTLS certificates (filenames, permissions) | [docs/certificates.md](../../docs/certificates.md) |
 | Index documents before search | [Knovas Connector](../../KnovasConnector/README.md) |
+| **Set up the Knovas Brain for a client, step by step** (client and tenant, Platform, Builder model, site, sources, mappings, hand-over) | [Client_Brain_Setup (KnowledgeBase)](https://github.com/Seifeddini/KnowledgeBase/blob/develop/docs/Docs/08_RUNBOOKS/Semantix_Runbooks/Ops/Client_Brain_Setup.md) |
+| **How a company's data becomes its Brain**, end to end and level by level (mappings, hierarchies, ontology, protocols) | [From source to Brain (KnowledgeBase)](https://github.com/Seifeddini/KnowledgeBase/blob/develop/docs/Docs/04_COMPONENTS/source_to_brain_mapping.md) |
 | Connect a company's sources to its Brain: the parts, who proves what, what is built | [connection-layer.md](connection-layer.md) |
 | Set up a site with Knovas Link (German, for consultants) | [connect-a-site.md](connect-a-site.md) |
 | The contract between components, Knovas Link, the Platform and the Brain | [connector-protocol-v1.md](connector-protocol-v1.md) |

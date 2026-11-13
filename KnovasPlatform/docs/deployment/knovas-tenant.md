@@ -402,6 +402,8 @@ With accounts, change-set previews can read a local KnowledgeBase checkout: `VIE
 
 ## 4. Step by step: the Platform with the Brain Builder from a branch
 
+**For a client other than Knovas** follow the generic guide [Client_Brain_Setup (KnowledgeBase)](https://github.com/Seifeddini/KnowledgeBase/blob/develop/docs/Docs/08_RUNBOOKS/Semantix_Runbooks/Ops/Client_Brain_Setup.md); it uses the steps below with the client's tenant and names. This section and section 5 stay the Knovas instance.
+
 For the Knovas machine outside Azure (KG-1, CL-8): the Platform with accounts and the Brain Builder, from images the
 release workflow built from a branch ([release-images.md](release-images.md)), with its own revocable certificate
 (S-6), the connectors' client-certificate terminator, Sync von GitHub off, and a tested backup. Every command is
