@@ -10,13 +10,17 @@ from __future__ import annotations
 import math
 import threading
 import time
-from typing import Callable, Dict, Optional, Set
+from typing import Callable, Dict, Optional, Set, Tuple
 
 
 class RefusingBudget:
-    def __init__(self, per_minute: int, clock: Callable[[], float] = time.monotonic):
-        self._capacity = float(max(int(per_minute), 1))
-        self._rate = self._capacity / 60.0
+    def __init__(self, per_minute: int, capacity: Optional[int] = None,
+                 clock: Callable[[], float] = time.monotonic):
+        """Refills ``per_minute`` a minute up to ``capacity`` (default: the
+        rate); starts full."""
+        rate = float(max(int(per_minute), 1))
+        self._capacity = float(max(int(capacity if capacity is not None else rate), 1))
+        self._rate = rate / 60.0
         self._clock = clock
         self._tokens = self._capacity
         self._last = clock()
@@ -24,9 +28,13 @@ class RefusingBudget:
 
     def take(self, units: int) -> Optional[float]:
         """Take ``units`` and return None, or take nothing and return the
-        seconds (rounded up, at least 1) until they would be there."""
+        seconds (rounded up, at least 1) until they would be there.
+
+        More than the capacity can never be met: ValueError."""
         if units < 0:
             raise ValueError("units must not be negative")
+        if units > self._capacity:
+            raise ValueError("units exceed the budget's capacity")
         if units == 0:
             return None
         with self._lock:
@@ -41,16 +49,17 @@ class RefusingBudget:
             return float(max(1, math.ceil(wait - 1e-9)))
 
 
-_shared: Dict[int, RefusingBudget] = {}
+_shared: Dict[Tuple[int, int], RefusingBudget] = {}
 _shared_lock = threading.Lock()
 
 
-def shared_budget(per_minute: int) -> RefusingBudget:
-    """The process-wide budget for this rate, created on first use."""
+def shared_budget(per_minute: int, capacity: Optional[int] = None) -> RefusingBudget:
+    """The process-wide budget for this rate and capacity, created on first use."""
+    key = (per_minute, per_minute if capacity is None else capacity)
     with _shared_lock:
-        if per_minute not in _shared:
-            _shared[per_minute] = RefusingBudget(per_minute)
-        return _shared[per_minute]
+        if key not in _shared:
+            _shared[key] = RefusingBudget(per_minute, capacity)
+        return _shared[key]
 
 
 class OneAtATime:

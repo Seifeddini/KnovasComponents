@@ -37,12 +37,29 @@ def test_wait_is_rounded_up():
     assert budget.take(10) == 10
 
 
-def test_more_than_capacity_is_refused_and_takes_nothing():
-    clock = Clock()
-    budget = RefusingBudget(60, clock=clock)
-    wait = budget.take(61)
-    assert wait is not None and wait >= 1
+def test_more_than_capacity_raises():
+    budget = RefusingBudget(60, clock=Clock())
+    with pytest.raises(ValueError):
+        budget.take(61)
     assert budget.take(60) is None
+
+
+def test_capacity_apart_from_rate():
+    clock = Clock()
+    budget = RefusingBudget(60, 200, clock=clock)
+    assert budget.take(200) is None
+    assert budget.take(1) == 1
+    with pytest.raises(ValueError):
+        budget.take(201)
+    clock.now += 3600
+    assert budget.take(200) is None
+    assert budget.take(1) == 1
+
+
+def test_default_capacity_is_the_rate():
+    budget = RefusingBudget(60, clock=Clock())
+    assert budget.take(60) is None
+    assert budget.take(1) == 1
 
 
 def test_refusal_takes_nothing():
@@ -71,6 +88,9 @@ def test_capacity_does_not_grow_with_idle_time():
 def test_shared_budget_is_one_per_rate():
     assert shared_budget(7) is shared_budget(7)
     assert shared_budget(7) is not shared_budget(8)
+    assert shared_budget(7, 200) is shared_budget(7, 200)
+    assert shared_budget(7, 200) is not shared_budget(7)
+    assert shared_budget(7, 7) is shared_budget(7)
 
 
 def test_one_at_a_time_per_key():
