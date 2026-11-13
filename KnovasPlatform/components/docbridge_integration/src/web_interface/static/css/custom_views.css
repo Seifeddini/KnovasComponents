@@ -1,0 +1,249 @@
+/* Eigene Ansichten: picker, administrator block, bar and the view's frame (Task 10; SS-626).
+   Only the Platform's tokens from style.css; no colour of its own. The frame fills the content width; its
+   height comes from the view (knovas.resize), clamped by custom_views.js to 200..20000 px. */
+
+.cv-main {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding-top: 8px;
+}
+
+/* -- the picker ------------------------------------------------------------------- */
+
+.cv-picker-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.cv-pick {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    max-width: 32ch;
+    padding: 5px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--surface-sunken);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-weight: 500;
+    line-height: 1.3;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.cv-pick:hover {
+    border-color: var(--callout);
+}
+
+.cv-pick:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.cv-pick[aria-current="page"] {
+    border-color: var(--primary-color);
+    background: var(--highlight);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* -- the administrator's block ---------------------------------------------------- */
+
+.cv-admin {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+}
+
+.cv-admin-summary {
+    /* display stays list-item: a flex summary loses its disclosure marker */
+    padding: 10px 14px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.cv-admin-summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: var(--radius-lg);
+}
+
+.cv-admin[open] > .cv-admin-summary {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.cv-admin-body {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 14px;
+}
+
+.cv-admin-heading {
+    margin-bottom: 8px;
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.cv-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.cv-badge--bad {
+    color: var(--error-color);
+    border: 1px solid var(--error-color);
+}
+
+.cv-files + .cv-files {
+    margin-top: 14px;
+}
+
+.cv-files-title {
+    margin-bottom: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.cv-files-scroll {
+    overflow-x: auto;
+}
+
+.cv-files-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.cv-files-table th,
+.cv-files-table td {
+    padding: 5px 10px 5px 0;
+    border-bottom: 1px solid var(--border-color);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.cv-files-table th {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.cv-invalid-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.9rem;
+    color: var(--error-color);
+}
+
+.cv-mono {
+    font-family: var(--font-heading);
+    font-size: 0.85em;
+}
+
+.cv-muted {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+/* -- the bar and the frame -------------------------------------------------------- */
+
+.cv-stage {
+    display: flex;
+    flex-direction: column;
+}
+
+.cv-bar {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    padding: 9px 14px;
+    border: 1px solid var(--border-color);
+    border-bottom: 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    background: var(--surface-sunken);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.cv-bar-label {
+    flex: 0 0 auto;
+    color: var(--text-secondary);
+}
+
+.cv-bar-sep {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+}
+
+.cv-bar-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cv-message {
+    padding: 10px 14px;
+    border: 1px solid var(--error-color);
+    border-bottom: 0;
+    color: var(--error-color);
+    font-size: 0.9rem;
+}
+
+.cv-frame-host {
+    min-height: 200px;
+    border: 1px solid var(--border-color);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    background: var(--card-bg);
+    overflow: hidden;
+}
+
+.cv-frame {
+    display: block;
+    width: 100%;
+    height: 640px;
+    border: 0;
+    background: var(--card-bg);
+}
+
+.cv-hint {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.cv-loading {
+    padding: 16px 14px;
+}
+
+.cv-error {
+    font-size: 0.9rem;
+    color: var(--error-color);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cv-pick { transition: none; }
+}
