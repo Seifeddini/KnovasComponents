@@ -8,7 +8,9 @@ link end's facts are never read or returned.
 
 Reads go through the views' per-subject state (``SubjectState``: the topology
 index and the facts cache it shares with the existing views) and the views'
-``GraphReader``. The budget is charged one unit per node whose facts the read
+``GraphReader``, which the route builds without the views' pacer. The per-node
+fallback expands through that reader too, never through the one the index keeps
+for the existing views. The budget is charged one unit per node whose facts the read
 needs and does not have cached yet, before anything is read; a read that needs
 no facts takes nothing. Never silently partial: ``incomplete_why`` names
 ``node_cap``, ``facts_unreadable`` and ``topology_partial``.
@@ -53,13 +55,14 @@ def _order(index: Any, node_id: str) -> Tuple[str, str]:
     return (str(node.get("name") or "").casefold(), node_id)
 
 
-def _linked(index: Any, candidates: List[str], query: Query, reads: Mapping[str, Any]) -> List[str]:
+def _linked(index: Any, candidates: List[str], query: Query, reads: Mapping[str, Any],
+            reader: Any) -> List[str]:
     """The candidates with a ``linked`` neighbour in ``linked.to`` of a type ``reads`` names."""
     spec = query.linked
     targets = [t for t in dict.fromkeys(query.linked_to or ()) if index.type_of(t) in reads]
     if not targets:
         return []
-    index.ensure(targets)                       # the per-node fallback learns their edges
+    index.ensure(targets, reader=reader)        # the per-node fallback learns their edges
     wanted = set(targets)
     return [c for c in candidates
             if any(other in wanted for _, _, other in index.neighbours(c, spec.relation, spec.direction))]
@@ -129,7 +132,7 @@ def run_read(query: Query, manifest: Manifest, state: Any, reader: Any, budget: 
         ids = set(query.ids)
         candidates = [n for n in candidates if n in ids]
     if query.linked is not None:
-        candidates = _linked(index, candidates, query, reads)
+        candidates = _linked(index, candidates, query, reads, reader)
     if query.where and len(candidates) > max_nodes:
         raise TooBroad(max_nodes)
 
@@ -160,7 +163,7 @@ def run_read(query: Query, manifest: Manifest, state: Any, reader: Any, budget: 
 
     specs = list(dict.fromkeys(query.links))
     if specs and page:
-        index.ensure([nid for nid, _ in page])
+        index.ensure([nid for nid, _ in page], reader=reader)
     nodes: List[Dict[str, Any]] = []
     links_hidden = 0
     for nid, values in page:

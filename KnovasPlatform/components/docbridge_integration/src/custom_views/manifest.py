@@ -110,7 +110,7 @@ def parse_manifest(view_id: str, raw: bytes) -> Manifest:
     if len(raw) > MAX_MANIFEST_BYTES:
         raise ManifestError("Die Datei view.json ist grösser als 64 KB.")
     try:
-        text = raw.decode("utf-8")
+        text = raw.decode("utf-8-sig")  # a leading BOM is dropped, as for the view's other files
     except UnicodeDecodeError:
         raise ManifestError("Die Datei view.json ist nicht UTF-8-kodiert.") from None
     try:

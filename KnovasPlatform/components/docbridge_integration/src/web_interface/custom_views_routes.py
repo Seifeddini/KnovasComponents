@@ -101,6 +101,7 @@ class OncePer:
 
 def create_custom_views_blueprint(*, gate: Any, registry: Registry, settings: CustomViewsSettings,
                                   client: Callable[[], Any], cache: Any, workers: int,
+                                  views_reader: Callable[[Any], Any],
                                   enabled: Callable[[], bool], page_context: Callable[[], dict],
                                   csrf_valid: Callable[[str], bool]) -> Blueprint:
     """Build the blueprint.
@@ -112,6 +113,9 @@ def create_custom_views_blueprint(*, gate: Any, registry: Registry, settings: Cu
         client: zero-arg callable -> the Knovas client the search uses (signed as the user).
         cache: the views' TopologyCache (per-subject topology and facts).
         workers: parallel requests per batch for the reader.
+        views_reader: Knovas client -> the reader the existing views build for it (their pacer). A
+            per-node fallback state a read loads keeps it, so the existing views' later expansions of
+            that state stay paced; the read itself never uses it.
         enabled: True while the feature is on (switch, accounts, graph mode, no folder refusal).
         page_context: template variables of the platform layout (sidebar, brand, csrf, asset version).
         csrf_valid: the app's check of a submitted CSRF token.
@@ -183,19 +187,24 @@ def create_custom_views_blueprint(*, gate: Any, registry: Registry, settings: Cu
 
     @bp.route("/api/custom-views")
     def list_views():
+        """The person's views (the picker). An administrator also gets every valid view's files,
+        whatever its roles (spec P-1, per view), and the invalid views."""
         user = gate.current_user()
         is_admin = "admin" in user.roles
         items = []
         for view in user_views(user):
             manifest = view.manifest
-            item = {"id": manifest.id, "title": dict(manifest.title),
-                    "description": dict(manifest.description) if manifest.description is not None else None}
-            if is_admin:
-                item["files"] = [{"name": f.name, "sha256": f.sha256, "changed_at": _changed_at(f.mtime)}
-                                 for f in view.files.values()]
-            items.append(item)
-        invalid = [{"id": i.id, "reason": i.reason} for i in registry.invalid()] if is_admin else []
-        return jsonify({"views": items, "invalid": invalid})
+            items.append({"id": manifest.id, "title": dict(manifest.title),
+                          "description": dict(manifest.description) if manifest.description is not None else None})
+        body = {"views": items,
+                "invalid": [{"id": i.id, "reason": i.reason} for i in registry.invalid()] if is_admin else []}
+        if is_admin:
+            body["files_by_view"] = [
+                {"id": view.manifest.id, "title": dict(view.manifest.title),
+                 "files": [{"name": f.name, "sha256": f.sha256, "changed_at": _changed_at(f.mtime)}
+                           for f in view.files.values()]}
+                for view in registry.views()]
+        return jsonify(body)
 
     # -- the document -----------------------------------------------------------------
 
@@ -245,7 +254,9 @@ def create_custom_views_blueprint(*, gate: Any, registry: Registry, settings: Cu
         try:
             knovas = client()
             reader = GraphReader(knovas, acquire=None, workers=workers)
-            state = cache.get(subject_key(knovas), reader)
+            # A missing state is loaded with this read's reader; a per-node fallback index keeps the
+            # views' paced one. run_read expands through ``reader`` whoever loaded the state.
+            state = cache.get(subject_key(knovas), reader, index_reader=views_reader(knovas))
             answer = run_read(query, view.manifest, state, reader, budget, max_nodes=settings.max_nodes)
         except Forbidden as exc:
             audit(user, view_id, query.type, nodes=0, complete=False, outcome="forbidden")

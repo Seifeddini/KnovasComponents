@@ -382,6 +382,70 @@ def test_the_partial_index_reads_links_and_linked_and_says_partial():
     assert out["complete"] is False and out["incomplete_why"] == ["topology_partial"]
 
 
+# -- the per-node fallback's reader: the read's own, the views' kept for the views ---------------
+
+
+def _fallback(loading, **kwargs):
+    """A per-node fallback state, as TopologyCache loads it above the scale guard."""
+    state = TopologyCache(ViewSettings(edge_limit=0)).get(None, loading, **kwargs)
+    assert isinstance(state.index, PartialIndex)
+    return state
+
+
+def test_the_fallback_expands_through_the_reads_own_reader_never_the_one_the_index_keeps():
+    """An existing view loaded the state with its paced reader; a custom view's read never waits on it (spec § 3)."""
+    g = client_zero_graph()
+    views_client, own_client = FakeViewsClient(g), FakeViewsClient(g)
+    state = _fallback(GraphReader(views_client, acquire=lambda: None))
+    loaded = len(views_client.calls)
+    plan = _key(g, "FEAT-2026-09-08-adaptive-rate-limits")
+    query = parse_query({"type": "Component", "linked": {"to": [plan], "relation": "affects", "direction": "in"},
+                         "links": [{"relation": "keeps", "direction": "out"}]}, max_nodes=MAX)
+
+    out = run_read(query, _manifest({"Component": [], "FeaturePlan": [], "Invariant": []}), state,
+                   GraphReader(own_client, acquire=None), RefusingBudget(60, capacity=MAX, clock=lambda: 0.0),
+                   max_nodes=MAX)
+
+    assert _names(out) == ["L2-KNOWLEDGE-GRAPH — Knowledge Graph"]
+    assert [l["name"] for l in out["nodes"][0]["links"]] == ["GI-GRAPH-00", "GI-GRAPH-01", "GI-GRAPH-02"]
+    assert views_client.calls[loaded:] == []                      # nothing through the kept reader
+    assert sorted(own_client.calls) == sorted([f"/nodes/{plan}/neighbors",
+                                               f"/nodes/{_key(g, 'L2-KNOWLEDGE-GRAPH')}/neighbors"])
+
+
+def test_without_a_reader_the_fallback_expands_through_the_one_it_keeps_as_before():
+    """The existing views' calls (``ensure(ids)``) are unchanged."""
+    g = client_zero_graph()
+    client = FakeViewsClient(g)
+    state = _fallback(GraphReader(client, acquire=None))
+    loaded = len(client.calls)
+    comp = _key(g, "L2-KNOWLEDGE-GRAPH")
+
+    assert state.index.ensure([comp]) == 1
+    assert state.index.ensure([comp]) == 0                        # expanded once
+    assert client.calls[loaded:] == [f"/nodes/{comp}/neighbors"]
+    assert sorted(state.index.type_of(o) for _, _, o in state.index.neighbours(comp, "keeps", "out")) == [
+        "Invariant"] * 3
+
+
+def test_a_state_loaded_with_one_reader_keeps_the_index_reader_it_is_given():
+    """The custom-view route loads with its own reader and leaves the views' reader in the index."""
+    g = client_zero_graph()
+    loading, kept, own = FakeViewsClient(g), FakeViewsClient(g), FakeViewsClient(g)
+    state = _fallback(GraphReader(loading, acquire=None), index_reader=GraphReader(kept, acquire=None))
+    comp, inv = _key(g, "L2-KNOWLEDGE-GRAPH"), _key(g, "GI-GRAPH-00")
+
+    state.index.ensure([comp])                                    # an existing view: no reader of its own
+    state.index.ensure([inv], reader=GraphReader(own, acquire=None))   # a custom view: its own
+
+    assert loading.calls == ["/node-types", "/nodes", "/edges"]
+    assert kept.calls == [f"/nodes/{comp}/neighbors"]
+    assert own.calls == [f"/nodes/{inv}/neighbors"]
+    complete = TopologyCache(ViewSettings()).get(None, GraphReader(loading, acquire=None),
+                                                 index_reader=GraphReader(kept, acquire=None))
+    assert complete.index.ensure([comp], reader=GraphReader(own, acquire=None)) == 0   # nothing to expand
+
+
 # -- D-4: every combination of the read's own checks ------------------------------------
 
 #: end kinds: a type named in reads, the query's own type, a type reads does not name,

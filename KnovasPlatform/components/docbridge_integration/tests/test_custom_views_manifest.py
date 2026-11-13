@@ -88,6 +88,13 @@ def test_non_utf8_refused():
         parse_manifest("v", b"\xff\xfe{}")
 
 
+def test_a_utf8_bom_is_accepted_like_in_the_other_files():
+    """Editors on Windows often write one; the entry, scripts and styles drop it too."""
+    m = parse_manifest("my-view", b"\xef\xbb\xbf" + raw())
+    assert m == parse_manifest("my-view", raw())
+    assert m.title["de"] == "Übersicht"
+
+
 def test_too_large_refused():
     big = json.dumps({"x": "a" * 70_000}).encode()
     with pytest.raises(ManifestError):

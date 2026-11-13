@@ -393,6 +393,17 @@ def test_an_unsafe_or_undecodable_view_is_invalid(root):
     ]
 
 
+def test_a_view_json_with_a_utf8_bom_is_a_valid_view(root):
+    folder = make_view(root, "mit-bom")
+    manifest = folder / "view.json"
+    manifest.write_bytes(b"\xef\xbb\xbf" + manifest.read_bytes())
+
+    reg = Registry(settings(root))
+
+    assert ids(reg.views()) == ["mit-bom"] and reg.invalid() == []
+    assert reg.get("mit-bom").files["view.json"].data.startswith(b"\xef\xbb\xbf")   # fingerprinted as written
+
+
 def test_on_windows_the_write_protection_is_not_checked_and_the_log_says_so_once(tmp_path, monkeypatch, caplog):
     """os.access says every folder is writable on Windows; the check would refuse every development folder."""
     caplog.set_level(logging.INFO, logger="custom_views.registry")

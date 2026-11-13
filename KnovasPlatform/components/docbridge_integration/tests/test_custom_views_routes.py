@@ -18,6 +18,8 @@ pytest.importorskip("flask")
 
 from conftest import _person, _signed_in, platform_db_reachable  # noqa: E402
 from custom_views_app import NAV_LABEL, client_class, identity_app, views_folder, write_view  # noqa: E402
+from graph_views.settings import ViewSettings  # noqa: E402
+from graph_views.topology import PartialIndex  # noqa: E402
 from views_fixture import FakeViewsClient  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not platform_db_reachable(), reason="No PostgreSQL at the identity test DSN")
@@ -95,7 +97,10 @@ def test_an_admin_also_gets_each_files_fingerprint_and_the_invalid_views(make_ap
 
     body = client.get("/api/custom-views").get_json()
 
-    [item] = body["views"]
+    [picked] = body["views"]
+    assert "files" not in picked                                  # the picker list carries no files
+    [item] = body["files_by_view"]
+    assert (item["id"], item["title"]) == ("uebersicht", {"de": "Ansicht uebersicht", "en": "View uebersicht"})
     assert [f["name"] for f in item["files"]] == ["view.json", "index.html", "app.js"]
     for file in item["files"]:
         data = (view / file["name"]).read_bytes()
@@ -106,17 +111,35 @@ def test_an_admin_also_gets_each_files_fingerprint_and_the_invalid_views(make_ap
     assert body["invalid"] == [{"id": "kaputt", "reason": "Die Datei view.json ist kein gültiges JSON."}]
 
 
+def test_an_admin_gets_the_files_of_every_view_also_those_their_roles_may_not_open(make_app, folder, admin):
+    """Spec P-1: per view, so a changed file of any view is noticed, not only of the admin's own."""
+    write_view(folder, "a-fuer-alle")
+    write_view(folder, "b-nur-mitglieder", roles=["member"])
+    write_view(folder, "c-niemand", roles=[])
+    client = _signed_in(make_app(), admin.email)
+
+    body = client.get("/api/custom-views").get_json()
+
+    assert [v["id"] for v in body["views"]] == ["a-fuer-alle"]    # the picker: what the admin may open
+    assert [v["id"] for v in body["files_by_view"]] == ["a-fuer-alle", "b-nur-mitglieder", "c-niemand"]
+    for item in body["files_by_view"]:
+        assert [f["name"] for f in item["files"]] == ["view.json", "index.html"]
+    assert client.get("/custom-views/b-nur-mitglieder").status_code == 404   # listed, still not opened
+
+
 def test_a_member_never_sees_the_invalid_views_or_the_files(make_app, folder, member):
     write_view(folder, "uebersicht")
+    write_view(folder, "nur-admins", roles=["admin"])
     (write_view(folder, "kaputt") / "view.json").write_text("{not json", encoding="utf-8")
     client = _signed_in(make_app(), member.email)
 
     body = client.get("/api/custom-views").get_json()
     page = client.get("/custom-views").data.decode("utf-8")
 
-    assert body["invalid"] == []
-    assert "files" not in body["views"][0]
-    assert "kaputt" not in page
+    assert body == {"views": [{"id": "uebersicht", "title": {"de": "Ansicht uebersicht", "en": "View uebersicht"},
+                               "description": None}],
+                    "invalid": []}                                # no files, no files_by_view
+    assert "kaputt" not in page and "nur-admins" not in page
 
 
 def test_titles_are_text_in_the_page_and_in_the_json(make_app, folder, admin):
@@ -287,6 +310,46 @@ def test_two_people_read_through_their_own_cache_slots(make_app, folder, identit
     # Alice's facts were read once, Bob's on their own, without the walled node; Alice's second read hit her cache
     batches = cls.instances[0].batch_bodies
     assert len(batches) == 2 and walled in batches[0]["node_ids"] and walled not in batches[1]["node_ids"]
+
+
+class _PacedClient(FakeViewsClient):
+    """Calls ``acquire`` once per call, as KnovasAPIClient.graph_get_many does: the views' pacer shows."""
+
+    def graph_get_many(self, calls, *, workers=4, acquire=None, max_retries=3):
+        for _ in calls:
+            if acquire is not None:
+                acquire()
+        return super().graph_get_many(calls, workers=workers, acquire=acquire, max_retries=max_retries)
+
+
+def test_a_read_that_loads_a_fallback_state_never_paces_and_leaves_the_views_their_pacer(
+        make_app, folder, member, monkeypatch):
+    """Spec § 3: the read never waits on the views' pacer, and the state it loads keeps the views'
+    paced reader, so an existing view that expands it later stays paced."""
+    write_view(folder, "uebersicht", reads={"Component": [], "Invariant": []})
+    cls = client_class(base=_PacedClient)
+    app = make_app(client_cls=cls)
+    views = app.extensions["views"]
+    monkeypatch.setattr(views.cache, "_settings", ViewSettings(edge_limit=0))   # the per-node fallback
+    paced = []
+    monkeypatch.setattr(views, "_acquire", lambda: paced.append(1))
+    graph = cls.instances[0].g
+    comp = graph.by_key["L2-KNOWLEDGE-GRAPH"]
+    client = _signed_in(app, member.email)
+
+    response = client.post("/api/custom-views/uebersicht/read",
+                           json={"type": "Component", "ids": [comp],
+                                 "links": [{"relation": "keeps", "direction": "out"}]})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert [l["name"] for l in body["nodes"][0]["links"]] == ["GI-GRAPH-00", "GI-GRAPH-01", "GI-GRAPH-02"]
+    assert body["incomplete_why"] == ["topology_partial"]
+    assert paced == []                                  # loaded and expanded without the views' pacer
+    [state] = views.cache._states.values()
+    assert isinstance(state.index, PartialIndex)
+    state.index.ensure([graph.by_key["GI-GRAPH-00"]])   # an existing view's expansion: no reader of its own
+    assert paced == [1]                                 # ... goes through the views' pacer
 
 
 def test_a_read_outside_the_manifest_is_one_403_and_is_recorded(make_app, folder, member, platform_db):

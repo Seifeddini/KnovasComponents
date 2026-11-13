@@ -12,7 +12,8 @@
 <body>
     {# Eigene Ansichten: the picker, the bar and the frame host. Everything that comes from a manifest
        (ids, titles, reasons) passes Jinja's autoescape here and textContent in custom_views.js, never markup.
-       No inline script and no event attributes: the page is ready for a script-src policy. #}
+       No inline script and no event attributes in this template; the included _sidebar.html carries an
+       inline script, so a script-src policy on this page would first need that script moved to a file. #}
     {% set cv_selected = current_view or (custom_views[0].id if custom_views else '') %}
     {% set cv_title = custom_views | selectattr('id', 'equalto', cv_selected) | map(attribute='title') | first | default('') %}
     {% set cv_invalid = invalid_views | default([]) %}

@@ -8,6 +8,7 @@ all four routes answer 404, the same 404 as an address that does not exist.
 from __future__ import annotations
 
 import itertools
+import sys
 
 import pytest
 
@@ -127,6 +128,42 @@ def test_without_a_valid_view_only_an_admin_gets_the_entry_and_the_page_while_a_
         assert (page.status_code, listing.status_code) == (404, 404)
     # a view must be valid and allowed for its own routes, admin or not
     assert per_view == [404, 404, 404, 404]
+
+
+#: the feature's code beyond its settings; the app imports it only with the switch on (and accounts)
+FEATURE_MODULES = ("custom_views.budget", "custom_views.document", "custom_views.manifest", "custom_views.query",
+                   "custom_views.read", "custom_views.registry", "web_interface.custom_views_routes")
+
+
+def _forget(monkeypatch, names) -> None:
+    """Takes ``names`` out of sys.modules for one test, so that importing them shows. The modules and
+    their packages' attributes are put back afterwards: later tests patch them by dotted name."""
+    for name in names:
+        parent, _, child = name.rpartition(".")
+        package = sys.modules.get(parent)
+        if package is not None and hasattr(package, child):
+            monkeypatch.setattr(package, child, getattr(package, child))
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
+
+@pytest.mark.parametrize("accounts,switch", [
+    pytest.param(True, False, marks=needs_db),
+    pytest.param(True, True, marks=needs_db),
+    (False, False),
+])
+def test_the_app_imports_the_feature_only_with_the_switch_on(request, tmp_path, monkeypatch, accounts, switch):
+    """With the switch off an error in the feature's code cannot stop the Platform from starting."""
+    _forget(monkeypatch, FEATURE_MODULES)
+    folder = views_folder(tmp_path, monkeypatch)
+    write_view(folder, VIEW)
+
+    if accounts:
+        app = identity_app(request.getfixturevalue("platform_db"), tmp_path, monkeypatch, folder, enabled=switch)
+    else:
+        app = accounts_off_app(tmp_path, monkeypatch, folder, enabled=switch)
+
+    assert app is not None                                       # it started
+    assert sorted(n for n in FEATURE_MODULES if n in sys.modules) == (sorted(FEATURE_MODULES) if switch else [])
 
 
 @pytest.mark.parametrize("switch,graph_mode,has_view", COMBINATIONS)

@@ -325,14 +325,17 @@
     }
   }
 
-  /** The administrator's block: each view's files with fingerprint and change time, from the list. */
+  /**
+   * The administrator's block: every valid view's files with fingerprint and change time, from the list's
+   * files_by_view (all views in the folder, also those the administrator's own roles may not open).
+   */
   function loadFiles() {
     var box = document.getElementById('cvAdminFiles');
     if (!box) {
       return; // the administrator's block is not on the page
     }
     getJson('/api/custom-views', undefined).then(function (answer) {
-      var views = Array.isArray(answer.views) ? answer.views : [];
+      var views = Array.isArray(answer.files_by_view) ? answer.files_by_view : [];
       var listed = views.filter(function (view) {
         return isPlainObject(view) && Array.isArray(view.files);
       });

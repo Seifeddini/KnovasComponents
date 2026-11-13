@@ -1050,15 +1050,15 @@ def create_app(config_path: Optional[str] = None):
     # On only with the switch, per-user accounts and graph mode, and while the
     # views folder is not refused (_custom_views_on); the routes are not even
     # registered without the switch and accounts. The folder must lie outside
-    # the AutoDoc documents, so the registry knows where they are.
-    from custom_views.registry import Registry as CustomViewsRegistry
+    # the AutoDoc documents, so the registry knows where they are. The feature's
+    # code is imported only when the registry is built: with the switch off an
+    # error in it cannot stop the Platform from starting.
     from custom_views.settings import load_settings as load_custom_views_settings
-    from web_interface.custom_views_routes import OncePer, may_enter as custom_views_may_enter
 
     custom_views_settings = load_custom_views_settings(config)
     custom_views_registry = None
-    # A broken check would otherwise warn on every page; once a minute says it.
-    custom_views_check_warning = OncePer(60.0)
+    custom_views_check_warning = None   # set with the registry; read only while it exists
+    custom_views_may_enter = None
     if custom_views_settings.enabled:
         if identity_gate is None:
             logger.warning(
@@ -1066,6 +1066,11 @@ def create_app(config_path: Optional[str] = None):
                 'need per-user accounts and stay off.'
             )
         else:
+            from custom_views.registry import Registry as CustomViewsRegistry
+            from web_interface.custom_views_routes import OncePer, may_enter as custom_views_may_enter
+
+            # A broken check would otherwise warn on every page; once a minute says it.
+            custom_views_check_warning = OncePer(60.0)
             custom_views_registry = CustomViewsRegistry(
                 custom_views_settings, documents_root=file_handler.autodoc_path)
             # The first scan, now: a refused folder is logged at WARNING at start
@@ -3435,6 +3440,8 @@ def create_app(config_path: Optional[str] = None):
     # answer is decided per request (_custom_views_on). They read through the
     # views' per-subject cache with a reader of their own: no views pacer (they
     # refuse with their own budget instead of waiting) and no definitions bundle.
+    # A per-node fallback state they load keeps the views' paced reader, so the
+    # existing views' later expansions of it stay paced.
     if identity_gate is not None and custom_views_registry is not None:
         from web_interface.custom_views_routes import create_custom_views_blueprint
 
@@ -3445,6 +3452,7 @@ def create_app(config_path: Optional[str] = None):
             client=lambda: api_client,
             cache=view_service.cache,
             workers=view_service.settings.workers,
+            views_reader=view_service.paced_reader,
             enabled=_custom_views_on,
             page_context=lambda: {
                 **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
