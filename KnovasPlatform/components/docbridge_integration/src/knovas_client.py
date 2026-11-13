@@ -2378,6 +2378,33 @@ class KnovasAPIClient:
         with ThreadPoolExecutor(max_workers=max(1, min(int(workers), len(calls)))) as pool:
             return list(pool.map(one, range(len(calls))))
 
+    def graph_facts_batch(self, node_ids: List[str]) -> Tuple[int, Any]:
+        """``POST /secured/graph/facts/batch``: the facts of up to 500 nodes in one read.
+
+        Read-only despite the verb (the ids travel in a body). Nodes the caller
+        may not see are left out of the answer. No retries: the caller reads
+        the status. Returns ``(status, payload)``; 599 when no response came back.
+        """
+        ids = [str(n) for n in node_ids]
+        if len(ids) > 500:
+            raise ValueError("graph_facts_batch takes at most 500 node ids")
+        self._ensure_certificate_freshness()
+        body = self._with_principal({"node_ids": ids})
+        try:
+            response = self._session.request(
+                method='POST', url=f"{self.base_url}/secured/graph/facts/batch",
+                json=body, headers=self._get_headers(),
+                timeout=self.http_read_timeout, allow_redirects=False,
+            )
+        except _RETRYABLE_REQUEST_EXCEPTIONS as exc:
+            logger.warning("Graph facts batch failed: %s", type(exc).__name__)
+            return 599, None
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        return response.status_code, payload
+
     # -- Kuratieren (der Graph wird vom Client gepflegt, nicht abgeleitet) --
 
     def graph_create_node_type(self, name: str) -> Optional[Dict[str, Any]]:
