@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "title": {"de": "Prüfansicht", "en": "Probe"},
+  "description": {"de": "Prüft im Browser, was eine Ansicht darf und nicht darf.", "en": "Checks in the browser what a view may and may not do."},
+  "roles": ["*"],
+  "entry": "index.html",
+  "scripts": ["probe.js"],
+  "styles": ["probe.css"],
+  "reads": {"FeaturePlan": ["status"]},
+  "links": {"hosts": ["example.com"]}
+}

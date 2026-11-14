@@ -36,6 +36,7 @@ class GraphReader:
         self._acquire = acquire
         self._workers = workers
         self.calls = 0
+        self.batch_unavailable = False
 
     def _many(self, calls: List[Tuple[str, Optional[Dict[str, Any]]]]) -> List[Tuple[int, Any]]:
         self.calls += len(calls)
@@ -88,6 +89,36 @@ class GraphReader:
         for nid, (status, payload) in zip(ids, self._many(
                 [(f"/nodes/{quote(n, safe='')}/facts", None) for n in ids])):
             out[nid] = None if status >= 400 or status == 599 else _list(payload, "facts")
+        return out
+
+    def facts_batch(self, node_ids: Iterable[str]) -> Dict[str, Optional[List[Dict[str, Any]]]]:
+        """Facts per node over ``POST /facts/batch``, 500 ids to a call.
+
+        An id the answer leaves out is hidden or unknown, so None (never []).
+        A route that is not there (404/405) falls back to ``facts_many`` for
+        that chunk and sets ``batch_unavailable``; any other error gives None
+        for the chunk.
+        """
+        ids = list(dict.fromkeys(node_ids))
+        out: Dict[str, Optional[List[Dict[str, Any]]]] = {}
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            self.calls += 1
+            status, payload = self._client.graph_facts_batch(chunk)
+            if status in (404, 405):
+                self.batch_unavailable = True
+                out.update(self.facts_many(chunk))
+                continue
+            if status >= 400 or status == 599 or not isinstance(payload, dict):
+                out.update({nid: None for nid in chunk})
+                continue
+            data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+            by_node = data.get("facts_by_node")
+            by_node = by_node if isinstance(by_node, dict) else {}
+            for nid in chunk:
+                facts = by_node.get(nid)
+                out[nid] = ([f for f in facts if isinstance(f, dict)]
+                            if isinstance(facts, list) else None)
         return out
 
     def neighbors(self, node_id: str) -> Optional[Dict[str, Any]]:

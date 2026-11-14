@@ -95,6 +95,11 @@ class ViewService:
                                                self.settings.fact_burst)
         bucket.acquire()
 
+    def paced_reader(self, client: Any) -> GraphReader:
+        """The reader ``context`` builds for ``client``, paced by the views' bucket (D3). For a caller
+        that shares ``cache`` with a reader of its own: what a state it loads keeps for later expansions."""
+        return GraphReader(client, acquire=self._acquire, workers=self.settings.workers)
+
     def bundle(self, refresh: bool = False, client: Any = None) -> bundles.Bundle:
         """This tenant's definitions bundle, set for the rest of the request; BundleError when refused."""
         client = self._client() if client is None else client

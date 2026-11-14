@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{{ brand }} Eigene Ansichten</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/custom_views.css') }}?v={{ asset_version }}">
+</head>
+<body>
+    {# Eigene Ansichten: the picker, the bar and the frame host. Everything that comes from a manifest
+       (ids, titles, reasons) passes Jinja's autoescape here and textContent in custom_views.js, never markup.
+       No inline script and no event attributes in this template; the included _sidebar.html carries an
+       inline script, so a script-src policy on this page would first need that script moved to a file. #}
+    {% set cv_selected = current_view or (custom_views[0].id if custom_views else '') %}
+    {% set cv_title = custom_views | selectattr('id', 'equalto', cv_selected) | map(attribute='title') | first | default('') %}
+    {% set cv_invalid = invalid_views | default([]) %}
+    {% set cv_admin = is_admin | default(false) %}
+    <div class="app-shell">
+        {% include '_sidebar.html' %}
+
+        <div class="app-content">
+        <div class="container cv-page" id="cvPage" data-view="{{ cv_selected }}">
+            <header class="site-header">
+                <h1 class="site-greeting">Eigene Ansichten</h1>
+            </header>
+
+            <main class="cv-main">
+                {% if custom_views %}
+                <nav class="cv-picker" aria-label="Eigene Ansichten">
+                    <ul class="cv-picker-list" id="cvPicker">
+                    {% for view in custom_views %}
+                        <li><a class="cv-pick" href="{{ url_for('custom_views.page', view_id=view.id) }}"
+                               data-view-id="{{ view.id }}"{% if view.id == cv_selected %} aria-current="page"{% endif %}>{{ view.title }}</a></li>
+                    {% endfor %}
+                    </ul>
+                </nav>
+                {% else %}
+                {# An administrator enters while no view is valid for them, to read why. #}
+                <p class="cv-hint">Es gibt keine gültige Ansicht, die Sie öffnen können.{% if cv_admin %}
+                    Was fehlt, steht unter «Dateien und Prüfung».{% endif %}</p>
+                {% endif %}
+
+                {% if cv_admin %}
+                <details class="cv-admin" id="cvAdmin">
+                    <summary class="cv-admin-summary">
+                        Dateien und Prüfung
+                        {% if cv_invalid %}<span class="cv-badge cv-badge--bad">{{ cv_invalid | length }} ungültig</span>{% endif %}
+                    </summary>
+                    <div class="cv-admin-body">
+                        <section aria-labelledby="cvAdminFilesHeading">
+                            <h2 class="cv-admin-heading" id="cvAdminFilesHeading">Dateien</h2>
+                            <div id="cvAdminFiles" aria-live="polite">
+                                <p class="cv-hint">Dateien werden geladen …</p>
+                            </div>
+                        </section>
+                        <section aria-labelledby="cvAdminInvalidHeading">
+                            <h2 class="cv-admin-heading" id="cvAdminInvalidHeading">Ungültige Ansichten</h2>
+                            {% if cv_invalid %}
+                            <ul class="cv-invalid-list">
+                            {% for item in cv_invalid %}
+                                <li><span class="cv-mono">{{ item.id }}</span>: {{ item.reason }}</li>
+                            {% endfor %}
+                            </ul>
+                            {% else %}
+                            <p class="cv-hint">Alle Ansichten im Ordner sind gültig.</p>
+                            {% endif %}
+                        </section>
+                    </div>
+                </details>
+                {% endif %}
+
+                {% if custom_views %}
+                <section class="cv-stage" aria-labelledby="cvBar">
+                    <h2 class="cv-bar" id="cvBar">
+                        <span class="cv-bar-label">Eigene Ansicht</span>
+                        <span class="cv-bar-sep" aria-hidden="true">·</span>
+                        <span class="cv-bar-title" id="cvBarTitle">{{ cv_title }}</span>
+                    </h2>
+                    <p class="cv-message" id="cvMessage" role="alert" hidden></p>
+                    <div class="cv-frame-host" id="cvFrameHost" aria-busy="true">
+                        <p class="cv-hint cv-loading" id="cvLoading">Ansicht wird geladen …</p>
+                    </div>
+                </section>
+                {% endif %}
+                <noscript><p class="cv-hint">Für die eigenen Ansichten wird JavaScript benötigt.</p></noscript>
+            </main>
+        </div>
+        </div>
+    </div>
+
+    {# The frame of one view load: cloned for every load, never reused. Scripts only, an opaque origin, no
+       referrer. custom_views.js fills srcdoc and is the only one to talk to it, over a MessageChannel. #}
+    <template id="cvFrameTemplate">
+        <iframe class="cv-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="Eigene Ansicht"></iframe>
+    </template>
+    <script src="{{ url_for('static', filename='js/custom_views.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>

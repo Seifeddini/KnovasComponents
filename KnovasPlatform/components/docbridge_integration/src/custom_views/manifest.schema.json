@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "title", "roles", "entry", "reads"],
+  "properties": {
+    "format": {"const": 1},
+    "title": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["de", "en"],
+      "properties": {
+        "de": {"type": "string", "maxLength": 120},
+        "en": {"type": "string", "maxLength": 120}
+      }
+    },
+    "description": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["de", "en"],
+      "properties": {
+        "de": {"type": "string", "maxLength": 500},
+        "en": {"type": "string", "maxLength": 500}
+      }
+    },
+    "order": {"type": "number"},
+    "roles": {"type": "array", "items": {"type": "string"}},
+    "entry": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,60}[.]html$"},
+    "scripts": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,60}[.]js$"}},
+    "styles": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,60}[.]css$"}},
+    "reads": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"},
+      "additionalProperties": {
+        "type": "array",
+        "maxItems": 40,
+        "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"}
+      }
+    },
+    "links": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hosts": {"type": "array", "items": {"type": "string", "pattern": "^[a-z0-9.-]{1,253}$"}}
+      }
+    }
+  }
+}

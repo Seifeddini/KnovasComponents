@@ -85,7 +85,7 @@ class TopologyIndex:
         node = self.nodes.get(node_id)
         return node["type"] if node else ""
 
-    def ensure(self, node_ids: Iterable[str]) -> int:
+    def ensure(self, node_ids: Iterable[str], reader: Optional[GraphReader] = None) -> int:
         """The complete index knows every neighbourhood already."""
         return 0
 
@@ -114,7 +114,10 @@ class PartialIndex(TopologyIndex):
         self._lock = threading.Lock()
         self.truncated = False
 
-    def ensure(self, node_ids: Iterable[str]) -> int:
+    def ensure(self, node_ids: Iterable[str], reader: Optional[GraphReader] = None) -> int:
+        """Expand the nodes not expanded yet, one ``neighbors`` call each: through ``reader`` when
+        given (a caller with pacing of its own, the custom views), else the reader the index keeps."""
+        reader = self._reader if reader is None else reader
         todo = [n for n in dict.fromkeys(node_ids) if n not in self._expanded]
         done = 0
         for nid in todo:
@@ -123,7 +126,7 @@ class PartialIndex(TopologyIndex):
                     self.truncated = True
                     break
                 self._expanded.add(nid)
-            got = self._reader.neighbors(nid)
+            got = reader.neighbors(nid)
             if got is None:
                 continue
             self.add_nodes(got["neighbors"])
@@ -186,14 +189,20 @@ class TopologyCache:
         self._lock = threading.Lock()
 
     def get(self, key: Optional[str], reader: GraphReader,
-            refresh: bool = False) -> SubjectState:
+            refresh: bool = False, *, index_reader: Optional[GraphReader] = None) -> SubjectState:
+        """The subject's state, loaded through ``reader`` when missing or stale.
+
+        ``index_reader``: the reader a per-node fallback index keeps for later
+        expansions (default ``reader``). A caller that loads with a reader of its
+        own passes the one the state's other users expect to expand through.
+        """
         now = self._now()
         if key is not None and not refresh:
             with self._lock:
                 state = self._states.get(key)
                 if state is not None and now - state.as_of < self._settings.ttl_seconds:
                     return state
-        state = self._load(reader, now)
+        state = self._load(reader, now, index_reader)
         if key is not None:
             with self._lock:
                 self._states[key] = state
@@ -214,7 +223,8 @@ class TopologyCache:
         with self._lock:
             self._states.clear()
 
-    def _load(self, reader: GraphReader, now: float) -> SubjectState:
+    def _load(self, reader: GraphReader, now: float,
+              index_reader: Optional[GraphReader] = None) -> SubjectState:
         s = self._settings
         topo = reader.topology()
         edges, nodes = topo["edges"], topo["nodes"]
@@ -230,7 +240,8 @@ class TopologyCache:
             fallback = f"Kantenliste zu langsam ({topo['seconds']:.1f} s > {s.edge_budget_seconds:g} s)"
         if fallback:
             logger.warning("views: scale guard fired, walking per node: %s", fallback)
-            index: TopologyIndex = PartialIndex(topo["node_types"], reader,
+            index: TopologyIndex = PartialIndex(topo["node_types"],
+                                                reader if index_reader is None else index_reader,
                                                 s.fallback_max_expansions)
             index.remember(nodes)
         else:

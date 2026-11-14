@@ -318,6 +318,13 @@ experiments:
     poll_seconds: "${EXPERIMENTS_WORKER_POLL_SECONDS:-5}"
   max_csv_rows: "${EXPERIMENTS_MAX_CSV_ROWS:-200000}"
 
+# Custom views (Eigene Ansichten): operator-supplied views, read-only against the Brain.
+# Needs user accounts and a graph ontology source. Not on the settings page.
+custom_views:
+  enabled: "${CUSTOM_VIEWS_ENABLED:-false}"
+  dir: "${CUSTOM_VIEWS_DIR:-/mnt/custom-views}"
+  facts_per_minute: "${CUSTOM_VIEWS_FACTS_PER_MINUTE:-60}"
+
 # Client file open: browser launches UNC/local path on the user's PC (no install).
 # Optional companion (semantix-doc:) if browser launch is blocked by policy.
 # Ansichten (/views): process and spine views drawn from the ontology's

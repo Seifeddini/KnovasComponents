@@ -101,11 +101,21 @@ class FakeViewsClient:
     customer_id = "af639810-afc7-403f-8139-f6026d085c99"
     cert_path = ""
 
-    def __init__(self, graph: FixtureGraph, *, hidden: Optional[set] = None):
+    def __init__(self, graph: FixtureGraph, *, hidden: Optional[set] = None, batch: bool = True):
         self.g = graph
+        self.batch = batch
+        self.batch_bodies: List[Dict[str, Any]] = []
         self.hidden = set(hidden or ())        # node ids this caller may not see
         self.calls: List[str] = []
         self.batches: List[int] = []
+
+    def graph_facts_batch(self, node_ids):
+        self.batch_bodies.append({"node_ids": list(node_ids)})
+        if not self.batch:
+            return 404, None
+        by_node = {n: self.g.facts.get(n, []) for n in dict.fromkeys(node_ids)
+                   if n in self.g.nodes and n not in self.hidden}
+        return 200, {"success": True, "data": {"facts_by_node": by_node}}
 
     def _visible_edges(self):
         return [e for e in self.g.edges

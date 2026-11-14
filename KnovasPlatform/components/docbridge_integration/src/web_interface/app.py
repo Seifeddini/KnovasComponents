@@ -892,6 +892,8 @@ def create_app(config_path: Optional[str] = None):
             or path.startswith('/views/doc/')
             or path == '/experiments'
             or path.startswith('/experiments/')
+            or path == '/custom-views'
+            or path.startswith('/custom-views/')
             or path.endswith('.js')
             or path.endswith('.css')
             or path.startswith('/static/')
@@ -1043,6 +1045,37 @@ def create_app(config_path: Optional[str] = None):
         'runner': None,
         'workers': [],
     }
+
+    # Eigene Ansichten (docs/superpowers/plans/2026-11-13-custom-views.md, Task 9).
+    # On only with the switch, per-user accounts and graph mode, and while the
+    # views folder is not refused (_custom_views_on); the routes are not even
+    # registered without the switch and accounts. The folder must lie outside
+    # the AutoDoc documents, so the registry knows where they are. The feature's
+    # code is imported only when the registry is built: with the switch off an
+    # error in it cannot stop the Platform from starting.
+    from custom_views.settings import load_settings as load_custom_views_settings
+
+    custom_views_settings = load_custom_views_settings(config)
+    custom_views_registry = None
+    custom_views_check_warning = None   # set with the registry; read only while it exists
+    custom_views_may_enter = None
+    if custom_views_settings.enabled:
+        if identity_gate is None:
+            logger.warning(
+                'CUSTOM_VIEWS_ENABLED is on but identity.enabled is false; Eigene Ansichten '
+                'need per-user accounts and stay off.'
+            )
+        else:
+            from custom_views.registry import Registry as CustomViewsRegistry
+            from web_interface.custom_views_routes import OncePer, may_enter as custom_views_may_enter
+
+            # A broken check would otherwise warn on every page; once a minute says it.
+            custom_views_check_warning = OncePer(60.0)
+            custom_views_registry = CustomViewsRegistry(
+                custom_views_settings, documents_root=file_handler.autodoc_path)
+            # The first scan, now: a refused folder is logged at WARNING at start
+            # (by the registry, once per change) and keeps the feature off.
+            custom_views_registry.refusal()
 
     weak_secret_values = {
         '',
@@ -1743,6 +1776,37 @@ def create_app(config_path: Optional[str] = None):
             logger.warning('Experimente-Eintrag nicht ermittelbar: %s', exc)
             return False
 
+    def _custom_views_on() -> bool:
+        """Eigene Ansichten are on for this request: switch, accounts, graph
+        mode, and the views folder not refused (re-read at most every
+        rescan_seconds, so a fixed folder switches the feature on without a
+        restart). A failure counts as off, with a warning at most once a minute."""
+        if custom_views_registry is None or identity_gate is None:
+            return False
+        try:
+            # _ontology_source_is_graph is bound further down create_app; it is
+            # only called here, at request time.
+            return _ontology_source_is_graph() and custom_views_registry.refusal() is None
+        except Exception as exc:  # noqa: BLE001 - off rather than a 500
+            if custom_views_check_warning.ready():
+                logger.warning('Eigene Ansichten nicht ermittelbar: %s', exc)
+            return False
+
+    def _custom_views_nav() -> bool:
+        """Whether the sidebar offers Eigene Ansichten: the feature is on and the
+        signed-in person may enter (custom_views_routes.may_enter: a valid view
+        they may open; an administrator, any view folder, so they can read why
+        a view is invalid). Presentation only -- the routes refuse on their
+        own -- so a failure hides the item."""
+        if not _custom_views_on():
+            return False
+        try:
+            return custom_views_may_enter(custom_views_registry, identity_gate.current_user())
+        except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
+            if custom_views_check_warning.ready():
+                logger.warning('Eintrag Eigene Ansichten nicht ermittelbar: %s', exc)
+            return False
+
     def _builder_nav() -> bool:
         """Whether the sidebar offers the Brain Builder: the signed-in person
         holds a builder role. Presentation only -- the builder blueprint
@@ -1770,6 +1834,7 @@ def create_app(config_path: Optional[str] = None):
             'console_url': _console_url(),
             'cortex_enabled': cortex_enabled,
             'experiments_nav': _experiments_nav(),
+            'custom_views_nav': _custom_views_nav(),
             'builder_nav': _builder_nav(),
         }
 
@@ -3370,6 +3435,31 @@ def create_app(config_path: Optional[str] = None):
                              and 'admin' in identity_gate.current_user().roles),
         },
     ))
+
+    # Eigene Ansichten: registered with the switch and accounts on; whether they
+    # answer is decided per request (_custom_views_on). They read through the
+    # views' per-subject cache with a reader of their own: no views pacer (they
+    # refuse with their own budget instead of waiting) and no definitions bundle.
+    # A per-node fallback state they load keeps the views' paced reader, so the
+    # existing views' later expansions of it stay paced.
+    if identity_gate is not None and custom_views_registry is not None:
+        from web_interface.custom_views_routes import create_custom_views_blueprint
+
+        app.register_blueprint(create_custom_views_blueprint(
+            gate=identity_gate,
+            registry=custom_views_registry,
+            settings=custom_views_settings,
+            client=lambda: api_client,
+            cache=view_service.cache,
+            workers=view_service.settings.workers,
+            views_reader=view_service.paced_reader,
+            enabled=_custom_views_on,
+            page_context=lambda: {
+                **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+                'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version(),
+            },
+            csrf_valid=_csrf_token_is_valid,
+        ))
 
     @app.route('/api/ontology/summary', methods=['GET'])
     def ontology_summary():
