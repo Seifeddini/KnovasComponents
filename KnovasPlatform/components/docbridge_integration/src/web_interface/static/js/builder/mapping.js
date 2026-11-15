@@ -438,10 +438,20 @@
         least.type = 'number'; least.min = 1; least.value = data.deletion_guard.min_retire || 3;
         var fresh = field('Frisch für', el('input', 'b-input'));
         fresh.value = data.freshness || '7 d';
+        // The files the mapping reads, for a mapping that reads a pattern (an imported one too); one fixed document
+        // (an HTTP/JSON source) has none. Sent only when changed, so saving the other settings never touches it.
+        var glob = null;
+        if (data.source_spec && data.source_spec.glob) {
+            glob = field('Dateien (Dateimuster)', el('input', 'b-input b-mono'));
+            glob.value = data.source_spec.glob;
+            glob.placeholder = 'z. B. docs/entscheide/*.md';
+        }
         var row = el('div', 'b-button-row');
         row.appendChild(button('Einstellungen speichern', 'b-button--secondary', function () {
-            edit({ op: 'mapping.settings', fields: { priority: Number(priority.value), edit_policy: policy.value,
-                   max_retire_share: Number(share.value), min_retire: Number(least.value), freshness: fresh.value } });
+            var fields = { priority: Number(priority.value), edit_policy: policy.value,
+                           max_retire_share: Number(share.value), min_retire: Number(least.value), freshness: fresh.value };
+            if (glob && glob.value.trim() !== data.source_spec.glob) fields.glob = glob.value.trim();
+            edit({ op: 'mapping.settings', fields: fields });
         }));
         form.appendChild(row);
         form.appendChild(el('p', 'b-small b-muted',

@@ -129,6 +129,36 @@ class TestTheEdits:
             with pytest.raises(editing.EditError):
                 editing.apply(model, {"op": "mapping.settings", "id": "ablage-mandate", "fields": bad})
 
+    def test_the_files_a_mapping_reads_can_be_changed(self, model):
+        editing.apply(model, {"op": "source.create", "kind": "github", "name": "Repo", "component": "c1",
+                              "settings": {"repository": "acme/kb", "ref": "main"}})
+        editing.apply(model, {"op": "mapping.create", "id": "repo-vision", "source": "repo", "type": "Mandate",
+                              "collection": "yaml_file:steering/vision.yaml"})
+        editing.apply(model, {"op": "mapping.settings", "id": "repo-vision",
+                              "fields": {"glob": "steering\\vision*.yaml"}})
+        entry = _entry(model, "repo-vision")
+        assert entry["definition"]["source"]["glob"] == "steering/vision*.yaml"
+        assert entry["builder"]["collection"] == "yaml_file:steering/vision*.yaml"
+        for bad in ("", "/etc/*.yaml", "../aussen/*.yaml", "steering/../../x.yaml"):
+            with pytest.raises(editing.EditError, match="Dateien"):
+                editing.apply(model, {"op": "mapping.settings", "id": "repo-vision", "fields": {"glob": bad}})
+        assert _entry(model, "repo-vision")["definition"]["source"]["glob"] == "steering/vision*.yaml"
+
+    def test_an_imported_mapping_s_files_can_be_changed(self, model):
+        imported = next(m for m in model["mappings"] if "glob" in (m["definition"].get("source") or {})
+                        and "collection" not in m.get("builder", {}))
+        mapping_id = imported["definition"]["id"]
+        editing.apply(model, {"op": "mapping.settings", "id": mapping_id, "fields": {"glob": "neu/*.yaml"}})
+        assert _entry(model, mapping_id)["definition"]["source"]["glob"] == "neu/*.yaml"
+
+    def test_a_mapping_of_one_fixed_document_has_no_pattern(self, model):
+        editing.apply(model, {"op": "source.create", "kind": "http_json", "name": "Api", "component": "c1",
+                              "settings": {"url": "https://example.ch/api"}})
+        editing.apply(model, {"op": "mapping.create", "id": "api-liste", "source": "api", "type": "Mandate",
+                              "collection": "$"})
+        with pytest.raises(editing.EditError, match="kein Dateimuster"):
+            editing.apply(model, {"op": "mapping.settings", "id": "api-liste", "fields": {"glob": "x/*.json"}})
+
     def test_a_typed_folder_of_a_repository(self, model):
         editing.apply(model, {"op": "source.create", "kind": "github", "name": "Repo", "component": "c1",
                               "settings": {"repository": "acme/kb", "ref": "main"}})
