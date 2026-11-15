@@ -158,6 +158,8 @@ def _mapping_settings(edit: _Edit, op: Mapping[str, Any]) -> None:
         if not window or not window.split(" ")[0].isdigit():
             raise EditError("Frische: eine Dauer wie «7 d».")
         defn["freshness"] = {"window": window}
+    if "glob" in fields:
+        _set_glob(new, fields["glob"])
     for key, what in (("select", "Auswahl"), ("as", "Name des Eintrags")):
         if key in fields:
             value = _text(fields[key], what, limit=400)
@@ -173,6 +175,25 @@ def _mapping_settings(edit: _Edit, op: Mapping[str, Any]) -> None:
             for spec in (em.get("facts") or {}).values():
                 spec["priority"] = priority
     edit.write(MAPPINGS, old, new)
+
+
+def _set_glob(entry: dict, value: Any) -> None:
+    """The files a mapping reads («Dateien»), for an imported mapping too: a pattern inside the source, as a person
+    types it (a path copied from Windows counts); one that leaves the source does not. A mapping that reads one fixed
+    document (``path``, an HTTP/JSON source) has no pattern to change."""
+    source = entry["definition"].get("source") or {}
+    if "glob" not in source:
+        raise EditError("Dateien: diese Zuordnung liest kein Dateimuster.", 409)
+    pattern = _text(value, "Dateien", limit=400).strip().replace("\\", "/")
+    if not pattern or pattern.startswith("/") or ".." in pattern.split("/"):
+        raise EditError("Dateien: ein Dateimuster innerhalb der Quelle, z. B. docs/entscheide/*.md.")
+    old = source["glob"]
+    source["glob"] = pattern
+    collection = entry["builder"].get("collection")
+    if collection == old:                                   # a mapping made in the Builder keeps its collection in step
+        entry["builder"]["collection"] = pattern
+    elif isinstance(collection, str) and collection.endswith(":" + old):
+        entry["builder"]["collection"] = collection[: -len(old)] + pattern
 
 
 def _mapping_remove(edit: _Edit, op: Mapping[str, Any]) -> None:
