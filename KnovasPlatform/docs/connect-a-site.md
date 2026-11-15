@@ -4,6 +4,8 @@ Für Beraterinnen und Berater, die eine Firma an ihr Brain anschliessen. Ein **S
 
 Stand: MVP des Verbindungsteils (MVP-23 bis MVP-28). Wie Knovas Link sein Zertifikat erhält, hat DEC-0056 entschieden (Option A mit A1): jeder Standort erhält sein eigenes Zertifikat von der Client-CA von Knovas (Abschnitt 2).
 
+Die ganze Einrichtung für einen Kunden, Schritt für Schritt (Mandant, Plattform, Modell im Builder, Standort, Quellen, Übergabe; auf Englisch): [Client_Brain_Setup](https://github.com/Seifeddini/KnowledgeBase/blob/develop/docs/Docs/08_RUNBOOKS/Semantix_Runbooks/Ops/Client_Brain_Setup.md). Diese Seite ist darin Phase 4 und 5. Wie aus den Daten einer Quelle das Brain wird: [From source to Brain](https://github.com/Seifeddini/KnowledgeBase/blob/develop/docs/Docs/04_COMPONENTS/source_to_brain_mapping.md).
+
 Überblick über alle Teile, wer sich wie ausweist und was schon gebaut ist (auf Englisch): [connection-layer.md](connection-layer.md).
 
 ## 1. Standort anlegen (Builder › Verbinden)
