@@ -108,3 +108,16 @@ only, so I changed no documentation. No component card for L2-PLATFORM-ASSISTANT
   on both except the base's collection error of `test_pmvp21_chats_acceptance.py` (gone on the branch). The rest are
   Windows-environment failures (e.g. `socketserver.UnixStreamServer`) and PMVP-20's not-yet-built acceptance file.
   `tests/test_identity_migrations.py` passes (16).
+
+## Verification (coordinator's record)
+
+- **2026-11-19, fresh verifier session, `feat/pmvp-21` @ `466b8b9`: PASS WITH NOTES.** Frozen tests unchanged (blob
+  ids OK); acceptance 13 passed, not skipped; builder's tests 52 passed; identity suite green apart from
+  `test_identity_broker_key` (POSIX mode bits, fails on base too); whole suite has the same failing ids as base
+  `87afe42`, all Windows-environment. Owner filter present in all eight statements; foreign, missing and malformed
+  ids indistinguishable, also under a held row lock; the concurrency test fails on a broken variant 5 of 5 times.
+- Integrated into `feat/platform-mvp` by the coordinator (merge `7115ac8`).
+- **Class: critical** (this repository's CLAUDE.md: migrations). The plan's § 9 says sensitive and § 6.5 calls only
+  a change to existing tables critical; the repository's rule is stricter and wins. Management approves before
+  `main`.
+- Notes carried forward: `docs/platform-mvp/follow-ups.md` (FU-01 to FU-04).
