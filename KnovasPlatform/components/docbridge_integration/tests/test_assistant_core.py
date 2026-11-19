@@ -262,3 +262,20 @@ def test_the_service_says_busy_when_the_core_is(key_dir, monkeypatch, split):
                              generate=make_generate(client)).answer("Frist?")
     assert reply.status == "busy"
     assert core.bodies("/secured/llm/generate") == []
+
+
+def test_a_reference_opens_the_page_its_text_is_on(key_dir, monkeypatch, split):
+    """Rework 1, rule 5: the first chunk has no snippet (an auto summary ranked first)."""
+    hit = {"pointer": "Mandate/Mueller/vertrag.pdf", "cosine_similarity": 0.9,
+           "snippet": "Die Frist beginnt mit dem Zugang.",
+           "top_chunks": [{"chunk_uuid": "c-0", "page_number": 1, "sentence_number": 1},
+                          {"chunk_uuid": "c-1", "page_number": 7, "sentence_number": 31,
+                           "snippet": "Die Frist beginnt mit dem Zugang."}]}
+    core = _Core(hits=[hit], answer="Ab Zugang [1].")
+    client = _client(key_dir, monkeypatch, core)
+    reply = AssistantService(search=make_search(client, split=split),
+                             generate=make_generate(client)).answer("Wann beginnt die Frist?")
+    assert reply.status == "answered"
+    assert [(p.page, p.sentence) for p in reply.passages] == [(7, 31)]
+    (generation,) = core.bodies("/secured/llm/generate")
+    assert "[1] vertrag, page 7\nDie Frist beginnt mit dem Zugang." in generation["messages"][-1]["content"]

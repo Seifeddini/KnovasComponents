@@ -373,18 +373,32 @@ def _snippet_from_hit(item: Dict[str, Any]) -> Optional[str]:
     text is ``original_text``, and the BM25 ``text`` field has its digits
     stripped.
     """
+    found = _snippet_with_location(item)
+    return found[0] if found else None
+
+
+def _snippet_with_location(item: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """``(snippet, location of the chunk it was cut from)`` of one hit, or None.
+
+    The text and its page must come from the same chunk (PMVP-20 rework 1):
+    the row's ``page_number`` is ``top_chunks[0]``'s, but the first chunk may
+    carry no snippet (an auto summary), so a reference would open the wrong
+    page. The chunks are read first, in order -- the Core's row-level
+    ``snippet`` is the first of theirs; a row-level snippet without any
+    chunk's is kept with an unknown location (``{}``), never another chunk's.
+    """
     chunks = item.get("top_chunks")
     if not isinstance(chunks, list):
         chunks = item.get("topChunks")
-    sources: List[Any] = [item]
-    if isinstance(chunks, list):
-        sources.extend(chunks)
-    for source in sources:
-        if not isinstance(source, dict):
+    for chunk in chunks if isinstance(chunks, list) else ():
+        if not isinstance(chunk, dict):
             continue
-        value = source.get("snippet")
+        value = chunk.get("snippet")
         if isinstance(value, str) and value.strip():
-            return value.strip()
+            return value.strip(), _location_from_mapping(_coalesce_secured_query_keys(chunk))
+    value = item.get("snippet")
+    if isinstance(value, str) and value.strip():
+        return value.strip(), {}
     return None
 
 
@@ -1673,8 +1687,10 @@ class KnovasAPIClient:
 
         For the Knovas Assistent (PMVP-20), which cites only what it can show
         and searches through the search page's own path (``run_search``). The
-        request Knovas receives is the same; only the row keeps one more key
-        (``_snippet_from_hit``). Outside the block rows have no ``snippet``:
+        request Knovas receives is the same; only the row keeps ``snippet``
+        and the location of the chunk it was cut from, ``snippet_page_number``
+        and ``snippet_sentence_number`` (``_snippet_with_location``). Outside
+        the block rows have none of them:
         the search page reads that key when it matches words
         (``_search_result_haystack``) and must behave as before. Secured
         search only -- the legacy GET returns its rows as they are. Per
@@ -3459,9 +3475,13 @@ class KnovasAPIClient:
                 continue
             row = _secured_query_hit_to_row(raw)
             if snippets:
-                snippet = _snippet_from_hit(raw)
-                if snippet:
-                    row["snippet"] = snippet
+                found = _snippet_with_location(raw)
+                if found:
+                    # The snippet's own page and sentence, from its chunk (None
+                    # when unknown); page_number stays the row's (top_chunks[0]).
+                    row["snippet"] = found[0]
+                    row["snippet_page_number"] = found[1].get("page_number")
+                    row["snippet_sentence_number"] = found[1].get("sentence_number")
             # The server's own ranking (ColBERT rerank, name-prefilter boost).
             # `score` is the stage-1 cosine of the best chunk and sorts
             # differently; the UI keeps this order (PLATFORM_KEEP_SERVER_ORDER).

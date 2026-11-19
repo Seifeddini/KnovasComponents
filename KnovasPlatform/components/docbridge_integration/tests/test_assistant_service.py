@@ -65,7 +65,7 @@ def _size(text):
     return len(text.encode("utf-8"))
 
 
-# --- sentence splitting (rule 2: cautious for German legal text) -----------------------------------
+# --- sentence splitting: when unsure, cut (rework 1) ------------------------------------------------
 
 
 @pytest.mark.parametrize("text", [
@@ -79,8 +79,27 @@ def _size(text):
     "Er zahlte ca. CHF 500 pro Monat [1].",
     "Das ist bzw. war die Regel [1].",
     "Die Frist gilt (vgl. Art. 5 OR) auch hier [1].",
+    "Die Zahlung erfolgt am 5. jedes Monats [1].",
+    "Im 2. Halbjahr gilt das nicht [1].",
+    "Das gilt d. h. fuer alle und u. U. auch fuer Dritte [1].",
 ])
-def test_an_abbreviation_or_a_number_does_not_end_a_sentence(text):
+def test_an_abbreviation_an_ordinal_or_a_date_does_not_end_a_sentence(text):
+    assert split_sentences(text) == [text]
+
+
+@pytest.mark.parametrize("text", [
+    "Hr. Mueller unterschrieb [1].",
+    "Fr. Meier unterschrieb [1].",
+    "Die Fa. Muster AG zahlt [1].",
+    "Der Kt. Zuerich ist zustaendig [1].",
+    "Dr. med. Keller bestaetigt das [1].",
+    "Lic. iur. Brunner vertritt sie [1].",
+    "Dipl.-Ing. Huber prueft das [1].",
+    "Prof. Dr. Graf hat begutachtet [1].",
+    "Laut Vertrag zahlt sie inkl. MwSt. CHF 500 [1].",
+    "Gemaess Erw. 3 und lit. a gilt das [1].",
+])
+def test_people_firms_and_places_are_abbreviations(text):
     assert split_sentences(text) == [text]
 
 
@@ -94,12 +113,49 @@ def test_sentences_end_at_a_stop_before_a_capital():
 
 
 def test_question_and_exclamation_marks_end_sentences():
-    assert split_sentences("Gilt das? Ja [1]! Immer [2].") == ["Gilt das?", "Ja [1]!", "Immer [2]."]
+    assert split_sentences("Gilt das? ja [1]! Immer [2].") == ["Gilt das?", "ja [1]!", "Immer [2]."]
 
 
-def test_a_stop_before_a_lower_case_word_is_not_an_end():
+def test_a_stop_before_a_lower_case_word_ends_a_sentence():
     assert split_sentences("Die Frist ist kurz. aber gueltig [1].") == [
-        "Die Frist ist kurz. aber gueltig [1]."]
+        "Die Frist ist kurz.", "aber gueltig [1]."]
+
+
+@pytest.mark.parametrize("text, first", [
+    ("Drei Monate [1]. 2023 verlaengert.", "Drei Monate [1]."),
+    ("Drei Monate [1].Danach mehr.", "Drei Monate [1]."),
+    ("Drei Monate [1]; danach mehr.", "Drei Monate [1];"),
+    ("Drei Monate [1] ; danach mehr.", "Drei Monate [1] ;"),
+    ("Drei Monate [1][2]. (Auch fuer sie.)", "Drei Monate [1][2]."),
+    ("Drei Monate \u30101\u3011. danach mehr.", "Drei Monate \u30101\u3011."),
+    ("Drei Monate [1]! danach mehr.", "Drei Monate [1]!"),
+])
+def test_a_reference_closes_its_statement(text, first):
+    assert split_sentences(text)[0] == first
+    assert len(split_sentences(text)) == 2
+
+
+def test_a_semicolon_without_a_reference_does_not_cut():
+    assert split_sentences("Die Frist laeuft; sie ist kurz [1].") == [
+        "Die Frist laeuft; sie ist kurz [1]."]
+
+
+@pytest.mark.parametrize("before", [
+    "Die Miete betraegt CHF 500.", "Die Miete betraegt Fr. 50.", "Sie zahlt CHF 1'500.",
+    "Sie zahlt 3,5.", "Der Vertrag gilt seit dem 1.1.2024.", "Das war 2023.",
+    "Massgebend ist Ziffer 5.", "Massgebend ist Art. 5.", "Siehe S. 5.", "Es gilt Variante B.",
+    "Es gelten Fristen, Termine usw.", "Es gelten Art. 5 ff.",
+])
+def test_a_number_or_a_closing_abbreviation_before_a_stop_ends_the_sentence(before):
+    assert split_sentences(before + " Die Frist betraegt drei Monate [1].") == [
+        before, "Die Frist betraegt drei Monate [1]."]
+
+
+def test_a_stop_glued_to_a_capital_ends_a_plain_word_only():
+    assert split_sentences("Drei Monate.Sie beginnt [1].") == ["Drei Monate.", "Sie beginnt [1]."]
+    assert split_sentences("Siehe www.Knovas.ch fuer z.B. Fristen [1].") == [
+        "Siehe www.", "Knovas.ch fuer z.B. Fristen [1]."]
+    assert split_sentences("Gemaess Art.5 gilt das [1].") == ["Gemaess Art.5 gilt das [1]."]
 
 
 def test_references_after_the_stop_belong_to_the_sentence_before():
@@ -119,9 +175,17 @@ def test_a_line_break_always_ends_a_sentence():
         "Es gilt:", "- drei Monate [1]", "- ab Zugang [2]"]
 
 
-def test_quotes_and_parentheses_stay_with_their_sentence():
+def test_a_quoted_sentence_ends_with_its_stop():
     assert split_sentences('Er schrieb: "Ich kuendige." (Brief vom 3. Mai) [1]. Danach [2].') == [
-        'Er schrieb: "Ich kuendige." (Brief vom 3. Mai) [1].', "Danach [2]."]
+        'Er schrieb: "Ich kuendige."', "(Brief vom 3. Mai) [1].", "Danach [2]."]
+
+
+def test_a_numbered_list_keeps_its_statements():
+    kept, removed = check_answer("1. Die Frist betraegt drei Monate [1].\n2. Sie beginnt mit Zugang [2].",
+                                 {1, 2})
+    assert [(s.text, s.refs) for s in kept] == [("Die Frist betraegt drei Monate.", (1,)),
+                                                ("Sie beginnt mit Zugang.", (2,))]
+    assert removed == 0
 
 
 # --- the reference check (rule 2: strict) -----------------------------------------------------------
@@ -177,6 +241,20 @@ def test_an_empty_answer_keeps_nothing():
     assert check_answer("", {1}) == ([], 0)
 
 
+@pytest.mark.parametrize("answer", [
+    NO_ANSWER_TEXT, NO_ANSWER_TEXT + ".", NO_ANSWER_TEXT + " [1].", NO_ANSWER_TEXT + "[1][2]",
+    "  " + NO_ANSWER_TEXT.upper() + "  [3] .", NO_ANSWER_TEXT + " zu dieser Frage [2].",
+])
+def test_the_no_answer_sentence_is_dropped_and_not_counted(answer):
+    assert check_answer(answer, {1, 2, 3}) == ([], 0)
+
+
+def test_a_no_answer_sentence_next_to_an_answer_is_dropped():
+    kept, removed = check_answer("Drei Monate [1].\n" + NO_ANSWER_TEXT + " [2]. Allgemein so.", {1, 2})
+    assert [s.refs for s in kept] == [(1,)]
+    assert removed == 1
+
+
 # --- passages (rule 1: a row without text is not a passage) ----------------------------------------
 
 
@@ -195,6 +273,15 @@ def test_a_passage_without_title_is_named_after_its_file():
     assert passage.page == 7
 
 
+def test_the_page_is_the_snippets_own():
+    """Rework 1, rule 5: the page of the chunk the text was cut from, not the row's."""
+    (passage,) = passages_from_rows([_row(1, "x", page_number=2, sentence_number=4,
+                                          snippet_page_number=7, snippet_sentence_number=31)])
+    assert (passage.page, passage.sentence) == (7, 31)
+    (unknown,) = passages_from_rows([_row(1, "x", page_number=2, snippet_page_number=None)])
+    assert unknown.page is None  # unknown, never another chunk's page
+
+
 # --- composition (rule 4: the Core's limits, the prompt budget) -----------------------------------
 
 
@@ -205,6 +292,10 @@ def test_the_system_instruction_holds_the_rules_and_fits():
         assert words in SYSTEM_INSTRUCTION
     # A digit in brackets here would read as a passage number.
     assert not any(f"[{n}]" in SYSTEM_INSTRUCTION for n in range(10))
+    # The no-answer sentence carries no number (rework 1, rule 4).
+    rule = next(line for line in SYSTEM_INSTRUCTION.splitlines() if NO_ANSWER_TEXT in line)
+    assert "without any number" in rule
+    assert "Every sentence needs" not in SYSTEM_INSTRUCTION
 
 
 def test_the_passages_and_the_question_are_the_last_user_message():

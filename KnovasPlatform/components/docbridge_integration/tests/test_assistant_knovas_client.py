@@ -20,7 +20,12 @@ import requests
 from assistant.errors import CoreBusy, CoreFailed
 from identity.assertion import AssertionVerifier
 from identity.broker_key import load_or_create_signer, public_pem
-from knovas_client import ASSERTION_FIELD, KnovasAPIClient, _snippet_from_hit
+from knovas_client import (
+    ASSERTION_FIELD,
+    KnovasAPIClient,
+    _snippet_from_hit,
+    _snippet_with_location,
+)
 
 TENANT = "tenant-a"
 USER_ID = "22222222-2222-2222-2222-222222222222"
@@ -330,6 +335,9 @@ def _query_answer(*hits, nested=False):
     return {"status": "success", "results": list(hits), "result_count": len(hits)}
 
 
+SNIPPET_KEYS = ("snippet", "snippet_page_number", "snippet_sentence_number")
+
+
 def test_search_keeps_the_snippet_only_when_asked(client, monkeypatch):
     plain_hit = {"pointer": "Akten/ohne.pdf", "cosine_similarity": 0.5}
     session = _wire(client, monkeypatch,
@@ -339,10 +347,11 @@ def test_search_keeps_the_snippet_only_when_asked(client, monkeypatch):
     page_rows = client.search_documents("Kuendigungsfrist", limit=5)["results"]
 
     assert with_text[0]["snippet"] == HIT["snippet"]
-    assert "snippet" not in with_text[1]
-    # The search page's rows are what they were: no snippet key at all.
-    assert all("snippet" not in row for row in page_rows)
-    assert [{k: v for k, v in r.items() if k != "snippet"} for r in with_text] == page_rows
+    assert (with_text[0]["snippet_page_number"], with_text[0]["snippet_sentence_number"]) == (2, 14)
+    assert not set(SNIPPET_KEYS) & set(with_text[1])
+    # The search page's rows are what they were: none of the three keys.
+    assert all(not set(SNIPPET_KEYS) & set(row) for row in page_rows)
+    assert [{k: v for k, v in r.items() if k not in SNIPPET_KEYS} for r in with_text] == page_rows
     # And the question Knovas receives is the same.
     first, second = (dict(s["json"]) for s in session.sent)
     first.pop(ASSERTION_FIELD), second.pop(ASSERTION_FIELD)
@@ -398,3 +407,36 @@ def test_search_documents_takes_what_it_took():
 
     params = list(inspect.signature(KnovasAPIClient.search_documents).parameters)
     assert params == ["self", "query", "limit", "filters", "where", "return_fields"]
+
+
+# --- rework 1, rule 5: the page comes from the snippet's own chunk --------------------------------
+
+FIRST_CHUNK_WITHOUT_TEXT = {
+    "pointer": "Mandate/Mueller/vertrag.pdf",
+    "cosine_similarity": 0.9,
+    # The best chunk is an auto summary: ranked first, no snippet (GI-QUERY-04).
+    "snippet": "Die Frist beginnt mit dem Zugang.",
+    "top_chunks": [
+        {"chunk_uuid": "c-0", "page_number": 1, "sentence_number": 1, "cosine_similarity": 0.9},
+        {"chunk_uuid": "c-1", "pageNumber": 7, "sentenceNumber": 31, "cosine_similarity": 0.8,
+         "snippet": "Die Frist beginnt mit dem Zugang."},
+    ],
+}
+
+
+def test_the_snippet_comes_with_its_own_chunks_location():
+    assert _snippet_with_location(FIRST_CHUNK_WITHOUT_TEXT) == (
+        "Die Frist beginnt mit dem Zugang.", {"page_number": 7, "sentence_number": 31})
+    # A row-level snippet that no chunk carries: the text, and no location.
+    assert _snippet_with_location({"pointer": "p", "snippet": "nur oben",
+                                   "top_chunks": [{"page_number": 3}]}) == ("nur oben", {})
+    assert _snippet_with_location({"pointer": "p"}) is None
+
+
+def test_a_row_keeps_the_page_of_its_snippet_not_of_the_first_chunk(client, monkeypatch):
+    _wire(client, monkeypatch, _response(200, _query_answer(FIRST_CHUNK_WITHOUT_TEXT),
+                                         url="https://core.test/secured/query"))
+    with client.keeping_snippets():
+        (row,) = client.search_documents("Frist", limit=5)["results"]
+    assert row["page_number"] == 1  # the row's own location is untouched
+    assert (row["snippet_page_number"], row["snippet_sentence_number"]) == (7, 31)
