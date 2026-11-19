@@ -1,0 +1,73 @@
+card: 2
+id: L2-PLATFORM-BRAIN-VIEWS
+name: Brain views
+kind: code
+owner: ROLE-ENGINE-OWNER
+status: planned
+level: 2
+parent: L1-WORKSPACE
+source_paths:
+- KnovasPlatform/components/docbridge_integration/src/brain_views
+purpose: Shows a Workspace member what the Brain knows about one thing, where one statement comes from, or where one process instance stands, each as a bounded view with one starting point.
+responsible_for:
+- id: L2-PLATFORM-BRAIN-VIEWS/R-1
+  aliases:
+  - RESP-01
+  statement: Shows one thing, one statement's evidence, or one process instance as a bounded view.
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/brain_views
+not_responsible_for:
+- 'The modellers'' views of the Platform: Ansichten (Graph, Ablauf, Baum, Board, Liste, Matrix, Definitionen, Dokumentation, Lücken), Cortex and the custom views. They read the tenant''s whole edge list (graph_views/topology.py) and stay outside this card (graph_views/, views_routes.py, ontology_graph.py, custom_views/).'
+- A whole-graph screen for members; a member reaches a view from a result, an answer or a name typed into the box (B-02, B-05).
+- The links from names in search results and answers to the dossier; the search page (the web app) and the assistant draw them (PMVP-33).
+terms:
+- dossier (the page for one thing - what the Brain knows about it)
+- Beleg-Spur (evidence trail - the way from a statement to its passage and document)
+- process line (one process instance - its main path, the current step and what is missing)
+contract:
+  '*':
+    needs:
+    - id: L2-PLATFORM-BRAIN-VIEWS/*/N-1
+      aliases:
+      - PRE-01
+      statement: The view is opened with exactly one starting point.
+      risk_class: standard
+    promises:
+    - id: L2-PLATFORM-BRAIN-VIEWS/*/P-1
+      aliases:
+      - POST-01
+      statement: At most 25 nodes are drawn; the remainder is a count that opens a list.
+      risk_class: standard
+    - id: L2-PLATFORM-BRAIN-VIEWS/*/P-2
+      aliases:
+      - POST-02
+      statement: A fact shown without a mark has at least one source passage that opens on click.
+      risk_class: standard
+    - id: L2-PLATFORM-BRAIN-VIEWS/*/P-3
+      aliases:
+      - POST-03
+      statement: The view calls per-thing routes only, never a whole-tenant read.
+      risk_class: standard
+uses:
+- component: EXT-BRAIN-API
+  operations:
+  - graph-routes
+  method: 'Per-thing reads below /secured/graph/ - a node''s dossier, its neighbours, a path, its facts with their trust (plan § 5.2) - through the Platform''s client (knovas_client.py) on the Platform''s certificate; never the whole-graph export'
+  protocol: HTTPS with mTLS
+review:
+- at: /owner
+  why: Proposed owner, as for every card in this repository; one role per component is confirmed by a person (Software Map K4).
+- at: /source_paths
+  why: 'The plan builds the views as a new module, src/brain_views/ (§ 5.2); it does not exist yet, so no file is held today. The existing views the plan''s state table lists under "Brain views" (Ansichten, Cortex, custom views) are left out: they read the tenant''s whole edge list once per person (graph_views/topology.py) and have no 25-node limit (plan § 3), so they could not keep P-1 and P-3. If PMVP-32 takes the plan''s cut (2) - the process line becomes the existing Ablauf view (graph_views/process_views.py and its page) in the new look - that code joins this card or gets one of its own; the coordinator decides then.'
+- at: /operations
+  why: None yet; the module is written by PMVP-30a to PMVP-34. Their operations, and a line per operation, follow with them.
+- at: /uses
+  why: 'Declared from the plan (§ 5.2), not from code: no code reads the Brain for these views yet. The expected lines of EXT-BRAIN-API follow with PMVP-30a; its graph-routes promise today is written for brain-runner and the Builder.'
+- at: L2-PLATFORM-BRAIN-VIEWS/*/N-1
+  why: No evidence; the views are written by PMVP-30a to PMVP-32.
+- at: L2-PLATFORM-BRAIN-VIEWS/*/P-1
+  why: No evidence; PMVP-34 writes the 25-node limit as one shared function with its test (plan § 11).
+- at: L2-PLATFORM-BRAIN-VIEWS/*/P-2
+  why: No evidence; PMVP-30a (facts with their source) and PMVP-31 (evidence trail) bring it.
+- at: L2-PLATFORM-BRAIN-VIEWS/*/P-3
+  why: No evidence; PMVP-30a to PMVP-32 bring it. The whole-graph export answers an error for the Knovas tenant (inbox IN-2026-11-10-03, plan § 3).
