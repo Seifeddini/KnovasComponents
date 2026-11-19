@@ -27,6 +27,7 @@ from tenacity import (
     retry_if_exception_type
 )
 
+from assistant.errors import CoreBusy, CoreFailed
 from config_loader import get_config
 from doc_fields_view import display_title as _doc_fields_display_title
 from part_metadata import enrich_transmit_parts_with_location
@@ -357,6 +358,66 @@ def _chunk_text_from_hit(item: Dict[str, Any]) -> Optional[str]:
         if isinstance(v, str) and v.strip():
             return v.strip()
     return None
+
+
+def _snippet_from_hit(item: Dict[str, Any]) -> Optional[str]:
+    """The Core's verbatim passage text of one /secured/query hit, or None.
+
+    Knovas attaches it (``QUERY_RETURN_CHUNK_SNIPPETS``, on by default since
+    2026-10-02; KnowledgeBase ``query_two_stage.attach_chunk_snippets``) as
+    ``snippet`` on each served ``top_chunks`` entry, and the first of those as
+    the hit's own ``snippet``: a window of at most 240 characters cut from the
+    chunk's ``original_text`` (whole rows for a table chunk, none for an auto
+    summary). Only that key is read -- not ``text``, ``content`` or the other
+    keys ``_chunk_text_from_hit`` accepts: GI-QUERY-04 promises that served
+    text is ``original_text``, and the BM25 ``text`` field has its digits
+    stripped.
+    """
+    chunks = item.get("top_chunks")
+    if not isinstance(chunks, list):
+        chunks = item.get("topChunks")
+    sources: List[Any] = [item]
+    if isinstance(chunks, list):
+        sources.extend(chunks)
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        value = source.get("snippet")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _llm_generate_result(payload: Any) -> Optional[Dict[str, Any]]:
+    """``{"content", "model", "prompt_tokens", "completion_tokens"}`` from a
+    /secured/llm/generate answer, or None when it is not a success envelope
+    with text content.
+
+    The Core answers flat (``{"status": "success", "message": ..., "content":
+    ..., ...}``: ``APIResponseService.create_success_response`` merges the
+    data into the envelope); an envelope that nests them under ``data`` is
+    read as well.
+    """
+    if not isinstance(payload, dict) or payload.get("status") != "success":
+        return None
+    data = payload.get("data")
+    source = data if isinstance(data, dict) and "content" in data else payload
+    content = source.get("content")
+    if not isinstance(content, str):
+        return None
+
+    def _count(value: Any) -> Optional[int]:
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+        return None
+
+    model = source.get("model")
+    return {
+        "content": content,
+        "model": model if isinstance(model, str) else None,
+        "prompt_tokens": _count(source.get("prompt_tokens")),
+        "completion_tokens": _count(source.get("completion_tokens")),
+    }
 
 
 def _document_date_from_hit(item: Dict[str, Any]) -> Any:
@@ -1606,6 +1667,30 @@ class KnovasAPIClient:
         finally:
             local.user = previous
 
+    @contextlib.contextmanager
+    def keeping_snippets(self):
+        """Searches in this block keep each hit's passage text in its row as ``"snippet"``.
+
+        For the Knovas Assistent (PMVP-20), which cites only what it can show
+        and searches through the search page's own path (``run_search``). The
+        request Knovas receives is the same; only the row keeps one more key
+        (``_snippet_from_hit``). Outside the block rows have no ``snippet``:
+        the search page reads that key when it matches words
+        (``_search_result_haystack``) and must behave as before. Secured
+        search only -- the legacy GET returns its rows as they are. Per
+        thread, like ``asserting_for``, so a concurrent search page request
+        keeps its rows unchanged.
+        """
+        local = getattr(self, "_snippets_local", None)
+        if local is None:
+            local = self._snippets_local = threading.local()
+        previous = getattr(local, "on", False)
+        local.on = True
+        try:
+            yield
+        finally:
+            local.on = previous
+
     def attach_principal_broker(self, broker) -> None:
         """Bind the broker that signs the current user into every outbound body.
 
@@ -2058,6 +2143,9 @@ class KnovasAPIClient:
                 secured API carries it.
             return_fields: Document-field keys to return per hit; sent only
                 when given. Only the secured API carries it.
+
+        Inside ``keeping_snippets()`` the secured rows also carry the Core's
+        passage text as ``"snippet"``.
             
         Returns:
             Search results
@@ -2102,7 +2190,91 @@ class KnovasAPIClient:
         except Exception as e:
             logger.error(f"Error during search: {e}")
             raise
-    
+
+    def llm_generate(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        system_instruction: Optional[str] = None,
+        max_tokens: int = 512,
+        temperature: Optional[float] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """POST /secured/llm/generate: one generation, as the signed-in person.
+
+        Body: ``messages`` (``role`` and ``content`` of each), ``max_tokens``,
+        and ``system_instruction`` and ``temperature`` when given; the
+        principal assertion is attached as on every secured call. Keeping the
+        Core's limits (32 messages, roles user/assistant, 50,000 bytes per
+        message, 4,000 bytes of system instruction, max_tokens <= 2,048) is
+        the caller's job: a 400 is a CoreFailed like any other.
+
+        One request, never retried (``_request_no_retry``): a generation
+        repeated behind the caller's back is billed twice and may answer
+        differently. No response body is logged -- an error body of this route
+        could hold generated text -- only the status, the duration and the
+        token counts. ``timeout`` defaults to ``api.llm_generate_timeout``
+        (120 s), at least ``http_read_timeout``: an answer of a thousand
+        tokens takes longer than a search.
+
+        Returns ``{"content", "model", "prompt_tokens", "completion_tokens"}``
+        (see ``_llm_generate_result``; the model name is for operators, never
+        for the person asking).
+
+        Raises:
+            CoreBusy: HTTP 429 or 503.
+            CoreFailed: a timeout, a connection error, any other HTTP error,
+                or an answer that is not a success envelope with text content.
+            PermissionError: nobody is signed in (``_with_principal``).
+        """
+        endpoint = self.config.get('api.endpoints.llm_generate', '/secured/llm/generate')
+        body: Dict[str, Any] = {
+            'messages': [{'role': m['role'], 'content': m['content']} for m in messages],
+            'max_tokens': int(max_tokens),
+        }
+        if system_instruction is not None:
+            body['system_instruction'] = system_instruction
+        if temperature is not None:
+            body['temperature'] = float(temperature)
+        if timeout is None:
+            timeout = max(self.http_read_timeout,
+                          self.config.get_int('api.llm_generate_timeout', 120))
+
+        started = time.monotonic()
+
+        def elapsed_ms() -> int:
+            return int((time.monotonic() - started) * 1000)
+
+        try:
+            response = self._request_no_retry('POST', endpoint, data=body, timeout=timeout)
+        except requests.exceptions.HTTPError as exc:
+            status = getattr(getattr(exc, 'response', None), 'status_code', None)
+            logger.warning("Knovas generation refused: HTTP %s after %d ms", status, elapsed_ms())
+            if status in (429, 503):
+                raise CoreBusy(status=status) from None
+            raise CoreFailed('http_error', status=status) from None
+        except requests.exceptions.Timeout:
+            logger.warning("Knovas generation timed out after %d ms", elapsed_ms())
+            raise CoreFailed('timeout') from None
+        except requests.exceptions.RequestException as exc:
+            logger.warning("Knovas generation failed (%s) after %d ms",
+                           type(exc).__name__, elapsed_ms())
+            raise CoreFailed('transport') from None
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        result = _llm_generate_result(payload)
+        if result is None:
+            logger.warning("Knovas generation: HTTP %s but no success envelope with text",
+                           response.status_code)
+            raise CoreFailed('malformed', status=response.status_code)
+        logger.info("Knovas generation: HTTP %s, %d ms, prompt_tokens=%s completion_tokens=%s",
+                    response.status_code, elapsed_ms(),
+                    result['prompt_tokens'], result['completion_tokens'])
+        return result
+
     def health_check(self) -> bool:
         """
         Check if Knovas API is healthy.
@@ -3258,6 +3430,7 @@ class KnovasAPIClient:
         return_fields: Optional[Union[bool, List[str]]] = None,
     ) -> Dict[str, Any]:
         endpoint = self.endpoints.get('query', '/secured/query')
+        snippets = bool(getattr(getattr(self, "_snippets_local", None), "on", False))
         # The new keys reach the body builder only when given, so a query
         # without them takes exactly the path it always took.
         extra: Dict[str, Any] = {}
@@ -3285,6 +3458,10 @@ class KnovasAPIClient:
             if not isinstance(raw, dict):
                 continue
             row = _secured_query_hit_to_row(raw)
+            if snippets:
+                snippet = _snippet_from_hit(raw)
+                if snippet:
+                    row["snippet"] = snippet
             # The server's own ranking (ColBERT rerank, name-prefilter boost).
             # `score` is the stage-1 cosine of the best chunk and sorts
             # differently; the UI keeps this order (PLATFORM_KEEP_SERVER_ORDER).
