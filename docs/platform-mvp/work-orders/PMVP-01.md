@@ -67,4 +67,89 @@ co-author line. No pull requests: the coordinator opens them after a verifier se
 
 ## Builder's notes
 
-(the builder writes here: what was decided, what is open, what the verifier should look at)
+Builder session of 2026-11-19 (AGENT-claude-code). KnovasComponents `feat/pmvp-01` from `7343abe`; KnowledgeBase
+`steering/pmvp-01-workspace-domain` from `origin/master` `69bbb83b2`. Commands ran from KnowledgeBase `scripts/` with
+`--repo`/`--root` on this worktree, as for `81e9c92`.
+
+### What was built
+
+| Card | Source paths | Operations | Lines | Review entries |
+|---|---|---|---|---|
+| `L2-PLATFORM-ASSISTANT` | `src/assistant` (not on this branch), `identity/chats.py`, migration `0026_assistant_chats.sql` | 0 (review: they follow PMVP-20's integration) | 10 on `*`: N-1/N-2 = PRE-01/02, P-1..P-6 = POST-01..06, L-1 (the Core's limits), L-2 (title and input checks); R-1 = RESP-01, R-2 (past chats, W-07) | 13 |
+| `L2-PLATFORM-BRAIN-VIEWS` | `src/brain_views` (planned, § 5.2; nothing there yet) | 0 | 4 on `*`: N-1 = PRE-01, P-1..P-3 = POST-01..03; R-1 = RESP-01 | 8 |
+| `L2-PLATFORM-SHELL` | `templates/_sidebar.html`, `static/css/style.css`, `static/fonts`, `static/img` | 0 (no Python) | 1 on `*`: P-1 = SHELL POST-01 (alias `POST-01`) | 6 |
+| `L2-PLATFORM-ADMIN` | `admin.py`, `admin_documents.py`, `admin_approvals.py`, `guarded.py`, five templates, two scripts, `admin.css` | 28 (26 routes, 2 calls), code_map's ids | 26: each route's N-1, its role gate (the server half of SHELL POST-01) | 7 |
+
+`boundaries.yaml` has the four entries with their reasons, and `not_carded` says what of `web_interface/`, `identity/`
+and `graph_views/` stays outside. Pages are rendered; the Builder's and EXT-BRAIN-API's pages gain only Used by rows.
+
+### What I decided, and why (the verifier should look here first)
+
+1. **Brain views hold no existing code.** The plan builds them as a new module `src/brain_views/` (§ 5.2). The
+   existing views (Ansichten, Cortex, custom views) read the tenant's whole edge list (`graph_views/topology.py`) and
+   have no 25-node limit, so on this card they would break P-1 and P-3 at once. If PMVP-32 takes the plan's cut (2)
+   (the existing Ablauf in the new look), `graph_views/process_views.py` and its page join this card or get their own:
+   **the coordinator decides then.** This reads "the existing code the Brain-view items will change" narrowly; the
+   work order may have meant `graph_views/`.
+2. **The shell holds no Python.** Which links a person sees is computed in `app.py` (`_sidebar_context`,
+   `_console_url`, `_builder_nav`), which stays with the uncarded web app; PMVP-11 decides whether that logic moves to
+   the shell. `style.css` is here as the one stylesheet every page loads (PMVP-10's tokens go there), though it also
+   styles pages no card holds.
+3. **Admin is the work order's scope**: people, documents, access groups, folder rules, approvals. `guarded.py` joins
+   because only console modules call it. `admin_ingestion.py`, `admin_doc_fields.py` and `admin_system.py` stay
+   outside; `GET /admin/system` is Admin's anyway because its route is in `admin.py`.
+4. **"Was sieht …?" and the enforcement posture are the Builder's files today** (`builder/access.py` `explain`,
+   `builder_routes.py` `access_explain` and `access_posture`). The Admin card does not claim them; PMVP-41 and PMVP-42
+   move them and change both cards then.
+5. **No file is claimed by two cards.** `chats.py` and 0026 sit in `identity/`, but only the assistant uses them.
+6. **Owners**: `ROLE-ENGINE-OWNER`, proposed, as on every card in this repository (a K4 review entry on each).
+   **Risk classes**: `standard` everywhere, from the plan's change classes (§ 9: PMVP-11, 20 and 21 sensitive, 30 to 34
+   and 40 routine) through K6. POST-02 is a rights property; K8 may want it critical.
+
+### Where the work order and the skill disagree (noted, not stopped on)
+
+- **Evidence.** The work order says the frozen tests; the skill says a test you have seen pass, else a review entry.
+  The PMVP-21 tests pass here (65 passed, 0 skipped: `test_pmvp21_chats_acceptance.py` and
+  `test_identity_chats_store.py` against the test database on 55433). The PMVP-20 frozen tests cannot run here
+  (`ModuleNotFoundError: assistant`). So the PMVP-20 tests are named as evidence **and** each such line has a review
+  entry "not seen passing" (P-1, P-2, P-5, P-6, L-1, and P-4's service half).
+- **Admin lines.** The work order says § 7 where it names Admin, otherwise review entries; the skill wants needs,
+  promises, always and limits for each operation the project changes. I wrote only each route's role gate (SHELL
+  POST-01 names Verwaltung and says the server refuses), seen in passing tests; everything else is a review entry. The
+  8 `admin.py` routes other than `GET /admin/people` and `POST /admin/people/create` carry the same decorator, but no
+  test counts them.
+
+### Checks
+
+- `card check`: all 15 cards valid, 0 errors, 0 warnings. `card render --check`: 15 cards, 0 not current.
+- Tests behind the shell's and Admin's lines seen passing: 56 passed (people, documents and approvals tests,
+  `test_builder_shell.py` `TestTheGate`).
+- `map-check --scope touched`, base `origin/feat/platform-mvp`, head `bbc7833`: 0 problems; declared 0, compatible 0.
+  **Findings inside the scope**: `over_budget` L2-PLATFORM-ADMIN (22,442 tokens; the code dominates; split documents
+  from approvals if it matters), and `no_contract` on `call.web_interface.admin.create_admin_blueprint` and
+  `call.web_interface.guarded.run_guarded` (§ 7 gives no line; review entry). Outside the scope: 319 `unowned` (291 at
+  the base: the console now takes names from `identity/` across a boundary) and 5 cards over budget.
+- KnowledgeBase: `py -3 scripts/steering/validate.py --no-git`: 0 errors (30 violations, as on master).
+
+### L2-BRAIN-BUILDER
+
+PMVP-50 to PMVP-54 have changed nothing yet (no branch exists), so its card is unchanged; its page gains the shell's
+Used by row. The manifest drift is fixed in KnowledgeBase: 0025 added, so the manifest's paths equal the card's 20.
+
+### Open, for the coordinator
+
+- **EXT-BRAIN-API** lists neither `POST /secured/query` nor `POST /secured/llm/generate` (the assistant), nor
+  `/secured/document_access` and `/secured/delete_all_documents` (Admin), nor `/secured/brain/readiness` (PMVP-53). I
+  did not add them: the code that calls them goes through `knovas_client.py`, which has no card; add them when PMVP-20
+  is integrated.
+- **FU-04**'s card half is done by this item (`chats.py` and 0026 are the assistant's); `follow-ups.md` is yours.
+- **MAP-K5** is decided in part. `BET-2026-11-client-zero.yaml` still has MAP-K5 `open` and CV-0's `next` waiting on
+  it; I did not touch the bet card (setting an item's status is not the builder's). DEC-0083 does not place the custom
+  views.
+- **Plan § 13's glossary** ("to be confirmed in PMVP-01") is not in this work order; the cards' `terms` carry
+  reference, passage, chat, dossier, Beleg-Spur, process line and area. No glossary file changed.
+- **On merge to master** the Client Zero loader (CI) writes `L1-WORKSPACE` and the four Component nodes into the
+  Knovas tenant, as it did for `L1-BUILDER`. No card mapping or template reaches the tenant.
+- **Backlog row B33** (Software Map plan, G4): routes attached to a blueprint passed in as a parameter lose its prefix.
+- **Seen in passing**: `app.py` `_console_url` logs a person's e-mail address when it hides the Verwaltung link, which
+  GI-DATA-04 would not allow; for the `maint/platform-logs-no-customer-text` sweep.
