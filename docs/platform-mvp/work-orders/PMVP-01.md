@@ -131,6 +131,27 @@ and `graph_views/` stays outside. Pages are rendered; the Builder's and EXT-BRAI
   the base: the console now takes names from `identity/` across a boundary) and 5 cards over budget.
 - KnowledgeBase: `py -3 scripts/steering/validate.py --no-git`: 0 errors (30 violations, as on master).
 
+### Stopped on: four Client Zero tests that pin counts (KnowledgeBase)
+
+The domain and the four manifest entries break four tests that pin counts. The work order says "no test", so I did
+**not** change them; the precedent changed such pins in the same change (KnowledgeBase `111057b94`, BB-10, and
+`eac69e80c`, A0: "the count pins follow"). The coordinator decides; each is a small edit:
+
+- `scripts/client_zero/tests/test_terms_yaml.py:95` and `:98` (`test_manifest_yields_57_components_all_but_the_builder_with_a_folder`):
+  57 -> 61 twice, and `no_folder` at `:97` becomes the Builder plus the four new keys (all five keep their cards in
+  KnovasComponents, M-2); the test's name says 57.
+- `scripts/client_zero/tests/test_runner_equivalence_hierarchy.py:111`: `counts["BoundedContext"] == 10` -> 11 (the
+  runner reproduces the hierarchy otherwise: 11 BoundedContexts, 61 Components).
+- `scripts/client_zero/tests/test_docpages.py:113`: `len(by) == 57` -> 61.
+- `scripts/client_zero/tests/test_parity_check.py:80`: `docs_status ... == 57` -> 61.
+
+A fourth failure is not this item's: `test_routing.py::test_a_decision_record_affects_what_its_front_matter_names`
+counts 2 unresolved `affects`, which are DEC-0081's and DEC-0082's `BET-2026-11-platform-mvp` (already on master; the
+loader resolves plans, manifest components and invariants only). DEC-0083's six all resolve.
+
+KnowledgeBase commits on `steering/pmvp-01-workspace-domain`: `345f49b1f` (DEC-0083, MAP-K5 decided in part),
+`e50d67b93` (L1-WORKSPACE and the four manifest entries), `a5e1a2a10` (the Builder's manifest path 0025, backlog B33).
+
 ### L2-BRAIN-BUILDER
 
 PMVP-50 to PMVP-54 have changed nothing yet (no branch exists), so its card is unchanged; its page gains the shell's
