@@ -1046,7 +1046,9 @@ def test_run_builtin_turns_numeric_failures_into_an_inconclusive_result(monkeypa
     assert out["verdict"] == "inconclusive"
     assert out["warnings"] == ["Die Auswertung l\u00e4sst sich mit diesen Daten nicht rechnen."]
     assert out["headline"] == "Welch-t-Test: nicht berechenbar"
-    assert "math range error" in caplog.text and "math range error" not in json.dumps(out)
+    # The log keeps the type, never the message (no customer text in the logs).
+    assert "OverflowError" in caplog.text and "math range error" not in caplog.text
+    assert "math range error" not in json.dumps(out)
 
 
 def test_malformed_input_containers_do_not_raise():
