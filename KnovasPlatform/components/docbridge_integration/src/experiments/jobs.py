@@ -621,9 +621,9 @@ class JobWorker(threading.Thread):
             if not conn.autocommit:
                 conn.autocommit = True
             released = JobQueue(conn).release(job)
-        except Exception:  # noqa: BLE001 - a shutdown path must never raise
-            logger.exception("Experiments worker %s: could not hand back job %s (%s); its lease "
-                             "will free it.", self.worker_id, job.id, job.kind)
+        except Exception as exc:  # noqa: BLE001 - a shutdown path must never raise
+            logger.error("Experiments worker %s: could not hand back job %s (%s): %s; its lease "
+                         "will free it.", self.worker_id, job.id, job.kind, type(exc).__name__)
             return False
         finally:
             if conn is not None:
@@ -657,9 +657,9 @@ class JobWorker(threading.Thread):
                             time.monotonic() + self.maintenance_interval * random.uniform(0.9, 1.1))
                         self.run_maintenance(conn)
                     worked = self.run_once(conn)
-                except BaseException:  # noqa: BLE001 - the thread must not die
-                    logger.exception("Experiments worker %s: polling failed; reconnecting.",
-                                     self.worker_id)
+                except BaseException as exc:  # noqa: BLE001 - the thread must not die
+                    logger.error("Experiments worker %s: polling failed (%s); reconnecting.",
+                                 self.worker_id, type(exc).__name__)
                     self._drop_connection()
                     self._halt.wait(self.reconnect_initial * random.uniform(0.8, 1.2))
                     continue
@@ -758,8 +758,8 @@ class JobWorker(threading.Thread):
             if queue.retry(job, exc.message) and job.status == "dead":
                 self._run_on_dead(conn, job)
         except BaseException as exc:  # noqa: BLE001 - a job must never take the thread down
-            logger.exception("Experiments job %s (%s) attempt %s failed unexpectedly.",
-                             job.id, job.kind, job.attempts)
+            logger.error("Experiments job %s (%s) attempt %s failed unexpectedly: %s",
+                         job.id, job.kind, job.attempts, type(exc).__name__)
             self._settle(conn)
             if queue.retry(job, MSG_UNEXPECTED) and job.status == "dead":
                 self._run_on_dead(conn, job)
@@ -790,8 +790,9 @@ class JobWorker(threading.Thread):
             return
         try:
             hook(conn, job)
-        except BaseException:  # noqa: BLE001
-            logger.exception("on_dead hook for experiments job %s (%s) failed.", job.id, job.kind)
+        except BaseException as exc:  # noqa: BLE001
+            logger.error("on_dead hook for experiments job %s (%s) failed: %s", job.id, job.kind,
+                         type(exc).__name__)
             try:
                 self._settle(conn)
             except Exception:  # noqa: BLE001
@@ -809,26 +810,28 @@ class JobWorker(threading.Thread):
                 logger.warning("Experiments job %s (%s) dead: lease expired %s times.",
                                job.id, job.kind, job.attempts)
                 self._run_on_dead(conn, job)
-        except Exception:  # noqa: BLE001
-            logger.exception("Experiments worker %s: sweep failed.", self.worker_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Experiments worker %s: sweep failed (%s).", self.worker_id, type(exc).__name__)
             self._settle(conn)
         try:
             reset_stuck_rate_slots(conn)
-        except Exception:  # noqa: BLE001
-            logger.exception("Experiments worker %s: rate slot check failed.", self.worker_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Experiments worker %s: rate slot check failed (%s).", self.worker_id,
+                         type(exc).__name__)
             self._settle(conn)
         if self.maintenance is not None:
             try:
                 self.maintenance(conn)
-            except Exception:  # noqa: BLE001
-                logger.exception("Experiments worker %s: maintenance failed.", self.worker_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Experiments worker %s: maintenance failed (%s).", self.worker_id,
+                             type(exc).__name__)
                 self._settle(conn)
         try:
             purged = queue.purge_finished()
             if purged:
                 logger.info("Experiments worker %s: purged %s finished jobs.", self.worker_id, purged)
-        except Exception:  # noqa: BLE001
-            logger.exception("Experiments worker %s: purge failed.", self.worker_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Experiments worker %s: purge failed (%s).", self.worker_id, type(exc).__name__)
             self._settle(conn)
 
 
@@ -858,8 +861,8 @@ def stop_workers(workers: Iterable[JobWorker], *, timeout: float = SHUTDOWN_JOIN
         for worker in workers:
             if worker.is_alive() and worker.release_unfinished():
                 released += 1
-    except BaseException:  # noqa: BLE001 - see the docstring
-        logger.exception("Experiments workers: stopping failed.")
+    except BaseException as exc:  # noqa: BLE001 - see the docstring
+        logger.error("Experiments workers: stopping failed (%s).", type(exc).__name__)
     return released
 
 

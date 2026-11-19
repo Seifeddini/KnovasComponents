@@ -630,7 +630,7 @@ def _raise_for_knovas_error(exc: BaseException, what: str, pointer: str) -> None
     for mapped errors). Other 4xx is left to the caller (returns)."""
     status = _http_status(exc)
     if status is not None:
-        logger.warning("Knovas %s of %s failed: HTTP %s (%s)", what, pointer, status, exc)
+        logger.warning("Knovas %s of %s failed: HTTP %s (%s)", what, pointer, status, type(exc).__name__)
         if status in (429, 503):
             raise RetryLater(_retry_after(exc), MSG_BUSY) from exc
         if status in TEMPORARY_STATUSES:
@@ -639,7 +639,7 @@ def _raise_for_knovas_error(exc: BaseException, what: str, pointer: str) -> None
             raise Unavailable(MSG_UNREACHABLE) from exc
         return
     if _is_transport_error(exc):
-        logger.warning("Knovas %s of %s failed: %s", what, pointer, exc)
+        logger.warning("Knovas %s of %s failed: %s", what, pointer, type(exc).__name__)
         raise Unavailable(MSG_UNREACHABLE) from exc
     # Anything else is a bug or an unexpected answer: the worker logs it with
     # its traceback and retries with a generic message.
@@ -685,9 +685,9 @@ def _unlock(conn: Any, name: str) -> None:
         except ImportError:  # pragma: no cover - psycopg is a hard dependency here
             pass
         conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (str(name),))
-    except Exception:  # noqa: BLE001
-        logger.warning("Could not release the upload lock %s; it ends with the connection.",
-                       name, exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not release the upload lock %s (%s); it ends with the connection.",
+                       name, type(exc).__name__)
 
 
 def index_experiment(conn: Any, experiment_id: str, client: Any, settings: Any) -> None:
@@ -764,7 +764,7 @@ def _upload_locked(conn: Any, store: Any, experiment_id: str, client: Any, setti
         except Exception as exc:  # noqa: BLE001
             if _http_status(exc) != 404:
                 logger.warning("Knovas delete of %s after a concurrent removal failed: %s",
-                               pointer, exc)
+                               pointer, type(exc).__name__)
                 return
         store.forget_index_document(conn, pointer)
         return
@@ -802,9 +802,9 @@ def _purge_one(client: Any, pointer: str) -> bool:
                 time.sleep(min(_retry_after(exc), 60.0))
                 continue
             if (status is not None and status >= 500) or _is_transport_error(exc):
-                logger.warning("Knovas delete of %s failed: %s", pointer, exc)
+                logger.warning("Knovas delete of %s failed: %s", pointer, type(exc).__name__)
                 raise Unavailable(MSG_UNREACHABLE) from exc
-            logger.warning("Knovas refused to delete %s: %s", pointer, exc)
+            logger.warning("Knovas refused to delete %s: %s", pointer, type(exc).__name__)
             return False
     return False
 
@@ -818,10 +818,10 @@ def _listing_failed(exc: BaseException, prefix: str, notes: Optional[List[str]])
     status = _http_status(root)
     if _is_transport_error(root) or (status is not None and (status >= 500 or status in (
             408, 425, 429))):
-        logger.warning("Knovas listing under %s/ failed: %s", prefix, root)
+        logger.warning("Knovas listing under %s/ failed: %s", prefix, type(root).__name__)
         raise Unavailable(MSG_LISTING_UNREACHABLE) from exc
     if status is not None:
-        logger.warning("Knovas refused the listing under %s/: HTTP %s (%s)", prefix, status, root)
+        logger.warning("Knovas refused the listing under %s/: HTTP %s (%s)", prefix, status, type(root).__name__)
         if notes is not None:
             notes.append(MSG_LISTING_REFUSED.format(code=status))
         return

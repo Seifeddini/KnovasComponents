@@ -38,6 +38,7 @@ from context_store import (
 from context_store import query_terms as context_query_terms
 import doc_fields_view
 from knovas_client import KnovasAPIClient, QueryRejected
+from log_safety import pointer_hash
 from file_utils import AutoDocFileHandler
 from document_grants import DEFAULT_TTL_SECONDS as GRANT_TTL_DEFAULT
 from document_grants import DocumentGrantStore
@@ -647,8 +648,9 @@ DOCBRIDGE_BUILD_ID = 'onedrive-locations-v4'
 _DEFAULT_ENRICHMENT_PATH = "/mnt/autodoc/.search_enrichment.jsonl"
 _DEFAULT_CONTEXT_STORE_PATH = "/mnt/autodoc/.search_context"
 
-# Generic client-facing error message. Internal exception detail is logged
-# server-side (exc_info=True) and never returned to the browser (avoids leaking
+# Generic client-facing error message. Only the exception's type is logged
+# server-side (no customer text in the logs) and no detail is returned to
+# the browser (avoids leaking
 # filesystem paths / stack context to unauthenticated or malicious callers).
 _GENERIC_ERROR_MESSAGE = 'Interner Serverfehler'
 
@@ -1319,7 +1321,7 @@ def create_app(config_path: Optional[str] = None):
             # the parser's recursion limit is just as unreadable, and it is
             # the caller's fault, not a 500 with a traceback in the log.
             logger.info("Refused a JSON body nested too deeply: %s %s",
-                        request.method, request.path)
+                        request.method, request.endpoint)
             return jsonify({'success': False,
                             'error': 'Die Anfrage ist kein g\u00fcltiges JSON.'}), 400
         try:
@@ -1746,7 +1748,7 @@ def create_app(config_path: Optional[str] = None):
         try:
             user = identity_gate.current_user()
         except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
-            logger.warning('Verwaltungslink nicht ermittelbar: %s', exc)
+            logger.warning('Verwaltungslink nicht ermittelbar: %s', type(exc).__name__)
             return None
         if user is None:
             logger.info('Verwaltungslink: keine angemeldete Person in dieser Anfrage')
@@ -1759,7 +1761,7 @@ def create_app(config_path: Optional[str] = None):
         # Not drawing the link is indistinguishable from a broken menu from the
         # outside, so say whose roles were read and what they were.
         logger.info('Verwaltungslink ausgeblendet: %s hat die Rollen %s',
-                    getattr(user, 'email', '?'), sorted(roles) or ['-'])
+                    getattr(user, 'id', '?'), sorted(roles) or ['-'])
         return None
 
     def _experiments_nav() -> bool:
@@ -1773,7 +1775,7 @@ def create_app(config_path: Optional[str] = None):
 
             return can_view(identity_gate.current_user())
         except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
-            logger.warning('Experimente-Eintrag nicht ermittelbar: %s', exc)
+            logger.warning('Experimente-Eintrag nicht ermittelbar: %s', type(exc).__name__)
             return False
 
     def _custom_views_on() -> bool:
@@ -1789,7 +1791,7 @@ def create_app(config_path: Optional[str] = None):
             return _ontology_source_is_graph() and custom_views_registry.refusal() is None
         except Exception as exc:  # noqa: BLE001 - off rather than a 500
             if custom_views_check_warning.ready():
-                logger.warning('Eigene Ansichten nicht ermittelbar: %s', exc)
+                logger.warning('Eigene Ansichten nicht ermittelbar: %s', type(exc).__name__)
             return False
 
     def _custom_views_nav() -> bool:
@@ -1804,7 +1806,7 @@ def create_app(config_path: Optional[str] = None):
             return custom_views_may_enter(custom_views_registry, identity_gate.current_user())
         except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
             if custom_views_check_warning.ready():
-                logger.warning('Eintrag Eigene Ansichten nicht ermittelbar: %s', exc)
+                logger.warning('Eintrag Eigene Ansichten nicht ermittelbar: %s', type(exc).__name__)
             return False
 
     def _builder_nav() -> bool:
@@ -1823,7 +1825,7 @@ def create_app(config_path: Optional[str] = None):
             # A consultant holds no builder role, only a grant on one workspace.
             return user_may_build(user, WorkspaceStore(identity_gate.connection()).grants_of(user.id))
         except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
-            logger.warning('Builder-Eintrag nicht ermittelbar: %s', exc)
+            logger.warning('Builder-Eintrag nicht ermittelbar: %s', type(exc).__name__)
             return False
 
     def _sidebar_context() -> Dict[str, Any]:
@@ -2501,7 +2503,7 @@ def create_app(config_path: Optional[str] = None):
             # debug their own stack for someone else's outage. 502, because
             # this app is a gateway here and the upstream is what broke.
             status = getattr(getattr(e, 'response', None), 'status_code', None)
-            logger.error("Knovas API refused the search (HTTP %s): %s", status, e, exc_info=True)
+            logger.error("Knovas API refused the search (HTTP %s): %s", status, type(e).__name__)
             return jsonify({
                 'success': False,
                 'error': (
@@ -2512,7 +2514,7 @@ def create_app(config_path: Optional[str] = None):
                 'upstream_status': status,
             }), 502
         except Exception as e:
-            logger.error(f"Search error: {e}", exc_info=True)
+            logger.error("Search error: %s", type(e).__name__)
             return jsonify({
                 'success': False,
                 'error': _GENERIC_ERROR_MESSAGE
@@ -2530,7 +2532,7 @@ def create_app(config_path: Optional[str] = None):
             JSON with document metadata
         """
         try:
-            logger.info(f"Document request: doc_id={doc_id}")
+            logger.info("Document request: doc %s", pointer_hash(doc_id))
             
             return jsonify({
                 'success': True,
@@ -2539,7 +2541,7 @@ def create_app(config_path: Optional[str] = None):
             })
             
         except Exception as e:
-            logger.error(f"Error retrieving document: {e}", exc_info=True)
+            logger.error("Error retrieving document: %s", type(e).__name__)
             return jsonify({
                 'success': False,
                 'error': _GENERIC_ERROR_MESSAGE
@@ -2590,7 +2592,7 @@ def create_app(config_path: Optional[str] = None):
                     'error': 'Document file not found'
                 }), 404
 
-            logger.info(f"Opening document (server-side): {full_path}")
+            logger.info("Opening document (server-side): doc %s", pointer_hash(doc_id))
 
             success = _open_file_external(full_path, config)
 
@@ -2606,7 +2608,7 @@ def create_app(config_path: Optional[str] = None):
                 }), 500
 
         except Exception as e:
-            logger.error(f"Error opening document: {e}", exc_info=True)
+            logger.error("Error opening document: %s", type(e).__name__)
             return jsonify({
                 'success': False,
                 'error': _GENERIC_ERROR_MESSAGE
@@ -2636,7 +2638,7 @@ def create_app(config_path: Optional[str] = None):
             if not os.path.exists(full_path):
                 return jsonify({'error': 'Document file not found'}), 404
 
-            logger.info(f"Downloading document: {full_path}")
+            logger.info("Downloading document: doc %s", pointer_hash(doc_id))
 
             try:
                 file_obj = _open_autodoc_fileobj(full_path)
@@ -2649,7 +2651,7 @@ def create_app(config_path: Optional[str] = None):
             )
 
         except Exception as e:
-            logger.error(f"Error downloading document: {e}", exc_info=True)
+            logger.error("Error downloading document: %s", type(e).__name__)
             return jsonify({'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/document/<path:doc_id>/preview-anchors', methods=['GET'])
@@ -2685,7 +2687,7 @@ def create_app(config_path: Optional[str] = None):
         except Exception as exc:  # noqa: BLE001
             # Springen ist Beiwerk. Ein Fehler hier darf die Vorschau nicht
             # kosten -- ohne Anker bleibt es beim Sprung auf die Seite.
-            logger.warning("Preview anchors unavailable for %s: %s", doc_id, exc)
+            logger.warning("Preview anchors unavailable for doc %s: %s", pointer_hash(doc_id), type(exc).__name__)
             return jsonify({'anchors': {}}), 200
 
     @app.route('/api/document/<path:doc_id>/preview', methods=['GET'])
@@ -2769,7 +2771,7 @@ def create_app(config_path: Optional[str] = None):
                 download_name=os.path.basename(full_path),
             )
         except Exception as e:
-            logger.error(f"Error previewing document: {e}", exc_info=True)
+            logger.error("Error previewing document: %s", type(e).__name__)
             return jsonify({'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/document/<path:doc_id>/thumbnail', methods=['GET'])
@@ -2794,10 +2796,10 @@ def create_app(config_path: Optional[str] = None):
         except PreviewUnsupported:
             return jsonify({'success': False, 'error': 'Thumbnail only supported for PDF'}), 415
         except PreviewFailed as exc:
-            logger.warning("Thumbnail failed for %s: %s", file_path, exc)
+            logger.warning("Thumbnail failed for doc %s: %s", pointer_hash(doc_id), type(exc).__name__)
             return jsonify({'success': False, 'error': 'Vorschaubild konnte nicht erzeugt werden'}), 422
-        except Exception:
-            logger.error("Thumbnail error for %s", file_path, exc_info=True)
+        except Exception as exc:
+            logger.error("Thumbnail error for doc %s: %s", pointer_hash(doc_id), type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
         response = send_file(io.BytesIO(png), mimetype='image/png')
@@ -2842,8 +2844,8 @@ def create_app(config_path: Optional[str] = None):
             )
             if indexed:
                 logger.info(
-                    "Serving %s from the search index: the file is not on the mount",
-                    file_path,
+                    "Serving doc %s from the search index: the file is not on the mount",
+                    pointer_hash(doc_id),
                 )
                 return jsonify({
                     'success': True,
@@ -2864,10 +2866,10 @@ def create_app(config_path: Optional[str] = None):
         except PreviewUnsupported:
             return jsonify({'success': False, 'error': 'Preview not supported for this format'}), 415
         except PreviewFailed as exc:
-            logger.warning("Preview extraction failed for %s: %s", file_path, exc)
+            logger.warning("Preview extraction failed for doc %s: %s", pointer_hash(doc_id), type(exc).__name__)
             return jsonify({'success': False, 'error': 'Vorschau konnte nicht erzeugt werden'}), 422
-        except Exception:
-            logger.error("Preview error for %s", file_path, exc_info=True)
+        except Exception as exc:
+            logger.error("Preview error for doc %s: %s", pointer_hash(doc_id), type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
         return jsonify({
@@ -2924,9 +2926,8 @@ def create_app(config_path: Optional[str] = None):
         url = _resolve_onedrive_url(doc_id, file_path, config)
         if not url:
             logger.info(
-                "OneDrive open miss doc_id=%r path=%r enrichment_path=%r",
-                doc_id,
-                file_path,
+                "OneDrive open miss doc %s enrichment_path=%r",
+                pointer_hash(doc_id),
                 _enrichment_path_from_config(config),
             )
             return jsonify({
@@ -2981,7 +2982,7 @@ def create_app(config_path: Optional[str] = None):
         except Exception as exc:  # noqa: BLE001 - every failure means "show the indexed text"
             if getattr(exc, 'status', None) == 404:
                 return jsonify({'success': False, 'error': 'Kein Microsoft-365-Dokument.'}), 404
-            logger.warning('Microsoft 365 preview for %r failed: %s', doc_id, exc)
+            logger.warning('Microsoft 365 preview for doc %s failed: %s', pointer_hash(doc_id), type(exc).__name__)
             return jsonify({'success': False, 'error': 'Vorschau von Microsoft 365 nicht erreichbar.'}), 502
         body: Dict[str, Any] = {'success': True}
         for src, dst in (('getUrl', 'embed_url'), ('postUrl', 'post_url'), ('postParameters', 'post_params')):
@@ -3053,7 +3054,7 @@ def create_app(config_path: Optional[str] = None):
                 'doc_id': doc_id,
             })
         except Exception as e:
-            logger.error(f"open_token_mint: {e}", exc_info=True)
+            logger.error("open_token_mint: %s", type(e).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/open-tokens/redeem', methods=['POST'])
@@ -3104,7 +3105,7 @@ def create_app(config_path: Optional[str] = None):
                 body['path'] = client_path
             return jsonify(body)
         except Exception as e:
-            logger.error(f"open_token_redeem: {e}", exc_info=True)
+            logger.error("open_token_redeem: %s", type(e).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/open-tokens/spec', methods=['GET'])
@@ -3469,8 +3470,8 @@ def create_app(config_path: Optional[str] = None):
             return jsonify({'success': True,
                             'types': payload['types'],
                             'relations': payload['relations']})
-        except Exception:
-            logger.error("Ontology summary error", exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology summary error: %s", type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities', methods=['GET'])
@@ -3479,8 +3480,8 @@ def create_app(config_path: Optional[str] = None):
             type_id = str(request.args.get('type') or '').strip()
             store = _ontology_source()
             return jsonify({'success': True, **store.entities_for_type(type_id)})
-        except Exception:
-            logger.error("Ontology entities error", exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology entities error: %s", type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['GET'])
@@ -3501,8 +3502,8 @@ def create_app(config_path: Optional[str] = None):
                 if links is not None:
                     detail['doc_field_links'] = links
             return jsonify({'success': True, **detail})
-        except Exception:
-            logger.error("Ontology entity detail error for %s", entity_id, exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology entity detail error for %s: %s", entity_id, type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     # Kuratieren: Der Wissensgraph wird vom Anwender gepflegt, Knovas leitet
@@ -3541,8 +3542,8 @@ def create_app(config_path: Optional[str] = None):
                     'error': _ontology_write_refused_message('Typ'),
                 }), 502
             return jsonify({'success': True, 'type': created}), 201
-        except Exception:
-            logger.error("Ontology type create error", exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology type create error: %s", type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities', methods=['POST'])
@@ -3564,8 +3565,8 @@ def create_app(config_path: Optional[str] = None):
                     'error': _ontology_write_refused_message('Eintrag'),
                 }), 502
             return jsonify({'success': True, 'entity': created}), 201
-        except Exception:
-            logger.error("Ontology entity create error", exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology entity create error: %s", type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/relations', methods=['POST'])
@@ -3581,8 +3582,8 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False,
                                 'error': 'Verbindung nicht anlegbar'}), 400
             return jsonify({'success': True, 'relation': created}), 201
-        except Exception:
-            logger.error("Ontology relation create error", exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology relation create error: %s", type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/type-relations', methods=['POST'])
@@ -3599,8 +3600,8 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False,
                                 'error': 'Vorgabe nicht anlegbar'}), 400
             return jsonify({'success': True, 'relation': created}), 201
-        except Exception:
-            logger.error("Ontology type relation create error", exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology type relation create error: %s", type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/type-relations', methods=['DELETE'])
@@ -3614,8 +3615,8 @@ def create_app(config_path: Optional[str] = None):
             if not entfernt:
                 return jsonify({'success': False, 'error': 'Vorgabe nicht gefunden'}), 404
             return jsonify({'success': True})
-        except Exception:
-            logger.error("Ontology type relation delete error", exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology type relation delete error: %s", type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/relations', methods=['DELETE'])
@@ -3630,8 +3631,8 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False,
                                 'error': 'Verbindung nicht gefunden'}), 404
             return jsonify({'success': True})
-        except Exception:
-            logger.error("Ontology relation delete error", exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology relation delete error: %s", type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/types/<type_id>', methods=['PATCH'])
@@ -3645,8 +3646,8 @@ def create_app(config_path: Optional[str] = None):
             if updated is None:
                 return jsonify({'success': False, 'error': 'Typ nicht gespeichert'}), 404
             return jsonify({'success': True, 'type': updated})
-        except Exception:
-            logger.error("Ontology type update error for %s", type_id, exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology type update error for %s: %s", type_id, type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/types/<type_id>', methods=['DELETE'])
@@ -3655,8 +3656,8 @@ def create_app(config_path: Optional[str] = None):
             if not _ontology_source().delete_type(type_id):
                 return jsonify({'success': False, 'error': 'Typ nicht gefunden'}), 404
             return jsonify({'success': True})
-        except Exception:
-            logger.error("Ontology type delete error for %s", type_id, exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology type delete error for %s: %s", type_id, type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['PATCH'])
@@ -3672,8 +3673,8 @@ def create_app(config_path: Optional[str] = None):
             if updated is None:
                 return jsonify({'success': False, 'error': 'Entität nicht gespeichert'}), 404
             return jsonify({'success': True, 'entity': updated})
-        except Exception:
-            logger.error("Ontology entity update error for %s", entity_id, exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology entity update error for %s: %s", entity_id, type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['DELETE'])
@@ -3682,8 +3683,8 @@ def create_app(config_path: Optional[str] = None):
             if not _ontology_source().delete_entity(entity_id):
                 return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
             return jsonify({'success': True})
-        except Exception:
-            logger.error("Ontology entity delete error for %s", entity_id, exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology entity delete error for %s: %s", entity_id, type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     # Filter (Req 2.2): echtes Passagen-Matching + permanente Rejection-
@@ -3706,8 +3707,8 @@ def create_app(config_path: Optional[str] = None):
                                 'error': 'Filterbeschreibung fehlt'}), 400
             detail = engine.filter_detail(store, created['id'])
             return jsonify({'success': True, **detail}), 201
-        except Exception:
-            logger.error("Ontology filter create error", exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology filter create error: %s", type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/filters/<filter_id>', methods=['GET'])
@@ -3719,8 +3720,8 @@ def create_app(config_path: Optional[str] = None):
             if detail is None:
                 return jsonify({'success': False, 'error': 'Filter nicht gefunden'}), 404
             return jsonify({'success': True, **detail})
-        except Exception:
-            logger.error("Ontology filter detail error for %s", filter_id, exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology filter detail error for %s: %s", filter_id, type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/filters/<filter_id>/decision', methods=['POST'])
@@ -3737,8 +3738,8 @@ def create_app(config_path: Optional[str] = None):
             if error == 'not_found':
                 return jsonify({'success': False, 'error': 'Vorschlag nicht gefunden'}), 404
             return jsonify({'success': True, 'proposal': proposal})
-        except Exception:
-            logger.error("Ontology filter decision error for %s", filter_id, exc_info=True)
+        except Exception as exc:
+            logger.error("Ontology filter decision error for %s: %s", filter_id, type(exc).__name__)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     return app
@@ -4073,7 +4074,7 @@ def _fetch_search_page(
             wider_answer, wider_hits = split(ask(wider))
         except Exception as exc:  # noqa: BLE001 - the first answer still stands
             logger.warning("Second search question (%d hits) failed, keeping the first: %s",
-                           wider, exc)
+                           wider, type(exc).__name__)
         else:
             answer, hits, fetch = wider_answer, wider_hits, wider
             returned = _search_hit_count(answer) + len(hits)
@@ -4485,7 +4486,7 @@ def _load_search_enrichment(config=None) -> Dict[str, dict]:
             path,
         )
     except Exception as e:
-        logger.warning("Could not load search enrichment from %s: %s", path, e)
+        logger.warning("Could not load search enrichment from %s: %s", path, type(e).__name__)
         _search_enrichment_unique = []
         _search_enrichment_by_basename = {}
         _search_enrichment_inferred_prefixes = []
@@ -4660,7 +4661,7 @@ def _open_file_external(file_path: str, config) -> bool:
         return True
         
     except Exception as e:
-        logger.error(f"Error opening file externally: {e}")
+        logger.error("Error opening file externally: %s", type(e).__name__)
         return False
 
 

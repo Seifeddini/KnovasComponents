@@ -288,8 +288,8 @@ def cmd_purge_index(ctx: _Context, args: argparse.Namespace) -> int:
         # what was deleted must not keep reading "aktuell".
         try:
             marked = _mark_purged_off(conn)
-        except Exception:  # noqa: BLE001 - do not hide why the purge stopped
-            logger.exception("purge-index: marking the purged experiments failed.")
+        except Exception as exc:  # noqa: BLE001 - do not hide why the purge stopped
+            logger.error("purge-index: marking the purged experiments failed (%s).", type(exc).__name__)
             marked = 0
     remaining = _recorded_pointers(conn)
     if deleted is None:
@@ -476,7 +476,7 @@ def main(argv: Optional[Sequence[str]] = None, *, out: Callable[[str], None] = p
         out(exc.message)
         return 1
     except Exception as exc:  # noqa: BLE001
-        logger.debug("command failed", exc_info=True)
+        logger.debug("command failed: %s", type(exc).__name__)
         out(f"Fehler: {type(exc).__name__}: {exc}")
         return 1
     finally:

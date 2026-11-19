@@ -147,8 +147,8 @@ def _requester(requested_by: str | None, actor) -> SimpleNamespace | None:
     try:
         return SimpleNamespace(id=UUID(str(requested_by)))
     except (TypeError, ValueError):
-        logger.warning("requested_by ist keine UUID (%r); Version wird dem Ausfuehrenden "
-                       "zugeschrieben.", requested_by)
+        logger.warning("requested_by ist keine UUID; Version wird dem Ausfuehrenden "
+                       "zugeschrieben.")
         return None
 
 
@@ -1139,14 +1139,14 @@ def attach_ingestion_routes(bp, gate, *, csrf_valid, csrf_token, page_context,
         try:
             rc_status = rc_client_factory().status()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Knovas-Connector-Status nicht abrufbar: %s", exc)
+            logger.warning("Knovas-Connector-Status nicht abrufbar: %s", type(exc).__name__)
             rc_status = {"scheduler_state": "unbekannt"}
             rc_reachable = False
         groups = []
         try:
             groups = client_factory().access_groups()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Zugriffsgruppen nicht abrufbar: %s", exc)
+            logger.warning("Zugriffsgruppen nicht abrufbar: %s", type(exc).__name__)
         form = form if form is not None else form_from_profile(current.profile if current else None)
         return render_template(
             "admin_ingestion.html",

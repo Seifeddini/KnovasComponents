@@ -283,8 +283,9 @@ def build_handlers(*, settings: Any, index_client: Any,
         if index_client is not None:
             try:
                 requeue_failed_deletions(conn)
-            except Exception:  # noqa: BLE001 - the upload half must still run
-                logger.exception("Experiments maintenance: re-queueing deletions failed.")
+            except Exception as exc:  # noqa: BLE001 - the upload half must still run
+                logger.error("Experiments maintenance: re-queueing deletions failed (%s).",
+                             type(exc).__name__)
                 _rollback_failed(conn)
         if not settings.index_enabled or index_client is None:
             return

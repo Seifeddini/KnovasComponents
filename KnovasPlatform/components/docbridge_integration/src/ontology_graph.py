@@ -218,7 +218,7 @@ class GraphOntologySource:
         except OSError as exc:
             logger.warning(
                 "Cortex-Cachemarke %s nicht schreibbar (%s). Andere Worker sehen "
-                "die Aenderung erst nach Ablauf der TTL.", self._marker, exc,
+                "die Aenderung erst nach Ablauf der TTL.", self._marker, type(exc).__name__,
             )
 
     def _evict_stale_export_cache(self, now: float) -> None:
@@ -276,7 +276,7 @@ class GraphOntologySource:
                 logger.warning(
                     "Cortex: Topologie-Export /secured/graph nicht verfuegbar (%s). Typen, Knoten "
                     "und Kanten werden einzeln gelesen; der Export wird in %d s wieder versucht.",
-                    exc, self.EXPORT_RETRY_SECONDS,
+                    type(exc).__name__, self.EXPORT_RETRY_SECONDS,
                 )
         node_types = _graph_payload_list(raw.get("node_types") or raw,
                                          "node_types", "nodeTypes", "types")

@@ -71,12 +71,12 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
             except BundleError as exc:
                 # The tenant's definitions bundle is missing, unreadable or refused (wrong format
                 # version or hash): every view says why instead of drawing from nothing.
-                logger.warning("views: definitions bundle: %s", exc)
+                logger.warning("views: definitions bundle: %s", type(exc).__name__)
                 return jsonify({"success": False, "error": f"Definitionsbündel: {exc}", "bundle_error": True}), 503
             except PermissionError:
                 return jsonify({"success": False, "error": "Nicht angemeldet."}), 401
             except ReadFailed as exc:
-                logger.warning("views: brain read failed: %s", exc)
+                logger.warning("views: brain read failed: HTTP %s", exc.status)
                 return jsonify({"success": False,
                                 "error": "Der Wissensgraph antwortet gerade nicht. Bitte erneut versuchen."}), 502
         return wrapped
@@ -525,7 +525,7 @@ def create_views_blueprint(gate: Any, service: views.ViewService, *,
                 from graph_views.github_repo import GitHubError
 
                 if isinstance(exc, GitHubError):
-                    logger.warning("views: %s", exc)
+                    logger.warning("views: GitHub HTTP %s", exc.status)
                     return jsonify({"success": False, "error": str(exc)}), 502
                 raise
         return wrapped

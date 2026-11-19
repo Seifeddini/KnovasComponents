@@ -306,7 +306,7 @@ class OntologyStore:
                 json.dump(raw, f, ensure_ascii=False, indent=1)
             os.replace(tmp, self._path)
         except (OSError, ValueError) as exc:
-            logger.error("Fixture nicht schreibbar (%s): %s", self._path, exc)
+            logger.error("Fixture nicht schreibbar (%s): %s", self._path, type(exc).__name__)
             return
         global _cache
         _cache = None            # naechster Zugriff liest neu ein
@@ -483,11 +483,12 @@ def load_ontology(path: str,
         with open(path, encoding="utf-8") as f:
             raw = json.load(f)
     except (OSError, ValueError) as exc:
-        logger.warning("Ontology-Fixture nicht ladbar (%s): %s", path, exc)
+        logger.warning("Ontology-Fixture nicht ladbar (%s): %s", path, type(exc).__name__)
         return OntologyStore(dict(_EMPTY), [f"Fixture nicht ladbar: {exc}"])
     data, warnings = _validate(raw, path_exists)
     for w in warnings:
-        logger.warning("Ontology-Fixture: %s", w)
+        # The text before the colon is fixed; after it comes the entry, labels included.
+        logger.warning("Ontology-Fixture: %s", w.split(":", 1)[0])
     return OntologyStore(data, warnings, path=path)
 
 

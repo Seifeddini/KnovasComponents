@@ -92,8 +92,8 @@ class IdentityGate:
         if conn is not None:
             try:
                 conn.close()
-            except Exception:  # noqa: BLE001
-                logger.debug("Identity connection close failed", exc_info=True)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Identity connection close failed (%s)", type(exc).__name__)
             g._identity_conn = None
 
     def users(self) -> users_mod.UserRepository:

@@ -281,8 +281,8 @@ class Registry:
                 views.append(self._load(view_id))
             except ManifestError as exc:
                 invalid.append(Invalid(view_id, str(exc)))
-            except Exception:  # one broken view never hides the others
-                self._log.exception("custom_views: %s could not be read", view_id)
+            except Exception as exc:  # one broken view never hides the others
+                self._log.error("custom_views: %s could not be read (%s)", view_id, type(exc).__name__)
                 invalid.append(Invalid(view_id, "Die Ansicht konnte nicht gelesen werden."))
         views.sort(key=_view_order)
         return _Scan(

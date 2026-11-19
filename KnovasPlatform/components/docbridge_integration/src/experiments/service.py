@@ -2564,8 +2564,8 @@ class ExperimentService:
                 answer = self.knovas_search(" ".join(words),
                                             min(KNOVAS_SEARCH_MAX, limit * 5)) or {}
                 knovas = self._knovas_hits(answer)
-            except Exception:  # noqa: BLE001 - the database search still answers
-                logger.warning("Knovas search for experiments failed.", exc_info=True)
+            except Exception as exc:  # noqa: BLE001 - the database search still answers
+                logger.warning("Knovas search for experiments failed (%s).", type(exc).__name__)
                 use_knovas = False
                 warning = MSG_KNOVAS_DOWN
         database = store.search_database(self.conn, words, limit)

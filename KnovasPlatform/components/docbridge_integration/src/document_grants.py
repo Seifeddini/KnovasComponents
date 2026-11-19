@@ -130,7 +130,7 @@ class DocumentGrantStore:
             logger.warning(
                 "Document grant store unusable at %s (%s); falling back to an "
                 "in-process cache. On a multi-worker deployment that refuses "
-                "some legitimate previews.", path, exc,
+                "some legitimate previews.", path, type(exc).__name__,
             )
             self._store_path = None
             self.backend = "memory"
@@ -174,7 +174,7 @@ class DocumentGrantStore:
                 )
                 conn.commit()
             except (sqlite3.Error, OSError) as exc:
-                logger.warning("Could not record document grants: %s", exc)
+                logger.warning("Could not record document grants: %s", type(exc).__name__)
                 return 0
             finally:
                 if conn is not None:
@@ -219,7 +219,7 @@ class DocumentGrantStore:
                 return row is not None
             except (sqlite3.Error, OSError) as exc:
                 # Fail closed: a store we cannot read is not permission to serve.
-                logger.warning("Could not read document grants: %s", exc)
+                logger.warning("Could not read document grants: %s", type(exc).__name__)
                 return False
             finally:
                 if conn is not None:

@@ -276,23 +276,23 @@ class UserRepository:
             # Not returning early on a missing account would be better still —
             # a dummy verify to level the timing — but the per-IP throttle at
             # app.py:708 already bounds how much timing an attacker can sample.
-            logger.info("Login refused: no account for %s", email)
+            logger.info("Login refused: no account for this address")
             return None
 
         user = self._to_user(row)
         if user.is_locked:
-            logger.info("Login refused: account locked (%s)", email)
+            logger.info("Login refused: account locked (%s)", user.id)
             return None
         if not user.is_active:
-            logger.info("Login refused: account %s is %s", email, user.status)
+            logger.info("Login refused: account %s is %s", user.id, user.status)
             return None
         if not row["password_hash"]:
-            logger.info("Login refused: %s is federated-only", email)
+            logger.info("Login refused: %s is federated-only", user.id)
             return None
 
         if not passwords.verify_password(row["password_hash"], password):
             self._record_failure(row)
-            logger.info("Login refused: wrong password for %s", email)
+            logger.info("Login refused: wrong password for %s", user.id)
             return None
 
         if passwords.needs_rehash(row["password_hash"]):

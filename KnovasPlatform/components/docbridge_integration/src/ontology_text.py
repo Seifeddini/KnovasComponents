@@ -18,6 +18,8 @@ import os
 import re
 from typing import Callable, Dict, List, Optional, Tuple
 
+from log_safety import pointer_hash
+
 logger = logging.getLogger(__name__)
 
 MIN_QUOTE_CHARS = 20
@@ -67,7 +69,7 @@ class DocumentTextResolver:
             try:
                 return self._indexed_pages(pointer) or {}
             except Exception as exc:  # ein kaputter Index darf nie eskalieren
-                logger.warning("Indexierter Text nicht lesbar (%s): %s", pointer, exc)
+                logger.warning("Indexierter Text nicht lesbar (doc %s): %s", pointer_hash(pointer), type(exc).__name__)
                 return {}
         try:
             mtime = os.stat(abs_path).st_mtime
@@ -84,7 +86,7 @@ class DocumentTextResolver:
                 for page_no, page in enumerate(doc, start=1):
                     pages[page_no] = page.get_text().strip()
         except Exception as exc:      # kaputte Datei darf nie eskalieren
-            logger.warning("Text nicht lesbar (%s): %s", abs_path, exc)
+            logger.warning("Text nicht lesbar (doc %s): %s", pointer_hash(abs_path), type(exc).__name__)
             pages = {}
         self._cache[key] = pages
         return pages
