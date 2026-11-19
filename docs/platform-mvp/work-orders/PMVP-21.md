@@ -7,7 +7,7 @@
 | Requirements | W-07; contract L2-PLATFORM-ASSISTANT POST-03, POST-04 |
 | Class | **critical** under this repository's CLAUDE.md (migrations); proposed by the agent, approved by management before it reaches `main` |
 | Branch / worktree | `feat/pmvp-21` from `feat/platform-mvp`, worktree `.worktrees/pmvp-21` |
-| Frozen tests | `KnovasPlatform/components/docbridge_integration/tests/test_pmvp21_chats_acceptance.py`, SHA-256 in `docs/platform-mvp/frozen-tests.sha256` (check: `sha256sum -c docs/platform-mvp/frozen-tests.sha256`) |
+| Frozen tests | `KnovasPlatform/components/docbridge_integration/tests/test_pmvp21_chats_acceptance.py`, blob id in `docs/platform-mvp/frozen-tests.txt` (the check command is in that file) |
 
 ## Goal
 
@@ -56,7 +56,7 @@ If the work needs one of these, stop and write the reason under "Builder's notes
 ## Done when
 
 1. `cd P && py -3 -m pytest tests/test_pmvp21_chats_acceptance.py -q` is green (not skipped: the test database at
-   `PLATFORM_DB_TEST_DSN`, port 55433, is running), the file unchanged (SHA-256).
+   `PLATFORM_DB_TEST_DSN`, port 55433, is running), the file unchanged (its blob id in `docs/platform-mvp/frozen-tests.txt`).
 2. `PLATFORM_DB_REQUIRED=true py -3 -m pytest -q` for the whole Platform suite is green, or every failure is shown to
    fail on the base commit too (`tests/test_identity_migrations.py` above all).
 3. Commits on `feat/pmvp-21` name the item (`PMVP-21: …`) and end with the co-author line; the branch is pushed.

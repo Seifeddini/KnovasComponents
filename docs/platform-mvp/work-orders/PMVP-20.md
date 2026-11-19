@@ -7,7 +7,7 @@
 | Requirements | W-03, W-05; contract L2-PLATFORM-ASSISTANT POST-01, POST-02, POST-04, POST-05, POST-06 |
 | Class | sensitive (Siran approves) |
 | Branch / worktree | `feat/pmvp-20` from `feat/platform-mvp`, worktree `.worktrees/pmvp-20` |
-| Frozen tests | `KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_assistant_acceptance.py`, SHA-256 in `docs/platform-mvp/frozen-tests.sha256` (check: `sha256sum -c docs/platform-mvp/frozen-tests.sha256`) |
+| Frozen tests | `KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_assistant_acceptance.py`, blob id in `docs/platform-mvp/frozen-tests.txt` (the check command is in that file) |
 
 ## Goal
 
@@ -86,7 +86,7 @@ If the work needs one of these, stop and write the reason under "Builder's notes
 
 ## Done when
 
-1. `cd P && py -3 -m pytest tests/test_pmvp20_assistant_acceptance.py -q` is green, the file unchanged (SHA-256).
+1. `cd P && py -3 -m pytest tests/test_pmvp20_assistant_acceptance.py -q` is green, the file unchanged (its blob id in `docs/platform-mvp/frozen-tests.txt`).
 2. Your own tests cover the client method (body sent, assertion attached, 429/503 → CoreBusy, other → CoreFailed,
    no error body in the log) and the snippet field; `py -3 -m pytest -q` for the whole Platform suite is green
    (test DB: `PLATFORM_DB_TEST_DSN`, default port 55433, already running) or every failure is shown to fail on the

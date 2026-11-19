@@ -1,0 +1,5 @@
+# Frozen acceptance tests: git blob ids (line endings do not matter).
+# Check: every line below must print OK.
+#   while read id path; do [ "$(git hash-object "$path")" = "$id" ] && echo "OK $path" || echo "CHANGED $path"; done < <(grep -v '^#' docs/platform-mvp/frozen-tests.txt)
+8e51146f505d7cf4445982fba9a7e2ef12fccb9d KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_assistant_acceptance.py
+0d9eac30180603cbd21e2ba071d30cbdc47ccbf8 KnovasPlatform/components/docbridge_integration/tests/test_pmvp21_chats_acceptance.py
