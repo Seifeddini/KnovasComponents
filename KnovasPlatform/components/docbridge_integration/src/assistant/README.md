@@ -52,19 +52,32 @@ No routes, no pages (PMVP-22a), no chat storage (PMVP-21).
    `original_text`, `QUERY_RETURN_CHUNK_SNIPPETS`, on by default since 2026-10-02) as `snippet` on each served
    `top_chunks` entry and the first of them as the hit's own `snippet` (KnowledgeBase
    `services/query_two_stage.py::attach_chunk_snippets`, `docs/Docs/04_COMPONENTS/query_document_finder.md` § 4).
-   `_snippet_from_hit` reads exactly that key (row first, then the chunks) and never `text`/`content`: the BM25
-   `text` field has its digits stripped. The row keeps it only inside `client.keeping_snippets()` (per thread):
-   the search page's `_search_result_haystack` reads `snippet` for "exact match" and `literal_query_matches`, so an
-   always-present field would change what the page shows. The request sent to Knovas is the same either way.
+   `_snippet_with_location` reads exactly that key (the chunks first, in order, then the row) and never
+   `text`/`content`: the BM25 `text` field has its digits stripped. The text and its page come from the same chunk
+   (`snippet_page_number`, `snippet_sentence_number`; unknown stays `None`), because `top_chunks[0]` -- the row's
+   own page -- may carry no snippet (an auto summary ranked first). The row keeps the three keys only inside
+   `client.keeping_snippets()` (per thread): the search page's `_search_result_haystack` reads `snippet` for
+   "exact match" and `literal_query_matches`, so an always-present field would change what the page shows. The
+   request sent to Knovas is the same either way.
 2. **Strict check.** `check_answer`: `[1][2]`, `[1, 3]`, `[1;3]` and the full-width form name passages; a bracket
    holding digits that is not a plain number list (`[1-3]`, `[S. 4]`, `[2024]`) cannot be checked, so its
-   sentence is removed; brackets without digits (`[...]`, `[sic]`) are text. `split_sentences` is cautious: a line
-   break always ends a sentence; `.`/`!`/`?` only before whitespace and a capital or an opening quote; a full
-   stop after an abbreviation (`z. B.`, `Art.`, `Abs.`, `Ziff.`, `i.V.m.` …), a single letter or a number
-   (`1. März 2024`) does not, unless a reference follows the stop. References right after a stop belong to the
-   sentence before it.
+   sentence is removed; brackets without digits (`[...]`, `[sic]`) are text; a fragment without a letter (a list
+   number) is not a sentence. `split_sentences` **cuts when unsure** (rework 1: a wrong join can show a statement
+   without a reference under its neighbour's number, a wrong cut only drops text):
+   - a line break always ends a sentence;
+   - a stop, `;`, `!` or `?` right after `[n]` ends it, whatever follows; references right after a stop belong to
+     the sentence before it and end it too;
+   - `!`/`?` before whitespace end it; a `;` without a reference does not;
+   - a full stop before whitespace ends it unless the word before it is an abbreviation (`ABBREVIATIONS`: `Art.`,
+     `Abs.`, `Ziff.`, `Hr.`, `Fr.`, `Fa.`, `Kt.`, `med.` …, or a word with an inner stop like `z.B.`, `i.V.m.`), a
+     lower-case single letter, a capital in `z. B.`/`u. U.` or before a number (`S. 4`, `E. 2`), or a 1-2 digit
+     ordinal before a month (`1. März`) or after an article or preposition (`im 3. Quartal`, `am 5.`). Amounts,
+     years, full dates and `Ziffer 5.` end it; `usw.`, `etc.`, `ff.` end it unless a lower-case word follows;
+   - a stop glued to the next word ends a sentence only between a plain word and a capital (`Monate.Sie`).
 3. **Nothing left** after the check, or no passages, gives `no_answer` with the closest passages; no passages
-   means no generate call. A blank question is `no_answer` without a search.
+   means no generate call. A blank question is `no_answer` without a search. The no-answer sentence is never a
+   cited answer: wherever it appears, with or without numbers, it is dropped (not counted in `removed`), and the
+   system instruction asks for it without a number.
 4. **Core limits** (KnowledgeBase `secure_api.py`, `/secured/llm/generate`): ≤ 32 messages, roles `user` and
    `assistant`, ≤ 50,000 bytes per message, system instruction ≤ 4,000 bytes, `max_tokens` ≤ 2,048. The constructor
    refuses settings past them. On top, the whole prompt stays within `prompt_budget_bytes` (default 14,000 UTF-8
@@ -119,3 +132,7 @@ No routes, no pages (PMVP-22a), no chat storage (PMVP-21).
   retrieval.
 - The search page's client-side refinements after Knovas answers (enrichment titles, the score thresholds that are
   off unless configured, the filename supplement) live in `app.py` and do not run for the assistant.
+- A comma after `[n]` does not end a sentence ("… drei Monate [1], und 2023 …" stays one sentence under `[1]`);
+  rework 1 names a stop, a semicolon and a line break. Whether a comma should cut too is open.
+- Cutting when unsure drops some text on purpose: initials ("Hans M. Müller"), "Variante B. Danach …", web
+  addresses with a capital after a stop.
