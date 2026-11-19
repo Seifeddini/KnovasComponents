@@ -65,3 +65,59 @@ If the work needs one of these, stop and write the reason under "Builder's notes
 ## Builder's notes
 
 (the builder writes here: what was decided, what is open, what the verifier should look at)
+
+**Built.** `P/src/identity/migrations/0026_assistant_chats.sql` (three `CREATE TABLE IF NOT EXISTS`, three
+`CREATE [UNIQUE] INDEX IF NOT EXISTS`, nothing else), `P/src/identity/chats.py`, `P/tests/test_identity_chats_store.py`
+(52 tests of my own). No existing file changed.
+
+**Decisions beyond the work order** (all two-way, in new code only):
+
+- Order column `assistant_messages.ordinal` (0, 1, 2 … per chat), unique per chat; that unique index is the
+  "messages of a chat in order" index. "My chats, newest first" is `(owner_user_id, updated_at DESC)`.
+- `add_message` runs in `conn.transaction()`: first `UPDATE assistant_chats SET updated_at = now() … WHERE id AND
+  owner_user_id` (holds the chat's row; no row → `ChatNotFound`, nothing changed), then the message with
+  `max(ordinal) + 1`, then its references. Two writers on one chat queue instead of colliding (tested with two
+  connections, 15 messages each). Every one of these statements filters on `owner_user_id` itself (rule 1).
+- `get_chat` reads the chat, then its messages, then their references: three statements, each owner-filtered.
+- Returned objects are frozen dataclasses: `Chat(id, title, created_at, updated_at, messages)`,
+  `Message(id, role, text, created_at, references)`, `ChatSummary(id, title, created_at, updated_at)` from
+  `list_chats` (ordered `updated_at DESC, created_at DESC, id`). A reference is a dict with always the five keys
+  `number, pointer, page, title, text` (`title` `""` and `text` `None` when not given); keys beyond these are ignored.
+- References come back **by number**; a number is unique within its message (unique index) and starts at 1; `pointer`
+  is non-empty text, `page` an int or None. Violations raise `ValueError` before the database.
+- Title: one line (white space collapsed, ends trimmed), may be empty (stored `''`), at most 200 characters
+  (`VARCHAR(200)`; longer → `ValueError`, never cut). Message text has no limit and is stored exactly as given.
+- A malformed chat id (not a UUID) raises the same `ChatNotFound` ("Chat nicht gefunden.") as a missing or foreign
+  one; a malformed owner raises `ValueError` (the owner comes from the session, so that is a programming error).
+- Logs: `delete_chat` logs at INFO with the chat and user ids; create/add at DEBUG with ids and the reference count.
+  No title, text, pointer or passage reaches a log line or an exception message (tested at DEBUG).
+
+**Not found.** No Platform database document lists the tables (searched `KnovasPlatform/docs`, the component
+README, `docs/`); `KnovasPlatform/docs/deployment/knovas-tenant.md` § 4.10 describes the Builder's store in prose
+only, so I changed no documentation. No component card for L2-PLATFORM-ASSISTANT exists yet (PMVP-01 registers it).
+
+**For the verifier.**
+
+- Concurrent pytest runs on **one** database break each other: `CREATE EXTENSION citext` lands in the first test's
+  schema, and a run killed mid-test leaves it in an abandoned schema; every later run then fails with `type "citext"
+  does not exist`. I hit this on `knovas_platform_test` (extensions in leftover schema `t6592805a7d14`, no session
+  connected) and dropped that one abandoned schema to restore the default DSN; 963 other leftover `t…` schemas remain.
+  Run in a database of your own (`PLATFORM_DB_TEST_DSN=…/knovas_platform_test_<name>`) when another session tests.
+- Whole suite, `PLATFORM_DB_REQUIRED=true`, own database each: branch 106 failed, 6241 passed, 43 skipped, 8 errors;
+  base `87afe42` 106 failed, 6176 passed, 43 skipped, 9 errors. The failing and erroring test ids are the same set
+  on both except the base's collection error of `test_pmvp21_chats_acceptance.py` (gone on the branch). The rest are
+  Windows-environment failures (e.g. `socketserver.UnixStreamServer`) and PMVP-20's not-yet-built acceptance file.
+  `tests/test_identity_migrations.py` passes (16).
+
+## Verification (coordinator's record)
+
+- **2026-11-19, fresh verifier session, `feat/pmvp-21` @ `466b8b9`: PASS WITH NOTES.** Frozen tests unchanged (blob
+  ids OK); acceptance 13 passed, not skipped; builder's tests 52 passed; identity suite green apart from
+  `test_identity_broker_key` (POSIX mode bits, fails on base too); whole suite has the same failing ids as base
+  `87afe42`, all Windows-environment. Owner filter present in all eight statements; foreign, missing and malformed
+  ids indistinguishable, also under a held row lock; the concurrency test fails on a broken variant 5 of 5 times.
+- Integrated into `feat/platform-mvp` by the coordinator (merge `7115ac8`).
+- **Class: critical** (this repository's CLAUDE.md: migrations). The plan's § 9 says sensitive and § 6.5 calls only
+  a change to existing tables critical; the repository's rule is stricter and wins. Management approves before
+  `main`.
+- Notes carried forward: `docs/platform-mvp/follow-ups.md` (FU-01 to FU-04).
