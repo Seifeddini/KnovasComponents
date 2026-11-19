@@ -58,6 +58,8 @@ _CONTENT_WORDS = {
     "snippet", "snippets", "chunk", "chunks", "answer", "answers", "content", "contents",
     "identifier", "identifiers", "pointer", "pointers", "title", "titles",
     "path", "paths", "name", "names", "email", "emails", "address", "document",
+    # A pointer's folder or prefix can name a client or a mandate at a law firm.
+    "folder", "folders", "prefix", "prefixes",
 }
 # doc_id and ident are a document's pointer in this code base (knovas_client
 # builds the identifier from doc_id or path).
@@ -105,6 +107,8 @@ ALLOWED: List[Tuple[str, str, str]] = [
      "the one-time password file of the first administrator, a path an operator configures"),
     ("experiments/indexer.py", "pointer",
      "an experiment's pointer is <pointer_prefix>/<domain_key>/<experiment key>: ids, no document name"),
+    ("experiments/indexer.py", "prefix",
+     "the experiments' own pointer prefix (settings.pointer_prefix), configuration, not a client folder"),
     ("experiments/indexer.py", "name",
      "an advisory lock's name, exp-upload:<experiment uuid>"),
     ("experiments/packs.py", "name",
@@ -181,6 +185,15 @@ def _findings(arg: ast.AST, exc_names: Set[str]) -> Iterator[Tuple[str, ast.AST]
             + [k.value for k in arg.keywords]
         for part in parts:
             yield from _findings(part, exc_names)
+        return
+    if isinstance(arg, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+        # ``[pointer_hash(p) for p in prefixes]`` logs hashes; ``[p for p in prefixes]`` logs prefixes.
+        elt_is_neutral = isinstance(arg.elt, ast.Call) and isinstance(arg.elt.func, ast.Name) \
+            and arg.elt.func.id in _NEUTRAL_CALLS
+        yield from _findings(arg.elt, exc_names)
+        if not elt_is_neutral:
+            for generator in arg.generators:
+                yield from _findings(generator.iter, exc_names)
         return
     if isinstance(arg, ast.IfExp):
         # ``pointer_hash(key) if key else "-"``: the test decides, it is not logged.
@@ -290,6 +303,9 @@ def _scan_src() -> List[Tuple[str, int, str, str]]:
     ('logger.warning("Invalid mode; using %s", DEFAULT_PDF_TEXT_MODE)', False),
     ('logger.info("loaded from %s", _enrichment_path_from_config(config))', False),
     ('logger.info("first %s", (list(pointer_candidates) or ["-"])[0])', True),
+    ('logger.info("%d prefixes %s", len(prefixes), [pointer_hash(p) for p in prefixes])', False),
+    ('logger.info("prefixes %s", [p.strip() for p in prefixes])', True),
+    ('logger.warning("resolved without its leading %r", folder)', True),
     ('math.log(x)', False),
     ('print("question:", question)', True),
 ])
@@ -496,3 +512,48 @@ def test_a_failed_single_doc_extract_logs_neither_the_document_nor_the_error(deb
 
     assert result["status"] == "success"
     _assert_no_marker(debug_logs, MARKER_POINTER, MARKER_EXC)
+
+
+def _login(client) -> None:
+    client.get("/login")
+    with client.session_transaction() as sess:
+        token = sess["csrf_token"]
+    client.post("/login", data={"login_name": "healthuser", "password": "healthpass123",
+                                "csrf_token": token})
+
+
+def test_an_unhandled_exception_logs_the_route_rule_not_the_path_or_the_message(docbridge_app, caplog):
+    """Flask's own line was ``Exception on <request.path> [GET]`` plus the traceback."""
+
+    def boom(doc_id):
+        raise RuntimeError(f"cannot open {MARKER_EXC} in {doc_id}")
+
+    docbridge_app.add_url_rule("/api/document/<path:doc_id>/maint-boom", "maint_boom", boom)
+    docbridge_app.config.update(TESTING=False, PROPAGATE_EXCEPTIONS=False)
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger=docbridge_app.logger.name)
+    client = docbridge_app.test_client()
+    _login(client)
+
+    response = client.get(f"/api/document/Mandanten/{MARKER_POINTER}.pdf/maint-boom?path={MARKER_QUERY}")
+
+    assert response.status_code == 500
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Exception on")]
+    assert lines == ["Exception on /api/document/<path:doc_id>/maint-boom [GET]: RuntimeError"]
+    _assert_no_marker(caplog, MARKER_POINTER, MARKER_EXC, MARKER_QUERY)
+
+
+def test_the_development_server_logs_no_request_path():
+    from web_interface.app import _NoPathRequestHandler
+
+    handler = _NoPathRequestHandler.__new__(_NoPathRequestHandler)
+    handler.command = "GET"
+    handler.requestline = f"GET /api/document/{MARKER_POINTER}?q={MARKER_QUERY} HTTP/1.1"
+    handler.path = f"/api/document/{MARKER_POINTER}?q={MARKER_QUERY}"
+    seen = []
+    handler.log = lambda level, message, *args: seen.append(message % args)
+
+    handler.log_request(200, 512)
+    handler.log_error("code %d, message %s", 400, f"Bad request syntax ({handler.requestline!r})")
+
+    assert seen == ["GET 200 512", "request refused: 400"]

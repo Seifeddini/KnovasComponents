@@ -26,6 +26,7 @@ import re
 
 import requests
 from urllib.parse import quote
+from werkzeug.serving import WSGIRequestHandler
 
 from config_loader import get_config
 import german_text
@@ -65,6 +66,35 @@ from unc_path import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _PlatformFlask(Flask):
+    """Flask whose unhandled-exception line carries no customer text.
+
+    Flask writes ``Exception on <request.path> [<method>]`` with the traceback.
+    The path can hold a document pointer (``/api/document/<path:doc_id>/...``)
+    and the traceback's last line quotes the exception's message. This line
+    names the route rule, the method and the exception's type, nothing else.
+    """
+
+    def log_exception(self, exc_info) -> None:
+        rule = request.url_rule.rule if request.url_rule is not None else '-'
+        exc = exc_info[1] if exc_info else None
+        self.logger.error('Exception on %s [%s]: %s', rule, request.method,
+                          type(exc).__name__ if exc is not None else '-')
+
+
+class _NoPathRequestHandler(WSGIRequestHandler):
+    """The development server's request lines without path and query string:
+    they carry document pointers and search words. The gunicorn and nginx
+    access-log formats leave them out for the same reason."""
+
+    def log_request(self, code='-', size='-') -> None:
+        self.log('info', '%s %s %s', self.command, code, size)
+
+    def log_error(self, format, *args) -> None:
+        # send_error passes the raw request line in its message; keep the code.
+        self.log('error', 'request refused: %s', args[0] if args else '-')
 
 
 def _configure_logging_for_wsgi(config) -> None:
@@ -735,12 +765,15 @@ def _autodoc_alternatives(autodoc_path: str, rel: str):
     if head and tail:
         found = _autodoc_candidate(autodoc_path, tail)
         if found and os.path.exists(found):
-            # The prefix is configuration; the rest of the pointer is not
-            # logged (it names clients and matters).
+            # Neither the folder nor the rest of the pointer is logged: at a
+            # law firm a folder can name a client or a mandate. Its hash is,
+            # and where an administrator sees it.
             yield found, (
-                f"A pointer resolved only without its leading {head!r}. "
-                f"Set KNOVAS_IDENTIFIER_PREFIX={head} in knovas.env (or match the "
-                f"Kennung on the Übernahme profile) to stop guessing."
+                f"A pointer resolved only without its leading folder (1 folder, "
+                f"hash {pointer_hash(head)}). Set KNOVAS_IDENTIFIER_PREFIX in knovas.env to "
+                f"that folder, or match the Kennung on the Übernahme profile, to stop "
+                f"guessing. The folder starts the pointers in the documents list "
+                f"(Verwaltung > Dokumente); the Kennung is under Verwaltung > Ingestion."
             )
             return
 
@@ -752,7 +785,9 @@ def _autodoc_alternatives(autodoc_path: str, rel: str):
     found = _autodoc_candidate(autodoc_path, f"{offset}/{rel}")
     if found and os.path.exists(found):
         yield found, (
-            f"Documents live under {offset!r} inside the mount, but pointers do not "
+            f"Documents live {offset.count('/') + 1} folder(s) deep inside the mount "
+            f"(hash {pointer_hash(offset)}; see the documents list and the profile's "
+            f"folders under Verwaltung > Ingestion), but pointers do not "
             f"carry it: the Übernahme profile is rooted at a subdirectory of "
             f"KNOVAS_DOCUMENTS_PATH. Resolving there from now on. Point the profile "
             f"at the mount root, or set KNOVAS_DOCUMENTS_PATH to that subdirectory, "
@@ -850,7 +885,7 @@ def create_app(config_path: Optional[str] = None):
     Returns:
         Configured Flask app
     """
-    app = Flask(__name__)
+    app = _PlatformFlask(__name__)
     
     if config_path:
         from config_loader import set_config
@@ -4478,11 +4513,16 @@ def _load_search_enrichment(config=None) -> Dict[str, dict]:
         _search_enrichment_unique = unique
         _search_enrichment_by_basename = basename_index
         _search_enrichment_mtime = mtime
+        prefixes = _search_enrichment_inferred_prefixes or _autodoc_identifier_prefixes()
+        # A prefix is a pointer's first folder, which can name a client: hashes
+        # only. The folders themselves start the pointers in the documents list.
         logger.info(
-            "Loaded search enrichment: %d records, %d lookup keys, prefixes=%s from %s",
+            "Loaded search enrichment: %d records, %d lookup keys, %d identifier "
+            "prefix(es) %s (hashes; see the documents list) from %s",
             len(unique),
             len(by_id),
-            _search_enrichment_inferred_prefixes or _autodoc_identifier_prefixes(),
+            len(prefixes),
+            [pointer_hash(p) for p in prefixes],
             path,
         )
     except Exception as e:
@@ -4726,7 +4766,8 @@ def main():
         host=host,
         port=port,
         debug=debug,
-        threaded=True
+        threaded=True,
+        request_handler=_NoPathRequestHandler,
     )
 
 
