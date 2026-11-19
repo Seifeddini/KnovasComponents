@@ -131,9 +131,9 @@ and `graph_views/` stays outside. Pages are rendered; the Builder's and EXT-BRAI
   the base: the console now takes names from `identity/` across a boundary) and 5 cards over budget.
 - KnowledgeBase: `py -3 scripts/steering/validate.py --no-git`: 0 errors (30 violations, as on master).
 
-### Stopped on: four Client Zero tests that pin counts (KnowledgeBase)
+### Stopped on: five Client Zero tests that pin counts (KnowledgeBase)
 
-The domain and the four manifest entries break four tests that pin counts. The work order says "no test", so I did
+The domain and the four manifest entries break five tests that pin counts. The work order says "no test", so I did
 **not** change them; the precedent changed such pins in the same change (KnowledgeBase `111057b94`, BB-10, and
 `eac69e80c`, A0: "the count pins follow"). The coordinator decides; each is a small edit:
 
@@ -144,10 +144,20 @@ The domain and the four manifest entries break four tests that pin counts. The w
   runner reproduces the hierarchy otherwise: 11 BoundedContexts, 61 Components).
 - `scripts/client_zero/tests/test_docpages.py:113`: `len(by) == 57` -> 61.
 - `scripts/client_zero/tests/test_parity_check.py:80`: `docs_status ... == 57` -> 61.
+- `scripts/client_zero/tests/test_loader.py:26` (`test_first_run_creates_everything_second_run_nothing`): `+ 57` -> `+ 61`
+  (307 nodes created; the seed's own count already includes L1-WORKSPACE).
 
-A fourth failure is not this item's: `test_routing.py::test_a_decision_record_affects_what_its_front_matter_names`
-counts 2 unresolved `affects`, which are DEC-0081's and DEC-0082's `BET-2026-11-platform-mvp` (already on master; the
-loader resolves plans, manifest components and invariants only). DEC-0083's six all resolve.
+The whole suite (`py -3 -m pytest scripts/client_zero/tests`, 49 minutes on this machine): 38 failed, 453 passed,
+6 skipped. Only the five tests above are this item's. The other 33, read from their assertions (not run on master):
+
+- Already on master, from #424: `test_routing.py::test_a_decision_record_affects_what_its_front_matter_names` and
+  `test_case_study_1.py::test_stage_0_decisions_load_as_decided_by_the_cto` count 2 unresolved `affects`, which are
+  DEC-0081's and DEC-0082's `BET-2026-11-platform-mvp` (the loader resolves plans, manifest components and invariants
+  only; DEC-0083's six all resolve); `test_phase2.py::test_rule_1_clean_on_approved_plans_after_triage` finds
+  `FEAT-2026-11-19-platform-mvp` an approved plan without owner (this item does not change the plan).
+- This machine (Windows): 29 in `test_brain_mapping_local.py` (its shell station exits 2 in a temporary folder) and
+  `test_agent_evals.py::test_the_fixture_takes_the_snapshot_and_the_documents_at_head` (a git blob id of a temporary
+  file differs, line endings).
 
 KnowledgeBase commits on `steering/pmvp-01-workspace-domain`: `345f49b1f` (DEC-0083, MAP-K5 decided in part),
 `e50d67b93` (L1-WORKSPACE and the four manifest entries), `a5e1a2a10` (the Builder's manifest path 0025, backlog B33).
