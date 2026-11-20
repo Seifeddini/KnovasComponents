@@ -56,15 +56,21 @@ def cmd_screen(args: argparse.Namespace) -> int:
     import time as _time
 
     from demo_kanzlei.build_world import build_world
-    from demo_kanzlei.records import build_records
+    from demo_kanzlei.records import build_records, looks_like_firm
     from demo_kanzlei.namepool import AUTHORITIES
     from demo_kanzlei.screen_names import ZefixClient, _norm
 
     cfg = load_config(args.config)
     world = build_world(cfg, pilot=False, skip_zefix=True)
     records = build_records(world, cfg, pilot=False)
-    names = sorted({a.firma.strip() for a in records.addresses if a.firma and a.firma not in AUTHORITIES and not a.duplicate_of})
-    names = [world.firm.name, *names]
+    from demo_kanzlei.catalog import COMPANY_NAMES
+    from demo_kanzlei.stories import FILLERS, NAMED
+
+    # Parties of every story the generator can tell, used in this build or not.
+    told = {story.opposing for story in NAMED.values()} | {story.opposing for bank in FILLERS.values() for story in bank}
+    told = {party for party in told if looks_like_firm(party)}  # a bare surname is a person, not a company
+    names = {a.firma.strip() for a in records.addresses if a.firma and a.firma not in AUTHORITIES and not a.duplicate_of}
+    names = [world.firm.name, *sorted(names | told | set(COMPANY_NAMES))]
     if args.limit:
         names = names[: args.limit]
     client = ZefixClient()
@@ -78,6 +84,9 @@ def cmd_screen(args: argparse.Namespace) -> int:
             log.info("%d von %d geprueft, %d Treffer", index, len(names), len(hits))
         _time.sleep(args.pause)
     log.info("%d Namen geprueft, %d Treffer", len(names), len(hits))
+    for name in hits:
+        print(f"im Handelsregister: {name}")
+    print(f"{len(names)} Namen geprueft, {len(hits)} Treffer")
     return 1 if hits else 0
 
 

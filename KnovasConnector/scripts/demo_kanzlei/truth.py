@@ -337,7 +337,7 @@ def _select(items: list[dict], *, pilot: bool) -> list[dict]:
     return sorted(chosen, key=lambda i: i["id"])
 
 
-def inventory(entries: list[Entry], records: Records, cfg: dict) -> dict:
+def inventory(entries: list[Entry], records: Records, cfg: dict, database: list) -> dict:
     firm = cfg["estate"]["firm_folder"]
     sources = {
         "autodoc": f"{firm}/Praxis/Autodoc",
@@ -353,11 +353,7 @@ def inventory(entries: list[Entry], records: Records, cfg: dict) -> dict:
         "not_reachable_by_knovas_account": sorted({e.acl for e in entries if not e.reachable}),
         "mess": {},
         "database": {
-            "ADRESSEN": len(records.addresses), "AKTEN": len(records.matters),
-            "AKTENBETEILIGTE": len({(p.akte_nr, p.adr_nr, p.rolle) for p in records.participants}),
-            "AKTENRECHTE": len(records.rights), "DOKUMENTE": len(records.documents),
-            "LEISTUNGEN": len(records.time_entries), "RECHNUNGEN": len(records.invoices),
-            "FRISTEN": len(records.deadlines), "MITARBEITER": len(records.employees),
+            **{table.name: len(table.rows) for table in database},
             "duplicate_addresses": sum(1 for a in records.addresses if a.duplicate_of),
             "locked_matters": sum(1 for m in records.matters if m.gesperrt),
         },
@@ -376,14 +372,85 @@ def inventory(entries: list[Entry], records: Records, cfg: dict) -> dict:
     for entry in entries:
         if entry.mess:
             out["mess"].setdefault(entry.mess, []).append(entry.path)
-    on_share = {e.path.rsplit("/", 1)[1] for e in entries if e.kind == "autodoc"}
-    out["mess"]["row_without_file"] = sorted(d.dateiname for d in records.documents if d.dateiname not in on_share)
+    out["mess"]["row_without_file"] = sorted(d.dateiname for d in records.documents if not d.on_share and not d.geloescht)
+    out["mess"]["deleted_in_software"] = sorted(d.dateiname for d in records.documents if d.geloescht)
     out["mess"] = {key: sorted(value) for key, value in sorted(out["mess"].items())}
     return out
 
 
+def sources(entries: list[Entry], records: Records, cfg: dict, database: list, directory: dict, acl: list[dict]) -> dict:
+    """The firm's sources as someone connecting them finds them: where, how, and what to watch for."""
+    from demo_kanzlei.sqlgen import catalogue
+
+    estate = cfg["estate"]
+    firm = estate["firm_folder"]
+    people = [u for u in directory["users"] if not u["service"]]
+    return {
+        "note": "Addresses are those of the stand-in site (demo/kanzlei/site). Passwords are in the site's .env, never here.",
+        "database": {
+            "engine": "Microsoft SQL Server 2022 (Developer edition), collation Latin1_General_CI_AS",
+            "address": "172.28.215.20,1433 (SRV-SQL01); TLS with a self-signed certificate",
+            "name": estate["database"],
+            "login": "knovas_ro, SQL authentication, db_datareader (PW_SQL_KNOVAS_RO)",
+            "what_to_watch_for": [
+                "No foreign keys: relations are implied by column names (AkteNr, AdrNr, MandantAdrNr, Kuerzel).",
+                "Three kinds of change marker: TS (rowversion) and MutiertAm/ErfasstAm on the big tables, none on the link tables.",
+                "LEISTUNGEN.ErfasstAm is often days after Datum: reading by Datum misses late entries.",
+                "Rows of LEISTUNGEN, FRISTEN, TERMINE and the link tables are removed, not flagged: absence must be found by a complete read.",
+                "DOKUMENTE.Geloescht and ADRESSEN.Inaktiv are flags; MITARBEITER.Aktiv and SYS_BENUTZER.Gesperrt use -1/0.",
+                "AKTEN.AbgeschlossenAm = 1900-01-01 means unknown.",
+                "AKTEN_BACKUP_20190312 and tmp_Import_Adressen are not the firm's data. SYS_SPERREN changes by the minute.",
+                "The same party can be in ADRESSEN twice under different spellings.",
+                "Matter rights are in AKTENRECHTE only; the share's folders do not carry them.",
+            ],
+            "tables": catalogue(database),
+        },
+        "share": {
+            "protocol": "SMB 2/3, NTLMv2 or Kerberos; reached by IP address",
+            "address": f"//172.28.215.10/{estate['share']} (hidden share on SRV-DC01)",
+            "account": f"{estate['netbios']}\\svc-knovas, read-only (PW_SVC_KNOVAS)",
+            "roots": {
+                "autodoc": {"path": f"{firm}/Praxis/Autodoc", "what": "the practice software's document store; DOKUMENTE indexes it"},
+                "gemeinsam": {"path": f"{firm}/Gemeinsam", "what": "the common drive"},
+            },
+            "files": len(entries),
+            "not_readable_for_the_account": sorted({e.acl for e in entries if not e.reachable}),
+            "what_to_watch_for": [
+                "File times are the documents' own dates, back to 2006: a filter on file age skips almost everything.",
+                "Folder names in the store are number ranges; a matter's files are spread over many of them.",
+                "Most files are formats the Connector does not read; the store is slow to walk for few uploads.",
+                "Lock files (~$...), Thumbs.db, empty files, cut-off files and Latin-1 text files are in the store.",
+                "Some files have no AutoDoc name (copied in by hand) and no row in DOKUMENTE.",
+            ],
+        },
+        "directory": {
+            "protocol": "Active Directory (Samba 4): LDAPS 636 with a self-signed certificate, Kerberos, SMB",
+            "address": "172.28.215.10 (SRV-DC01)",
+            "realm": estate["realm"],
+            "netbios": estate["netbios"],
+            "bind": f"svc-knovas@{estate['realm'].lower()} (PW_SVC_KNOVAS)",
+            "people_enabled": sum(1 for u in people if u["enabled"]),
+            "people_disabled": sum(1 for u in people if not u["enabled"]),
+            "service_accounts": sum(1 for u in directory["users"] if u["service"]),
+            "groups": [g["name"] for g in directory["groups"]],
+            "what_to_watch_for": [
+                "Groups are nested: GG_Partner is in GG_Anwaelte, which is in GG_Alle.",
+                "People who left are disabled accounts in OU=Ehemalige, not deleted.",
+                "MITARBEITER.Login in the database is the sAMAccountName here; the Kuerzel is not in the directory.",
+                "Folder permissions name these groups; matter rights do not.",
+            ],
+            "folder_permissions": len(acl),
+        },
+        "mail": {
+            "status": "not a source yet",
+            "what_exists": "E-mails filed to a matter are .msg files in the store. Everything else is in Outlook archives "
+                           f"({firm}/Mail/<login>/*.pst), which the Knovas account cannot read and the Connector does not parse.",
+        },
+    }
+
+
 def write_truth(world: World, rows: list[PlanRow], bodies: dict[str, str], entries: list[Entry], records: Records,
-                cfg: dict, dest: Path, *, pilot: bool) -> dict[str, int]:
+                cfg: dict, dest: Path, *, pilot: bool, database: list) -> dict[str, int]:
     dest.mkdir(parents=True, exist_ok=True)
     access = Access(world, records, cfg)
     questions = build_questions(world, rows, bodies, entries, records, access, pilot=pilot)
@@ -400,5 +467,11 @@ def write_truth(world: World, rows: list[PlanRow], bodies: dict[str, str], entri
     processes = processes_json(world)
     (dest / "processes.json").write_text(json.dumps(processes, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     (dest / "inventory.json").write_text(
-        json.dumps(inventory(entries, records, cfg), ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+        json.dumps(inventory(entries, records, cfg, database), ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    from demo_kanzlei.sqlgen import write_record_truth
+
+    write_record_truth(database, dest / "records")
+    (dest / "sources.json").write_text(
+        json.dumps(sources(entries, records, cfg, database, access.directory, access.acl), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8", newline="\n")
     return {"questions": len(questions), "rights": len(rights), "people": len(people), "processes": len(processes)}

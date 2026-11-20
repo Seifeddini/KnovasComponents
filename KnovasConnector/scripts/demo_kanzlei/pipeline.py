@@ -171,7 +171,7 @@ def _client(cfg, world, rows, bodies, out_root: Path, work_root: Path, manifest_
     from demo_kanzlei.directory import build_acl, build_directory
     from demo_kanzlei.estate import build_estate, manifest_rows
     from demo_kanzlei.records import build_records
-    from demo_kanzlei.sqlgen import write_sql
+    from demo_kanzlei.sqlgen import tables, write_sql
     from demo_kanzlei.truth import write_truth
 
     records = build_records(world, cfg, pilot=pilot)
@@ -215,10 +215,11 @@ def _client(cfg, world, rows, bodies, out_root: Path, work_root: Path, manifest_
     directory = build_directory(world, cfg)
     (site / "directory.json").write_text(json.dumps(directory, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (site / "acl.json").write_text(json.dumps(build_acl(world, cfg), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    sql_files = write_sql(
-        records, site / "db", database=estate["database"], firm_name=world.firm.name,
+    database = tables(
+        records, firm_name=world.firm.name,
         autodoc_unc=f"\\\\SRV-DC01\\{estate['share']}\\{estate['firm_folder']}\\Praxis\\Autodoc",
     )
+    sql_files = write_sql(database, site / "db", database=estate["database"])
     _mark(work_root, "site", {"users": len(directory["users"]), "groups": len(directory["groups"]),
                               "sql_files": len(sql_files)})
     if until_stage == "site":
@@ -226,7 +227,7 @@ def _client(cfg, world, rows, bodies, out_root: Path, work_root: Path, manifest_
 
     write_ground_truth(world, gt_dir)
     truth_dir = work_root / "truth"
-    counts = write_truth(world, rows, bodies, entries, records, cfg, truth_dir, pilot=pilot)
+    counts = write_truth(world, rows, bodies, entries, records, cfg, truth_dir, pilot=pilot, database=database)
     if _inside(truth_dir, out_root) or _inside(gt_dir, out_root):
         raise GateError("truth files must not live inside the share")
     if not counts["questions"] or not counts["rights"]:

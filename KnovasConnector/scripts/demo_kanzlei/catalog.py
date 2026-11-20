@@ -198,7 +198,8 @@ CLIENTS: list[Client] = [
     Client("c-helvetiq", "Helvetiq Pharma Zuliefer AG", "AG", "Pharma", "Schlieren", "Dr. Yves Kunz", "y.kunz@helvetiq-pharma.example"),
     Client("c-tannen", "Tannenfels Holzbau GmbH", "GmbH", "Bau", "Hinwil", "Beat Toggenburg", "beat@tannenfels.example"),
     Client("c-quorum", "Quorum Soft AG", "AG", "IT", "Zürich", "Lea Brunner", "lea.brunner@quorum-soft.example"),
-    Client("c-alpen", "Alpenblick Gastro GmbH", "GmbH", "Gastro", "Zürich", "Marco Pedretti", "m.pedretti@alpenblick.example"),
+    # Was "Alpenblick Gastro GmbH" until 20 Nov 2026: a firm of that name is in the commercial register.
+    Client("c-sennenfluh", "Sennenfluh Gastro GmbH", "GmbH", "Gastro", "Zürich", "Marco Pedretti", "m.pedretti@sennenfluh.example"),
     Client("c-forum", "Forum Revisions AG", "AG", "Treuhand", "Zürich", "Claudia Sutter", "c.sutter@forum-revision.example"),
 ]
 

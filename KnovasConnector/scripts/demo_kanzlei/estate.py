@@ -252,9 +252,11 @@ def _plan_mess(world: World, records: Records, real: list[_Doc], filler: list[_D
         known.append(_Doc(key=f"latin1:{index}", date=matter.eroeffnet, matter=ref, typ="Aktennotiz", ext="txt",
                           author=matter.sachbearbeiter, title=f"Aktennotiz {ref}", text=text, encoding="cp1252",
                           mess="latin1"))
-    for doc in pick(filler, counts["rows_without_file"]):
+    for index, doc in enumerate(pick(filler, counts["rows_without_file"])):
         doc.on_share = False
-        doc.mess = "row_without_file"
+        # Every other one was removed in the software (row flagged); the rest
+        # somebody deleted in the Explorer, and the software does not know.
+        doc.mess = "deleted_in_software" if index % 2 else "row_without_file"
     names = ["Scan0012.pdf", "Vertrag final.docx", "Brief Entwurf.docx", "Kopie von Klage.pdf", "Dokument1.docx",
              "Scan0013.pdf", "neu.docx", "Vollmacht unterschrieben.pdf", "Stellungnahme v2 final.docx", "IMG-4471.pdf",
              "Entwurf Antwort.docx", "Beilage 7.pdf", "RE Offerte.pdf", "Notiz Telefon.docx", "Vertrag (2).pdf",
@@ -372,6 +374,8 @@ def build_estate(
             erstellt_am=_moment(doc.date, doc.key).strftime("%Y-%m-%dT%H:%M:%S"),
             erstellt_von=doc.author,
             groesse=(out_root / doc.path).stat().st_size if doc.on_share else 4096,
+            geloescht=doc.mess == "deleted_in_software",
+            on_share=doc.on_share,
         )
         for doc in store
     ]
@@ -478,7 +482,8 @@ def _firm_folders(share: _Share, rows, bodies, world: World, records: Records, c
     stub("Praxis/Vorlagen/Brief.dot", "2012-03-05", f"{name}\n", kind="praxis")
     stub("Praxis/Vorlagen/Honorarnote.dot", "2012-03-05", f"{name}\nHonorarnote\n", kind="praxis")
     stub("Praxis/Vorlagen/Vollmacht.dot", "2012-03-05", f"{name}\nVollmacht\n", kind="praxis")
-    stub("Praxis/Export/FIBU_Export_2026-10.csv", "2026-11-03", "Konto;Datum;Text;Betrag\n", kind="praxis")
+    share.put(f"{firm}/Praxis/Export/FIBU_Export_2026-10.csv", _fibu_export(records, "2026-10"), day="2026-11-03", kind="praxis")
+    share.put(f"{firm}/Praxis/Export/FIBU_Export_2026-09.csv", _fibu_export(records, "2026-09"), day="2026-10-02", kind="praxis")
     stub("Praxis/Update/Update_7.4.2.exe", "2025-06-17", kind="praxis")
     stub("Praxis/Log/praxis_2026-11.log", today, "\n".join(
         f"2026-11-{d:02d} 07:5{d % 10}:01 INFO Dienst gestartet, AutoDoc verbunden" for d in range(2, 19)), kind="praxis")
@@ -495,6 +500,20 @@ def _firm_folders(share: _Share, rows, bodies, world: World, records: Records, c
         "Die Beklagte verkennt, dass die gerügten Mängel den Einbehalt des gesamten Restwerklohns nicht rechtfertigen.\n",
         fmt="docx", title="Entwurf Replik", day="2024-05-29", author=staff["lz"].name, kind="home", doc_type="Entwurf",
         true_matter="2024-017")
+
+
+def _fibu_export(records: Records, month: str) -> bytes:
+    """The monthly export for the accounting software: semicolons, Windows-1252, Swiss dates."""
+    lines = ["Belegnr;Datum;Konto;Gegenkonto;Buchungstext;Betrag;MwStSatz;Akte"]
+    refs = {m.nr: m.aktenzeichen for m in records.matters}
+    for invoice in records.invoices:
+        if not invoice.datum.startswith(month) or invoice.art != "R":
+            continue
+        day = f"{invoice.datum[8:10]}.{invoice.datum[5:7]}.{invoice.datum[:4]}"
+        lines.append(f"{invoice.nr};{day};1100;3000;Honorar Akte {refs[invoice.akte_nr]};{invoice.honorar:.2f};{invoice.mwst_satz:.1f};{refs[invoice.akte_nr]}")
+        if invoice.auslagen:
+            lines.append(f"{invoice.nr};{day};1100;3400;Auslagen Akte {refs[invoice.akte_nr]};{invoice.auslagen:.2f};{invoice.mwst_satz:.1f};{refs[invoice.akte_nr]}")
+    return ("\r\n".join(lines) + "\r\n").encode("cp1252")
 
 
 def manifest_rows(entries: list[Entry]) -> list[dict]:

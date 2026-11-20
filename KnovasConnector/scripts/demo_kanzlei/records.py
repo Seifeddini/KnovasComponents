@@ -165,6 +165,10 @@ class DocRecord:
     erstellt_am: str
     erstellt_von: str
     groesse: int
+    #: Removed through the software: the row stays, flagged, and the file is gone.
+    geloescht: bool = False
+    #: Truth only: the file is on the share.
+    on_share: bool = True
 
 
 @dataclass
@@ -188,6 +192,12 @@ class Records:
     deadlines: list[Deadline] = field(default_factory=list)
     documents: list[DocRecord] = field(default_factory=list)
     rights: list[MatterRight] = field(default_factory=list)
+    # Filled by ``office.build_office``.
+    appointments: list = field(default_factory=list)
+    journal: list = field(default_factory=list)
+    custom_values: list = field(default_factory=list)
+    software_users: list = field(default_factory=list)
+    locks: list = field(default_factory=list)
 
     def matter(self, aktenzeichen: str) -> DbMatter:
         return self._by_ref()[aktenzeichen]
@@ -261,6 +271,11 @@ def law_firm_names(seed: int, count: int) -> list[str]:
     kinds = ["Advokatur {s}", "{s} Rechtsanwälte", "Anwaltskanzlei {s}", "{s} Legal"]
     # Taken from the end of the shuffled list so they never meet a company stem.
     return [kinds[i % len(kinds)].format(s=stems[-1 - i]) for i in range(count)]
+
+
+def looks_like_firm(party: str) -> bool:
+    """A story names the other side as a firm ("Seebräu AG") or by a surname ("Rossi")."""
+    return any(token in party for token in ("AG", "GmbH", "Ltd", "BV", " ", "/"))
 
 
 def _employees(world: World) -> list[Employee]:
@@ -356,9 +371,8 @@ def _addresses(world: World, cfg: dict, *, pilot: bool, today: date, since: int)
         if matter.opposing in seen or any(matter.opposing == a for a in namepool.AUTHORITIES):
             continue
         seen.add(matter.opposing)
-        looks_like_firm = any(tok in matter.opposing for tok in ("AG", "GmbH", "Ltd", "BV", " ", "/"))
         day = _plus(matter.opened, 2)
-        if looks_like_firm:
+        if looks_like_firm(matter.opposing):
             add(kind="F", firma=matter.opposing, erfasst_am=day)
         else:
             add(kind="P", name=matter.opposing, erfasst_am=day, bemerkung="Vorname unbekannt")
@@ -735,4 +749,7 @@ def build_records(world: World, cfg: dict, *, pilot: bool) -> Records:
     records.addresses = _addresses(world, cfg, pilot=pilot, today=today, since=since)
     _matters(world, cfg, records, pilot=pilot)
     _billing(world, records)
+    from demo_kanzlei.office import build_office
+
+    build_office(world, records)
     return records

@@ -227,8 +227,15 @@ def test_document_index_matches_the_store_except_for_planted_gaps(site):
     known = set(re.findall(r"N'([0-9a-f-]{36}_[^']+)'", sql))
     stored = {Path(p).name for p, row in site["manifest"].items() if row["kind"] == "autodoc" and row["dok_nr"]}
     assert stored <= known
-    assert sorted(known - stored) == site["inventory"]["mess"]["row_without_file"]
-    assert len(known - stored) == 2
+    gone = site["inventory"]["mess"]["row_without_file"] + site["inventory"]["mess"]["deleted_in_software"]
+    assert sorted(known - stored) == sorted(gone)
+    assert len(site["inventory"]["mess"]["row_without_file"]) == 1, "deleted in the Explorer: the software does not know"
+    assert len(site["inventory"]["mess"]["deleted_in_software"]) == 1, "removed in the software: the row is flagged"
+    index = [json.loads(line) for line in
+             (site["work"] / "truth" / "records" / "DOKUMENTE.jsonl").read_text(encoding="utf-8").splitlines()]
+    flagged = [row["Dateiname"] for row in index if row["Geloescht"]]
+    assert flagged == site["inventory"]["mess"]["deleted_in_software"]
+    assert all(row["GeloeschtAm"] for row in index if row["Geloescht"])
 
 
 def test_sql_files_carry_no_credentials_and_load_in_order(site):
@@ -334,3 +341,89 @@ def test_acl_and_directory_use_only_known_principals():
     for entry in build_acl(world, cfg):
         assert {g["principal"] for g in entry["grants"]} <= known, entry["path"]
         assert {g["access"] for g in entry["grants"]} <= {"read", "modify", "full"}
+
+
+# --- the database as a connector finds it --------------------------------------
+
+@pytest.fixture(scope="module")
+def database(records):
+    from demo_kanzlei.sqlgen import tables
+
+    world, recs, _cfg = records
+    return {t.name: t for t in tables(recs, firm_name=world.firm.name, autodoc_unc="//SRV-DC01/shares$")}
+
+
+def _column(table, name):
+    index = table.columns.index(name)
+    return [row[index] for row in table.rows]
+
+
+def test_codes_point_to_rows_that_exist_though_no_foreign_key_says_so(database):
+    assert "REFERENCES" not in "".join(t.ddl for t in database.values()), "relations are implied by names only"
+    addresses = set(_column(database["ADRESSEN"], "AdrNr"))
+    matters = set(_column(database["AKTEN"], "AkteNr"))
+    people = set(_column(database["MITARBEITER"], "Kuerzel"))
+    assert set(_column(database["AKTEN"], "MandantAdrNr")) <= addresses
+    assert set(_column(database["AKTEN"], "RgID")) <= set(_column(database["RECHTSGEBIETE"], "RgID"))
+    assert set(_column(database["AKTEN"], "VerantwAnwalt")) <= people
+    assert set(_column(database["AKTENBETEILIGTE"], "AdrNr")) <= addresses
+    assert set(_column(database["AKTENBETEILIGTE"], "RolleID")) <= set(_column(database["ROLLEN"], "RolleID"))
+    assert set(_column(database["LEISTUNGEN"], "LeistArt")) <= set(_column(database["LEISTUNGSARTEN"], "LeistArt"))
+    assert set(_column(database["FRISTEN"], "FristArtID")) - {None} <= set(_column(database["FRISTARTEN"], "FristArtID"))
+    assert {n for n in _column(database["LEISTUNGEN"], "RechNr") if n} <= set(_column(database["RECHNUNGEN"], "RechNr"))
+    for name in ("LEISTUNGEN", "RECHNUNGEN", "FRISTEN", "JOURNAL", "DOKUMENTE", "AKTENRECHTE"):
+        assert set(_column(database[name], "AkteNr")) <= matters, name
+    assert {n for n in _column(database["TERMINE"], "AkteNr") if n} <= matters
+    assert None in _column(database["TERMINE"], "AkteNr"), "the firm's own appointments have no matter"
+
+
+def test_database_has_the_traits_a_connector_must_cope_with(database):
+    roles = {t.role for t in database.values()}
+    assert roles == {"records", "lookup", "software", "leftover"}
+    assert database["AKTEN_BACKUP_20190312"].key == [] and database["tmp_Import_Adressen"].key == []
+    # three kinds of change marker
+    assert database["AKTEN"].changed_by[0] == "TS" and "TS rowversion" in database["AKTEN"].ddl
+    assert database["FRISTEN"].changed_by == ["MutiertAm", "ErfasstAm"] and "rowversion" not in database["FRISTEN"].ddl
+    assert database["AKTENBETEILIGTE"].changed_by == []
+    # three kinds of deletion
+    assert database["DOKUMENTE"].deleted_by == "flag:Geloescht"
+    assert database["LEISTUNGEN"].deleted_by == "removed"
+    assert database["AKTEN"].deleted_by == "never"
+    # old types and conventions
+    assert set(_column(database["MITARBEITER"], "Aktiv")) == {-1, 0}
+    assert "Bemerkung ntext" in database["ADRESSEN"].ddl
+    late = [1 for day, entered in zip(_column(database["LEISTUNGEN"], "Datum"), _column(database["LEISTUNGEN"], "ErfasstAm"))
+            if entered[:10] > day[:10]]
+    assert late, "time is often entered days after its date"
+    assert all(entered[:10] >= day[:10] for day, entered in
+               zip(_column(database["LEISTUNGEN"], "Datum"), _column(database["LEISTUNGEN"], "ErfasstAm")))
+
+
+def test_counters_are_one_past_the_highest_number(database):
+    counters = dict(database["SYS_NUMMERN"].rows)
+    assert counters["AKTE"] == max(_column(database["AKTEN"], "AkteNr")) + 1
+    assert counters["ADRESSE"] == max(_column(database["ADRESSEN"], "AdrNr")) + 1
+    assert counters["DOKUMENT"] >= 1 and counters["LEISTUNG"] == max(_column(database["LEISTUNGEN"], "LeistNr")) + 1
+
+
+def test_court_number_of_the_written_matter_is_a_field_the_firm_defined(database, records):
+    _world, recs, _cfg = records
+    hero = recs.matter("2024-017").nr
+    assert (1, hero, "CG240017") in database["ZUSATZFELDWERTE"].rows
+    assert (1, "AKTEN", "Geschäfts-Nr. Gericht", "T") in database["ZUSATZFELDER"].rows
+
+
+def test_every_table_has_its_truth_and_the_catalogue_says_how_to_read_it(site):
+    records_dir = site["work"] / "truth" / "records"
+    sources = json.loads((site["work"] / "truth" / "sources.json").read_text(encoding="utf-8"))
+    assert set(sources) >= {"database", "share", "directory", "mail"}
+    listed = {t["table"]: t for t in sources["database"]["tables"]}
+    schema = (site["work"] / "site" / "db" / "00_schema.sql").read_text(encoding="utf-8")
+    assert set(listed) == set(re.findall(r"CREATE TABLE dbo\.(\w+) \(", schema))
+    for name, entry in listed.items():
+        lines = (records_dir / f"{name}.jsonl").read_text(encoding="utf-8").splitlines()
+        assert len(lines) == entry["rows"] == site["inventory"]["database"][name], name
+        if lines:
+            assert list(json.loads(lines[0])) == [c for c in entry["columns"] if c != "TS"]
+        assert entry["role"] in {"records", "lookup", "software", "leftover"}
+    assert "password" not in json.dumps(sources).lower().replace("passwords are in the site's .env", "")
