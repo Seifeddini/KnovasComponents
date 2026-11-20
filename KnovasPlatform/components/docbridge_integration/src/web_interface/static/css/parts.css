@@ -1,0 +1,253 @@
+/* Knovas Platform: the shared page parts (PMVP-12, plan
+   FEAT-2026-11-19-platform-mvp F-7, section 5.1).
+
+   The pieces every new screen is made of: the one centred column, the page
+   head, a section, a card, a row of a list, tabs, the status dot, the tag,
+   the numbered reference and the link. templates/_parts.html draws them
+   (Jinja macros) and /styleguide shows each one in each state. They follow
+   the reference screens (docs/platform-mvp/reference-screens/app.css, lines
+   18 to 47).
+
+   The rules of this file:
+   - Every class starts with k-. The other stylesheets keep their own .card,
+     .btn, .tag, .tabs; nothing of theirs changes.
+   - Colours, type, radii and spacing come from the brand tokens
+     (knovas-tokens.css) and from nowhere else; no colour is named here. A
+     length that is written out is the own size of a thing: the width of the
+     column, the dot, the box of the reference, a line of one or two pixels.
+   - style.css pulls this file in right after the tokens, so every page that
+     loads the base styles has the parts. Its rules therefore come before the
+     rules of style.css; every rule here hangs on a class, which outranks the
+     element rules there (the reset, h1 and h2, button) wherever they meet.
+   - Text keeps 4.5 to 1 or better on its background; every link and button
+     shows a focus ring; nothing here needs a script. */
+
+/* --- the one centred column ------------------------------------------------ */
+.k-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--k-space-lg);
+    width: 100%;
+    max-width: 640px;
+    min-width: 0;
+    margin: 0 auto;
+}
+.k-page--wide { max-width: 720px; }
+
+/* --- the page head: eyebrow, h1, lede -------------------------------------- */
+.k-page-head { min-width: 0; }
+/* The head with the one main action of the screen beside it (a class, no
+   macro): the head left, the action right, the action below when there is
+   no room. */
+.k-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: var(--k-space-sm) var(--k-space-md);
+}
+.k-eyebrow,
+.k-section-title {
+    font-family: var(--k-font-sans);
+    font-size: var(--k-text-2xs);
+    font-weight: var(--k-weight-semibold);
+    line-height: var(--k-leading-snug);
+    letter-spacing: var(--k-tracking-label);
+    text-transform: uppercase;
+    color: var(--k-color-text-muted);
+    overflow-wrap: anywhere;
+}
+.k-title {
+    margin-top: var(--k-space-3xs);
+    font-family: var(--k-font-sans);
+    /* 26px: the page title of the reference (1.6rem), written on the steps
+       of the brand (22 + 4); the scale itself goes from 22 straight to 28. */
+    font-size: calc(var(--k-text-xl) + var(--k-space-2xs));
+    font-weight: var(--k-weight-semibold);
+    line-height: var(--k-leading-snug);
+    letter-spacing: var(--k-tracking-tight);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+.k-lede {
+    margin-top: var(--k-space-2xs);
+    font-size: var(--k-text-base);
+    color: var(--k-color-text-muted);
+    overflow-wrap: anywhere;
+}
+
+/* --- a section: a small upper-case heading and its content ----------------- */
+.k-section { min-width: 0; }
+.k-section-title { margin-bottom: var(--k-space-xs); }
+
+/* --- a card ---------------------------------------------------------------- */
+.k-card {
+    min-width: 0;
+    padding: var(--k-space-md) calc(var(--k-space-md) + var(--k-space-3xs));
+    border: 1px solid var(--k-color-border);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-color-surface);
+}
+/* The one card that is current: the accent on its edge and a soft ring, as
+   the reference marks what is current (.pill.on, .st.now). */
+.k-card--now {
+    border-color: var(--k-color-accent);
+    box-shadow: 0 0 0 var(--k-space-2xs) var(--k-color-accent-soft);
+}
+
+/* --- one row of a list: content left, end right ---------------------------- */
+.k-rowline {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--k-space-md);
+    padding: var(--k-space-sm) 0;
+}
+.k-rowline + .k-rowline { border-top: 1px solid var(--k-gray-100); }
+.k-rowline:first-child { padding-top: 0; }
+.k-rowline:last-child { padding-bottom: 0; }
+/* The end keeps its width; the content takes the rest and wraps. */
+.k-rowline > :last-child { flex: none; }
+.k-rowline > :first-child { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
+/* --- tabs ------------------------------------------------------------------ */
+/* A row that does not fit scrolls inside itself. The line under the row is
+   an inset shadow, so the line of the current tab can lie on it. */
+.k-tabs {
+    display: flex;
+    gap: var(--k-space-lg);
+    overflow-x: auto;
+    scrollbar-width: thin;
+    box-shadow: inset 0 -1px 0 var(--k-color-border);
+    font-size: var(--k-text-sm);
+}
+.k-tab {
+    flex: none;
+    padding: var(--k-space-2xs) var(--k-space-3xs) var(--k-space-xs);
+    border-bottom: 2px solid transparent;
+    font-weight: var(--k-weight-medium);
+    color: var(--k-gray-600);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.k-tab:hover { color: var(--k-color-text-strong); }
+.k-tab--on {
+    border-bottom-color: var(--k-color-accent);
+    font-weight: var(--k-weight-semibold);
+    color: var(--k-color-text-strong);
+}
+/* The count: lighter in weight and in colour than its label (the grey the
+   reference gives it, --k-gray-400, is below 4.5 to 1 on white). */
+.k-tab-count {
+    font-weight: var(--k-weight-normal);
+    color: var(--k-color-text-muted);
+}
+/* The ring lies inside the tab: the scrolling row would cut one outside. */
+.k-tab:focus-visible {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: -2px;
+    border-radius: var(--k-radius-xs);
+}
+
+/* --- the status dot -------------------------------------------------------- */
+.k-dot {
+    display: inline-block;
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border-radius: var(--k-radius-full);
+    background: var(--k-gray-400);
+}
+.k-dot--ok { background: var(--k-success); }
+/* The bright yellow alone is faint on white; a darker edge keeps it visible. */
+.k-dot--warn {
+    background: var(--k-warning-bright);
+    box-shadow: inset 0 0 0 1px var(--k-warning);
+}
+.k-dot--bad { background: var(--k-danger); }
+
+/* --- the tag: a pill, for exceptions only ---------------------------------- */
+.k-tag {
+    display: inline-block;
+    max-width: 100%;
+    padding: var(--k-space-3xs) var(--k-space-xs);
+    border-radius: var(--k-radius-full);
+    background: var(--k-gray-100);
+    font-size: var(--k-text-xs);
+    font-weight: var(--k-weight-semibold);
+    line-height: var(--k-leading-snug);
+    color: var(--k-gray-600);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+}
+.k-tag--warn { background: var(--k-warning-bg); color: var(--k-warning); }
+.k-tag--bad { background: var(--k-danger-bg); color: var(--k-danger); }
+.k-tag--acc { background: var(--k-color-accent-soft); color: var(--k-color-accent); }
+
+/* --- the numbered reference ------------------------------------------------ */
+.k-ref {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    margin-left: var(--k-space-3xs);
+    padding: 0 var(--k-space-2xs);
+    border: 0;
+    border-radius: var(--k-radius-xs);
+    background: var(--k-color-accent-soft);
+    font-family: inherit;
+    font-size: var(--k-text-2xs);
+    font-weight: var(--k-weight-bold);
+    line-height: 1;
+    color: var(--k-color-accent);
+    text-decoration: none;
+    vertical-align: 1px;
+    cursor: pointer;
+}
+/* A finger needs more than 18 pixels: the area that takes the tap is wider
+   than the box that is drawn. */
+.k-ref::after {
+    content: "";
+    position: absolute;
+    inset: calc(var(--k-space-2xs) * -1);
+}
+.k-ref:hover { color: var(--k-color-accent-hover); }
+.k-ref--on,
+.k-ref--on:hover {
+    background: var(--k-color-accent);
+    color: var(--k-color-accent-contrast);
+}
+.k-ref:focus-visible {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: 2px;
+}
+
+/* --- the link -------------------------------------------------------------- */
+.k-link {
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-accent);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+.k-link:hover {
+    color: var(--k-color-accent-hover);
+    text-decoration: underline;
+}
+/* A name that opens a dossier. */
+.k-link--dotted { border-bottom: 1px dotted var(--k-color-accent); }
+.k-link--dotted:hover {
+    border-bottom-style: solid;
+    text-decoration: none;
+}
+.k-link:focus-visible {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: 2px;
+    border-radius: var(--k-radius-xs);
+}
+
+/* --- two plain helpers the reference screens use beside the parts ---------- */
+.k-muted { color: var(--k-color-text-muted); }
+.k-small { font-size: var(--k-text-sm); }
