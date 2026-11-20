@@ -12,9 +12,10 @@ from pmvp_harness.replies import MissingReply, load_replies, reply_record
 from pmvp_harness.report import write_report
 from pmvp_harness.rights import Rights, load_rights
 from pmvp_harness.runner import MVP_SET_SIZE, MVP_TARGET_OK, Report, Row, run
-from pmvp_harness.scoring import STATUSES, Score, score
+from pmvp_harness.scoring import STATUSES, NotAReply, Score, score
 
 __all__ = [
-    "KINDS", "MVP_SET_SIZE", "MVP_TARGET_OK", "MissingReply", "Question", "Report", "Rights", "Row", "STATUSES",
-    "Score", "load_questions", "load_replies", "load_rights", "reply_record", "run", "score", "write_report",
+    "KINDS", "MVP_SET_SIZE", "MVP_TARGET_OK", "MissingReply", "NotAReply", "Question", "Report", "Rights", "Row",
+    "STATUSES", "Score", "load_questions", "load_replies", "load_rights", "reply_record", "run", "score",
+    "write_report",
 ]

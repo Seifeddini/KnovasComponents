@@ -19,13 +19,35 @@ import pytest
 
 from pmvp_harness import KINDS, load_questions, load_replies, load_rights
 from pmvp_harness.cli import main
-from pmvp_harness.files import inside_the_repository, working_tree
+from pmvp_harness.files import inside_a_work_tree
 
 TESTS = Path(__file__).resolve().parent
 STUBS = TESTS / "fixtures" / "pmvp"
 QUESTIONS = STUBS / "questions.stub.jsonl"
 RIGHTS = STUBS / "rights.stub.csv"
 REPLIES = STUBS / "replies.stub.jsonl"
+
+
+@pytest.fixture(autouse=True)
+def _a_folder_outside_every_work_tree(tmp_path):
+    """The command line refuses to write inside any git work tree. On a machine whose temporary folder lies in
+    one (a home folder kept in git), these tests have nowhere to write."""
+    if inside_a_work_tree(tmp_path):
+        pytest.skip("the temporary folder of this machine is inside a git work tree")
+
+
+def _changed_replies(tmp_path, change, name="changed.jsonl"):
+    """The stub replies with ``change(record)`` applied to each, as a file."""
+    records = [json.loads(line) for line in REPLIES.read_text(encoding="utf-8").splitlines()]
+    for record in records:
+        change(record)
+    path = tmp_path / name
+    path.write_text("".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records), encoding="utf-8")
+    return path
+
+
+def _summary(tmp_path, out="run"):
+    return json.loads((tmp_path / out / "report.json").read_text(encoding="utf-8"))["summary"]
 
 
 def _score(tmp_path, *more, questions=QUESTIONS, replies=REPLIES, out="run"):
@@ -111,6 +133,7 @@ def test_the_summary_is_printed_with_the_plans_target_beside_it(tmp_path):
     assert "fact 3/5, document 0/2, process 1/2, negative 2/3, rights 1/2" in lines["by kind (ok/questions)"]
     assert "4 of 8 ok" in lines["measured set"]
     assert "at least 24 of 30" in lines["measured set"] and "not enforced" in lines["measured set"]
+    assert lines["passages not in the truth files"].split("files")[1].strip() == "0 of 20"
     assert lines["replies not used"].split()[-1] == "1"
     assert stdout.isascii()                                       # a Windows console prints it whatever its code page
 
@@ -129,22 +152,83 @@ def test_only_the_measured_set(tmp_path):
     assert code == 0 and summary["questions"] == 8 and summary["mvp_set"] == {"questions": 8, "ok": 4}
 
 
-def test_the_instances_prefix_is_taken_off_before_pointers_are_compared(tmp_path):
-    prefixed = tmp_path / "prefixed.jsonl"
-    lines = []
-    for line in REPLIES.read_text(encoding="utf-8").splitlines():
-        record = json.loads(line)
-        for entry in record["passages"]:
-            entry["pointer"] = "kanzlei-share\\" + entry["pointer"].replace("/", "\\")
-        lines.append(json.dumps(record, ensure_ascii=False))
-    prefixed.write_text("\n".join(lines) + "\n", encoding="utf-8")
+def _prefixed(record):
+    for entry in record["passages"]:
+        entry["pointer"] = "kanzlei-share\\" + entry["pointer"].replace("/", "\\")
 
-    _score(tmp_path, "--rights", str(RIGHTS), replies=prefixed, out="without")
-    _score(tmp_path, "--rights", str(RIGHTS), "--pointer-prefix", "kanzlei-share/", replies=prefixed, out="with")
-    without = json.loads((tmp_path / "without" / "report.json").read_text(encoding="utf-8"))["summary"]
-    with_prefix = json.loads((tmp_path / "with" / "report.json").read_text(encoding="utf-8"))["summary"]
-    assert (with_prefix["ok"], with_prefix["leaked"]) == (7, 1)
-    assert without["leaked"] == 0 and without["ok"] < 7           # nothing matches: neither a source nor a leak
+
+def test_the_instances_prefix_is_taken_off_before_pointers_are_compared(tmp_path):
+    prefixed = _changed_replies(tmp_path, _prefixed)
+    code, stdout, _ = _score(tmp_path, "--rights", str(RIGHTS), "--pointer-prefix", "Kanzlei-Share/",
+                             replies=prefixed)
+    summary = _summary(tmp_path)
+    assert code == 0 and (summary["ok"], summary["leaked"]) == (7, 1)
+    assert (summary["unknown_pointers"], summary["passages"]) == (0, 20)
+
+
+@pytest.mark.parametrize("more", [(), ("--pointer-prefix", "kanzlei"), ("--pointer-prefix", "kanzlei-share/Quarz")])
+@pytest.mark.parametrize("with_rights", [True, False])
+def test_a_forgotten_or_wrong_prefix_is_exit_code_2_and_not_a_run_without_a_leak(tmp_path, more, with_rights):
+    """The verifier's finding: with the prefix forgotten no pointer matched, and the stub's leak was gone from a
+    report that looked like any other."""
+    prefixed = _changed_replies(tmp_path, _prefixed)
+    rights = ("--rights", str(RIGHTS)) if with_rights else ()
+    code, stdout, stderr = _score(tmp_path, *rights, *more, replies=prefixed)
+    assert code == 2 and stdout == ""
+    assert stderr == ("pmvp_harness: all 20 passages of the replies name documents the truth files do not know; "
+                      "the pointer prefix is probably wrong (--pointer-prefix). Nothing was measured\n")
+    assert not (tmp_path / "run").exists()
+
+
+def test_a_run_without_any_passage_is_not_taken_for_a_wrong_prefix(tmp_path):
+    def nothing_shown(record):
+        record.update(status="failed", sentences=[], passages=[], message="nicht erreichbar")
+
+    code, _, stderr = _score(tmp_path, "--rights", str(RIGHTS), replies=_changed_replies(tmp_path, nothing_shown))
+    summary = _summary(tmp_path)
+    assert code == 0 and stderr == ""
+    assert (summary["ok"], summary["passages"], summary["unknown_pointers"]) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("spell", [str.lower, str.upper, lambda pointer: " ./" + pointer.replace("/", "//") + "/ "],
+                         ids=["lower case", "upper case", "slashes and spaces"])
+def test_an_instance_that_spells_pointers_its_own_way_scores_the_same(tmp_path, spell):
+    def respelled(record):
+        for entry in record["passages"]:
+            entry["pointer"] = spell(entry["pointer"])
+
+    code, _, _ = _score(tmp_path, "--rights", str(RIGHTS), replies=_changed_replies(tmp_path, respelled))
+    summary = _summary(tmp_path)
+    assert code == 0 and (summary["ok"], summary["leaked"], summary["unknown_pointers"]) == (7, 1, 0)
+    assert summary["by_kind"]["fact"] == {"questions": 5, "ok": 3}
+
+
+def test_a_forbidden_document_quoted_from_a_pointer_with_a_trailing_space_is_a_leak(tmp_path):
+    """The verifier's case: the personnel file shown and quoted to the secretary, and the row was ok."""
+    contract = load_questions(QUESTIONS)
+    contract = next(q for q in contract if q.id == "q-recht-arbeitsvertrag").supporting_pointers[0]
+
+    def quoted(record):
+        if record["id"] == "q-recht-arbeitsvertrag":
+            record.update(status="answered", sentences=[{"text": "Der Lohn beträgt CHF 9'400.", "refs": [1]}],
+                          passages=[{"number": 1, "pointer": contract + " ", "page": 1}])
+
+    for rights in ((), ("--rights", str(RIGHTS))):
+        _score(tmp_path, *rights, replies=_changed_replies(tmp_path, quoted))
+        report = json.loads((tmp_path / "run" / "report.json").read_text(encoding="utf-8"))
+        row = next(row for row in report["rows"] if row["id"] == "q-recht-arbeitsvertrag")
+        assert (row["ok"], row["leaked"]) == (False, 1)
+        assert (report["summary"]["leaked"], report["summary"]["by_kind"]["rights"]["ok"]) == (2, 0)
+
+
+@pytest.mark.parametrize("status", ["error", "Busy", "unknown", "failed"])
+def test_a_core_that_is_down_scores_nothing_whatever_the_recorder_calls_it(tmp_path, status):
+    def down(record):
+        record.update(status=status, sentences=[], passages=[], message="Core nicht erreichbar")
+
+    code, _, _ = _score(tmp_path, "--rights", str(RIGHTS), replies=_changed_replies(tmp_path, down))
+    summary = _summary(tmp_path)
+    assert code == 0 and summary["ok"] == 0 and summary["by_kind"]["rights"]["ok"] == 0
 
 
 def test_customer_text_is_in_the_judging_sheet_and_nowhere_else(tmp_path, caplog):
@@ -194,22 +278,91 @@ def test_a_rights_file_with_another_header_is_exit_code_2(tmp_path):
     assert code == 2 and "rights file" in stderr and "header" in stderr
 
 
-def test_the_sheet_is_never_written_into_the_repository(tmp_path):
-    inside = STUBS / "out-of-a-test-run"
+@pytest.mark.parametrize("sentences_or_passages", [
+    {"sentences": 5}, {"sentences": True}, {"sentences": "GEHEIM"}, {"passages": 5}, {"passages": {"number": 1}},
+])
+def test_sentences_or_passages_of_the_wrong_type_are_exit_code_2_and_no_traceback(tmp_path, sentences_or_passages):
+    broken = tmp_path / "replies.jsonl"
+    record = {"id": "q-begriff-wv", "status": "answered", "message": "GEHEIM", **sentences_or_passages}
+    broken.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    code, stdout, stderr = _score(tmp_path, replies=broken)
+    name = next(iter(sentences_or_passages))
+    assert code == 2 and stdout == ""
+    assert stderr == f"pmvp_harness: replies file, line 1: '{name}' is not a list\n"
+
+
+def test_no_question_to_ask_is_exit_code_2(tmp_path):
+    empty = tmp_path / "questions.jsonl"
+    empty.write_text("\n", encoding="utf-8")
+    code, stdout, stderr = _score(tmp_path, questions=empty)
+    assert code == 2 and stdout == ""
+    assert stderr == "pmvp_harness: questions file: no question; nothing was measured\n"
+    assert not (tmp_path / "run").exists()
+
+
+def test_the_measured_set_of_a_file_that_marks_none_is_exit_code_2(tmp_path):
+    unmarked = tmp_path / "questions.jsonl"
+    records = [json.loads(line) for line in QUESTIONS.read_text(encoding="utf-8").splitlines()]
+    unmarked.write_text("".join(json.dumps(dict(r, in_mvp_set=False), ensure_ascii=False) + "\n" for r in records),
+                        encoding="utf-8")
+    code, stdout, stderr = _score(tmp_path, "--mvp-set", questions=unmarked)
+    assert code == 2 and stdout == ""
+    assert stderr == "pmvp_harness: questions file: no question with in_mvp_set; nothing was measured\n"
+    assert _score(tmp_path, questions=unmarked)[0] == 0           # the whole file is still scored
+
+
+# --- the output folder (D5) -----------------------------------------------------------------------------
+
+
+def _refused_out(out, cwd=None):
     stdout, stderr = io.StringIO(), io.StringIO()
-    code = main(["score", "--questions", str(QUESTIONS), "--replies", str(REPLIES), "--out", str(inside)],
+    code = main(["score", "--questions", str(QUESTIONS), "--replies", str(REPLIES), "--out", str(out)],
                 out=stdout, err=stderr)
-    assert code == 2 and "inside this repository" in stderr.getvalue()
-    assert not inside.exists()
+    return code == 2 and "inside a git work tree" in stderr.getvalue() and stdout.getvalue() == ""
 
 
-def test_inside_the_repository_is_decided_by_the_working_tree(tmp_path):
+def test_the_sheet_is_never_written_into_this_repository():
+    inside = STUBS / "out-of-a-test-run"
+    assert _refused_out(inside) and not inside.exists()
+    assert _refused_out(str(inside).lower()) and _refused_out(inside.as_posix())
+    assert _refused_out(inside / ".." / ".." / "out-of-a-test-run-2")
+    assert not (STUBS.parent / "out-of-a-test-run-2").exists()
+
+
+@pytest.mark.parametrize("marker", ["folder", "file"], ids=["a clone", "a worktree"])
+def test_the_sheet_is_never_written_into_any_other_git_work_tree(tmp_path, marker):
+    """Not the main checkout beside a worktree, and not another repository: ``.git`` anywhere above decides."""
+    other = tmp_path / "another-checkout"
+    other.mkdir()
+    if marker == "folder":
+        (other / ".git").mkdir()
+    else:
+        (other / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+    assert _refused_out(other / "judging-out") and _refused_out(other / "a" / "b" / "c")
+    assert _refused_out(other)
+    assert not (other / "judging-out").exists() and not (other / "a").exists()
+    assert _score(tmp_path, out="beside-it")[0] == 0              # a folder beside the checkout is fine
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="extended-length paths are a Windows spelling")
+def test_an_extended_length_path_does_not_hide_the_work_tree(tmp_path):
+    (tmp_path / "checkout" / ".git").mkdir(parents=True)
+    inside = tmp_path / "checkout" / "out"
+    assert inside_a_work_tree("\\\\?\\" + str(inside)) is True
+    assert _refused_out("\\\\?\\" + str(inside)) and not inside.exists()
+    assert _refused_out("\\\\?\\" + str(STUBS / "out-of-a-test-run"))
+    assert inside_a_work_tree("\\\\?\\" + str(tmp_path / "elsewhere")) is False
+
+
+def test_inside_a_work_tree_is_decided_by_git_anywhere_above(tmp_path):
     (tmp_path / "repo" / ".git").mkdir(parents=True)
     root = tmp_path / "repo"
-    assert working_tree(root / "a" / "b" / "file.py") == root.resolve()
-    assert inside_the_repository(root / "out", root=root) and inside_the_repository(root, root=root)
-    assert not inside_the_repository(tmp_path / "elsewhere", root=root)
-    assert not inside_the_repository(tmp_path / "repo-2" / "out", root=root)
+    assert inside_a_work_tree(root) and inside_a_work_tree(root / "out") and inside_a_work_tree(root / "a" / "b")
+    assert inside_a_work_tree(root / "a" / ".." / "out")
+    assert not inside_a_work_tree(tmp_path / "elsewhere")
+    assert not inside_a_work_tree(tmp_path / "repo-2" / "out")
+    assert not inside_a_work_tree(root / ".." / "elsewhere")
+    assert inside_a_work_tree(TESTS / "anything")
 
 
 # --- as a module, the way the README says -------------------------------------------------------------

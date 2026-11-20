@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 from pmvp_harness.files import read_text
+from pmvp_harness.pointers import normalise
 
 #: The kinds the demo plan writes, in the order the summary lists them.
 KINDS = ("fact", "document", "process", "negative", "rights")
@@ -54,6 +55,9 @@ def _question(record: object, line: int) -> Question:
     if not isinstance(in_mvp_set, bool):
         raise ValueError(f"questions file, line {line}: 'in_mvp_set' is not true or false")
     pointers = _texts(record, "supporting_pointers", line)
+    # "" (or only slashes and spaces) names no document; it would match a passage that has no pointer.
+    if not all(normalise(pointer) for pointer in pointers):
+        raise ValueError(f"questions file, line {line}: 'supporting_pointers' holds an empty pointer")
     # The generator keeps a question of these kinds only when a document holds its answer. Without one the
     # verdict would be decided before anything is asked: never ok for an answer, always ok for a rights question.
     if kind != "negative" and not pointers:

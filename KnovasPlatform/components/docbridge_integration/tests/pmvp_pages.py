@@ -21,6 +21,10 @@ wrong owner    the same response as for an address that does not exist. Document
 missing token  a changing request without ``X-CSRF-Token``: 403 as JSON, before the route runs. The Admin console's
                forms carry the token as the field ``csrf_token`` instead: 400, the page again, nothing changed.
 =============  ====================================================================================================
+
+The missing-token check carries its own control: it sends the same request again with the token, and that one must
+not be refused the same way. Without the control a 403 for the wrong role, or a 400 for a form with a field
+missing, would pass as "the token is checked".
 """
 from __future__ import annotations
 
@@ -116,23 +120,50 @@ def assert_wrong_owner_looks_missing(client, url: str, missing_url: str, *, role
     return theirs
 
 
-def assert_missing_token_refused(client, url: str, *, role: str, method: str = "POST", status: Optional[int] = None,
-                                 unchanged: Optional[Callable[[], Any]] = None, **request: Any):
-    """A changing request without its CSRF token is refused and changes nothing.
+def _with_token(request: dict, token: str) -> dict:
+    """``request`` carrying the session's token both ways: as the header and, in a form, as the field."""
+    carried = dict(request)
+    carried["headers"] = {**dict(request.get("headers") or {}), "X-CSRF-Token": token}
+    if isinstance(request.get("data"), dict):
+        carried["data"] = {"csrf_token": token, **request["data"]}
+    return carried
 
-    ``client`` is signed in and allowed to make the request; it is sent without the ``X-CSRF-Token`` header,
-    whatever client is handed in. ``status`` defaults to what the Platform does today: 400 for the Admin
-    console's forms (leave ``csrf_token`` out of ``data``), 403 everywhere else. ``unchanged`` is a function
-    without arguments that reads what the request would change (a row count, a list); it is called before and
-    after, and both readings must be equal. Returns the response.
+
+def assert_missing_token_refused(client, url: str, *, role: str, method: str = "POST", status: Optional[int] = None,
+                                 unchanged: Optional[Callable[[], Any]] = None, token: Optional[str] = None,
+                                 **request: Any):
+    """A changing request without its CSRF token is refused and changes nothing; with its token it is not.
+
+    ``client`` is signed in and allowed to make the request. It is sent twice:
+
+    1. Without the token, whatever client is handed in (leave ``csrf_token`` out of ``data``). It must come back
+       with ``status``, which defaults to what the Platform does today: 400 for the Admin console's forms, 403
+       everywhere else. ``unchanged`` is a function without arguments that reads what the request would change (a
+       row count, a list); it is called before and after, and both readings must be equal.
+    2. The control: the same request with the token. It must not come back with the same status. Otherwise the
+       refusal was about something else (the role, a missing field, an address that does not exist), and a route
+       that checks no token at all would pass. So hand in a request that is taken once it carries its token; after
+       the check it has been made.
+
+    The token is the client's own (the signed-in clients of ``conftest.py`` carry it); for a client that does
+    not, pass ``token=``. Returns the refused response.
     """
     if method.upper() in SAFE_METHODS:
         _fail("missing token", method, url, role, "not a changing request, so there is nothing to refuse")
+    token = token or getattr(client, "_token", None)
+    if not token:
+        _fail("missing token", method, url, role, "the control needs the session's token: hand in a client that "
+                                                    "carries it, or token=")
+    bare = _without_token(client)
     expected = status if status is not None else (400 if urlsplit(url).path.startswith("/admin/") else 403)
     before = unchanged() if unchanged is not None else None
-    response = _without_token(client).open(url, method=method, **request)
+    response = bare.open(url, method=method, **request)
     if response.status_code != expected:
         _fail("missing token", method, url, role, f"expected {expected}, got {_came_back(response)}")
     if unchanged is not None and unchanged() != before:
         _fail("missing token", method, url, role, "the request was refused and still changed something")
+    control = bare.open(url, method=method, **_with_token(request, token))
+    if control.status_code == response.status_code:
+        _fail("missing token", method, url, role, f"with its token the request comes back with {control.status_code} "
+                                                    "as well, so the refusal is not about the token")
     return response

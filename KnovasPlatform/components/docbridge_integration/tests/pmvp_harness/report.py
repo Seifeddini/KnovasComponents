@@ -43,6 +43,7 @@ def _json_row(row: Row) -> Dict[str, Any]:
             "source_hit": marks.source_hit,
             "points_found": list(marks.points_found),
             "leaked": len(marks.leaked_pointers),
+            "unknown_pointers": marks.unknown_pointers,
             "removed": marks.removed,
         })
     return out
@@ -108,7 +109,7 @@ def _passages(row: Row, pointer_prefix: str) -> List[str]:
         return ["**Stellen:** keine"]
     cited = {ref for sentence in sentences_of(row.reply) for ref in refs_of(sentence)}
     supporting = {normalise(pointer) for pointer in row.question.supporting_pointers}
-    leaked = set(row.score.leaked_pointers)
+    leaked = {normalise(pointer) for pointer in row.score.leaked_pointers}
     out = ["**Stellen**", "", "| Nr. | Dokument | Seite | Hinweis |", "|---|---|---|---|"]
     for passage in passages:
         number = getattr(passage, "number", "")
@@ -117,13 +118,15 @@ def _passages(row: Row, pointer_prefix: str) -> List[str]:
         notes = []
         if number in cited:
             notes.append("zitiert")
-        if spelled in leaked:
+        if not spelled:
+            notes.append("**ohne Dokument, nicht prüfbar**")
+        elif spelled in leaked:
             notes.append("**nicht erlaubt**")
         elif spelled in supporting:
             notes.append("Belegdokument")
         page = getattr(passage, "page", None)
-        out.append(f"| {number} | {_code(pointer).replace('|', chr(92) + '|')} | {'' if page is None else page} "
-                   f"| {', '.join(notes)} |")
+        document = _code(pointer).replace('|', chr(92) + '|') if spelled else "(keines genannt)"
+        out.append(f"| {number} | {document} | {'' if page is None else page} | {', '.join(notes)} |")
     return out
 
 
@@ -140,6 +143,8 @@ def _marks(row: Row) -> List[str]:
     else:
         leaked = "keine"
     out.append(f"- Nicht erlaubte Dokumente unter den Stellen: {leaked}")
+    out.append(f"- Stellen aus Dokumenten, die die Wahrheitsdateien nicht kennen: {marks.unknown_pointers} von "
+               f"{marks.passages}")
     return out
 
 

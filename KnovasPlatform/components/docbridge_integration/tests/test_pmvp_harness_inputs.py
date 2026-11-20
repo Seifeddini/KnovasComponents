@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from pmvp_harness import load_questions, load_replies, load_rights, reply_record
+from pmvp_harness import Rights, load_questions, load_replies, load_rights, reply_record
 from pmvp_harness.pointers import normalise
 
 SECRET = "GEHEIM"
@@ -34,27 +34,60 @@ def _refused(loader, path):
 # --- pointers ---------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("given,prefix,expected", [
-    ("Mandate/a.pdf", "", "Mandate/a.pdf"),
-    ("Mandate\\a.pdf", "", "Mandate/a.pdf"),
-    ("/Mandate/a.pdf", "", "Mandate/a.pdf"),
-    ("share/Mandate/a.pdf", "share/", "Mandate/a.pdf"),
-    ("share/Mandate/a.pdf", "share", "Mandate/a.pdf"),
-    ("\\\\srv\\share\\Mandate\\a.pdf", "//srv/share", "Mandate/a.pdf"),
-    ("other/Mandate/a.pdf", "share/", "other/Mandate/a.pdf"),
-    ("MANDATE/a.pdf", "", "MANDATE/a.pdf"),                       # case is kept
-    ("db:AKTEN/2024-017", "share/", "db:AKTEN/2024-017"),
-    (None, "", ""),
+KEY = "mandate/2024-017/vertrag.pdf"
+
+
+@pytest.mark.parametrize("given", [
+    "Mandate/2024-017/Vertrag.pdf",
+    "Mandate\\2024-017\\Vertrag.pdf",                             # either slash
+    "Mandate//2024-017///Vertrag.pdf",                            # doubled slashes
+    "/Mandate/2024-017/Vertrag.pdf",                              # a leading slash
+    "./Mandate/2024-017/Vertrag.pdf",                             # a leading ./
+    ".\\Mandate\\2024-017\\Vertrag.pdf",
+    "Mandate/2024-017/Vertrag.pdf/",                              # a trailing slash
+    "  Mandate/2024-017/Vertrag.pdf \t",                          # white space around it
+    "mandate/2024-017/vertrag.pdf",                               # case: a file share does not tell it apart
+    "MANDATE/2024-017/VERTRAG.PDF",
 ])
-def test_one_spelling_for_a_pointer(given, prefix, expected):
-    assert normalise(given, prefix) == expected
+def test_one_key_for_every_spelling_of_a_pointer(given):
+    assert normalise(given) == KEY
+    assert normalise(normalise(given)) == KEY                     # and the key is its own key
 
 
 def test_a_composed_and_a_decomposed_umlaut_are_the_same_name():
     composed = unicodedata.normalize("NFC", "Mandate/Rüegg.pdf")
     decomposed = unicodedata.normalize("NFD", composed)
     assert composed != decomposed
-    assert normalise(decomposed) == normalise(composed)
+    assert normalise(decomposed) == normalise(composed) == normalise(composed.upper())
+
+
+@pytest.mark.parametrize("given", [None, "", "   ", "/", "\\", "./", "//"])
+def test_what_names_no_document_has_no_key(given):
+    assert normalise(given) == ""
+
+
+@pytest.mark.parametrize("given,prefix,expected", [
+    ("kanzlei-share/Mandate/a.pdf", "kanzlei-share/", "mandate/a.pdf"),
+    ("kanzlei-share/Mandate/a.pdf", "kanzlei-share", "mandate/a.pdf"),
+    ("kanzlei-share\\Mandate\\a.pdf", "Kanzlei-Share\\", "mandate/a.pdf"),
+    ("\\\\srv\\share\\Mandate\\a.pdf", "//srv/share", "mandate/a.pdf"),
+    ("quelle/ablage/Mandate/a.pdf", "quelle/ablage/", "mandate/a.pdf"),
+    ("Mandate/a.pdf", "kanzlei-share/", "mandate/a.pdf"),          # no prefix on it: nothing is cut
+    ("db:AKTEN/2024-017", "kanzlei-share/", "db:akten/2024-017"),
+    ("Mandate/a.pdf", "/", "mandate/a.pdf"),
+])
+def test_the_instances_prefix_is_cut_off(given, prefix, expected):
+    assert normalise(given, prefix) == expected
+
+
+@pytest.mark.parametrize("given,prefix", [
+    ("altMandate/2024-017/Vertrag.pdf", "alt"),                   # another folder that only begins like the prefix
+    ("kanzlei-share-alt/Mandate/a.pdf", "kanzlei-share"),
+    ("kanzlei-share/Mandate/a.pdf", "kanzlei"),
+    ("AktenMandate/a.pdf", "Akten/"),
+])
+def test_a_prefix_is_cut_only_where_it_ends_at_a_folder(given, prefix):
+    assert normalise(given, prefix) == normalise(given)
 
 
 # --- questions --------------------------------------------------------------------------------------
@@ -83,6 +116,10 @@ def test_the_fields_the_generator_could_leave_out_have_defaults(tmp_path):
     ({"in_mvp_set": "yes"}, "'in_mvp_set'"),
     ({"supporting_pointers": []}, "supporting pointer"),           # an answer needs a document that holds it
     ({"kind": "rights"}, "'asked_as'"),                            # a rights question is asked as somebody
+    ({"supporting_pointers": [""]}, "empty pointer"),              # names no document: it would match a passage
+    ({"supporting_pointers": [f"Mandate/{SECRET}.pdf", "  "]}, "empty pointer"),    # that has no pointer
+    ({"supporting_pointers": ["/"]}, "empty pointer"),
+    ({"kind": "rights", "asked_as": "lz", "supporting_pointers": [""]}, "empty pointer"),
 ])
 def test_a_record_the_generator_would_not_write_is_refused(tmp_path, change, reason):
     message = _refused(load_questions, _jsonl(tmp_path, [RECORD, {**RECORD, "id": "q-2", **change}]))
@@ -143,8 +180,42 @@ def test_two_rows_that_contradict_each_other_are_refused(tmp_path):
     assert "line 3" in message and "line 2" in message
 
 
+@pytest.mark.parametrize("second", [
+    f"Mandate/{SECRET}.PDF",                                      # another case
+    f"mandate/{SECRET.lower()}.pdf",
+    f"Mandate/{SECRET}.pdf/",                                     # a trailing slash
+    f"/Mandate//{SECRET}.pdf",
+    f"./Mandate/{SECRET}.pdf",
+    f'" Mandate/{SECRET}.pdf "',
+])
+def test_two_rows_contradict_each_other_however_the_document_is_spelled(tmp_path, second):
+    body = f"lz,Mandate/{SECRET}.pdf,false,x\nmb,Mandate/{SECRET}.pdf,true,x\nlz,{second},true,y\n"
+    message = _refused(load_rights, _rights(tmp_path, body))
+    assert "line 4" in message and "line 2" in message
+
+
 def test_the_same_row_twice_is_not_a_contradiction(tmp_path):
-    assert len(load_rights(_rights(tmp_path, "lz,a.pdf,false,x\nlz,a.pdf,false,x\n"))) == 1
+    assert len(load_rights(_rights(tmp_path, "lz,a.pdf,false,x\nlz,A.PDF/,false,x\n"))) == 1
+
+
+def test_a_row_whose_pointer_names_nothing_is_refused(tmp_path):
+    assert "line 2" in _refused(load_rights, _rights(tmp_path, "lz,/,false,x\n"))
+
+
+def test_a_table_built_by_hand_refuses_a_contradiction_too():
+    with pytest.raises(ValueError) as err:
+        Rights([("lz", f"Mandate/{SECRET}.pdf", False), ("lz", f"mandate/{SECRET}.PDF/", True)])
+    assert "row 2" in str(err.value) and SECRET not in str(err.value)
+
+
+def test_the_table_knows_a_document_in_any_spelling_and_says_how_it_spells_it():
+    rights = Rights([("lz", "Mandate/2024-055/Memo.docx", False)])
+    assert rights.may_read("lz", "MANDATE\\2024-055\\memo.DOCX ") is False
+    assert rights.may_read("mb", "Mandate/2024-055/Memo.docx") is None
+    assert rights.knows("share/mandate/2024-055/memo.docx/", pointer_prefix="share") is True
+    assert rights.knows("Mandate/2024-055/Kopie von Memo.docx") is False
+    assert rights.spelling("mandate/2024-055/memo.docx") == "Mandate/2024-055/Memo.docx"
+    assert rights.spelling("Mandate/unbekannt.pdf") is None
 
 
 def test_an_empty_rights_file_is_refused(tmp_path):
@@ -203,6 +274,13 @@ def test_a_reply_without_an_answer_needs_only_its_status(tmp_path):
     {"id": "q-2", "status": "answered", "passages": [{"number": 1}]},
     {"id": "q-2", "status": "answered", "removed": SECRET},
     [SECRET],
+    {"id": "q-2", "status": "answered", "sentences": 5, "message": SECRET},        # the wrong type, not a crash
+    {"id": "q-2", "status": "answered", "sentences": True, "message": SECRET},
+    {"id": "q-2", "status": "answered", "sentences": SECRET},
+    {"id": "q-2", "status": "answered", "sentences": {"text": SECRET, "refs": [1]}},
+    {"id": "q-2", "status": "answered", "passages": 5, "message": SECRET},
+    {"id": "q-2", "status": "answered", "passages": {"number": 1, "pointer": SECRET}},
+    {"id": "q-2", "status": "answered", "passages": SECRET},
 ])
 def test_a_recorded_reply_that_cannot_be_read_is_refused(tmp_path, record):
     good = {"id": "q-1", "status": "no_answer"}

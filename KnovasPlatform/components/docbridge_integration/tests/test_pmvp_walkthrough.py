@@ -5,7 +5,7 @@ and width: no response of 500 or more, no console error, and at 390 nothing scro
 Platform MVP adds its pages to ``PAGES``.
 
 With ``PMVP_WALK_OUT=<folder>`` one screenshot per page and width is saved there (``<area>-<page>-<width>.png``).
-The folder is never inside the repository; the walkthrough refuses one that is.
+The folder is never inside a repository; the walkthrough refuses one inside any git work tree.
 
 The app is the real one, served from a thread, on the tests' own invented data (``fixture_mode_app``), so a
 console error printed into a failure holds nothing of a customer. Playwright is optional, as for
@@ -25,7 +25,7 @@ import pytest
 from werkzeug.serving import make_server
 
 from conftest import PASSWORD, PLATFORM_DB_TEST_DSN, platform_db_reachable
-from pmvp_harness.files import inside_the_repository
+from pmvp_harness.files import inside_a_work_tree
 
 needs_database = pytest.mark.skipif(
     not platform_db_reachable(),
@@ -63,9 +63,9 @@ def screenshot_folder(value=None):
     if not value.strip():
         return None
     folder = Path(value)
-    if inside_the_repository(folder):
-        raise ValueError(f"{OUT_VARIABLE} is inside this repository; screenshots are evidence for a pull request "
-                         "and stay outside it")
+    if inside_a_work_tree(folder):
+        raise ValueError(f"{OUT_VARIABLE} is inside a git work tree; screenshots are evidence for a pull request "
+                         "and stay outside every repository")
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 
@@ -93,11 +93,18 @@ def test_every_page_of_the_table_opens_for_an_administrator(area, admin_client):
     assert not not_open, f"pages of the {area} table that do not open (address: status): {not_open}"
 
 
-def test_screenshots_are_refused_inside_the_repository(tmp_path):
-    inside = Path(__file__).resolve().parent / "walk-out-of-a-test-run"
-    with pytest.raises(ValueError, match="inside this repository"):
-        screenshot_folder(str(inside))
-    assert not inside.exists()
+def test_screenshots_are_refused_inside_any_git_work_tree(tmp_path):
+    if inside_a_work_tree(tmp_path):
+        pytest.skip("the temporary folder of this machine is inside a git work tree")
+    (tmp_path / "another-checkout" / ".git").mkdir(parents=True)
+    refused = [Path(__file__).resolve().parent / "walk-out-of-a-test-run",       # this repository
+               tmp_path / "another-checkout" / "shots"]                          # any other one
+    if os.name == "nt":
+        refused.append(Path("\\\\?\\" + str(refused[1])))                         # spelled as an extended-length path
+    for inside in refused:
+        with pytest.raises(ValueError, match="inside a git work tree"):
+            screenshot_folder(str(inside))
+        assert not inside.exists()
     assert screenshot_folder("") is None
     assert screenshot_folder(str(tmp_path / "walk" / "run-1")) == tmp_path / "walk" / "run-1"
     assert (tmp_path / "walk" / "run-1").is_dir()

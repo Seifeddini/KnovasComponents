@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 
-from conftest import PASSWORD, PLATFORM_DB_TEST_DSN, _csrf_from, platform_db_reachable
+from conftest import PASSWORD, PLATFORM_DB_TEST_DSN, platform_db_reachable
 from pmvp_pages import (assert_missing_token_refused, assert_signed_out_refused, assert_wrong_owner_looks_missing,
                         assert_wrong_role_refused)
 
@@ -52,8 +52,7 @@ class TestWorkspaceSearchAndDocuments:
     def test_missing_token(self, fake_graph, member_client):
         assert_missing_token_refused(member_client, "/api/search", role="member", json=SEARCH,
                                      unchanged=lambda: list(fake_graph.search_calls))
-        assert member_client.post("/api/search", json=SEARCH).status_code == 200     # with the token it is taken
-        assert fake_graph.search_calls == [SEARCH["query"]]
+        assert fake_graph.search_calls == [SEARCH["query"]]      # the check's control: with the token, once
 
 
 # --- Admin: the people page ---------------------------------------------------------------------------
@@ -78,9 +77,7 @@ class TestAdminPeople:
         """The console's forms carry the token as a field, so the form is sent without it (400, not 403)."""
         assert_missing_token_refused(admin_client, "/admin/people/create", role="admin", data=NEW_PERSON,
                                      unchanged=lambda: len(identity_repo.list_all()))
-        page = admin_client.get("/admin/people").get_data(as_text=True)
-        taken = admin_client.post("/admin/people/create", data={**NEW_PERSON, "csrf_token": _csrf_from(page)})
-        assert taken.status_code == 200                                               # with the token it is taken
+        # The check's control sent the form again with the field csrf_token, and that one was taken.
         assert identity_repo.get_by_email(NEW_PERSON["email"]) is not None
 
 
@@ -131,5 +128,12 @@ class TestBuilderWorkspaces:
     def test_missing_token(self, admin_client, platform_db):
         assert_missing_token_refused(admin_client, "/builder/api/workspaces", role="admin",
                                      data={"name": "Muster AG"}, unchanged=lambda: _workspaces(platform_db))
-        assert _new_workspace(admin_client, "Muster AG")                              # with the token it is taken
-        assert _workspaces(platform_db) == 1
+        assert _workspaces(platform_db) == 1                         # the check's control: with the token, once
+
+    def test_missing_token_is_not_shown_by_somebody_who_may_not_make_the_request(self, member_client, platform_db):
+        """The check needs a client that is allowed: for a member the request is refused with or without its
+        token (403 both times, first by the token gate, then by the role), which proves nothing."""
+        with pytest.raises(AssertionError, match="the refusal is not about the token"):
+            assert_missing_token_refused(member_client, "/builder/api/workspaces", role="member",
+                                         data={"name": "Muster AG"})
+        assert _workspaces(platform_db) == 0

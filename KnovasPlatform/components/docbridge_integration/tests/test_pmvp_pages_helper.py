@@ -128,6 +128,21 @@ def _app():
         app.changes.append("POST")
         return PAGE_TEXT
 
+    # Routes that check no token at all, and still answer the status a token refusal has.
+    @app.route("/change-admins-only", methods=["POST"])
+    def change_admins_only():
+        if role() != "admin":
+            return jsonify({"success": False, "error": "Forbidden"}), 403
+        app.changes.append("POST")
+        return jsonify({"success": True})
+
+    @app.route("/admin/form-without-token-check", methods=["POST"])
+    def admin_form_without_token_check():
+        if not request.form.get("email"):
+            return f"{PAGE_TEXT}: E-Mail fehlt", 400
+        app.changes.append("POST")
+        return PAGE_TEXT
+
     return app
 
 
@@ -244,19 +259,59 @@ def test_wrong_owner_a_thing_that_is_served_fails(member):
 # --- missing token ------------------------------------------------------------------------------------
 
 
-def test_missing_token_the_request_is_sent_without_the_token_whatever_the_client(app, admin):
-    assert admin.post("/change").status_code == 200          # the wrapper adds the token, as in the browser
-    assert app.changes == ["POST"]
-    response = assert_missing_token_refused(admin, "/change", role="admin", unchanged=lambda: list(app.changes))
-    assert response.status_code == 403 and app.changes == ["POST"]
+def test_missing_token_the_request_is_sent_without_the_token_and_then_with_it(app, admin):
+    seen = []
+
+    def unchanged():
+        seen.append(list(app.changes))
+        return list(app.changes)
+
+    response = assert_missing_token_refused(admin, "/change", role="admin", unchanged=unchanged)
+    assert response.status_code == 403
+    assert seen == [[], []]                                  # read before and after the refused request ...
+    assert app.changes == ["POST"]                           # ... and the control, with the token, was taken
     assert_missing_token_refused(admin, "/change", role="admin", method="DELETE")
-    assert admin.post("/change").status_code == 200          # and the client keeps its token afterwards
+    assert app.changes == ["POST", "DELETE"]
+    assert admin.post("/change").status_code == 200          # the client keeps its token afterwards
 
 
 def test_missing_token_the_admin_consoles_forms_answer_400(app, admin):
+    """The form's token is the field ``csrf_token``; the control sends it, so the person is made once."""
     assert_missing_token_refused(admin, "/admin/people/create", role="admin", data={"email": "neu@kanzlei.ch"},
                                  unchanged=lambda: len(app.changes))
+    assert app.changes == ["POST"]
+
+
+def test_missing_token_a_client_without_a_token_of_its_own_takes_one(app):
+    plain = _as(app, "admin")
+    assert "the control needs the session's token" in _failure(assert_missing_token_refused, plain, "/change",
+                                                                role="admin")
     assert app.changes == []
+    assert_missing_token_refused(plain, "/change", role="admin", token=TOKEN)
+    assert app.changes == ["POST"]
+
+
+def test_missing_token_a_refusal_for_the_wrong_role_does_not_pass_as_a_token_check(app, member):
+    """The verifier's finding: a route that checks the role and no token answered 403, as expected, and passed."""
+    message = _failure(assert_missing_token_refused, member, "/change-admins-only", role="member")
+    assert message == ("missing token: POST /change-admins-only as member: with its token the request comes back "
+                       "with 403 as well, so the refusal is not about the token")
+    assert app.changes == []
+
+
+def test_missing_token_a_form_refused_for_a_missing_field_does_not_pass_as_a_token_check(app, admin):
+    message = _failure(assert_missing_token_refused, admin, "/admin/form-without-token-check", role="admin", data={})
+    assert "comes back with 400 as well" in message
+    # With the form filled in, the route is seen for what it is: it takes the request without a token.
+    message = _failure(assert_missing_token_refused, admin, "/admin/form-without-token-check", role="admin",
+                       data={"email": "neu@kanzlei.ch"})
+    assert message.endswith("expected 400, got 200 (text/html)")
+
+
+def test_missing_token_an_address_that_does_not_exist_does_not_pass(app, admin):
+    message = _failure(assert_missing_token_refused, admin, "/api/gibt-es-nicht", role="admin", status=404)
+    assert "comes back with 404 as well" in message
+    assert "expected 403, got 404" in _failure(assert_missing_token_refused, admin, "/api/gibt-es-nicht", role="admin")
 
 
 def test_missing_token_a_route_that_takes_the_request_fails(app, admin):

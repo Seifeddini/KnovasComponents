@@ -2,7 +2,8 @@
 
 ``ask(question)`` is the caller's: it returns the assistant's reply for that question (asked as
 ``question.asked_as`` when that is set) or raises. A question that raises becomes an error row carrying the
-exception's class name and nothing else, and the run goes on.
+exception's class name and nothing else, and the run goes on. So does a question whose reply is not a reply
+(None, a dict, a missing or wrong part): its row carries ``NotAReply`` and no score, and it is not ok.
 
 Log lines carry ids, counts and class names only.
 """
@@ -47,7 +48,11 @@ class Report:
         self.pointer_prefix = pointer_prefix
 
     def summary(self) -> Dict[str, Any]:
-        """Numbers only. ``leaked`` counts documents, ``leaking_questions`` the questions they showed up in."""
+        """Numbers only. ``leaked`` counts documents, ``leaking_questions`` the questions they showed up in.
+
+        ``unknown_pointers`` of ``passages``: passages whose document the truth files do not know. When that is
+        every passage, the pointer prefix is probably wrong and no leak could have been seen.
+        """
         scored = [row.score for row in self.rows if row.score is not None]
         by_kind = {kind: {"questions": 0, "ok": 0} for kind in KINDS}
         for row in self.rows:
@@ -74,6 +79,8 @@ class Report:
             "leaked": sum(len(item.leaked_pointers) for item in scored),
             "leaking_questions": sum(1 for item in scored if item.leaked_pointers),
             "removed": sum(item.removed for item in scored),
+            "passages": sum(item.passages for item in scored),
+            "unknown_pointers": sum(item.unknown_pointers for item in scored),
             "by_status": by_status,
             "by_kind": by_kind,
             "mvp_set": {"questions": len(measured), "ok": sum(int(row.ok) for row in measured)},
@@ -83,11 +90,12 @@ class Report:
 def run(questions: Iterable[Question], ask: Callable[[Question], Any], *, rights=None,
         pointer_prefix: str = "") -> Report:
     questions = list(questions)
+    known = frozenset(pointer for question in questions for pointer in question.supporting_pointers)
     rows: List[Row] = []
     for position, question in enumerate(questions, start=1):
         try:
             reply = ask(question)
-            marks = score(question, reply, rights=rights, pointer_prefix=pointer_prefix)
+            marks = score(question, reply, rights=rights, pointer_prefix=pointer_prefix, known=known)
         except Exception as exc:  # noqa: BLE001 - one broken question must not end the run
             # No traceback: its last line is the exception's message.
             logger.warning("pmvp harness: question %d of %d id=%s error=%s", position, len(questions),

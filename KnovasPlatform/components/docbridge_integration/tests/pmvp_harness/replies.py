@@ -63,6 +63,9 @@ def _reply(record: object, line: int):
     status = record.get("status")
     if not isinstance(status, str) or not status:
         raise ValueError(f"replies file, line {line}: 'status' is missing or empty")
+    for name in ("sentences", "passages"):
+        if record.get(name) is not None and not isinstance(record[name], list):
+            raise ValueError(f"replies file, line {line}: '{name}' is not a list")
     sentences = []
     for item in record.get("sentences") or []:
         refs = item.get("refs", []) if isinstance(item, dict) else None

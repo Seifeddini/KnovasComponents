@@ -1,8 +1,7 @@
-"""Reading a truth file or a replies file, and keeping what a run writes out of the repository."""
+"""Reading a truth file or a replies file, and keeping what a run writes out of every repository."""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 
 def read_text(path, what: str) -> str:
@@ -17,26 +16,23 @@ def read_text(path, what: str) -> str:
         raise ValueError(f"{what}: not UTF-8 text") from None
 
 
-def working_tree(start=None) -> Optional[Path]:
-    """The git working tree that holds ``start`` (default: this harness); None outside a checkout.
-
-    A worktree's ``.git`` is a file, a clone's a folder: either marks the root.
-    """
-    probe = Path(start or __file__).resolve()
-    for parent in probe.parents:
-        if (parent / ".git").exists():
-            return parent
-    return None
+def _plain_path(folder) -> Path:
+    """``folder`` without Windows' extended-length prefix, which would hide the folders above it."""
+    text = str(folder)
+    if text.startswith("\\\\?\\UNC\\"):
+        text = "\\\\" + text[8:]
+    elif text.startswith("\\\\?\\"):
+        text = text[4:]
+    return Path(text)
 
 
-def inside_the_repository(folder, *, root: Optional[Path] = None) -> bool:
-    """Whether ``folder`` is, or would be, inside the working tree this harness is run from.
+def inside_a_work_tree(folder) -> bool:
+    """Whether ``folder`` is, or would be, inside any git work tree: this one, the main checkout, another
+    repository.
 
     What a run writes (the judging sheet, screenshots) holds customer text or a customer's pages, and one
-    ``git add`` would carry it into the history.
+    ``git add`` would carry it into a history. Decided by walking up from the resolved path and looking for
+    ``.git``: a folder in a clone, a file in a worktree.
     """
-    root = working_tree() if root is None else Path(root).resolve()
-    if root is None:
-        return False
-    target = Path(folder).resolve()
-    return target == root or root in target.parents
+    probe = _plain_path(folder).resolve()
+    return any((parent / ".git").exists() for parent in (probe, *probe.parents))
