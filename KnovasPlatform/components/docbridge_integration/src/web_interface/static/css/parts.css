@@ -111,10 +111,15 @@
 .k-rowline > :first-child { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 
 /* --- tabs ------------------------------------------------------------------ */
-/* A row that does not fit scrolls inside itself. The line under the row is
-   an inset shadow, so the line of the current tab can lie on it. */
+/* A row that does not fit scrolls inside itself, and never widens the page:
+   with a width of nothing and a least width of the whole line it takes the
+   room it is given, however many tabs it holds (the shell sizes its content
+   by what is in it on a narrow window). The line under the row is an inset
+   shadow, so the line of the current tab can lie on it. */
 .k-tabs {
     display: flex;
+    width: 0;
+    min-width: 100%;
     gap: var(--k-space-lg);
     overflow-x: auto;
     scrollbar-width: thin;

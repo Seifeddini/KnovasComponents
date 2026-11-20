@@ -1,9 +1,12 @@
 <!DOCTYPE html>
 <html lang="de">
-{# /styleguide (PMVP-10): the Knovas brand tokens the Platform's styles take, each with its name and value, and the
-   plain parts that exist today. Administrators only (shell_routes.py). Every name and value comes from
-   shell_routes.styleguide_sections, which reads them from knovas-tokens.css and style.css; nothing is typed in
-   here. The page's own layout rules sit below and use tokens only: no colour is named in this file. #}
+{# /styleguide (PMVP-10, PMVP-12): the Knovas brand tokens the Platform's styles take, each with its name and value,
+   the plain parts that exist today, and the shared page parts (PMVP-12): each macro of _parts.html in each state,
+   drawn by the macro itself, with its call beside it. Administrators only (shell_routes.py). Every token name and
+   value comes from shell_routes.styleguide_sections, which reads them from knovas-tokens.css and style.css;
+   nothing is typed in here. The page's own layout rules sit below and use tokens only: no colour is named in this
+   file. In the parts section a call is written twice, once as text and once for real, on the same line:
+   tests/test_shell_parts_styleguide.py holds the two together. #}
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -49,7 +52,16 @@
         .sg-part-show .search-box { flex: 1; min-width: 0; margin-bottom: 0; }
         .sg-part-show .login-form { flex: 1; min-width: 0; }
         .sg-part-show #searchInput { min-width: 0; }
-        .sg-empty { margin-top: var(--k-space-sm); padding: var(--k-space-lg); border: 1px dashed var(--k-color-border-strong); border-radius: var(--k-radius-lg); font-size: var(--k-text-sm); color: var(--k-color-text-muted); }
+
+        .sg-demos { border-top: 1px solid var(--k-gray-100); }
+        .sg-demo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 280px); gap: var(--k-space-xs) var(--k-space-lg); align-items: center; padding: var(--k-space-md) 0; border-bottom: 1px solid var(--k-gray-100); }
+        .sg-demo-show { min-width: 0; }
+        .sg-call { display: block; font-family: var(--k-font-mono); font-size: var(--k-text-xs); line-height: var(--k-leading-snug); color: var(--k-color-text-muted); overflow-wrap: anywhere; }
+        p.sg-call { max-width: 110ch; margin-top: var(--k-space-sm); }
+        .sg-stage { padding: var(--k-space-lg) var(--k-space-md); border: 1px dashed var(--k-color-border-strong); border-radius: var(--k-radius-lg); background: var(--k-color-surface); }
+        .sg-fill { padding: var(--k-space-xs) var(--k-space-sm); border-radius: var(--k-radius-md); background: var(--k-color-surface-sunken); font-size: var(--k-text-sm); text-align: center; color: var(--k-color-text-muted); }
+        .sg-narrow { max-width: 20rem; }
+        .sg-passage { margin-top: var(--k-space-xs); padding: var(--k-space-xs) var(--k-space-sm); border-left: 2px solid var(--k-color-accent); background: var(--k-color-surface-sunken); font-size: var(--k-text-sm); }
 
         .sg-table { width: 100%; border-collapse: collapse; }
         .sg-table th { padding: 0 var(--k-space-md) var(--k-space-xs) 0; border-bottom: 1px solid var(--k-color-border); text-align: left; font-size: var(--k-text-2xs); font-weight: var(--k-weight-semibold); letter-spacing: var(--k-tracking-label); text-transform: uppercase; color: var(--k-color-text-muted); }
@@ -58,7 +70,7 @@
         .sg-table td:first-child { width: 14rem; }
 
         @media (max-width: 720px) {
-            .sg-text-row, .sg-row, .sg-row--two { grid-template-columns: minmax(0, 1fr); gap: var(--k-space-xs); }
+            .sg-text-row, .sg-row, .sg-row--two, .sg-demo { grid-template-columns: minmax(0, 1fr); gap: var(--k-space-xs); }
             .sg-table, .sg-table tbody, .sg-table tr, .sg-table td { display: block; }
             .sg-table thead { display: none; }
             .sg-table td, .sg-table td:first-child { width: auto; padding: 0; border-bottom: 0; }
@@ -67,6 +79,14 @@
     </style>
 </head>
 <body>
+{% import "_parts.html" as parts %}
+{# One example of a part: the part as its macro draws it, and beside it the call as text. #}
+{% macro shown(call) %}
+<div class="sg-demo">
+    <div class="sg-demo-show">{{ caller() }}</div>
+    <code class="sg-call">{{ call }}</code>
+</div>
+{% endmacro %}
 {% macro swatches(tokens) %}
 <div class="sg-swatches">
     {% for t in tokens %}
@@ -263,8 +283,165 @@
 
                 <section class="sg-section" aria-labelledby="sg-seitenteile">
                     <h2 id="sg-seitenteile">Seitenteile</h2>
-                    <p class="sg-empty">Karte, Zeile, Reiter, Statuspunkt und Verweis-Chip folgen mit PMVP-12.
-                        Dieser Abschnitt ist bis dahin leer.</p>
+                    <p class="sg-lede">Die Teile, aus denen jede neue Seite gebaut wird: eine Spalte, Seitenkopf,
+                        Abschnitt, Karte, Zeile, Reiter, Statuspunkt, Marke, Verweis und Link. Jedes Teil ist ein Makro
+                        aus <span class="sg-mono">_parts.html</span>, seine Regeln stehen in
+                        <span class="sg-mono">parts.css</span>. Jedes Beispiel ist mit dem Makro selbst gezeichnet;
+                        daneben steht sein Aufruf.</p>
+
+                    <h3 class="sg-sub">Spalte</h3>
+                    <p class="sg-lede">Eine Spalte in der Mitte und eine Hauptaktion je Seite. Die Spalte ist
+                        höchstens 640 Pixel breit, die breite 720.</p>
+                    <div class="sg-demos">
+                        {% call shown('{% call parts.page() %} … {% endcall %}') %}
+                        <div class="sg-stage">
+                            {% call parts.page() %}<p class="sg-fill">Die Spalte: höchstens 640 Pixel</p>{% endcall %}
+                        </div>
+                        {% endcall %}
+                        {% call shown('{% call parts.page(wide=True) %} … {% endcall %}') %}
+                        <div class="sg-stage">
+                            {% call parts.page(wide=True) %}<p class="sg-fill">Die breite Spalte: höchstens 720 Pixel</p>{% endcall %}
+                        </div>
+                        {% endcall %}
+                    </div>
+
+                    <h3 class="sg-sub">Seitenkopf</h3>
+                    <p class="sg-lede">Der Titel, auf Wunsch mit einer Zeile darüber und einem Satz darunter. Steht er
+                        mit der Hauptaktion in einem Element der Klasse <span class="sg-mono">k-head</span>, sitzt die
+                        Aktion rechts daneben (siehe «Zusammen»).</p>
+                    <div class="sg-demos">
+                        {% call shown('parts.page_head("Quellen")') %}{{ parts.page_head("Quellen") }}{% endcall %}
+                        {% call shown('parts.page_head("Zugriff", lede="Wer darf was lesen, und was darf die KI verwenden?")') %}{{ parts.page_head("Zugriff", lede="Wer darf was lesen, und was darf die KI verwenden?") }}{% endcall %}
+                        {% call shown('parts.page_head("Limmat Immobilien AG", eyebrow="Mandant", lede="Zürich · Mandant seit 2018 · betreut von Dr. M. Keller")') %}{{ parts.page_head("Limmat Immobilien AG", eyebrow="Mandant", lede="Zürich · Mandant seit 2018 · betreut von Dr. M. Keller") }}{% endcall %}
+                    </div>
+
+                    <h3 class="sg-sub">Abschnitt</h3>
+                    <div class="sg-demos">
+                        {% call shown('{% call parts.section("Zuletzt") %} … {% endcall %}') %}
+                        {% call parts.section("Zuletzt") %}<p>Memo «Kündigungsmöglichkeiten» abgelegt</p>{% endcall %}
+                        {% endcall %}
+                    </div>
+
+                    <h3 class="sg-sub">Karte</h3>
+                    <p class="sg-lede">Hervorgehoben ist nur die eine Karte, die gerade läuft.</p>
+                    <div class="sg-demos">
+                        {% call shown('{% call parts.card() %} … {% endcall %}') %}
+                        {% call parts.card() %}<p>Mietvertrag Seefeldstrasse 48, 2019</p>{% endcall %}
+                        {% endcall %}
+                        {% call shown('{% call parts.card(now=True) %} … {% endcall %}') %}
+                        {% call parts.card(now=True) %}<p>Jetzt: Kündigung prüfen <span class="k-muted k-small">· seit 6 Tagen</span></p>{% endcall %}
+                        {% endcall %}
+                    </div>
+
+                    <h3 class="sg-sub">Zeile</h3>
+                    <p class="sg-lede">Eine Zeile einer Liste: links der Inhalt, rechts das Ende. Zwischen zwei Zeilen
+                        liegt eine feine Linie.</p>
+                    <div class="sg-demos">
+                        {% call shown('{% call parts.rowline() %} … {% endcall %}') %}
+                        {% call parts.card() %}
+                            {% call parts.rowline() %}<div><strong>Limmat Immobilien AG</strong><br><span class="k-muted k-small">Vermieterin</span></div><span class="k-muted" aria-hidden="true">→</span>{% endcall %}
+                            {% call parts.rowline() %}<div><strong>Seefeld Gastro GmbH</strong><br><span class="k-muted k-small">Mieterin</span></div><span class="k-muted" aria-hidden="true">→</span>{% endcall %}
+                        {% endcall %}
+                        {% endcall %}
+                    </div>
+
+                    <h3 class="sg-sub">Reiter</h3>
+                    <p class="sg-lede">Reiter sind Links. Der aktuelle ist markiert, eine Zahl steht leichter neben
+                        ihrem Wort. Passt die Reihe nicht, lässt sie sich in sich selbst verschieben; die Seite bleibt
+                        stehen.</p>
+                    {% set items = [
+                        {"key": "ueberblick", "label": "Überblick", "href": "#sg-seitenteile"},
+                        {"key": "mandate", "label": "Mandate", "href": "#sg-seitenteile", "count": 7},
+                        {"key": "vertraege", "label": "Verträge", "href": "#sg-seitenteile", "count": 34},
+                        {"key": "personen", "label": "Personen", "href": "#sg-seitenteile", "count": 6},
+                        {"key": "dokumente", "label": "Dokumente", "href": "#sg-seitenteile", "count": 412},
+                    ] %}
+                    <div class="sg-demos">
+                        {% call shown('parts.tabs(items, "ueberblick")') %}{{ parts.tabs(items, "ueberblick") }}{% endcall %}
+                        {% call shown('parts.tabs(items, "vertraege")') %}<div class="sg-narrow">{{ parts.tabs(items, "vertraege") }}</div>{% endcall %}
+                    </div>
+                    <p class="sg-call">items = [{% for item in items %}{"key": "{{ item.key }}", "label": "{{ item.label }}", "href": "{{ item.href }}"{% if item.count is defined %}, "count": {{ item.count }}{% endif %}}{% if not loop.last %}, {% endif %}{% endfor %}]</p>
+
+                    <h3 class="sg-sub">Statuspunkt</h3>
+                    <p class="sg-lede">Der Punkt trägt seine Aussage als Namen für Vorleseprogramme. Ein gelber oder
+                        roter Punkt steht nie allein: daneben stehen das Problem und was zu tun ist.</p>
+                    <div class="sg-demos">
+                        {% call shown('parts.status_dot("ok", "Aktuell")') %}<p>{{ parts.status_dot("ok", "Aktuell") }} DMS Mandate</p>{% endcall %}
+                        {% call shown('parts.status_dot("warn", "Wird verarbeitet")') %}<p>{{ parts.status_dot("warn", "Wird verarbeitet") }} SharePoint Vorlagen <span class="k-muted k-small">· wird verarbeitet, fertig in etwa 1 Stunde</span></p>{% endcall %}
+                        {% call shown('parts.status_dot("bad", "Anmeldung abgelaufen")') %}<p>{{ parts.status_dot("bad", "Anmeldung abgelaufen") }} E-Mail-Ablage <span class="k-small">· Die Anmeldung ist abgelaufen. {{ parts.link("Zugang erneuern", "#sg-seitenteile") }}</span></p>{% endcall %}
+                    </div>
+
+                    <h3 class="sg-sub">Marke</h3>
+                    <p class="sg-lede">Eine Marke zeigt eine Ausnahme. Was in Ordnung ist, trägt keine.</p>
+                    <div class="sg-demos">
+                        {% call shown('parts.tag("nur Testgruppe")') %}{{ parts.tag("nur Testgruppe") }}{% endcall %}
+                        {% call shown('parts.tag("fehlt noch", kind="warn")') %}{{ parts.tag("fehlt noch", kind="warn") }}{% endcall %}
+                        {% call shown('parts.tag("Praktikum gesperrt", kind="bad")') %}{{ parts.tag("Praktikum gesperrt", kind="bad") }}{% endcall %}
+                        {% call shown('parts.tag("abgeleitet", kind="acc")') %}{{ parts.tag("abgeleitet", kind="acc") }}{% endcall %}
+                    </div>
+
+                    <h3 class="sg-sub">Verweis</h3>
+                    <p class="sg-lede">Die Nummer einer Quelle hinter dem Satz, den sie belegt. Mit einer Adresse ist
+                        der Verweis ein Link, sonst eine Schaltfläche. Der aktive ist der, dessen Stelle offen ist.</p>
+                    <div class="sg-demos">
+                        {% call shown('parts.ref_chip(1)') %}<p>Die Kündigung muss eingeschrieben erfolgen{{ parts.ref_chip(1) }}.</p>{% endcall %}
+                        {% call shown('parts.ref_chip(2, active=True)') %}<p>Die feste Mindestdauer läuft bis zum 30. September 2027{{ parts.ref_chip(2, active=True) }}.</p>{% endcall %}
+                        {% call shown('parts.ref_chip(1, href="#sg-stelle-1")') %}<p id="sg-stelle-1">Danach gilt die ordentliche Frist von sechs Monaten{{ parts.ref_chip(1, href="#sg-stelle-1") }}.</p>{% endcall %}
+                        {% call shown('parts.ref_chip(2, active=True, href="#sg-stelle-2")') %}<p id="sg-stelle-2">Nachtrag 2 hat die Mindestdauer verlängert{{ parts.ref_chip(2, active=True, href="#sg-stelle-2") }}.</p>{% endcall %}
+                        {% call shown('parts.ref_chip(2, active=True, controls="sg-stelle-offen")') %}<p>Nachtrag 2 hat die Mindestdauer verlängert{{ parts.ref_chip(2, active=True, controls="sg-stelle-offen") }}.</p>
+                        <p id="sg-stelle-offen" class="sg-passage">«Die feste Mindestdauer des Mietverhältnisses wird bis zum 30. September 2027 verlängert.»</p>{% endcall %}
+                        {% call shown('parts.ref_chip(1, controls="sg-stelle-zu")') %}<p>Die Kündigung muss eingeschrieben erfolgen{{ parts.ref_chip(1, controls="sg-stelle-zu") }}.</p>
+                        <p id="sg-stelle-zu" class="sg-passage" hidden>«Die Kündigung hat eingeschrieben zu erfolgen.»</p>{% endcall %}
+                    </div>
+
+                    <h3 class="sg-sub">Link</h3>
+                    <p class="sg-lede">Ein Name mit gepunkteter Linie öffnet das Dossier dazu.</p>
+                    <div class="sg-demos">
+                        {% call shown('parts.link("Im Dokument zeigen", "#sg-seitenteile")') %}{{ parts.link("Im Dokument zeigen", "#sg-seitenteile") }}{% endcall %}
+                        {% call shown('parts.link("Limmat Immobilien AG", "#sg-seitenteile", dotted=True)') %}<p>{{ parts.link("Limmat Immobilien AG", "#sg-seitenteile", dotted=True) }} kann frühestens auf den 30. September 2027 kündigen.</p>{% endcall %}
+                    </div>
+
+                    <h3 class="sg-sub">Zusammen</h3>
+                    <p class="sg-lede">Die Teile auf einer Seite, wie die Vorlagen sie zeigen. Personen, Firmen und
+                        Dokumente sind erfunden.</p>
+                    <div class="sg-stage">
+                        {% call parts.page() %}
+                            <div class="k-head">
+                                {{ parts.page_head("Limmat Immobilien AG", eyebrow="Mandant", lede="Zürich · Mandant seit 2018 · betreut von Dr. M. Keller") }}
+                                <button type="button" class="btn btn-primary">Dazu fragen</button>
+                            </div>
+                            {{ parts.tabs(items, "ueberblick") }}
+                            {% call parts.card(now=True) %}
+                                {% call parts.rowline() %}
+                                    <div><span class="k-eyebrow">Läuft gerade</span><br>{{ parts.link("Mietstreit Seefeldstrasse 48", "#sg-seitenteile") }}<span class="k-muted k-small"> · Schritt 4 von 7, Kündigung prüfen</span></div>
+                                    <span class="k-muted" aria-hidden="true">→</span>
+                                {% endcall %}
+                            {% endcall %}
+                            {% call parts.section("Antwort") %}
+                                <p>{{ parts.link("Limmat Immobilien AG", "#sg-seitenteile", dotted=True) }} kann frühestens auf den 30. September 2027 kündigen. Nachtrag 2 hat die feste Mindestdauer bis zu diesem Datum verlängert{{ parts.ref_chip(2, active=True) }}. Danach gilt die ordentliche Frist von sechs Monaten; die Kündigung muss eingeschrieben erfolgen{{ parts.ref_chip(1) }}.</p>
+                            {% endcall %}
+                            {% call parts.section("Angaben") %}
+                                {% call parts.rowline() %}<span class="k-muted">Branche</span><span>Immobilienverwaltung {{ parts.tag("abgeleitet", kind="acc") }}</span>{% endcall %}
+                                {% call parts.rowline() %}<span class="k-muted">Kontakt</span><span>{{ parts.link("S. Vogt", "#sg-seitenteile") }}, CFO</span>{% endcall %}
+                            {% endcall %}
+                            {% call parts.section("Quellen") %}
+                                {% call parts.card() %}
+                                    {% call parts.rowline() %}
+                                        <div>{{ parts.status_dot("ok", "Aktuell") }} <strong>DMS Mandate</strong><br><span class="k-muted k-small">Aktuell · 48'212 Dokumente · zuletzt vor 12 Minuten</span></div>
+                                        <span class="k-muted" aria-hidden="true">→</span>
+                                    {% endcall %}
+                                    {% call parts.rowline() %}
+                                        <div>{{ parts.status_dot("warn", "Wird verarbeitet") }} <strong>SharePoint Vorlagen</strong><br><span class="k-muted k-small">Wird verarbeitet · 3'904 von 5'420 · fertig in etwa 1 Stunde</span></div>
+                                        <span class="k-muted" aria-hidden="true">→</span>
+                                    {% endcall %}
+                                    {% call parts.rowline() %}
+                                        <div>{{ parts.status_dot("bad", "Anmeldung abgelaufen") }} <strong>E-Mail-Ablage</strong> {{ parts.tag("nur Testgruppe") }}<br><span class="k-small">Die Anmeldung ist abgelaufen. Seit gestern 18:40 wird nichts Neues gelesen.</span></div>
+                                        <button type="button" class="btn btn-outline">Zugang erneuern</button>
+                                    {% endcall %}
+                                {% endcall %}
+                            {% endcall %}
+                        {% endcall %}
+                    </div>
                 </section>
 
                 <section class="sg-section" aria-labelledby="sg-namen">
