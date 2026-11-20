@@ -224,8 +224,12 @@ class TestWithoutIdentity:
 class TestSwitchedOn:
     def test_navigation_for_viewers_only(self, experiments_app, experimenter_client,
                                          exp_manager_client, exp_member_client):
-        assert _nav(experimenter_client.get("/").get_data(as_text=True))
-        assert _nav(exp_manager_client.get("/").get_data(as_text=True))
+        """PMVP-11 (founder, 2026-11-20): the Workspace menu shows only the
+        search. Experimente has no entry until a later item places it, for a
+        viewer either; the module's pages answer for them as before
+        (test_experiments_routes.py)."""
+        assert not _nav(experimenter_client.get("/").get_data(as_text=True))
+        assert not _nav(exp_manager_client.get("/").get_data(as_text=True))
         assert not _nav(exp_member_client.get("/").get_data(as_text=True))
 
     def test_the_navigation_survives_a_broken_role_lookup(self, experiments_app,

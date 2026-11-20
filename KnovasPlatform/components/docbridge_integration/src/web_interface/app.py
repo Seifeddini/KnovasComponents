@@ -1746,7 +1746,7 @@ def create_app(config_path: Optional[str] = None):
         ('approvals', 'Freigaben', 'admin.approvals', False),
     )
 
-    def _gate_roles(endpoint: str):
+    def _gate_roles(endpoint: str) -> Optional[frozenset]:
         """The roles the route's own gate lets in, or None.
 
         The console builds its gates inside its blueprint factory
@@ -1763,7 +1763,7 @@ def create_app(config_path: Optional[str] = None):
             allowed = inspect.getclosurevars(view).nonlocals.get('allowed')
         except TypeError:
             return None
-        return allowed if isinstance(allowed, (set, frozenset)) else None
+        return frozenset(allowed) if isinstance(allowed, (set, frozenset)) else None
 
     def _admin_pages() -> List[Dict[str, Any]]:
         """The Admin pages the signed-in person may open, in the menu's order.
@@ -1781,9 +1781,12 @@ def create_app(config_path: Optional[str] = None):
         try:
             user = identity_gate.current_user()
         except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
-            logger.warning('Verwaltungsmenü nicht ermittelbar: %s', type(exc).__name__)
+            # The kind of failure, not its text: a log line carries nothing a
+            # database error might quote about a person.
+            logger.warning('Verwaltungslink nicht ermittelbar: %s', type(exc).__name__)
             return []
         if user is None:
+            logger.info('Verwaltungslink: keine angemeldete Person in dieser Anfrage')
             return []
         held = set(getattr(user, 'roles', None) or ())
         pages = []

@@ -268,7 +268,9 @@ def test_sidebar_never_shows_corpus_count(app, tmp_path, monkeypatch):
     empty_body = client.get("/").data.decode("utf-8")
     assert "corpus-status" not in empty_body
     assert "Suche" in empty_body
-    assert "Cortex" in empty_body
+    # PMVP-11 (founder, 2026-11-20): the Workspace menu shows only the search; Cortex has no entry until a later
+    # item places it (its page answers: test_ontology_page_renders_after_login).
+    assert "Cortex" not in empty_body
 
     data = json.loads(json.dumps(FIXTURE))
     data["corpus"] = {"documents": 1847}

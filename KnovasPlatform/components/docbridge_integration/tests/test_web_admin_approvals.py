@@ -56,12 +56,24 @@ class TestApproverOnlyReachesTheTab:
     """An approver holds no 'admin' role and never reached the console
     before: _console_url must offer Freigaben instead of Personen (finding 4)."""
 
+    #: PMVP-11: the row of tabs is gone. The console's menu is the navigation's
+    #: area Verwaltung, and it draws the pages the web app hands it (app.py,
+    #: _admin_pages, which reads each route's gate): for a pure approver that
+    #: is Freigaben alone. The real app answers for it in
+    #: test_pmvp11_navigation_acceptance.py and test_shell_nav_links.py.
+    PEOPLE = {"key": "people", "label": "Personen", "url": "/admin/people", "if_doc_fields": False}
+    APPROVALS = {"key": "approvals", "label": "Freigaben", "url": "/admin/approvals",
+                 "if_doc_fields": False}
+
     def test_console_url_offers_approvals_to_a_pure_approver(self):
+        """_console_url is the first Admin page whose route gate lets the
+        person in, and Freigaben is one of the menu's pages; no role is named."""
         body = APP_PY.read_text(encoding="utf-8")
-        idx = body.index("def _console_url(")
-        window = body[idx:idx + 1200]
-        assert "url_for('admin.approvals')" in window
-        assert "'approver'" in window
+        menu = body[body.index("admin_menu = ("):body.index("def _gate_roles(")]
+        assert "'admin.approvals'" in menu
+        window = body[body.index("def _console_url("):body.index("def _experiments_nav(")]
+        assert "next((page['url'] for page in pages" in window
+        assert "'approver'" not in window
 
     def test_tabs_hide_admin_only_pages_for_an_approver(self):
         import jinja2
@@ -72,12 +84,15 @@ class TestApproverOnlyReachesTheTab:
         )
         env.globals["url_for"] = lambda endpoint, **kw: "/" + endpoint.replace(".", "/")
         me = types.SimpleNamespace(roles={"approver"})
-        html = env.get_template("_admin_tabs.html").render(admin_tab="approvals", me=me)
+        html = env.get_template("_sidebar.html").render(
+            app_title="Knovas", company_name="Kanzlei", nav_area="admin",
+            admin_pages=[self.APPROVALS], admin_tab="approvals", me=me)
         assert "/admin/people" not in html
         assert "/admin/approvals" in html
 
     def test_tabs_still_render_when_me_is_none(self):
-        """The stub render tests pass me=None; every tab must still appear."""
+        """The stub render tests pass me=None; every entry the menu is handed
+        must still appear (the menu does not read me)."""
         import jinja2
 
         env = jinja2.Environment(
@@ -85,7 +100,9 @@ class TestApproverOnlyReachesTheTab:
             autoescape=True, undefined=jinja2.StrictUndefined,
         )
         env.globals["url_for"] = lambda endpoint, **kw: "/" + endpoint.replace(".", "/")
-        html = env.get_template("_admin_tabs.html").render(admin_tab="approvals", me=None)
+        html = env.get_template("_sidebar.html").render(
+            app_title="Knovas", company_name="Kanzlei", nav_area="admin",
+            admin_pages=[self.PEOPLE, self.APPROVALS], admin_tab="approvals", me=None)
         assert "/admin/people" in html
         assert "/admin/approvals" in html
 
@@ -101,7 +118,10 @@ class TestTemplate:
         assert "bypasses" in html and "Umgehung" in html
 
     def test_the_strip_knows_the_tab(self):
-        assert "admin.approvals" in (TEMPLATES / "_admin_tabs.html").read_text(encoding="utf-8")
+        """PMVP-11: the console's menu is named in app.py's admin_menu."""
+        app_py = APP_PY.read_text(encoding="utf-8")
+        menu = app_py[app_py.index("admin_menu = ("):app_py.index("def _gate_roles(")]
+        assert "'admin.approvals'" in menu and "'Freigaben'" in menu
 
     def test_the_approved_section_offers_execute(self):
         html = (TEMPLATES / "admin_approvals.html").read_text(encoding="utf-8")
