@@ -1,0 +1,365 @@
+/* ============================================================
+   KNOVAS DESIGN TOKENS
+   ============================================================
+
+   This file is the SINGLE SOURCE OF TRUTH for the Knovas brand.
+
+   Everything — the website, the React component library, the
+   LinkedIn templates — reads its colours, type and spacing from
+   here. Change a value in this file and the whole brand changes
+   with it.
+
+   You do not need to be a programmer to edit this file. Each
+   value looks like:
+
+       --k-color-accent: #2C4AC2;
+            ^ name        ^ value
+
+   Change the value after the colon, save, reload. That's it.
+
+   ------------------------------------------------------------
+   HOW THE COLOUR SYSTEM WORKS
+   ------------------------------------------------------------
+
+   Knovas has two kinds of colour:
+
+   1. BRAND CONSTANTS — Knovas Navy and Knovas Blue. These are
+      the brand. They never change, on any background.
+
+   2. SURFACE-DEPENDENT COLOURS — these come in light/dark pairs.
+      On a light page the accent is a deep royal blue; on a dark
+      "infrastructure" surface that same accent becomes a
+      luminous blue that glows against the ink. Same role,
+      different value, chosen so contrast stays readable.
+
+   Dark surfaces are switched on by adding data-theme="dark" to
+   any element. Everything inside it flips automatically:
+
+       <div class="k-panel" data-theme="dark"> ... </div>
+
+   That is why the floating dark panel works anywhere without
+   any component needing to know it is on a dark background.
+
+   ============================================================ */
+
+:root {
+  /* ----------------------------------------------------------
+     BRAND CONSTANTS — never change these per surface
+     ---------------------------------------------------------- */
+
+  /* Knovas Navy — the ink of the brand. Headlines, dark sections,
+     the logo. Deep enough to feel serious, blue enough to feel
+     technical rather than corporate-black. */
+  --k-navy: #0A1628;
+
+  /* Knovas Blue — the brand's action colour. Primary buttons,
+     links, active states, accents. */
+  --k-blue: #2C4AC2;
+
+  /* Supporting brand blues */
+  --k-blue-deep: #1E1B4B;   /* gradient partner for navy */
+  --k-blue-bright: #4D7CFE; /* the dark-surface accent */
+  --k-cyan: #22D3EE;        /* technical/data highlight, dark surfaces */
+  --k-sky: #0EA5E9;         /* informational, light surfaces */
+
+  /* ----------------------------------------------------------
+     NEUTRAL RAMP
+     Cool-tinted greys. Never pure grey — always carries a hint
+     of the brand's blue so neutrals sit beside navy naturally.
+     ---------------------------------------------------------- */
+  --k-white: #FFFFFF;
+  --k-gray-50: #F8FAFC;
+  --k-gray-100: #F1F5F9;
+  --k-gray-200: #E2E8F0;
+  --k-gray-300: #CBD5E1;
+  --k-gray-400: #94A3B8;
+  --k-gray-500: #64748B;
+  --k-gray-600: #475569;
+  --k-gray-700: #334155;
+  --k-gray-800: #1E293B;
+  --k-gray-900: #0F172A;
+
+  /* Dark-surface neutrals — the "infrastructure" palette */
+  --k-ink-900: #060B14;  /* deepest: dark page background */
+  --k-ink-800: #0A1628;  /* = Knovas Navy */
+  --k-ink-700: #0E1B2E;  /* raised dark surface: cards, panels */
+  --k-ink-600: #16243C;  /* hover state on dark surfaces */
+  --k-ink-fg: #E6EDF7;   /* primary text on dark */
+  --k-ink-fg-muted: #8FA3BF; /* secondary text on dark */
+
+  /* ----------------------------------------------------------
+     STATUS COLOURS
+     Used sparingly. Success/warning/danger each have a light
+     and a dark variant so alerts read correctly on both.
+     ---------------------------------------------------------- */
+  --k-success: #15803D;
+  --k-success-bright: #4ADE80;
+  --k-success-bg: #F0FDF4;
+
+  --k-warning: #B45309;
+  --k-warning-bright: #FBBF24;
+  --k-warning-bg: #FFFBEB;
+
+  --k-danger: #B91C1C;
+  --k-danger-bright: #F87171;
+  --k-danger-bg: #FEF2F2;
+
+  /* ----------------------------------------------------------
+     SEMANTIC COLOURS — LIGHT SURFACE (the default)
+     These are the names components actually use. Never write a
+     hex code inside a component; use one of these.
+     ---------------------------------------------------------- */
+  --k-color-page: var(--k-white);           /* page background */
+  --k-color-surface: var(--k-white);        /* cards, panels */
+  --k-color-surface-raised: var(--k-white); /* elevated above surface */
+  --k-color-surface-sunken: var(--k-gray-50);   /* wells, alternating sections */
+  --k-color-surface-hover: var(--k-gray-50);
+
+  --k-color-text: var(--k-gray-800);        /* body copy */
+  --k-color-text-strong: var(--k-navy);     /* headings */
+  --k-color-text-muted: var(--k-gray-500);  /* secondary, captions */
+  --k-color-text-inverse: var(--k-white);   /* on accent fills */
+
+  --k-color-border: var(--k-gray-200);
+  --k-color-border-strong: var(--k-gray-300);
+
+  --k-color-accent: var(--k-blue);
+  --k-color-accent-hover: #1B3BB0;
+  --k-color-accent-soft: rgba(44, 74, 194, 0.10); /* tinted fills, icon wells */
+  --k-color-accent-ring: rgba(44, 74, 194, 0.35); /* focus rings */
+  --k-color-accent-contrast: var(--k-white);      /* text on accent */
+
+  --k-color-info: var(--k-sky);
+  --k-color-success-fg: var(--k-success);
+  --k-color-warning-fg: var(--k-warning);
+  --k-color-danger-fg: var(--k-danger);
+
+  /* Code/data surfaces stay dark even on light pages — code is
+     always "infrastructure". */
+  --k-color-code-bg: var(--k-ink-700);
+  --k-color-code-fg: var(--k-ink-fg);
+
+  /* ----------------------------------------------------------
+     TYPOGRAPHY
+     IBM Plex Sans is the Knovas voice: Swiss-rooted, engineered,
+     warmer and less anonymous than Helvetica or Inter.
+     IBM Plex Mono carries anything machine-generated.
+     ---------------------------------------------------------- */
+  --k-font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont,
+                 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --k-font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo,
+                 Consolas, monospace;
+
+  /* Type scale — a major-third-ish ramp, capped so display sizes
+     stay usable on real marketing pages. */
+  --k-text-2xs: 0.6875rem;  /* 11px — micro labels */
+  --k-text-xs: 0.75rem;     /* 12px — captions, badges */
+  --k-text-sm: 0.875rem;    /* 14px — secondary UI */
+  --k-text-base: 1rem;      /* 16px — body */
+  --k-text-lg: 1.125rem;    /* 18px — lead paragraphs */
+  --k-text-xl: 1.375rem;    /* 22px — card titles */
+  --k-text-2xl: 1.75rem;    /* 28px — section headings */
+  --k-text-3xl: 2.25rem;    /* 36px — page headings */
+  --k-text-4xl: 3rem;       /* 48px — hero */
+  --k-text-5xl: 3.75rem;    /* 60px — hero, large screens */
+
+  /* IBM Plex Sans ships 100–700. There is no 800: asking for one makes the
+     browser synthesise a fake bold, which smears the letterforms. So the
+     heaviest token is 700 — `black` is kept as a separate name because
+     display type means it, not because the value differs. */
+  --k-weight-normal: 400;
+  --k-weight-medium: 500;
+  --k-weight-semibold: 600;
+  --k-weight-bold: 700;
+  --k-weight-black: 700;
+
+  --k-leading-tight: 1.12;   /* display headlines */
+  --k-leading-snug: 1.3;     /* headings */
+  --k-leading-normal: 1.6;   /* body copy */
+  --k-leading-relaxed: 1.75; /* long-form reading */
+
+  /* Letter-spacing. Display type tightens; small caps open up. */
+  --k-tracking-tight: -0.02em;
+  --k-tracking-normal: 0;
+  --k-tracking-wide: 0.05em;
+  --k-tracking-label: 0.1em;  /* uppercase eyebrow labels */
+  --k-tracking-logo: 0.15em;  /* the KNOVAS wordmark */
+
+  /* ----------------------------------------------------------
+     SPACING — 4px base grid
+     ---------------------------------------------------------- */
+  --k-space-3xs: 0.125rem;  /* 2px */
+  --k-space-2xs: 0.25rem;   /* 4px */
+  --k-space-xs: 0.5rem;     /* 8px */
+  --k-space-sm: 0.75rem;    /* 12px */
+  --k-space-md: 1rem;       /* 16px */
+  --k-space-lg: 1.5rem;     /* 24px */
+  --k-space-xl: 2rem;       /* 32px */
+  --k-space-2xl: 3rem;      /* 48px */
+  --k-space-3xl: 4rem;      /* 64px */
+  --k-space-4xl: 6rem;      /* 96px */
+  --k-space-5xl: 8rem;      /* 128px */
+
+  /* ----------------------------------------------------------
+     RADII
+     Knovas is rounded but not soft. Panels round generously;
+     controls stay tighter so they read as precise.
+     ---------------------------------------------------------- */
+  --k-radius-xs: 0.25rem;   /* 4px  — tags */
+  --k-radius-sm: 0.375rem;  /* 6px  — small controls */
+  --k-radius-md: 0.5rem;    /* 8px  — buttons, inputs */
+  --k-radius-lg: 0.75rem;   /* 12px — cards */
+  --k-radius-xl: 1rem;      /* 16px — large cards */
+  --k-radius-2xl: 1.25rem;  /* 20px — the floating dark panel */
+  --k-radius-full: 9999px;  /* pills, avatars */
+
+  /* ----------------------------------------------------------
+     ELEVATION
+     Shadows are navy-tinted, never neutral black — black shadows
+     against a blue-grey palette look muddy.
+     ---------------------------------------------------------- */
+  --k-shadow-xs: 0 1px 2px rgba(10, 22, 40, 0.05);
+  --k-shadow-sm: 0 1px 3px rgba(10, 22, 40, 0.08),
+                 0 1px 2px rgba(10, 22, 40, 0.04);
+  --k-shadow-md: 0 4px 12px -2px rgba(10, 22, 40, 0.10),
+                 0 2px 4px -2px rgba(10, 22, 40, 0.06);
+  --k-shadow-lg: 0 12px 28px -6px rgba(10, 22, 40, 0.14),
+                 0 4px 8px -4px rgba(10, 22, 40, 0.08);
+  --k-shadow-xl: 0 24px 48px -12px rgba(10, 22, 40, 0.20),
+                 0 8px 16px -8px rgba(10, 22, 40, 0.10);
+
+  /* The signature elevation: the floating dark panel. Deep drop
+     shadow plus a faint luminous blue rim so the panel reads as
+     lit from within rather than simply dark. */
+  --k-shadow-panel: 0 32px 64px -20px rgba(10, 22, 40, 0.45),
+                    0 0 0 1px rgba(77, 124, 254, 0.18);
+
+  /* ----------------------------------------------------------
+     MOTION
+     Restrained. Knovas moves like precision equipment: quick,
+     damped, never bouncy.
+     ---------------------------------------------------------- */
+  --k-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --k-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --k-duration-fast: 150ms;
+  --k-duration-base: 220ms;
+  --k-duration-slow: 400ms;
+
+  --k-transition-fast: var(--k-duration-fast) var(--k-ease);
+  --k-transition-base: var(--k-duration-base) var(--k-ease);
+
+  /* ----------------------------------------------------------
+     LAYOUT
+     ---------------------------------------------------------- */
+  --k-container-sm: 42rem;   /* 672px  — long-form reading */
+  --k-container-md: 56rem;   /* 896px  — focused content */
+  --k-container-lg: 75rem;   /* 1200px — default page width */
+  --k-container-xl: 87.5rem; /* 1400px — wide dashboards */
+
+  --k-navbar-height: 4.5rem; /* 72px */
+
+  /* Ambient brand glow — the radial wash behind heroes and
+     inside dark panels. */
+  --k-glow-light: radial-gradient(ellipse at 85% 0%,
+                    rgba(44, 74, 194, 0.10) 0%, transparent 60%);
+  --k-glow-dark: radial-gradient(ellipse at 20% -10%,
+                    rgba(77, 124, 254, 0.20) 0%, transparent 55%);
+
+  --k-z-base: 1;
+  --k-z-sticky: 100;
+  --k-z-navbar: 1000;
+  --k-z-modal: 2000;
+  --k-z-toast: 3000;
+}
+
+/* ============================================================
+   DARK SURFACES
+   ============================================================
+
+   Add data-theme="dark" to any element and everything inside it
+   becomes an "infrastructure" surface. Use it on:
+
+     - the floating dark panel (.k-panel--dark applies it for you)
+     - a full dark section
+     - the whole page, for the product's dark mode
+
+   Only the semantic tokens are re-pointed. Brand constants and
+   the scales (spacing, type, radii) are unchanged — that is what
+   keeps light and dark recognisably one system.
+   ============================================================ */
+
+[data-theme='dark'] {
+  --k-color-page: var(--k-ink-900);
+  --k-color-surface: var(--k-ink-700);
+  --k-color-surface-raised: var(--k-ink-600);
+  --k-color-surface-sunken: var(--k-ink-900);
+  --k-color-surface-hover: var(--k-ink-600);
+
+  --k-color-text: var(--k-ink-fg);
+  --k-color-text-strong: var(--k-white);
+  --k-color-text-muted: var(--k-ink-fg-muted);
+  --k-color-text-inverse: var(--k-navy);
+
+  --k-color-border: rgba(230, 237, 247, 0.10);
+  --k-color-border-strong: rgba(230, 237, 247, 0.22);
+
+  /* The accent brightens on dark so it stays legible and gains
+     the luminous quality the infrastructure surfaces rely on. */
+  --k-color-accent: var(--k-blue-bright);
+  --k-color-accent-hover: #6B92FF;
+  --k-color-accent-soft: rgba(77, 124, 254, 0.15);
+  --k-color-accent-ring: rgba(77, 124, 254, 0.45);
+  --k-color-accent-contrast: var(--k-white);
+
+  /* Cyan replaces sky for data and technical highlights. */
+  --k-color-info: var(--k-cyan);
+  --k-color-success-fg: var(--k-success-bright);
+  --k-color-warning-fg: var(--k-warning-bright);
+  --k-color-danger-fg: var(--k-danger-bright);
+
+  --k-color-code-bg: rgba(6, 11, 20, 0.55);
+
+  /* Shadows barely register on dark; borders do the work. */
+  --k-shadow-xs: none;
+  --k-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --k-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --k-shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.5);
+  --k-shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.55);
+}
+
+/* Respect the OS preference when the page opts in with
+   data-theme="auto" on <html>. Explicit data-theme wins. */
+@media (prefers-color-scheme: dark) {
+  [data-theme='auto'] {
+    --k-color-page: var(--k-ink-900);
+    --k-color-surface: var(--k-ink-700);
+    --k-color-surface-raised: var(--k-ink-600);
+    --k-color-surface-sunken: var(--k-ink-900);
+    --k-color-surface-hover: var(--k-ink-600);
+    --k-color-text: var(--k-ink-fg);
+    --k-color-text-strong: var(--k-white);
+    --k-color-text-muted: var(--k-ink-fg-muted);
+    --k-color-text-inverse: var(--k-navy);
+    --k-color-border: rgba(230, 237, 247, 0.10);
+    --k-color-border-strong: rgba(230, 237, 247, 0.22);
+    --k-color-accent: var(--k-blue-bright);
+    --k-color-accent-hover: #6B92FF;
+    --k-color-accent-soft: rgba(77, 124, 254, 0.15);
+    --k-color-accent-ring: rgba(77, 124, 254, 0.45);
+    --k-color-info: var(--k-cyan);
+    --k-color-success-fg: var(--k-success-bright);
+    --k-color-warning-fg: var(--k-warning-bright);
+    --k-color-danger-fg: var(--k-danger-bright);
+    --k-color-code-bg: rgba(6, 11, 20, 0.55);
+  }
+}
+
+/* Accessibility: honour reduced-motion everywhere by collapsing
+   the shared duration tokens. Components inherit this for free. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --k-duration-fast: 0ms;
+    --k-duration-base: 0ms;
+    --k-duration-slow: 0ms;
+  }
+}
