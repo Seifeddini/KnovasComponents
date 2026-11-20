@@ -1,0 +1,34 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><link rel="stylesheet" href="assets/knovas-fonts.css"><link rel="stylesheet" href="assets/knovas-tokens.css"><link rel="stylesheet" href="app.css">
+<style>
+.state{display:flex;justify-content:space-between;align-items:center;gap:16px;background:var(--k-gray-50);border-radius:var(--k-radius-lg);padding:13px 18px;font-size:.92rem}
+.askbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:.98rem;color:var(--k-gray-700)}
+.sel{border:1px solid var(--k-color-border-strong);border-radius:var(--k-radius-md);padding:5px 11px;font-weight:600;color:var(--k-navy);background:#fff}
+.no{margin-top:11px;font-size:.94rem}.no b{color:var(--k-danger)}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th{text-align:left;font-size:.68rem;letter-spacing:.09em;text-transform:uppercase;color:var(--k-gray-500);font-weight:600;padding:0 10px 8px 0;border-bottom:1px solid var(--k-color-border)}
+td{padding:11px 10px 11px 0;border-bottom:1px solid var(--k-gray-100);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+td:first-child{font-weight:600;color:var(--k-navy)}
+.sw{display:inline-block;width:30px;height:17px;border-radius:9px;background:var(--k-gray-300);position:relative;vertical-align:middle}
+.sw:after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff}
+.sw.on{background:var(--k-blue)}.sw.on:after{left:15px}
+</style></head><body data-area="admin" data-on="Zugriff">
+<main><div class="wrap wide">
+  <div><h1>Zugriff</h1><p class="lede">Wer darf was lesen, und was darf die KI verwenden?</p></div>
+  <div class="state"><span><b style="color:var(--k-navy)">Die Regeln laufen zur Probe.</b> Noch wird niemandem etwas verborgen. Gestern hätten sie 3 Dokumente verborgen.</span><span class="btn">Einschalten</span></div>
+  <div class="card">
+    <h2>Prüfen</h2>
+    <div class="askbar">Darf <span class="sel">Jonas Meier ▾</span> das Dokument <span class="sel mono">Nachtrag_2_2023-03-14.pdf ▾</span> lesen?</div>
+    <p class="no"><b>Nein.</b> Die Gruppe Praktikum ist für das Mandat 2026-0142 gesperrt. <span class="link">Als Jonas Meier suchen</span></p>
+  </div>
+  <div>
+    <table>
+      <tr><th>Bereich</th><th>Darf lesen</th><th style="width:70px">KI</th></tr>
+      <tr><td>Alle Mandate</td><td>Alle Mitarbeitenden</td><td><span class="sw on"></span></td></tr>
+      <tr><td>Mandat 2026-0142</td><td>Mandatsteam, Partner <span class="tag bad">Praktikum gesperrt</span></td><td><span class="sw on"></span></td></tr>
+      <tr><td>Personal</td><td>Partner, Backoffice</td><td><span class="sw"></span></td></tr>
+      <tr><td>Vorlagen</td><td>Alle Mitarbeitenden</td><td><span class="sw on"></span></td></tr>
+    </table>
+  </div>
+</div></main>
+<script src="shell.js"></script></body></html>
