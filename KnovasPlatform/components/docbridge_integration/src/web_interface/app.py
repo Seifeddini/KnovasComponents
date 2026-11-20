@@ -112,12 +112,14 @@ def _configure_logging_for_wsgi(config) -> None:
             logging.Formatter('%(asctime)s %(levelname)s [%(name)s] %(message)s')
         )
         root.addHandler(h)
+        # The Platform owns logging here (gunicorn). LOG_LEVEL=DEBUG must not let
+        # a library's request lines (URLs with their query strings) through, nor
+        # a traceback quote an exception's message. A host that set logging up
+        # itself (main() below, a test runner) keeps its handlers and hooks.
+        guard_logging([h])
+        install_excepthooks()
     for name in ('web_interface', 'web_interface.app', 'knovas_client'):
         logging.getLogger(name).setLevel(level)
-    # LOG_LEVEL=DEBUG must not let a library's request lines (URLs with their
-    # query strings) through, nor a traceback quote an exception's message.
-    guard_logging()
-    install_excepthooks()
 
 
 _search_enrichment_cache: Dict[str, dict] = {}
@@ -4757,6 +4759,8 @@ def main():
     )
     
     app = create_app(config_path=args.config)
+    guard_logging()  # the two handlers basicConfig made above
+    install_excepthooks()
     
     config = get_config()
     

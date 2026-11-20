@@ -461,14 +461,16 @@ COMMANDS = {
 
 def main(argv: Optional[Sequence[str]] = None, *, out: Callable[[str], None] = print) -> int:
     args = build_parser().parse_args(argv)
+    owns_logging = not logging.getLogger().handlers
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    from log_safety import guard_logging, install_excepthooks
+    if owns_logging:  # a host that set logging up itself (a test runner) keeps its handlers
+        from log_safety import guard_logging, install_excepthooks
 
-    guard_logging()
-    install_excepthooks()
+        guard_logging()
+        install_excepthooks()
     try:
         ctx = _Context(args, out)
     except Exception as exc:  # noqa: BLE001 - an operator needs the reason, not a traceback

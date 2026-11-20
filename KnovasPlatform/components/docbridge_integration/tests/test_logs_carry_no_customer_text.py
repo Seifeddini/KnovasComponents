@@ -645,7 +645,9 @@ def local_server():
 
 @pytest.fixture
 def platform_logging(monkeypatch):
-    """create_app's log set-up with LOG_LEVEL=DEBUG, on a handler of the test's own; restored after."""
+    """create_app's log set-up as gunicorn gets it (no handler yet), LOG_LEVEL=DEBUG; restored after.
+
+    Yields a function returning what the Platform's handler wrote (its stream redirected)."""
     from web_interface.app import _configure_logging_for_wsgi
 
     root = logging.getLogger()
@@ -653,14 +655,14 @@ def platform_logging(monkeypatch):
     saved_hooks = (sys.excepthook, threading.excepthook)
     names = ("web_interface", "web_interface.app", "knovas_client", "urllib3")
     saved_levels = {name: logging.getLogger(name).level for name in names}
-    stream = io.StringIO()
-    handler = logging.StreamHandler(stream)
-    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s %(message)s"))
-    root.handlers = [handler]
+    root.handlers = []
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+    stream = io.StringIO()
     try:
         _configure_logging_for_wsgi(_Config({}))
-        yield stream
+        assert len(root.handlers) == 1
+        root.handlers[0].setStream(stream)
+        yield stream.getvalue
     finally:
         root.handlers = saved_handlers
         root.setLevel(saved_level)
@@ -678,8 +680,8 @@ def test_debug_logging_writes_no_request_url(platform_logging, local_server):
     client = _client(secured=False, base_url=local_server)
     client.search_documents(f"Kuendigung {MARKER_QUERY}", limit=5)
 
-    out = platform_logging.getvalue()
-    assert "DEBUG knovas_client Making GET request" in out  # the Platform's own DEBUG lines pass
+    out = platform_logging()
+    assert "DEBUG [knovas_client] Making GET request" in out  # the Platform's own DEBUG lines pass
     assert "urllib3" not in out
     assert MARKER_POINTER not in out and MARKER_QUERY not in out
 
@@ -697,7 +699,7 @@ def test_a_refused_connection_retried_by_urllib3_logs_no_url(platform_logging):
         session.get(f"http://127.0.0.1:{port}/api/search",
                     params={"query": MARKER_QUERY, "pointer": MARKER_POINTER}, timeout=2)
 
-    out = platform_logging.getvalue()
+    out = platform_logging()
     assert "/api/search" not in out and MARKER_QUERY not in out and MARKER_POINTER not in out
 
 
