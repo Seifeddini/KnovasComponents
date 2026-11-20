@@ -104,6 +104,18 @@ If the work needs one of these, stop and write the reason under "Builder's notes
 4. Commits `PMVP-10: …` ending with the co-author line; `feat/pmvp-10` pushed. No pull request: the coordinator
    integrates after a verifier session passes it.
 
+## Changes to this order (coordinator, 2026-11-20, after the first build)
+
+1. **Mono for codes.** The pages set codes, ids, file names and diffs in `var(--font-heading)`, which was the mono
+   face; with headings in the brand's sans they turned sans too. That was a gap in this order. In the rules that
+   set such text (the builder's notes list 27, in `style.css`, `admin.css`, `views.css`, `experiments.css`,
+   `custom_views.css`), `var(--font-heading)` becomes `var(--font-mono)`; nothing else in those rules changes.
+   Rules that set real headings keep `--font-heading`. This is the one exception to "no rule is rewritten" and to
+   "every other stylesheet" under "Files you must not change".
+2. **The navigation on the styleguide page is the same as on every page**, with its Feedback entry. The frozen
+   test's last check was too strict (it rejected a plain link to another site); the coordinator changed it, the new
+   blob id is in `frozen-tests.txt`.
+
 ## Builder's notes
 
 (the builder writes here: what was decided, what is open, what the verifier should look at)

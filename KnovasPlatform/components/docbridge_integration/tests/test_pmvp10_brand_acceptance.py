@@ -15,6 +15,10 @@ What is pinned:
 5. Body text and headings are set in the brand's sans face; nothing is loaded from outside the installation, and
    every font or image a stylesheet names is there.
 6. `/styleguide` shows the tokens to an administrator and to nobody else.
+
+Changed by the coordinator on 2026-11-20, after the first build: the last test rejected every outside address on
+the page, also a plain link in the navigation; it now looks only at what the page loads (stylesheets, scripts,
+images, frames).
 """
 from __future__ import annotations
 
@@ -236,4 +240,7 @@ def test_an_administrator_sees_the_tokens_by_name(admin_client):
     for name in SHOWN_ON_THE_STYLEGUIDE:
         assert name in page, f"{name} is not shown"
     assert "IBM Plex Sans" in page and "IBM Plex Mono" in page
-    assert not re.search(r"(?:src|href)=[\"'](?:https?:)?//", page), "the page loads something from outside"
+    loaded = re.findall(r"<(?:link|script|img|iframe|source|embed|object|video|audio)[^>]*>", page, flags=re.I)
+    for tag in loaded:                                      # a plain link to another site (<a href>) loads nothing
+        assert not re.search(r"(?:src|href|data)=[\"'](?:https?:)?//", tag, flags=re.I), (
+            "the page loads something from outside the installation")
