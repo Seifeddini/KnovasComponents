@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="de">
+{# /styleguide (PMVP-10): the Knovas brand tokens the Platform's styles take, each with its name and value, and the
+   plain parts that exist today. Administrators only (shell_routes.py). Every name and value comes from
+   shell_routes.styleguide_sections, which reads them from knovas-tokens.css and style.css; nothing is typed in
+   here. The page's own layout rules sit below and use tokens only: no colour is named in this file. #}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Styleguide · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <style>
+        .sg { display: flex; flex-direction: column; gap: var(--k-space-2xl); max-width: 1080px; padding-top: var(--k-space-lg); }
+        .sg-section > h2 { font-size: var(--k-text-xl); line-height: var(--k-leading-snug); color: var(--k-color-text-strong); }
+        .sg-lede { max-width: 72ch; margin: var(--k-space-2xs) 0 var(--k-space-md); font-size: var(--k-text-sm); color: var(--k-color-text-muted); }
+        .sg-sub { margin: var(--k-space-lg) 0 var(--k-space-xs); font-family: var(--k-font-sans); font-size: var(--k-text-2xs); font-weight: var(--k-weight-semibold); letter-spacing: var(--k-tracking-label); text-transform: uppercase; color: var(--k-color-text-muted); }
+        .sg-name, .sg-value { display: block; font-family: var(--k-font-mono); font-size: var(--k-text-xs); line-height: var(--k-leading-snug); overflow-wrap: anywhere; }
+        .sg-name { font-weight: var(--k-weight-medium); color: var(--k-color-text); }
+        .sg-value { color: var(--k-color-text-muted); }
+
+        .sg-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--k-space-sm); }
+        .sg-swatch { overflow: hidden; border: 1px solid var(--k-color-border); border-radius: var(--k-radius-lg); background: var(--k-color-surface); }
+        .sg-chip { display: block; height: 56px; border-bottom: 1px solid var(--k-color-border); }
+        .sg-swatch-text { display: block; padding: var(--k-space-xs) var(--k-space-sm) var(--k-space-sm); }
+
+        .sg-text-row { display: grid; grid-template-columns: minmax(170px, 1fr) repeat(3, minmax(0, 1.25fr)); gap: var(--k-space-sm); align-items: stretch; margin-bottom: var(--k-space-sm); }
+        .sg-text-cell { padding: var(--k-space-sm) var(--k-space-md); border: 1px solid var(--k-color-border); border-radius: var(--k-radius-lg); }
+        .sg-text-sample { display: block; font-size: var(--k-text-base); font-weight: var(--k-weight-medium); }
+        .sg-text-note { display: block; font-family: var(--k-font-mono); font-size: var(--k-text-xs); overflow-wrap: anywhere; }
+
+        .sg-rows { border: 1px solid var(--k-color-border); border-radius: var(--k-radius-lg); background: var(--k-color-surface); }
+        .sg-row { display: grid; grid-template-columns: minmax(150px, 190px) minmax(0, 1fr) minmax(0, 1fr); gap: var(--k-space-md); align-items: center; padding: var(--k-space-sm) var(--k-space-md); border-bottom: 1px solid var(--k-gray-100); }
+        .sg-row:last-child { border-bottom: 0; }
+        .sg-row--two { grid-template-columns: minmax(150px, 190px) minmax(0, 1fr); }
+        .sg-sample { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: var(--k-leading-snug); color: var(--k-color-text); }
+        .sg-sans { font-family: var(--k-font-sans); }
+        .sg-mono { font-family: var(--k-font-mono); }
+        .sg-weights { display: flex; flex-wrap: wrap; gap: var(--k-space-xs) var(--k-space-lg); min-width: 0; font-size: var(--k-text-lg); color: var(--k-color-text); }
+        .sg-bar { display: block; height: var(--k-space-sm); max-width: 100%; border-radius: var(--k-radius-xs); background: var(--k-color-accent); }
+
+        .sg-boxes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--k-space-xl) var(--k-space-lg); padding: var(--k-space-xs) 0; }
+        .sg-box { display: block; height: 64px; margin-bottom: var(--k-space-sm); background: var(--k-color-surface-sunken); border: 1px solid var(--k-color-border-strong); }
+        .sg-box--shadow { background: var(--k-color-surface); border: 0; border-radius: var(--k-radius-lg); }
+
+        .sg-parts { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--k-space-md); }
+        .sg-part { display: flex; flex-direction: column; gap: var(--k-space-sm); padding: var(--k-space-md); border: 1px solid var(--k-color-border); border-radius: var(--k-radius-lg); background: var(--k-color-surface); }
+        .sg-part-show { display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-sm); min-height: 48px; }
+        .sg-part-show .search-box { flex: 1; min-width: 0; margin-bottom: 0; }
+        .sg-part-show .login-form { flex: 1; min-width: 0; }
+        .sg-part-show #searchInput { min-width: 0; }
+        .sg-empty { margin-top: var(--k-space-sm); padding: var(--k-space-lg); border: 1px dashed var(--k-color-border-strong); border-radius: var(--k-radius-lg); font-size: var(--k-text-sm); color: var(--k-color-text-muted); }
+
+        .sg-table { width: 100%; border-collapse: collapse; }
+        .sg-table th { padding: 0 var(--k-space-md) var(--k-space-xs) 0; border-bottom: 1px solid var(--k-color-border); text-align: left; font-size: var(--k-text-2xs); font-weight: var(--k-weight-semibold); letter-spacing: var(--k-tracking-label); text-transform: uppercase; color: var(--k-color-text-muted); }
+        .sg-table td { padding: var(--k-space-xs) var(--k-space-md) var(--k-space-xs) 0; border-bottom: 1px solid var(--k-gray-100); vertical-align: top; }
+        .sg-table tr:last-child td { border-bottom: 0; }
+        .sg-table td:first-child { width: 14rem; }
+
+        @media (max-width: 720px) {
+            .sg-text-row, .sg-row, .sg-row--two { grid-template-columns: minmax(0, 1fr); gap: var(--k-space-xs); }
+            .sg-table, .sg-table tbody, .sg-table tr, .sg-table td { display: block; }
+            .sg-table thead { display: none; }
+            .sg-table td, .sg-table td:first-child { width: auto; padding: 0; border-bottom: 0; }
+            .sg-table tr { padding: var(--k-space-xs) 0; border-bottom: 1px solid var(--k-gray-100); }
+        }
+    </style>
+</head>
+<body>
+{% macro swatches(tokens) %}
+<div class="sg-swatches">
+    {% for t in tokens %}
+    <div class="sg-swatch">
+        <span class="sg-chip" style="background: var({{ t.name }})"></span>
+        <span class="sg-swatch-text">
+            <span class="sg-name">{{ t.name }}</span>
+            <span class="sg-value">{{ t.value }}{% if t.token %} · {{ t.token }}{% endif %}</span>
+        </span>
+    </div>
+    {% endfor %}
+</div>
+{% endmacro %}
+{% macro label(t) %}
+<span>
+    <span class="sg-name">{{ t.name }}</span>
+    <span class="sg-value">{{ t.value }}{% if t.pixels and t.pixels != t.value %} · {{ t.pixels }}{% endif %}</span>
+</span>
+{% endmacro %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+
+    <div class="app-content">
+        <div class="container">
+            <header class="site-header">
+                <h1 class="site-greeting">Styleguide<br>
+                    <span class="site-greeting-question">Farben, Schrift und Abstände der Plattform</span>
+                </h1>
+            </header>
+
+            <main class="sg">
+                <section class="sg-section" aria-labelledby="sg-farben">
+                    <h2 id="sg-farben">Farben</h2>
+                    <p class="sg-lede">Die Farben der Marke Knovas. Jede Seite der Plattform bezieht sie aus der Datei
+                        <span class="sg-mono">knovas-tokens.css</span>; die Werte hier werden aus dieser Datei gelesen.</p>
+
+                    <h3 class="sg-sub">Markenfarben</h3>
+                    {{ swatches(sg_brand) }}
+
+                    <h3 class="sg-sub">Statusfarben</h3>
+                    {{ swatches(sg_status) }}
+
+                    <h3 class="sg-sub">Flächen, Linien und Akzent</h3>
+                    {{ swatches(sg_surfaces) }}
+
+                    <h3 class="sg-sub">Neutrale Stufen</h3>
+                    {{ swatches(sg_neutrals) }}
+                </section>
+
+                <section class="sg-section" aria-labelledby="sg-text">
+                    <h2 id="sg-text">Textfarben auf den drei Flächen</h2>
+                    <p class="sg-lede">Jede Textfarbe auf dem Seitenhintergrund, auf einer Karte und auf einer
+                        zurückgesetzten Fläche, mit ihrem Kontrast. Lesbar ist Text ab 4.5 : 1.</p>
+                    {% for row in sg_text_rows %}
+                    <div class="sg-text-row">
+                        <span>
+                            <span class="sg-name">{{ row.text.name }}</span>
+                            <span class="sg-value">{% if row.text.token %}{{ row.text.token }} · {% endif %}{{ row.text.value }}</span>
+                        </span>
+                        {% for cell in row.cells %}
+                        <span class="sg-text-cell" style="background: var({{ cell.background.name }}); color: var({{ row.text.name }})">
+                            <span class="sg-text-sample">Mietvertrag Seefeldstrasse 48</span>
+                            <span class="sg-text-note">{{ cell.background.name }}{% if cell.background.token %} · {{ cell.background.token }}{% endif %}</span>
+                            <span class="sg-text-note">{{ cell.background.value }}{% if cell.ratio %} · Kontrast {{ cell.ratio }} : 1{% endif %}</span>
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% endfor %}
+                </section>
+
+                <section class="sg-section" aria-labelledby="sg-schrift">
+                    <h2 id="sg-schrift">Schrift</h2>
+                    <p class="sg-lede">Lauftext und Überschriften stehen in der Serifenlosen der Marke. Die
+                        Festbreitenschrift bleibt für Kennungen, Codes und Dateinamen. Beide Schriften liegen in der
+                        Installation; nichts kommt von einem fremden Server.</p>
+
+                    <h3 class="sg-sub">Schriften und Schnitte</h3>
+                    <div class="sg-rows">
+                        <div class="sg-row sg-row--two">
+                            {{ label(sg_faces[0]) }}
+                            <span class="sg-weights sg-sans">
+                                {% for w in sg_sans_weights %}
+                                <span><span style="font-weight: var({{ w.name }})">Knovas</span><span class="sg-value">{{ w.name }} · {{ w.value }}</span></span>
+                                {% endfor %}
+                            </span>
+                        </div>
+                        <div class="sg-row sg-row--two">
+                            {{ label(sg_faces[1]) }}
+                            <span class="sg-weights sg-mono">
+                                {% for w in sg_mono_weights %}
+                                <span><span style="font-weight: var({{ w.name }})">2026-0142</span><span class="sg-value">{{ w.name }} · {{ w.value }}</span></span>
+                                {% endfor %}
+                            </span>
+                        </div>
+                    </div>
+
+                    <h3 class="sg-sub">Schriftgrade</h3>
+                    <div class="sg-rows">
+                        {% for t in sg_type_scale %}
+                        <div class="sg-row">
+                            {{ label(t) }}
+                            <span class="sg-sample sg-sans" style="font-size: var({{ t.name }})">Mietvertrag Seefeldstrasse</span>
+                            <span class="sg-sample sg-mono" style="font-size: var({{ t.name }})">Nachtrag_2.pdf</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+
+                <section class="sg-section" aria-labelledby="sg-abstand">
+                    <h2 id="sg-abstand">Abstände</h2>
+                    <p class="sg-lede">Ein Raster von vier Pixeln.</p>
+                    <div class="sg-rows">
+                        {% for t in sg_spacing %}
+                        <div class="sg-row sg-row--two">
+                            {{ label(t) }}
+                            <span><span class="sg-bar" style="width: var({{ t.name }})"></span></span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+
+                <section class="sg-section" aria-labelledby="sg-radien">
+                    <h2 id="sg-radien">Radien</h2>
+                    <p class="sg-lede">Karten und Flächen sind stärker gerundet, Bedienelemente knapper.</p>
+                    <div class="sg-boxes">
+                        {% for t in sg_radii %}
+                        <div>
+                            <span class="sg-box" style="border-radius: var({{ t.name }})"></span>
+                            {{ label(t) }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+
+                <section class="sg-section" aria-labelledby="sg-schatten">
+                    <h2 id="sg-schatten">Schatten</h2>
+                    <p class="sg-lede">Schatten sind marineblau getönt, nie neutral schwarz.</p>
+                    <div class="sg-boxes">
+                        {% for t in sg_shadows %}
+                        <div>
+                            <span class="sg-box sg-box--shadow" style="box-shadow: var({{ t.name }})"></span>
+                            {{ label(t) }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+
+                <section class="sg-section" aria-labelledby="sg-teile">
+                    <h2 id="sg-teile">Bestehende Teile</h2>
+                    <p class="sg-lede">Schaltfläche, Textfeld und Link, wie die Seiten sie heute zeichnen, mit den
+                        Farben und der Schrift der Marke.</p>
+                    <div class="sg-parts">
+                        <div class="sg-part">
+                            <div class="sg-part-show">
+                                <button type="button" class="btn btn-primary">Suchen</button>
+                                <button type="button" class="btn btn-primary" disabled>Suchen</button>
+                            </div>
+                            <span><span class="sg-name">Schaltfläche, Hauptaktion</span><span class="sg-value">.btn .btn-primary</span></span>
+                        </div>
+                        <div class="sg-part">
+                            <div class="sg-part-show">
+                                <button type="button" class="btn btn-outline">Abmelden</button>
+                                <button type="button" class="btn btn-secondary">Zurück</button>
+                            </div>
+                            <span><span class="sg-name">Schaltfläche, weitere Aktion</span><span class="sg-value">.btn .btn-outline · .btn .btn-secondary</span></span>
+                        </div>
+                        <div class="sg-part">
+                            <div class="sg-part-show">
+                                <div class="search-box">
+                                    <input type="text" id="searchInput" placeholder="Durchsucht den Inhalt aller Dokumente"
+                                           aria-label="Textfeld der Suche">
+                                </div>
+                            </div>
+                            <span><span class="sg-name">Textfeld der Suche</span><span class="sg-value">#searchInput</span></span>
+                        </div>
+                        <div class="sg-part">
+                            <div class="sg-part-show">
+                                <div class="login-form">
+                                    <label for="sgLoginField">Benutzername</label>
+                                    <input type="text" id="sgLoginField" value="lea.brunner" autocomplete="off">
+                                </div>
+                            </div>
+                            <span><span class="sg-name">Textfeld der Anmeldung</span><span class="sg-value">.login-form input</span></span>
+                        </div>
+                        <div class="sg-part">
+                            <div class="sg-part-show">
+                                <a class="btn-text" href="#sg-farben">Zu den Farben</a>
+                                <a class="feedback-link" href="#sg-farben">Zu den Farben</a>
+                            </div>
+                            <span><span class="sg-name">Link</span><span class="sg-value">.btn-text · .feedback-link</span></span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="sg-section" aria-labelledby="sg-seitenteile">
+                    <h2 id="sg-seitenteile">Seitenteile</h2>
+                    <p class="sg-empty">Karte, Zeile, Reiter, Statuspunkt und Verweis-Chip folgen mit PMVP-12.
+                        Dieser Abschnitt ist bis dahin leer.</p>
+                </section>
+
+                <section class="sg-section" aria-labelledby="sg-namen">
+                    <h2 id="sg-namen">Die Namen der Plattform</h2>
+                    <p class="sg-lede">Die Stilregeln der Seiten verwenden diese Namen aus
+                        <span class="sg-mono">style.css</span>. Jeder bezieht seinen Wert aus einem Token der Marke.</p>
+                    <table class="sg-table">
+                        <thead>
+                            <tr><th scope="col">Name</th><th scope="col">bezieht</th><th scope="col">Wert</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for t in sg_platform %}
+                            <tr>
+                                <td><span class="sg-name">{{ t.name }}</span></td>
+                                <td><span class="sg-value">{{ t.written }}</span></td>
+                                <td><span class="sg-value">{{ t.value }}</span></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </section>
+            </main>
+        </div>
+    </div>
+</div>
+</body>
+</html>
