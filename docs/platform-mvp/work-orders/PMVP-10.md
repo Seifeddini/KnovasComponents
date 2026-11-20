@@ -118,9 +118,11 @@ If the work needs one of these, stop and write the reason under "Builder's notes
 
 ## Builder's notes
 
-Builder session of 2026-11-20 (AGENT-claude-code), `feat/pmvp-10` from `b9f31b7`: commits `1c9f9fc` (tokens, fonts,
-`style.css`), `62e67c7` (the page and the tests), `afdd675` (the card), and the one that carries these notes.
-Nothing here is verified by me; the numbers are what I saw.
+Builder session of 2026-11-20 (AGENT-claude-code), `feat/pmvp-10` from `b9f31b7`. First round: commits `1c9f9fc`
+(tokens, fonts, `style.css`), `62e67c7` (the page and the tests), `afdd675` (the card), `a625823` (notes). Second
+round, after the coordinator's "Changes to this order": `b425d24` (merge of `feat/platform-mvp` at `1268019`),
+`7c2536e` (mono for codes), `98de30e` (the navigation on the styleguide page), and the one that carries these
+notes. Nothing here is verified by me; the numbers are what I saw.
 
 ### What was built
 
@@ -128,12 +130,13 @@ Nothing here is verified by me; the numbers are what I saw.
 |---|---|
 | The tokens | `static/css/knovas-tokens.css`: the reference file, same git blob (`54cbe37`). One `@import url('knovas-tokens.css')` is the first rule of `style.css` |
 | The names | `style.css`, the `:root` block: all 22 names stay, each takes a brand token through `var(--k-…)`; one name is new, `--font-mono` |
-| Type | `--font-body` and `--font-heading` are `--k-font-sans`. `static/fonts/ibm-plex-sans-latin-700-normal.woff2` and `ibm-plex-mono-latin-500-normal.woff2`: the reference files, same blobs, with their `@font-face` rules |
+| Type | `--font-body` and `--font-heading` are `--k-font-sans`. `static/fonts/ibm-plex-sans-latin-700-normal.woff2` and `ibm-plex-mono-latin-500-normal.woff2`: the reference files, same blobs, with their `@font-face` rules. Second round: 16 rules that set codes, ids, file names and diffs ask for `--font-mono` |
 | The page | `shell_routes.py` (blueprint `shell`, `GET /styleguide`), `templates/styleguide.html`, 7 lines of wiring in `app.py` after the console's blueprint |
-| Tests of the builder | `tests/test_shell_tokens.py` (63, no database), `tests/test_shell_styleguide.py` (13) |
+| Tests of the builder | `tests/test_shell_tokens.py` (88, no database), `tests/test_shell_styleguide.py` (14) |
 | The card | `L2-platform-shell.card.yaml`, its page, `boundaries.yaml` |
 
-No rule below the `:root` block of `style.css` changed, no other stylesheet, no script, no existing template.
+No script and no existing template changed. Below the `:root` block of `style.css` and in the other stylesheets
+one thing changed, by the order's change 1: one word in each of 16 rules (see "Mono for codes").
 
 ### What I decided, and why (the verifier should look here first)
 
@@ -157,14 +160,14 @@ No rule below the `:root` block of `style.css` changed, no other stylesheet, no 
    | `--radius-lg` | `--k-radius-lg` 12px | 8px | cards and panels: the reference's `.card`, `.state`, `.note` |
    | `--gutter` | `calc(var(--k-space-md) + var(--k-space-2xs))` = 20px | 20px | see 3 |
    | `--pad-section` | `var(--k-space-md) var(--gutter)` = 16px 20px | 16px 20px | see 3 |
-   | `--font-mono` (new) | `--k-font-mono` | | see "Stopped on" |
+   | `--font-mono` (new) | `--k-font-mono` | | the name the rules for codes ask for; see "Mono for codes" |
 
    The two triples are numbers, not `var()`: the brand has no token that holds a triple. The frozen test checks them
    against their colours.
 3. **The paddings stay at 20px.** The reference screens name no spacing token (`.card{padding:16px 18px}`), and the
    brand's grid has no 20px step. `var(--k-space-lg)` (24px) would have split one container against itself: `.admin`
    takes `--gutter` at full width (`admin.css:22`) and a written 20px below 900 pixels (`admin.css:1506`), and the
-   other pages' `.container` writes its 20px too (`style.css:154`). So the value stays and is written as a sum of
+   other pages' `.container` writes its 20px too (`style.css:153`). So the value stays and is written as a sum of
    two tokens. If a sum is not wanted, the alternative is to leave the two names as plain lengths.
 4. **The two font files keep the brand's file names** and are its Latin subsets (232 and 229 characters). The five
    files the Platform had hold 895 (sans) and 1,049 (mono): Latin Extended, Greek, Cyrillic, arrows. Each new face
@@ -180,9 +183,9 @@ No rule below the `:root` block of `style.css` changed, no other stylesheet, no 
    files do not declare raises, and `test_the_page_fails_when_a_shown_token_leaves_the_tokens_file` holds that.
    Beside what the work order lists, the page has a table "Die Namen der Plattform": the Platform's 23 names with
    the token each takes.
-6. **The sidebar's Feedback entry is not drawn on `/styleguide`.** It is a link to Jira, and the frozen test
-   refuses every `href` that points outside, not only what the page loads. The route sets `feedback_url` to nothing
-   for this page. The coordinator may prefer the entry there and a test that tells a link from a load.
+6. **The navigation on `/styleguide` is the one every page has**, with its Feedback entry (the order's change 2).
+   In the first round the route left the entry out, because the frozen check then refused every outside `href`;
+   that line of the route is gone.
 7. **The gate is written out in `shell_routes.py`** in the words of the console's `require_admin`. That one is
    built inside `create_admin_blueprint` and cannot be imported, and `admin.py` is not this item's file. Two copies
    of one rule (review entry on the card).
@@ -192,48 +195,67 @@ No rule below the `:root` block of `style.css` changed, no other stylesheet, no 
    (`N-1`), as the console's routes have theirs. `create_shell_blueprint` has no line, as the console's factory has
    none (review entry). I added `R-3` (the styleguide) and reworded `R-2`.
 
-### Stopped on (not changed; each needs somebody's decision)
+### Mono for codes (the order's change 1, second round)
 
-1. **Codes, ids and file names that took the mono face through `--font-heading` are now set in the sans.** The work
-   order says the mono face stays for them "where the pages use it today through its own class or variable". The
-   Platform had no variable of its own for the mono face: these rules ask for `var(--font-heading)`, the frozen test
-   pins that name to IBM Plex Sans, and no rule may be rewritten here. The rules (line numbers after this change):
-   - `style.css`: 533 `.document-metaline`, 1407 `.app-avatar`, 1434 `.settings-list dt`, 1442
-     `.settings-list dd.mono` (build ids)
-   - `admin.css`: 366 `.check-ms`, 403 `.admin-pre` (a `<pre>`), 425 `.danger-zone input[type=text]`, 434
-     `.danger-zone code`, 533 `input.folder-path`, 826 `.ptr` (pointers), 925 `.document-status`, 1063
-     `.person-avatar`
-   - `views.css`: 49 `.views-asof`, 309 `.views-tile-count`, 331 `.views-diff` (a diff, where columns matter), 429
-     `.views-docs-box-key`
-   - `experiments.css`: 48 `.kx-mono`, 278 `.kx-chip--lang`, 293 `.kx-tag`, 400 `.kx-code`, 572 `.kx-count`, 699
-     `.kx-key`, 807 `.kx-pre`, 829 `.kx-markdown code`, 1164 `.kx-fieldlist dt`, 1621 `.kx-token-box code`
-   - `custom_views.css`: 161 `.cv-mono`
+The first round stopped here: codes, ids and file names took the mono face through `var(--font-heading)`, the
+frozen test pins that name to the sans, and no rule could be rewritten. The order now allows the one word. In 16
+rules `var(--font-heading)` became `var(--font-mono)`; nothing else in them changed. For each rule I looked at what
+the templates and scripts put into it.
 
-   The repair is one word per rule, `var(--font-heading)` to `var(--font-mono)`; the name is declared for it. It
-   belongs to PMVP-12 or to a follow-up of its own; `.views-diff`, `.admin-pre`, `.kx-pre` and `.kx-code` are the
-   ones a person will notice. The mono face stays where a rule names it itself: `style.css:1167`
-   (`.preview-body code`), `admin.css:1884`, `ontology.css:1729` and `1754`.
-2. **The Cortex page keeps its own colours and type.** `ontology.css:91-109` declares eleven of the Platform's
+| Stylesheet | Changed | The rules (line, what the rule sets) |
+|---|---|---|
+| `style.css` | 1 | 1441 `.settings-list dd.mono` (build id, asset version) |
+| `admin.css` | 6 | 403 `.admin-pre` (a command in a `<pre>`); 425 `.danger-zone input[type=text]` (the tenant id, typed to confirm); 434 `.danger-zone code` (the tenant id); 533 `input.folder-path` (folder paths); 826 `.ptr` (pointers); 925 the chips' rule `.role-chip, .access-chip, .document-status` (role ids, access-group ids, a document's status code) |
+| `views.css` | 2 | 331 `.views-diff` (a diff); 429 `.views-docs-box-key` (a box's key) |
+| `experiments.css` | 6 | 48 `.kx-mono` (keys, ids, commit hashes); 400 `.kx-code`; 699 `.kx-table a.kx-key-link, .kx-key` (experiment keys); 807 `.kx-pre`; 829 `.kx-markdown code`; 1621 `.kx-token-box code` (a token) |
+| `custom_views.css` | 1 | 161 `.cv-mono` (a view's id) |
+
+Two corrections to my first list. Its entry `admin.css:925 .document-status` is a rule with three selectors; the role
+and access-group chips are in it, and they hold ids, so the rule changed as one. (`.access-chip` also carries two
+words, "offen" and "besonders schützenswert".) And the list said 27 rules "set codes, ids and file names"; looked at
+one by one, 11 of them do not:
+
+**Left with `--font-heading`, 11 rules.** What they set is no code, id, file name or diff, and no heading either.
+They are in the sans now. Say if any of them should be mono.
+
+| Rule | What it sets |
+|---|---|
+| `style.css:532` `.document-metaline` | the small label line of a search hit: the format and the date, or "Experiment", its domain and status |
+| `style.css:1406` `.app-avatar`, `admin.css:1063` `.person-avatar` | an initial in a circle |
+| `style.css:1433` `.settings-list dt`, `experiments.css:1164` `.kx-fieldlist dt` | the labels of a list of facts |
+| `admin.css:366` `.check-ms` | a duration in milliseconds |
+| `views.css:49` `.views-asof` | the time the data is from |
+| `views.css:309` `.views-tile-count`, `experiments.css:572` `.kx-count` | a count |
+| `experiments.css:278` `.kx-chip--lang` | an evaluator's language, or "eingebaut", as a chip |
+| `experiments.css:293` `.kx-tag` | keywords (Schlagworte); in two tables group names |
+
+The other 25 rules with `var(--font-heading)` in these five stylesheets set headings, titles and navigation; they
+keep it. The mono face also stays where a rule names it itself: `style.css:1166` (`.preview-body code`),
+`admin.css:1884`, `ontology.css:1729` and `1754`. `test_shell_tokens.py` holds the 16 rules by their selectors (19)
+and five headings.
+
+### Left as they are (the coordinator records both as follow-ups)
+
+1. **The Cortex page keeps its own colours and type.** `ontology.css:91-109` declares eleven of the Platform's
    names again for that page (`--primary-color: #2859cd`, `--accent`, `--highlight`, `--callout`, the text colours,
    border, card, sunken surface, and fonts that are not installed: Inter and SFMono). Before and after differ in
-   1.5 % of the pixels there. Another stylesheet, not changed.
-3. **The Builder's pages do not load `style.css`**; they have tokens of their own (`css/builder/tokens.css`, Royal
-   Blue `#1A45C7`). Before and after are the same picture, pixel for pixel. Whether the Builder takes the brand
-   tokens is PMVP-50 to 54's question or PMVP-12's.
+   1.5 % of the pixels there.
+2. **The Builder's pages do not load `style.css`**; they have tokens of their own (`css/builder/tokens.css`, Royal
+   Blue `#1A45C7`). Before and after are the same picture, pixel for pixel.
 
 ### Clashes: a rule's own colour beside the brand's (for PMVP-12 and PMVP-40)
 
-Line numbers after this change. "Old" means a value of the palette `style.css` had before.
+Line numbers at the branch's head (second round). "Old" means a value of the palette `style.css` had before.
 
 **`style.css`** (18 of its 28 literals are not the brand's)
-- toasts in the old palette: 1260-1262 `.toast--error`, 1266-1268 `.toast--success`, 1272-1274 `.toast--info`
+- toasts in the old palette: 1259-1261 `.toast--error`, 1265-1267 `.toast--success`, 1271-1273 `.toast--info`
   (`#12308C` on `#E9EDFB`, a blue beside the new one)
-- old green and red as text: 1943 `.platform-settings-ok` `#1a6b4a`, 1944 `.platform-settings-error` `#be123c`,
-  673 `.badge-error` and 784 `.login-error` `#991b1b`, 783 `#fecaca`
-- 492 `.document-thumb::after`: a fade to `rgba(253, 253, 253, 0)`, the old off-white, on a page that is now white
-- shadows that are not the brand's navy tint: 847, 1251 `rgba(7, 23, 45, …)`
-- 1949 `.sync-table` `#e5e7eb` (a neutral grey; the brand's are cool)
-- not a clash, but literals: 1495-1497 `.admin .tabs a` write `#475569`, `#0f172a`, `#e2e8f0`, which are the
+- old green and red as text: 1942 `.platform-settings-ok` `#1a6b4a`, 1943 `.platform-settings-error` `#be123c`,
+  672 `.badge-error` and 783 `.login-error` `#991b1b`, 782 `#fecaca`
+- 491 `.document-thumb::after`: a fade to `rgba(253, 253, 253, 0)`, the old off-white, on a page that is now white
+- shadows that are not the brand's navy tint: 846, 1250 `rgba(7, 23, 45, …)`
+- 1948 `.sync-table` `#e5e7eb` (a neutral grey; the brand's are cool)
+- not a clash, but literals: 1494-1496 `.admin .tabs a` write `#475569`, `#0f172a`, `#e2e8f0`, which are the
   brand's gray-600, gray-900 and gray-200
 
 **`admin.css`** (53 of 57), for PMVP-40
@@ -273,7 +295,8 @@ Line numbers after this change. "Old" means a value of the palette `style.css` h
 - With accounts on, the sign-in page's first field is `type="email"`, which `.login-form input[type="text"]` does
   not match: it has the browser's look. Before and after.
 - At 390 pixels these scroll sideways, before and after alike: search results (423), Personen (537), settings
-  (530), System (597 before, 537 after). No page scrolls sideways that did not before; `/styleguide` does not.
+  (530), System (597; 537 in the first round, while its `<pre>` was in the sans) and Ansichten. No page scrolls
+  sideways that did not before; `/styleguide` does not.
 
 ### Literal colours per stylesheet
 
@@ -316,54 +339,65 @@ be kept.
 - `colours.py`, `clashes.py` and their output; `woff2cmap.js` and its output; the map-check reports; the two suite
   runs.
 
-What I saw: all seven faces load on `/styleguide`. On the pages that take the base styles' names (sign-in, search,
-the console, settings, Ansichten, the styleguide) body text and `h1` compute to IBM Plex Sans and the body colour to
+Second round, `after2-*.png` at 1440 and 390: `admin-people` (the role chips), `admin-system` (the `<pre>`),
+`settings` (the build id), `search-results`, `styleguide` (the sidebar with its Feedback entry) and
+`views-diff-sample`. I could not reach the diff on its real screen: the change-request screen of Ansichten needs a
+definitions bundle and a repository, which the screenshot server's fake Knovas does not give. `views-diff-sample`
+is `/views` with one `<pre class="views-diff">` put into the page by the screenshot script, drawn by the page's
+own stylesheets; a line on the picture says so. The second round's facts file has the computed face per element:
+IBM Plex Mono for `.role-chip`, `.admin-pre`, `.settings-list dd.mono` and `.views-diff`, IBM Plex Sans for the
+ones left.
+
+What I saw in the first round: all seven faces load on `/styleguide`. On the pages that take the base styles'
+names (sign-in, search, the console, settings, Ansichten, the styleguide) body text and `h1` compute to IBM Plex Sans and the body colour to
 `rgb(30, 41, 59)`; before, `h1` was IBM Plex Mono on sign-in, search, settings and Ansichten. The pages' layout did
 not move. Cortex computes to its own (`Inter`, `rgb(32, 40, 59)`), the Builder to its own, both as before.
 
 ### Checks
 
-- **Frozen.** `tests/test_pmvp10_brand_acceptance.py`: 33 passed, none skipped (database
-  `knovas_platform_test_pmvp10`, `PLATFORM_DB_REQUIRED=true`), at `afdd675`. The check of `frozen-tests.txt`: five
-  lines, all OK.
-- **The builder's tests.** 76 passed: `test_shell_tokens.py` 63, `test_shell_styleguide.py` 13.
+Second round, at `98de30e` (the head before these notes), in this worktree.
+
+- **Frozen.** `tests/test_pmvp10_brand_acceptance.py`, the coordinator's changed file: 33 passed, none skipped
+  (database `knovas_platform_test_pmvp10`, `PLATFORM_DB_REQUIRED=true`). The check of `frozen-tests.txt`: five
+  lines, all OK, with the file's new blob id.
+- **The builder's tests.** 102 passed: `test_shell_tokens.py` 88, `test_shell_styleguide.py` 14.
 - **The whole suite** (`py -3 -m pytest -q -p no:cacheprovider --continue-on-collection-errors`):
 
   | | Passed | Failed | Errors | Skipped | xfailed, xpassed | Files that do not collect |
   |---|---|---|---|---|---|---|
-  | base `b9f31b7` | 6,243 | 137 | 6 | 40 | 8, 1 | 4 |
-  | after | 6,349 | 107 | 6 | 40 | 8, 1 | 4 |
+  | base | 6,243 | 137 | 6 | 40 | 8, 1 | 4 |
+  | first round, tree `8a6de78` | 6,349 | 107 | 6 | 40 | 8, 1 | 4 |
+  | second round, `98de30e` | 6,375 | 107 | 6 | 40 | 8, 1 | 4 |
 
-  Every failing id of the after run fails at the base too. The 30 ids that left are the frozen file's (3 of its 33
-  passed at the base already). No new failing id. The 106 more that pass are those 30 and the builder's 76. What
-  still fails does so on both runs, in 18 files (the largest groups: `test_experiments_frontend.py` 23,
+  Every failing id of the second round fails at the base too. The 30 ids that left are the frozen file's (3 of its
+  33 pass at the base). No new failing id. The 132 more that pass are those 30 and the builder's 102. What still
+  fails does so on all three runs, in 18 files (the largest groups: `test_experiments_frontend.py` 23,
   `test_github_write.py` 20, `test_sync_component_github_v2.py` 10, `test_builder_assistant.py` 9); I did not look
   into why, beyond `test_german_text.py` (no `snowballstemmer` on this machine). The six errors are
   `test_experiments_schema.py::test_deep_nesting_in_text_is_a_validation_error`. The four files that do not collect:
   `test_pmvp03_harness_acceptance.py` and the two PMVP-20 frozen files (expected), and
   `test_experiments_runner_client.py` (an `AttributeError` on `socket`). The id lists are in the evidence folder
-  (`reports/base-failing-ids.txt`, `after-failing-ids.txt`).
+  (`reports/base-failing-ids.txt`, `after-failing-ids.txt`, `after2-failing-ids.txt`).
 
-  Where they ran: the base in this worktree before any change, with a database of its own. The after run in a
-  second checkout of the branch, in the scratchpad, while the base run was still going (the two runs took an hour
-  and three quarters each); that checkout is removed. It ran on tree `8a6de78`. The branch's head differs from that
-  tree in one file, `tests/test_shell_styleguide.py` (the test now sets the Feedback address itself, so it does not
-  depend on the machine's environment); its 13 tests, the other 63 and the frozen 33 were run again at the head.
-- **The card.** `card check`: 15 cards, 0 errors, 0 warnings. `card render --check`: 0 not current.
-  `map-check --scope touched`, base `origin/feat/platform-mvp`, head `afdd675`: problems 0, declared 0. Findings
-  inside the scope: `need_added` on `L2-PLATFORM-SHELL/http.GET.styleguide/N-1` (the new operation's own line; it
-  has no consumer) and `no_contract` on `call.web_interface.shell_routes.create_shell_blueprint` (decision 9).
-  Reported beside them: `app.py` touched without a card (the wiring; the web app has none). Outside the scope: 6
-  cards over budget, as at the base, and 322 from `complete` (321 at the base; the one more is that `app.py`
-  line). Run from a KnowledgeBase checkout's `scripts/`, read only; nothing reached a tenant.
-- The two test databases are dropped.
+  The base: the whole suite ran at `b9f31b7`, before any change. The base is now `1268019`; between the two,
+  nothing under `KnovasPlatform/` changed but the frozen file. I ran that file alone at `1268019` (30 failed, 3
+  passed, the same 30 ids) and did not run the other 6,402 tests a second time.
+- **The card.** Unchanged in the second round. `card check`: 15 cards, 0 errors, 0 warnings. `card render --check`:
+  0 not current. `map-check --scope touched`, base `origin/feat/platform-mvp` (`1268019`), head `98de30e`:
+  problems 0, declared 0. The scope is now two cards, because `admin.css` is the Admin card's file. Findings inside
+  the scope: `need_added` on `L2-PLATFORM-SHELL/http.GET.styleguide/N-1` (the new operation's own line; it has no
+  consumer) and `no_contract` on `call.web_interface.shell_routes.create_shell_blueprint` (decision 9); and three
+  of the Admin card that PMVP-01 listed and this item did not cause: `over_budget` (24,232 tokens) and
+  `no_contract` on its two calls. Reported beside them: `app.py` touched without a card (the wiring; the web app
+  has none). Outside the scope: 5 cards over budget and 320 from `complete`. Run from a KnowledgeBase checkout's
+  `scripts/`, read only; nothing reached a tenant.
+- The test databases are dropped, and the two temporary checkouts in the scratchpad are removed.
 
 ### Open, for the coordinator
 
-- The three things under "Stopped on", the first above all.
-- Decision 6 (the Feedback entry) and decision 3 (the sum for the 20px).
-- The whole suite's "after" run was made in a second checkout of the branch, in the scratchpad, while the base run
-  was still going in the worktree, and one test file changed after it; see Checks.
+- The 11 rules left with `--font-heading` ("Mono for codes"): say if any should be mono.
+- Decision 3 (the sum for the 20px).
+- The whole suite's base: see Checks.
 - A trap for whoever shares a test database: the migrations put the `citext` extension into the first schema that
   asks. A process that is killed (not stopped) leaves its schema behind with the extension in it, and every later
   test in that database fails with `type "citext" does not exist` until the schema is dropped. It happened to me
