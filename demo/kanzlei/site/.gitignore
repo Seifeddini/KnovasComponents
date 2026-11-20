@@ -1,0 +1,4 @@
+# Secrets and host-specific paths: created by init-site.sh, never committed.
+.env
+*.secret
+secrets/

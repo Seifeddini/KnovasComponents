@@ -1,0 +1,43 @@
+{
+  "realm": "AD.QUARZFELS.EXAMPLE",
+  "dns_domain": "ad.quarzfels.example",
+  "netbios": "QUARZFELS",
+  "share": {"name": "shares$", "comment": ""},
+  "database": "KanzleiDB",
+  "users": [
+    {"sam": "mbaer", "key": "P01", "given": "Markus", "surname": "Bär", "display": "Dr. iur. Markus Bär",
+     "mail": "mb@quarzfels.example", "title": "Rechtsanwalt, Partner", "department": "Partner",
+     "telephone": "+41 44 210 17 01", "enabled": true, "service": false, "description": ""},
+    {"sam": "aroth", "key": "P02", "given": "Andrea", "surname": "Roth", "display": "lic. iur. Andrea Roth",
+     "mail": "ar@quarzfels.example", "title": "Rechtsanwältin, Partnerin", "department": "Partner",
+     "telephone": "+41 44 210 17 02", "enabled": true, "service": false, "description": ""},
+    {"sam": "lmueller", "key": "A01", "given": "Lukas", "surname": "Müller", "display": "MLaw Lukas Müller",
+     "mail": "lm@quarzfels.example", "title": "Rechtsanwalt", "department": "Associates",
+     "telephone": "+41 44 210 17 11", "enabled": true, "service": false, "description": ""},
+    {"sam": "nkeller", "key": "S01", "given": "Nina", "surname": "Keller", "display": "Nina Keller",
+     "mail": "nk@quarzfels.example", "title": "Anwaltsassistentin", "department": "Sekretariat",
+     "telephone": "+41 44 210 17 20", "enabled": true, "service": false, "description": ""},
+    {"sam": "szuercher", "key": "A02", "given": "Simon", "surname": "Zürcher", "display": "MLaw Simon Zürcher",
+     "mail": "sz@quarzfels.example", "title": "Substitut", "department": "Associates",
+     "telephone": "", "enabled": false, "service": false, "description": "Ausgetreten 31.03.2022"},
+    {"sam": "svc-knovas", "key": "X01", "given": "", "surname": "", "display": "Knovas Connector",
+     "mail": "", "title": "", "department": "", "telephone": "", "enabled": true, "service": true,
+     "description": "Lesekonto Knovas Connector"},
+    {"sam": "svc-backup", "key": "X02", "given": "", "surname": "", "display": "Backup",
+     "mail": "", "title": "", "department": "", "telephone": "", "enabled": true, "service": true,
+     "description": "Konto der Backup-Software"},
+    {"sam": "svc-scan", "key": "X03", "given": "", "surname": "", "display": "Scanner",
+     "mail": "", "title": "", "department": "", "telephone": "", "enabled": true, "service": true,
+     "description": "Multifunktionsgerät, Scan-to-Folder"}
+  ],
+  "groups": [
+    {"name": "GG_Partner", "description": "Partner", "members": ["mbaer", "aroth"], "member_groups": []},
+    {"name": "GG_Associates", "description": "Angestellte Anwältinnen und Anwälte",
+     "members": ["lmueller", "szuercher"], "member_groups": []},
+    {"name": "GG_Anwaelte", "description": "Alle Anwältinnen und Anwälte",
+     "members": [], "member_groups": ["GG_Partner", "GG_Associates"]},
+    {"name": "GG_Sekretariat", "description": "Sekretariat", "members": ["nkeller"], "member_groups": []},
+    {"name": "GG_Alle", "description": "Alle Mitarbeitenden",
+     "members": ["svc-knovas"], "member_groups": ["GG_Anwaelte", "GG_Sekretariat"]}
+  ]
+}

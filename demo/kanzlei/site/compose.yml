@@ -1,0 +1,83 @@
+# Synthetic law-firm site: AD domain controller + file server (dc) and SQL Server (sql) on a fixed network.
+# Start with up.sh, fill with load.sh, check with smoke.sh. Secrets and host paths come from .env (init-site.sh).
+name: demo-kanzlei
+
+x-site-image: &site-image
+  image: demo-kanzlei/site:1
+  env_file: .env
+
+networks:
+  kanzlei:
+    name: demo-kanzlei-net
+    ipam:
+      config:
+        - subnet: 172.28.215.0/24
+          ip_range: 172.28.215.128/25     # dynamic addresses stay clear of the fixed .10 and .20
+          gateway: 172.28.215.1
+
+volumes:
+  dc-state: {}      # /var/lib/samba: the AD database, idmap, smb.conf copy
+  share: {}         # the file share (named volume: needs xattrs and POSIX ACLs)
+  sql-data: {}      # /var/opt/mssql
+
+services:
+  dc:
+    <<: *site-image
+    build: ./image
+    hostname: SRV-DC01
+    cap_add: [SYS_ADMIN]                  # Samba writes NT ACLs (security.* xattrs) on sysvol
+    networks:
+      kanzlei: { ipv4_address: 172.28.215.10 }
+    volumes:
+      - dc-state:/var/lib/samba
+      - share:/srv/shares
+      - ${DEMO_SITE_DIR:?run init-site.sh}:/in/site:ro
+    command: ["/opt/site/dc-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "/opt/site/dc-health.sh"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 300s
+      start_interval: 3s
+
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    hostname: SRV-SQL01
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${PW_SA:?run init-site.sh}
+      MSSQL_MEMORY_LIMIT_MB: "2048"
+    networks:
+      kanzlei: { ipv4_address: 172.28.215.20 }
+    volumes:
+      - sql-data:/var/opt/mssql
+    healthcheck:                          # healthy only when every database has finished starting up (recovery)
+      test: ["CMD-SHELL", "SQLCMDPASSWORD=\"$$MSSQL_SA_PASSWORD\" /opt/mssql-tools18/bin/sqlcmd -C -b -S localhost -U sa -o /dev/null -Q \"IF EXISTS (SELECT 1 FROM sys.databases WHERE state <> 0 OR DATABASEPROPERTYEX(name, 'Collation') IS NULL) RAISERROR('databases still starting', 16, 1)\""]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+      start_interval: 3s
+
+  loader:                                 # one-shot: load.sh / reset.sh run it
+    <<: *site-image
+    profiles: ["load"]
+    networks: [kanzlei]
+    volumes:
+      - share:/srv/shares
+      - ${DEMO_SHARE_DIR:?run init-site.sh}:/in/share:ro
+      - ${DEMO_SITE_DIR:?run init-site.sh}:/in/site:ro
+    entrypoint: ["/opt/site/loader.sh"]
+
+  client:                                 # smoke.sh runs its checks from here
+    <<: *site-image
+    profiles: ["tools"]
+    dns: [172.28.215.10]                  # AD names resolve through the dc
+    networks: [kanzlei]
+    volumes:
+      - share:/srv/shares:ro
+      - ${DEMO_SHARE_DIR:?run init-site.sh}:/in/share:ro
+      - ${DEMO_SITE_DIR:?run init-site.sh}:/in/site:ro
+    command: ["python3", "/opt/site/smoke.py"]
