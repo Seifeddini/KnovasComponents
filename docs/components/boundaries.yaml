@@ -127,6 +127,63 @@ components:
     why: >-
       The release workflow and its only helper. The CI workflow (ci.yml) and the other files in scripts/ci/ check
       pull requests; they release nothing and stay outside.
+  # --- L1-WORKSPACE: the Platform's user-facing parts (the founder, 2026-11-19, DEC-0083; carded by PMVP-01 of
+  # FEAT-2026-11-19-platform-mvp). Each component is a set of files inside the Platform's web app: the longest path
+  # wins, so the rest of web_interface/ and identity/ stays with not_carded below.
+  L2-PLATFORM-ASSISTANT:
+    card: L2-platform-assistant.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/assistant
+      - KnovasPlatform/components/docbridge_integration/src/identity/chats.py
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0026_assistant_chats.sql
+    why: >-
+      The Knovas Assistent: its service package (src/assistant/, on feat/pmvp-20 and not yet on this branch, so the
+      path holds nothing today) and its chat storage. chats.py and migration 0026 sit in identity/ because the
+      Platform's migrations run from there, but they exist only for the assistant's past chats (PMVP-21) and nothing
+      else reads them; the rest of identity/ is sign-in, roles and audit. The assistant's page routes (PMVP-22a) join
+      when they exist. knovas_client.py, which the service calls and which imports its error types, stays with the
+      web app.
+  L2-PLATFORM-BRAIN-VIEWS:
+    card: L2-platform-brain-views.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/brain_views
+    why: >-
+      The members' views (dossier, evidence trail, process line) are a new module (plan § 5.2), written by PMVP-30a
+      to PMVP-34; the path holds nothing yet. The modellers' views (graph_views/, views_routes.py, ontology_graph.py,
+      custom_views/) are not part of it: they read the tenant's whole edge list and have no 25-node limit, which this
+      card's promises forbid.
+  L2-PLATFORM-SHELL:
+    card: L2-platform-shell.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_sidebar.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/style.css
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/fonts
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/img
+    why: >-
+      The frame every page shares: the navigation partial, the one stylesheet every page loads (it also holds the
+      styles of pages no card holds yet), the self-hosted fonts and the logo. No Python: which links a person gets is
+      computed in app.py, which stays with the web app. PMVP-10 to PMVP-12 add a base template, the brand tokens and
+      the shared page parts here.
+  L2-PLATFORM-ADMIN:
+    card: L2-platform-admin.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_approvals.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/guarded.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_admin_tabs.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_people.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access_groups.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_documents.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_approvals.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_people.js
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_documents.js
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/admin.css
+    why: >-
+      The console's blueprint with its role gates (admin.py), the people, documents, access-group and folder-rule
+      pages and the approvals that PMVP-40 to PMVP-42 change, and guarded.py, which only console modules call. The
+      other console modules mounted on the same blueprint (admin_ingestion.py, admin_doc_fields.py, admin_system.py)
+      and their pages are not changed by the plan and stay with the web app for now; admin.css styles them too.
   EXT-BRAIN-API:
     card: EXT-brain-api.card.yaml
     paths: []
@@ -151,13 +208,16 @@ components:
 # reader reports what it offers as held by no card (map-check's `unowned`).
 not_carded:
   - path: KnovasPlatform/components/docbridge_integration/src/web_interface
-    why: The Platform's web app (search, documents, settings, admin); it registers the Builder's blueprints. Touched to
-      wire the Builder and to name no tenant in its defaults.
+    why: The Platform's web app (search, documents, settings, the other console pages, the views' routes); it registers
+      the Builder's and the console's blueprints and computes the sidebar's links. Touched to wire the Builder and to
+      name no tenant in its defaults. The shell's and the console's files are carded (L1-WORKSPACE, PMVP-01).
   - path: KnovasPlatform/components/docbridge_integration/src/identity
     why: Sign-in, roles, audit and the migration ledger the Builder's migrations run in. Touched by the defaults change
-      and an audit fix (beside the Builder's own migrations, which the Builder's card holds).
+      and an audit fix (beside the Builder's own migrations, which the Builder's card holds, and the assistant's chat
+      storage, which the assistant's card holds).
   - path: KnovasPlatform/components/docbridge_integration/src/graph_views
-    why: The views (Ansichten). Touched only so that their defaults name no tenant.
+    why: The views (Ansichten), for people who model the Brain. Touched only so that their defaults name no tenant.
+      Not the members' Brain views (L2-PLATFORM-BRAIN-VIEWS), whose promises their whole-edge-list read could not keep.
   - path: KnovasPlatform/components/docbridge_integration/src/brain_sync
     why: The Platform's own sync of a configuration package (the GitHub runner the Builder shows through an adapter).
       Touched by an audit fix.

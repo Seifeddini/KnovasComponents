@@ -1,0 +1,222 @@
+card: 2
+id: L2-PLATFORM-ASSISTANT
+name: Knovas Assistent
+kind: code
+owner: ROLE-ENGINE-OWNER
+status: planned
+level: 2
+parent: L1-WORKSPACE
+source_paths:
+- KnovasPlatform/components/docbridge_integration/src/assistant
+- KnovasPlatform/components/docbridge_integration/src/identity/chats.py
+- KnovasPlatform/components/docbridge_integration/src/identity/migrations/0026_assistant_chats.sql
+purpose: The one company assistant of the Platform's Workspace, which answers a signed-in person's question only from the passages that person's own search returns, shows only statements whose references it could check, and keeps that person's past chats.
+responsible_for:
+- id: L2-PLATFORM-ASSISTANT/R-1
+  aliases:
+  - RESP-01
+  statement: Answers a signed-in person's question from passages the Brain returned to that person, with a checked reference per statement.
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/assistant
+- id: L2-PLATFORM-ASSISTANT/R-2
+  statement: 'Past chats (W-07): what a person asked and the answers as they were shown, with their references, stored in the Platform''s own database in new tables only, listed, opened and deleted by their owner only (plan § 5.2).'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/identity/chats.py
+  - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0026_assistant_chats.sql
+not_responsible_for:
+- Reading documents any other way than through the person's own search; there is no second way (plan § 5.2, step 2).
+- Deciding who may see a document; the Brain's search does, as the signed-in person.
+- The search page and the document view; they belong to the Platform's web app.
+- Opening a document from a reference; the web app's file routes serve what retrieval handed the person.
+terms:
+- reference (a number in an answer that points to a passage retrieved for this person in this chat)
+- passage (a hit's verbatim text that the person's search returned, numbered in search order)
+- chat (one person's questions and the answers as they were shown, with their references)
+contract:
+  '*':
+    needs:
+    - id: L2-PLATFORM-ASSISTANT/*/N-1
+      aliases:
+      - PRE-01
+      statement: The person is signed in and the request carries the Platform's request-forgery token.
+      risk_class: standard
+    - id: L2-PLATFORM-ASSISTANT/*/N-2
+      aliases:
+      - PRE-02
+      statement: The assistant is switched on for this installation.
+      risk_class: standard
+    promises:
+    - id: L2-PLATFORM-ASSISTANT/*/P-1
+      aliases:
+      - POST-01
+      statement: Every reference shown points to a passage retrieved for this person in this chat.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_assistant_acceptance.py
+        checks:
+        - test_sentences_with_valid_references_are_kept
+        - test_several_references_on_one_sentence
+        - test_a_sentence_citing_an_unknown_number_is_removed_and_counted
+        - test_a_sentence_mixing_a_valid_and_an_unknown_number_is_removed
+        - test_a_sentence_without_any_reference_is_removed_and_counted
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_sentence_split_acceptance.py
+        checks:
+        - test_a_statement_after_a_referenced_one_is_checked_on_its_own
+        - test_a_number_before_a_stop_does_not_join_two_statements
+        - test_common_abbreviations_ordinals_and_dates_stay_in_one_sentence
+    - id: L2-PLATFORM-ASSISTANT/*/P-2
+      aliases:
+      - POST-02
+      statement: No passage enters the prompt that the person's own search would not have returned at that moment.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_assistant_acceptance.py
+        checks:
+        - test_the_question_is_searched_once_as_given
+        - test_every_retrieved_passage_is_numbered_in_the_prompt
+        - test_no_text_enters_the_prompt_that_search_did_not_return
+        - test_rows_without_passage_text_are_not_passages
+    - id: L2-PLATFORM-ASSISTANT/*/P-3
+      aliases:
+      - POST-03
+      statement: A chat is readable and deletable by its owner only; deleting removes its messages and references.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp21_chats_acceptance.py
+        checks:
+        - test_the_owner_reads_back_messages_and_references
+        - test_the_list_holds_the_owners_chats_only_newest_first
+        - test_another_person_cannot_read_a_chat
+        - test_another_persons_chat_looks_like_a_missing_one
+        - test_another_person_cannot_write_into_a_chat
+        - test_another_person_cannot_delete_a_chat
+        - test_deleting_removes_the_chat_its_messages_and_references
+        - test_a_removed_person_takes_their_chats_along
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_chats_store.py
+        checks:
+        - test_every_link_is_deleted_along
+        - test_deleting_an_unknown_id_raises_the_same_not_found
+        - test_a_malformed_id_is_a_missing_chat
+        - test_a_foreign_write_does_not_move_the_chat
+        - test_not_found_names_no_id
+    - id: L2-PLATFORM-ASSISTANT/*/P-4
+      aliases:
+      - POST-04
+      statement: No question, answer or passage text is written to a log line; logs carry ids, counts and durations.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_assistant_acceptance.py
+        checks:
+        - test_no_customer_text_reaches_a_log_line
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_chats_store.py
+        checks:
+        - test_no_text_reaches_a_log_line
+    - id: L2-PLATFORM-ASSISTANT/*/P-5
+      aliases:
+      - POST-05
+      statement: If no passage supports an answer, the reply says so and lists the closest passages; it does not answer from general knowledge.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_assistant_acceptance.py
+        checks:
+        - test_nothing_left_after_the_check_gives_the_no_answer_reply
+        - test_no_passages_means_no_generation_and_the_no_answer_reply
+        - test_no_answer_text_is_the_agreed_sentence
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_sentence_split_acceptance.py
+        checks:
+        - test_the_no_answer_sentence_is_never_a_cited_answer
+        - test_a_no_answer_sentence_inside_an_answer_is_not_shown
+    - id: L2-PLATFORM-ASSISTANT/*/P-6
+      aliases:
+      - POST-06
+      statement: A failed or slow Core call produces a plain message and no partial answer.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_assistant_acceptance.py
+        checks:
+        - test_a_busy_core_gives_a_plain_busy_message_and_no_answer_text
+        - test_a_failed_core_gives_a_plain_message_and_no_answer_text
+        - test_a_failed_search_gives_no_generation_and_no_exception
+        - test_an_unexpected_generation_error_does_not_escape
+    limits:
+    - id: L2-PLATFORM-ASSISTANT/*/L-1
+      statement: 'The prompt keeps the Core''s limits for /secured/llm/generate (plan § 5.2, step 3): at most 32 messages with the question last, and the passages and the chat''s earlier turns cut to the byte limits per message.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_assistant_acceptance.py
+        checks:
+        - test_a_long_history_stays_within_the_core_limits_and_ends_with_the_question
+        - test_long_passages_are_cut_to_fit_the_core_limits
+        - test_a_short_history_is_passed_on_in_order
+    - id: L2-PLATFORM-ASSISTANT/*/L-2
+      statement: A chat's title is one line of at most 200 characters; a longer title, a role other than user or assistant and a malformed reference are refused before any statement runs, and the refusal repeats nothing the person typed.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_chats_store.py
+        checks:
+        - test_a_title_is_one_line
+        - test_a_title_over_200_characters_is_refused_before_the_database
+        - test_a_title_of_200_characters_is_kept_whole
+        - test_a_role_other_than_user_or_assistant_is_refused_before_the_database
+        - test_a_malformed_reference_is_refused_before_the_database
+        - test_two_references_with_one_number_are_refused_before_the_database
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp21_chats_acceptance.py
+        checks:
+        - test_only_user_and_assistant_roles_are_stored
+uses:
+- component: EXT-BRAIN-API
+  method: 'POST /secured/query (the person''s own search, the only way the assistant reads documents) and POST /secured/llm/generate (one whole answer, no streaming), through the Platform''s client (knovas_client.py) on the Platform''s certificate, as the signed-in person (plan § 5.2)'
+  protocol: HTTPS with mTLS
+hides:
+- The layout of the tables assistant_chats, assistant_messages and assistant_references (migration 0026).
+- How the prompt is worded and how an answer is split into statements before the check.
+decisions:
+- id: FU-14
+  statement: 'No Alloy model for POST-02 (the founder, 2026-11-19): the assistant gets document content only through the Brain''s search, which enforces access.'
+risks:
+- id: L2-PLATFORM-ASSISTANT/RISK-01
+  statement: The check catches a reference number that matches no passage, not one that matches the wrong passage (plan § 7, risks).
+  mitigation: The test questions measure it (plan § 11), and the page always shows the passage under the sentence, so the reader sees the evidence itself.
+- id: L2-PLATFORM-ASSISTANT/RISK-02
+  statement: POST-02 keeps the prompt to what the person's search returns; the search follows the person's rights only where a customer's enforcement is on, and it is off for every tenant today (plan § 3).
+  mitigation: No customer is switched to enforcement «Ein» before the Core's end-to-end rights test has passed twice (plan § 8.1, DEC-0082).
+review:
+- at: /owner
+  why: Proposed owner, as for every card in this repository; one role per component is confirmed by a person (Software Map K4).
+- at: /status
+  why: Planned until the service (PMVP-20) and its pages (PMVP-22a) are integrated on feat/platform-mvp; chats.py and migration 0026 are integrated (PMVP-21) but nothing calls them yet.
+- at: /operations
+  why: 'Operations follow when PMVP-20 is integrated (work order PMVP-01). src/assistant/ is on feat/pmvp-20, in rework, and not on this branch, so the code reader cannot see it. Its README names what it will offer: AssistantService with Turn, Passage, Sentence, Reply and NO_ANSWER_TEXT (service.py), CoreBusy and CoreFailed (errors.py, taken by knovas_client.py), make_search and make_generate (core.py). identity/chats.py''s ChatStore and ChatNotFound are taken by no other file yet; the routes that use them come with PMVP-22a and PMVP-23.'
+- at: /uses
+  why: 'Operations and expected lines follow with PMVP-20''s integration: EXT-BRAIN-API lists neither POST /secured/query nor POST /secured/llm/generate yet. The service also takes the search page''s own search plan (doc_fields_routes.py) and the web app''s client (knovas_client.py), which have no card.'
+- at: L2-PLATFORM-ASSISTANT/*/N-1
+  why: No evidence; the assistant's pages, which check the session and the token, come with PMVP-22a.
+- at: L2-PLATFORM-ASSISTANT/*/N-2
+  why: No evidence; the switch ASSISTANT_ENABLED (working name) comes with PMVP-25.
+- at: L2-PLATFORM-ASSISTANT/*/P-1
+  why: Evidence named by the work order, not seen passing - the frozen tests import src/assistant/, which is not on this branch (ModuleNotFoundError at collection). The verifier of PMVP-20's integration sees them pass.
+- at: L2-PLATFORM-ASSISTANT/*/P-2
+  why: Evidence named by the work order, not seen passing - the frozen test imports src/assistant/, which is not on this branch.
+- at: L2-PLATFORM-ASSISTANT/*/P-4
+  why: Only the chat store's half was seen passing (test_identity_chats_store.py, on this branch); the service's half (test_pmvp20_assistant_acceptance.py) imports src/assistant/, which is not on this branch.
+- at: L2-PLATFORM-ASSISTANT/*/P-5
+  why: Evidence named by the work order, not seen passing - the frozen tests import src/assistant/, which is not on this branch.
+- at: L2-PLATFORM-ASSISTANT/*/P-6
+  why: Evidence named by the work order, not seen passing - the frozen test imports src/assistant/, which is not on this branch. FU-08 (a 504 from nginx before the plain message) is PMVP-24's.
+- at: L2-PLATFORM-ASSISTANT/*/L-1
+  why: Evidence not seen passing - the frozen test imports src/assistant/, which is not on this branch. FU-06 (a digit-heavy history can overflow the prompt budget) and FU-07 (no history at all when the turns are long) are PMVP-23's.
+- at: L2-PLATFORM-ASSISTANT/R-2
+  why: Not a line of plan § 7 (which has RESP-01 only); written from plan § 5.2 and W-07, which the chat store and its frozen tests implement.
