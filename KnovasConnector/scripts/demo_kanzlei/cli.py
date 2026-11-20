@@ -14,23 +14,29 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from demo_kanzlei.build_world import load_config
-from demo_kanzlei.pipeline import run_pipeline
-from demo_kanzlei.verify import verify_corpus, warn_if_stale
+from demo_kanzlei.pipeline import LAYOUTS, STAGES, run_pipeline
+from demo_kanzlei.verify import verify_client, verify_corpus, warn_if_stale
 
 log = logging.getLogger("demo-kanzlei")
 CONFIG_PATH = Path(__file__).with_name("world.toml")
 
 
-def cmd_build(args: argparse.Namespace) -> int:
+def _work(args: argparse.Namespace) -> Path:
     work = args.work or args.out.parent / f".{args.out.name}-work"
+    return work.expanduser().resolve()
+
+
+def cmd_build(args: argparse.Namespace) -> int:
+    work = _work(args)
     try:
         return run_pipeline(
             cfg_path=args.config,
             out_root=args.out.expanduser().resolve(),
-            work_root=work.expanduser().resolve(),
+            work_root=work,
             pilot=not args.full,
             skip_zefix=args.skip_zefix,
             until_stage=args.until_stage,
+            layout=args.layout,
         )
     except Exception as exc:
         log.error("%s", exc)
@@ -39,7 +45,40 @@ def cmd_build(args: argparse.Namespace) -> int:
 
 def cmd_verify(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
-    return verify_corpus(args.out.expanduser().resolve(), cfg, skip_scan_ocr=not args.full)
+    check = verify_client if args.layout == "client" else verify_corpus
+    return check(
+        args.out.expanduser().resolve(), cfg, manifest_path=_work(args) / "manifest.jsonl", skip_scan_ocr=not args.full
+    )
+
+
+def cmd_screen(args: argparse.Namespace) -> int:
+    """Check every invented company name of the full build against the commercial register."""
+    import time as _time
+
+    from demo_kanzlei.build_world import build_world
+    from demo_kanzlei.records import build_records
+    from demo_kanzlei.namepool import AUTHORITIES
+    from demo_kanzlei.screen_names import ZefixClient, _norm
+
+    cfg = load_config(args.config)
+    world = build_world(cfg, pilot=False, skip_zefix=True)
+    records = build_records(world, cfg, pilot=False)
+    names = sorted({a.firma.strip() for a in records.addresses if a.firma and a.firma not in AUTHORITIES and not a.duplicate_of})
+    names = [world.firm.name, *names]
+    if args.limit:
+        names = names[: args.limit]
+    client = ZefixClient()
+    hits: list[str] = []
+    for index, name in enumerate(names, start=1):
+        found = client.search_exact(name)
+        if any(_norm(hit) == _norm(name) for hit in found):
+            hits.append(name)
+            log.error("im Handelsregister: %s", name)
+        if index % 50 == 0:
+            log.info("%d von %d geprueft, %d Treffer", index, len(names), len(hits))
+        _time.sleep(args.pause)
+    log.info("%d Namen geprueft, %d Treffer", len(names), len(hits))
+    return 1 if hits else 0
 
 
 def cmd_list(args: argparse.Namespace) -> int:
@@ -54,8 +93,8 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_upload(args: argparse.Namespace) -> int:
     root = args.out.expanduser().resolve()
-    if not (root / "manifest.jsonl").exists():
-        log.error("kein manifest.jsonl in %s — zuerst 'build' laufen lassen", root)
+    if not root.is_dir() or not any(root.iterdir()):
+        log.error("%s ist leer — zuerst 'build' laufen lassen", root)
         return 2
     remote = args.remote_path.rstrip("/")
     if args.host:
@@ -100,13 +139,23 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--work", type=Path, help="world/plan/cache/ground_truth (ausserhalb des Watch-Roots)")
     build.add_argument("--full", action="store_true", help="alle Mandate; Default ist --pilot (1 Akte)")
     build.add_argument("--skip-zefix", action="store_true")
-    build.add_argument("--until-stage", choices=["world", "plan", "write", "file", "mess", "ground_truth", "verify"])
+    build.add_argument("--until-stage", choices=list(STAGES))
+    build.add_argument("--layout", choices=list(LAYOUTS), default="aktenplan",
+                       help="aktenplan: ein Ordner je Akte. client: die Freigabe wie bei einem Kunden, "
+                            "mit Datenbank, Verzeichnis und Wahrheitsdateien im Arbeitsordner")
     build.set_defaults(func=cmd_build)
 
     verify = sub.add_parser("verify", help="Formate, Manifest, Extraktion, Frische")
     verify.add_argument("--out", type=Path, required=True)
+    verify.add_argument("--work", type=Path, help="Arbeitsordner des Builds (dort liegt das Manifest)")
     verify.add_argument("--full", action="store_true")
+    verify.add_argument("--layout", choices=list(LAYOUTS), default="aktenplan")
     verify.set_defaults(func=cmd_verify)
+
+    screen = sub.add_parser("screen", help="erfundene Firmennamen gegen das Handelsregister (Zefix) pruefen")
+    screen.add_argument("--limit", type=int, default=0)
+    screen.add_argument("--pause", type=float, default=0.15)
+    screen.set_defaults(func=cmd_screen)
 
     listing = sub.add_parser("list", help="world.toml anzeigen")
     listing.set_defaults(func=cmd_list)
