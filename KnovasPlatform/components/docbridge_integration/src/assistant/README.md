@@ -69,14 +69,17 @@ or `{"no_answer": true}` when the passages do not answer the question.
 
 | # | Check (`check.py`) | A statement passes when | Counted under |
 |---|---|---|---|
-| 1 | `check_form` | the line is a JSON object with a text `statement` (holding a letter), a whole number `source` (a digit string is read) and a text `quote`; further keys are ignored | `not_a_statement` |
+| 1 | `check_form` | the line is a JSON object with a text `statement` (Latin letters), a whole number `source` (a digit string is read) and a text `quote`; further keys are ignored | `not_a_statement` |
 | 2 | `check_source` | `source` is the number of a passage the person's search returned | `unknown_source` |
 | 3 | `check_quote` | `quote` stands word for word and in one piece in that passage, three words or more | `quote_not_found` |
-| 4 | `check_numbers` | every number in the statement stands in that passage | `number_not_found` |
+| 4 | `check_numbers` | every number in the statement stands in that passage, as written | `number_not_found` |
 | 5 | `check_length` | the statement, as shown, has at most 500 characters | `too_long` |
 
 A statement is counted under the first check it fails. A later check (a judge model, FU-27) is one more function
 and one more line in `check_answer`.
+
+**Two readings.** A statement is read strictly: what it shows is what is checked, as written. A passage is read
+for what it surely holds. Where a passage can be read two ways, it supports neither.
 
 **Reading the answer.** Only a line feed ends a line. A line is one JSON object, or it is not a statement: prose,
 a broken object, an object with prose before or after it on the same line, a JSON text or number. Not counted
@@ -86,24 +89,27 @@ bracket and comma an array puts around it. An answer that is one JSON array, or 
 lines, is read as a whole. An answer cut off in the middle loses only its last line. `{"no_answer": true}` beside
 statements does not take them away, and an object that says `"no_answer": true` is never a statement.
 
-**The shown text.** Number marks (`[1]`, `[1, 3]`, `【2】`) and characters that have no width or are controls
-(soft hyphens, zero-width spaces, direction marks, NUL) are taken out of the statement and white space is made
-single. Checks 4 and 5 read exactly this text, so nothing they did not see is shown. The no-answer sentence is
-never a statement, with whatever wrapper, source or quote it comes.
+**The shown text and the form.** Number marks (`[1]`, `[1, 3]`, `【2】`) and what is not seen (soft hyphens,
+zero-width spaces, direction marks, variation selectors, controls) are taken out of the statement and white space
+is made single. The later checks read exactly this text, so nothing they did not see is shown. A statement holds a
+letter, and all its letters are Latin: a letter of another alphabet can look like a Latin letter or like a digit
+("ЗО"), and the checks could not tell. The no-answer sentence is never a statement: as it stands, in a wrapper, or
+with up to three of its 31 letters changed or left out.
 
 **The quote.** Both sides are brought to one form and the quote must then be a piece of the passage:
 
 - not compared: upper and lower case; the amount and kind of white space (line breaks, no-break spaces); the kind
-  of quotation mark, apostrophe or dash; characters without width (soft hyphens; white space after a soft hyphen
-  belongs to the hyphenation); composed and decomposed accents; quotation marks around the whole quote;
+  of quotation mark, apostrophe or dash; what is not seen (soft hyphens; white space after a soft hyphen belongs
+  to the hyphenation); composed and decomposed accents; quotation marks around the whole quote;
 - compared: every letter, digit and other punctuation mark. `ae` is not `ä`, `ss` is not `ß`, a hard hyphen at
   a line break stays a hyphen, dots for left-out words are not in the passage, and a full stop the model adds
   after the last word is not there either;
 - **whole words.** A word is what stands between two white spaces. Of the first word only opening marks
   (quotation marks, `(`, `[`, `{`) may be left out, of the last word only closing marks and stops
   (quotation marks, `)`, `]`, `}`, `. , ; : ! ? …`). So a quote can start neither inside `Kündigungsfrist`, nor
-  after the hyphen of `Nicht-Kündigung`, nor inside `1'500`, and it cannot end before the `%` of `5%`. (A space
-  is a word boundary here, also the one inside `1 500`; the number check still reads `1 500` as one number.);
+  after the hyphen of `Nicht-Kündigung`, nor inside `1'500`, and it cannot end before the `%` of `5%`. Two kinds
+  of space do not end a word: the one inside a number (`3 000`, `1' 500`, also over a line break) and the one
+  after a hyphen that ends a word (`un-` + line break + `zulässig`, and so also `Miet- und Pachtvertrag`);
 - three words: white-space separated pieces that hold a letter or a digit;
 - of several places where the quote stands, the first one that covers whole words counts.
 
@@ -111,35 +117,49 @@ never a statement, with whatever wrapper, source or quote it comes.
 its soft hyphens), never the model's wording. The quote is looked for in the passage as search returned it, also
 when the prompt held a shortened copy.
 
-**The numbers.** `numbers_in` reads the shown statement and the passage the same way; every number of the
-statement must be among the passage's.
+**The numbers.** `claimed_numbers(statement)` must all be found in `offered_numbers(passage)`.
 
-- A number is a run of digits. Between two digits may stand an apostrophe of any kind (`1'500`), a full stop or a
-  comma (`1.500`, `3,5`, `31.12.2025` are one number each), or a space before exactly three digits when one to
-  three digits come first (`1 500`, `10 000`). Letters right after the digits belong to the number (`266a`,
-  `12bis`); letters before it do not (`A4` is `4`).
+- A number is a run of digits with what belongs to it: thousands set off by an apostrophe of any kind or a space
+  (`1'500`, `1 500`); what a full stop or a comma between digits ties on (`1.500`, `3,5`, `31.12.2025` are one
+  number each); a sign right before it (`-500`); letters, accents and raised digits right after it (`266a`,
+  `12bis`, `10³`); one letter standing alone after it (`266 a`, `266-a`). Letters before it do not belong to it
+  (`A4` is `4`). Raised digits, fractions and number signs on their own (`²`, `½`, `①`) are numbers too.
 - Numbers are compared as written, never by value: `266` is not `266a`, `1500.00` is not `1500`, `3.5` is not
-  `3,5`, `2024` is not `01.03.2024`. One and the same are only: `1'500`, `1 500` and `1500`; upper and lower case
-  of the letters; digits of other scripts; and the German words for 1 to 12 (`drei` and `3`, either side).
-  `ein`, `eine` … are not read as 1: they are the article far more often.
-- Raised digits, fractions and other number signs (`²`, `½`, `①`) are numbers of their own and never part of
-  another, so a footnote mark does not change `271a¹`.
-- Read is what a person sees: characters without width, controls and marks set over or through a character are
-  skipped, and white space of any kind is one space. A tab or a line break always separates two numbers.
+  `3,5`, `2024` is not `01.03.2024`, `1 500` is not `1500`, a digit of another script is not its Latin digit.
+  One and the same are only `1'500` and `1500`, upper and lower case, and the German words for 2 to 12 (`drei`
+  and `3`, either side). 1 is always a digit: `ein`, `eine`, `eins` are the article or another word far more
+  often.
+- Two numbers with only marks between them are one claim, as they stand: `2/3` is not a 2 and a 3, and neither
+  is `2 / 3`, `14:30` or `1_500`. Told apart are numbers with a word between them, or with nothing but white
+  space, the marks of a list or a sentence, brackets or a dash (`5, 6`, `5-7`, `2023–2024`).
+- A statement that holds a character written from right to left and a number is removed: such a character can
+  show two numbers in another order than they are read.
+- What a passage offers besides: each number of a run on its own (`2023` out of `2023-2024`, `3` out of `2/3`);
+  `271a` and the mark for `271a¹` (a raised digit is mostly a footnote mark); `266` for `266 a`. Not offered: a
+  piece of one number (`500` out of `1 500` or `1.500`); either reading of two numbers with a line break or a tab
+  between them when the second has three digits (`Absatz 2` + line break + `500 Franken` is 2 and 500 or 2 500,
+  so neither); an 8 for `acht` after `ausser` or beside `geben`, `nehmen`, `lassen` (the noun).
 
 ## What the check cannot see
 
 - **A statement that says more in words than its quote supports.** The check is mechanical: form, source, quote,
   numbers. It does not read meaning. A statement can add a condition, drop a "nicht" that stands just before
-  the quoted words, change a unit or a name, or write a number as a word above twelve, and still pass. This is
-  why the reply carries the quote and the page shows it under the statement (PMVP-22b): the reader sees the
+  the quoted words, change a unit or a name, write a number as a word above twelve or as "ein", use Roman
+  numerals, or use letters and signs that only look like digits ("lO", an emoji), and still pass. This is why
+  the reply carries the quote and the page shows it under the statement (PMVP-22b): the reader sees the
   evidence. A judge model for each statement is the later step with the Core (FU-27).
+- **What a passage writes in a way that can be read two ways** and stands on one line: `Absatz 2 500 Franken`
+  offers `2 500`, and `Art. 266 a contrario` offers `266 a`, to a statement that writes the same characters.
+  A passage that has "nimmt sich in acht" still offers an 8.
 - **A model that cannot quote exactly loses statements** and answers "Dazu finde ich nichts in Ihren Quellen"
   more often. What costs a statement although it may be true: a full stop or dots added to the quote; a
-  corrected spelling; `1'500` for the passage's `1'500.00`; the year out of a full date; `1 Jahr` for
-  `ein Jahr`; a quote that starts after an elision (`l'article`); a word broken with a hard hyphen at a line
-  end; JSON with single quotation marks; a pretty-printed array that is cut off. `removed_by` shows which check
-  the model fails most; the harness (PMVP-03) reports it.
+  corrected spelling; a number written another way than the passage writes it (`1'500` for `1'500.00` or for
+  `1 500`, the year out of a full date, `1 Jahr` for `ein Jahr`, `Art. 266a` for `Art. 266 a`); a number that
+  stands right after a line break in the passage when a short number ends the line before; a quote that starts
+  after an elision (`l'article`) or after `Miet-` in `Miet- und Pachtvertrag`; a word broken with a hard hyphen
+  at a line end; a letter that is not Latin (`µg`, a Greek or Cyrillic name); JSON with single quotation marks;
+  a pretty-printed array that is cut off. `removed_by` shows which check the model fails most; the harness
+  (PMVP-03) reports it.
 - Not enforced by the check: the most statements and the most words of a quote (the model is told both; each
   statement is checked on its own). A statement the model repeats is shown twice.
 
@@ -218,10 +238,10 @@ statement must be among the passage's.
   `MAX_QUESTION_BYTES` itself and log nothing of the question either.
 - **What the page shows.** A statement is `Sentence.text`; its source is `refs[0]`, a `Passage.number`; its
   evidence is `Sentence.quote`, to be shown under the statement. The quote is a piece of that passage's `text`,
-  so the page can mark it there (it may hold line breaks and soft hyphens). **Escape the statement and the
-  quote and render no Markdown or HTML from them:** the number check reads the characters as they are, and
-  markup that hides or joins characters would let a number through (FU-11). `removed` can be shown as a hint
-  ("n Aussagen ohne Beleg entfernt").
+  so the page can mark it there (it may hold line breaks and soft hyphens). **Show the statement and the quote
+  as plain text, left to right: escape them and render no Markdown or HTML from them.** The number check reads
+  the characters as they are; markup that hides or joins characters (`5**0**0`, an HTML entity) would let a
+  number through (FU-11). `removed` can be shown as a hint ("n Aussagen ohne Beleg entfernt").
 - **Opening a document from a reference.** The service grants nothing. The file routes serve only what retrieval
   handed the person (`_grant_for_current_user` in `app.py`, today called by `/api/search` and the listing). The
   route must grant the passages it shows, e.g. `_grant_for_current_user([{"doc_id": p.pointer} for p in
@@ -241,6 +261,7 @@ statement must be among the passage's.
   retrieval.
 - The search page's client-side refinements after Knovas answers (enrichment titles, the score thresholds that are
   off unless configured, the filename supplement) live in `app.py` and do not run for the assistant.
-- The number words are German. A French or Italian passage that writes "trois mois" does not hold `3`.
+- The number words are German, and statements are in Latin letters. A French or Italian passage that writes
+  "trois mois" does not hold `3`.
 - The answer budget and the prompt budget are arithmetic on bytes, not measured against the model's tokenizer
   (FU-06 stays open); nothing here was run against a live Core.
