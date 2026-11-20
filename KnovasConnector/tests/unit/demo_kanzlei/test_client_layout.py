@@ -28,7 +28,7 @@ AUTODOC = f"{FIRM}/Praxis/Autodoc"
 def _build(base: Path, name: str, layout: str = "client") -> tuple[Path, Path]:
     out, work = base / name, base / f"{name}-work"
     rc = run_pipeline(cfg_path=CONFIG, out_root=out, work_root=work, pilot=True, skip_zefix=True,
-                      until_stage="ground_truth", layout=layout)
+                      until_stage="changes" if layout == "client" else "ground_truth", layout=layout)
     assert rc == 0
     return out, work
 

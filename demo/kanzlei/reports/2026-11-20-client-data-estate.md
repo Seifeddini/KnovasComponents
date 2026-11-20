@@ -1,7 +1,7 @@
 # The demo law firm with a client's data estate (20 November 2026)
 
 `FEAT-2026-11-19-demo-law-firm` (bet `BET-2026-11-brain-builder`). Items DEMO-10 (the part that needs no tenant),
-DEMO-11, DEMO-12, DEMO-20, the drafts of DEMO-02 and DEMO-03, and the new work the founder asked for on 19 and 20
+DEMO-11, DEMO-12, DEMO-20, the first part of DEMO-53, the drafts of DEMO-02 and DEMO-03, and the new work the founder asked for on 19 and 20
 November: the data as at a client (database, file share, directory), 10 lawyers and 3 secretaries, no tenant yet, and
 sources real enough to check the connection layer against. Serves S1 to S5 and the scenario "the firm's records".
 
@@ -11,15 +11,16 @@ Written by the agent that built it. **Not verified by anyone else**: a fresh ses
 
 | Part | Where | State |
 |------|-------|-------|
-| Generator, client layout | `KnovasConnector/scripts/demo_kanzlei/` (`--layout client`) | Built. 62 tests pass |
+| Generator, client layout | `KnovasConnector/scripts/demo_kanzlei/` (`--layout client`) | Built. 69 tests pass |
 | Site: file server, directory, SQL Server | `demo/kanzlei/site/` | Built. Runs on this PC in Docker |
 | Truth files of the plan's §6 | `<work>/truth/` | Built: 60 questions (30 in the MVP set), 9,672 rights rows, 13 people, 8 process states |
 | Oracle for the connection layer | `<work>/truth/sources.json`, `records/*.jsonl`; `site/check-records.sh` | Built and proven against the running database |
+| One working day as a change to the sources (DEMO-53, first part) | `<work>/site/changes/tag-1`, `<work>/truth/changes/tag-1`; `site/apply-changes.sh`, `site/check-share.sh` | Built and proven on the running site. The directory does not change yet, and there is no mass deletion |
 | One page to start, stop, reset | `demo/kanzlei/README.md` | Written |
 | Requests to a person | `demo/kanzlei/requests/` | DEMO-02 (tenant, certificates), DEMO-03 (client profile): drafts, not sent |
 
 Not built: anything that needs a tenant (the Connector's upload, search, the Builder), the scenario scripts (DEMO-50),
-the change script (DEMO-53), the mail source.
+the rest of the change script (directory changes, a mass deletion, a source that is unreachable), the mail source.
 
 ## 2. What was run, and the result
 
@@ -27,13 +28,17 @@ All on 20 November 2026, on the full build (`--layout client --full`, seed 20260
 
 | Check | Result |
 |-------|--------|
-| Generator's tests (`tests/unit/demo_kanzlei`) | 62 passed (30 from before, unchanged; 32 new) |
+| Generator's tests (`tests/unit/demo_kanzlei`) | 69 passed (30 from before, unchanged; 39 new) |
 | Build gates: world, plan, write, records, file, mess, site, ground truth, verify | all passed. `verify`: 10 scanned PDFs **not checked**, no OCR engine on this PC |
 | Two builds from the same world (small build, both layouts) | identical file for file, and the same file times in the client layout (POST-01). Before: 19 of 31 files differed |
 | Company names against the commercial register (Zefix) | 785 names checked, 0 in the register (after one rename, §4) |
 | Site smoke test (`smoke.sh`) | 22 of 22 passed |
 | Database against truth (`check-records.sh`) | 23 of 23 tables equal, row for row, read with the read-only login |
 | The same check after changing three rows by hand | reported all three (a value, a trailing space, a removed row): the check is not empty |
+| Share against the manifest (`check-share.sh`: path and SHA-256 of every file) | 31,838 of 31,838 identical |
+| Before the working day, against the state after it | 11 tables differ, as they must |
+| The working day applied (`apply-changes.sh`: 65 statements, 3 files added or saved over, 3 deleted) | afterwards 23 of 23 tables and 31,837 of 31,837 files equal the expected state |
+| The build loaded again | database and share equal the build again; the site was then stopped |
 
 What the smoke test proves, in a client's terms: the share is reached by IP address over SMB 3 and is hidden; the
 Knovas account can read and cannot write; it is refused on wages, home drives and mail archives; a partner reads the
@@ -96,5 +101,22 @@ firm's records" to turn up, so that nobody is surprised:
 | Push of branch `feat/demo-kanzlei` and pull requests | on your word: nothing is pushed |
 
 Next items once a tenant exists: DEMO-10 (the Connector reads the store, first search), DEMO-21 to DEMO-23. Without a
-tenant: DEMO-53 (a script that plays a working day in the database and on the share, so that a second read can be
-checked), DEMO-50 (scenario scripts), DEMO-30/31 (the Builder checklist).
+tenant: the rest of DEMO-53 (a joiner, a leaver and a move between teams in the directory; one mass deletion for the
+deletion guard; a source that is unreachable), DEMO-50 (scenario scripts), DEMO-30/31 (the Builder checklist).
+
+## 7. The working day (DEMO-53, first part)
+
+The day after the stand-in's today, 19 November 2026, as a change to the database and the share. The statements are
+computed as the difference between the tables before and after, so they cannot disagree with the truth.
+
+| What happens | What it tests in whatever reads the sources |
+|--------------|---------------------------------------------|
+| 24 time entries on twelve matters; six of them dated a day last week | finding new rows by entry time, not by their date |
+| Two time entries removed | finding absence where nothing flags it |
+| Three addresses changed, a matter closed, two deadlines done, an invoice paid | updates, with `MutiertAm` and `rowversion` moving |
+| The scanned court order filed to matter 2024-017: a new file in the store, the scan gone, an appointment and a deadline entered | a move across folders; database and share changing together |
+| A note written in matter 2024-017 with a fact that is in no other file | one new question becomes answerable; the associate behind the information barrier must still be refused |
+| A document saved over under its old name | changed content, same path |
+| One document removed in the software, one file deleted by hand | a flagged row with its file gone; a row that still claims a file |
+
+The directory does not change on that day, and no rights change. Both are the rest of DEMO-53.

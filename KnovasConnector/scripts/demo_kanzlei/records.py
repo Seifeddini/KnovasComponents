@@ -75,6 +75,8 @@ class Address:
     bemerkung: str = ""
     #: Truth only: the address this one duplicates. Not a column.
     duplicate_of: int | None = None
+    #: Set when the address was changed on a played working day; otherwise derived from its number.
+    mutiert: str | None = None
 
     @property
     def label(self) -> str:
@@ -123,6 +125,8 @@ class TimeEntry:
     betrag: float
     text: str
     rechnung: int | None = None
+    #: The day it was typed in, when that is known; otherwise derived from its date.
+    erfasst: str | None = None
 
 
 @dataclass
@@ -149,6 +153,7 @@ class Deadline:
     verantwortlich: str
     erledigt: bool
     erledigt_am: str | None
+    erfasst: str | None = None
 
 
 @dataclass

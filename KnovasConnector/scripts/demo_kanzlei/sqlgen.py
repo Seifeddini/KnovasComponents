@@ -174,8 +174,8 @@ def tables(records: Records, *, firm_name: str, autodoc_unc: str) -> list[Table]
     # ---- addresses ------------------------------------------------------------------
     address_rows = []
     for a in records.addresses:
-        changed = None
-        if _salt("adr", a.nr) % 4 == 0:
+        changed = a.mutiert
+        if not changed and _salt("adr", a.nr) % 4 == 0:
             span = max(1, (records.today - date.fromisoformat(a.erfasst_am)).days)
             changed = _plus(a.erfasst_am, 1 + _salt("adr-m", a.nr) % span, today)
         address_rows.append((
@@ -265,7 +265,8 @@ def tables(records: Records, *, firm_name: str, autodoc_unc: str) -> list[Table]
         ["LeistNr", "AkteNr", "Datum", "Kuerzel", "LeistArt", "Stunden", "Ansatz", "Betrag", "LeistText", "RechNr", "ErfasstAm",
          "MutiertAm"],
         [(e.nr, e.akte_nr, _midnight(e.datum), e.kuerzel, activity_code(e.text, e.art), e.stunden, e.ansatz, e.betrag, e.text,
-          e.rechnung, _at(_plus(e.datum, (0, 0, 1, 3)[_salt("leist", e.nr) % 4], today), "leist-e", e.nr, first_hour=16, hours=3),
+          e.rechnung,
+          _at(e.erfasst or _plus(e.datum, (0, 0, 1, 3)[_salt("leist", e.nr) % 4], today), "leist-e", e.nr, first_hour=16, hours=3),
           _at(invoice_day.get(e.rechnung), "leist-c", e.nr) if e.rechnung else None)
          for e in records.time_entries],
         ["LeistNr"], "40_leistungen.sql", changed_by=["TS", "MutiertAm", "ErfasstAm"], deleted_by="removed",
@@ -286,7 +287,8 @@ def tables(records: Records, *, firm_name: str, autodoc_unc: str) -> list[Table]
         "MutiertAm datetime NULL",
         ["FristNr", "AkteNr", "Datum", "FristArtID", "FristText", "Verantwortlich", "Erledigt", "ErledigtAm", "ErfasstAm", "MutiertAm"],
         [(d.nr, d.akte_nr, _midnight(d.datum), kinds.get(d.art), d.text or None, d.verantwortlich, d.erledigt, _midnight(d.erledigt_am),
-          _at(max(matter_by_nr[d.akte_nr].eroeffnet, _plus(d.datum, -30, today)), "frist-e", d.nr), _at(d.erledigt_am, "frist-c", d.nr))
+          _at(d.erfasst or max(matter_by_nr[d.akte_nr].eroeffnet, _plus(d.datum, -30, today)), "frist-e", d.nr),
+          _at(d.erledigt_am, "frist-c", d.nr))
          for d in records.deadlines],
         ["FristNr"], "50_rechnungen_fristen.sql", changed_by=["MutiertAm", "ErfasstAm"], deleted_by="removed",
         note="no rowversion here; MutiertAm is set when a deadline is marked done")
@@ -295,7 +297,7 @@ def tables(records: Records, *, firm_name: str, autodoc_unc: str) -> list[Table]
         "Betreff nvarchar(200) NULL, Ort nvarchar(120) NULL, Kuerzel varchar(5) NULL, ErfasstAm datetime NULL",
         ["TerminNr", "AkteNr", "Beginn", "Ende", "Art", "Betreff", "Ort", "Kuerzel", "ErfasstAm"],
         [(a.nr, a.akte_nr, a.beginn, a.ende, a.art, a.betreff, a.ort or None, a.kuerzel,
-          _at(_plus(a.beginn[:10], -14, today), "termin-e", a.nr))
+          _at(a.erfasst or _plus(a.beginn[:10], -14, today), "termin-e", a.nr))
          for a in records.appointments],
         ["TerminNr"], "50_rechnungen_fristen.sql", changed_by=["ErfasstAm"], deleted_by="removed",
         note="Art: V hearing, B meeting, I internal (no matter)")

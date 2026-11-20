@@ -28,6 +28,9 @@ images; SQL Server takes 2 GB of RAM. The data generator's output: a site folder
 ./load.sh                                # wipe share + database, copy tree (mtimes kept), run db/*.sql, apply ACLs
 ./smoke.sh                               # PASS/FAIL per check, non-zero exit on any FAIL
 ./check-records.sh <work>/truth          # the database, read as knovas_ro, equals truth/records/*.jsonl row for row
+./check-share.sh <work>                  # every file on the share equals manifest.jsonl (path and SHA-256)
+./apply-changes.sh <work>/site/changes/tag-1   # play one working day (database and share); then check against
+                                               # <work>/truth/changes/tag-1 with the two scripts above
 ./down.sh                                # stop; ./down.sh --volumes also deletes domain, files and database
 ```
 
@@ -52,6 +55,11 @@ disappears. The truth folder is mounted read-only for the run and copied nowhere
 
 A site of the connection layer (Knovas Link and its components) reaches the sources when its containers are on the
 network `demo-kanzlei-net` (`docker network connect demo-kanzlei-net <container>`), at the fixed addresses above.
+
+`./apply-changes.sh <changes-dir>` runs the day's `db.sql` as the software would have written it, copies the new and
+saved-over files with their times, deletes the files listed in `delete.txt` and applies `acl.json` again. Apply a set
+once; `./load.sh` goes back to the build. After a set is applied, `smoke.sh` check 7a fails on purpose (it compares
+with the build's folder): use `check-share.sh` with the folder of the state you expect.
 
 ## Accounts
 

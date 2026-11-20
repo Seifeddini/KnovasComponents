@@ -44,7 +44,7 @@ python scripts/demo_kanzlei/cli.py build --layout client --full --out ../corpus/
 `.{out}-work` and must be outside `--out`. A client build empties `--out` first, and only if this
 generator built it before (`LIESMICH_DEMODATEN.txt` is there); any other non-empty folder is refused.
 
-`--until-stage world|plan|write|records|file|mess|site|ground_truth|verify` stops after that gate.
+`--until-stage world|plan|write|records|file|mess|site|ground_truth|changes|verify` stops after that gate.
 
 `python scripts/demo_kanzlei/cli.py screen` checks every invented company name of the full build
 against Zefix. Run it after changing `namepool.py`.
@@ -125,6 +125,26 @@ Rules that the plan's §6 leaves open, as built here (to be confirmed):
 - `rule` is one of `default:kanzlei`, `default:ohne-akte` (a file without a matter in its name),
   `locked:<matter>`, `conflict:<matter>`, `role:sekretariat-keine-finanzen`, `group:<directory group>`,
   `account:<login>`, `acl:<folder>` (refused by that folder's permissions).
+
+## A working day (`changes.py`, plan item DEMO-53)
+
+A source that never changes proves only a first read. The client build also writes one working day, the day after
+`as_of`, as a change to the sources:
+
+| Where | What |
+|-------|------|
+| `<work>/site/changes/tag-1/db.sql` | The statements the practice software would have written. They are the difference between the tables before and after, so they cannot disagree with the truth |
+| `<work>/site/changes/tag-1/share/`, `delete.txt` | Files that are new or saved over; files that go |
+| `<work>/truth/changes/tag-1/records/`, `manifest.jsonl` | Every table and every file as they are afterwards |
+| `<work>/truth/changes/tag-1/changes.json` | Inserted, updated and removed keys per table; added, changed and deleted files; one question that only the day makes answerable; the rights of the new files |
+
+What happens on that day: 24 time entries on twelve matters, a quarter of them for a day last week (their `Datum` is
+old, their `ErfasstAm` is the day); two entries removed; three addresses changed; a matter closed; two deadlines
+ticked off; an invoice paid; the scanned court order filed to matter 2024-017 (a new file in the store, the scan
+gone, an appointment and a deadline entered); a note written whose content is in no other file; a document saved over
+under its old name; one document removed in the software (row flagged) and one file deleted by hand (the row stays).
+
+`demo/kanzlei/site/apply-changes.sh` applies it to the running site.
 
 ## Verify
 

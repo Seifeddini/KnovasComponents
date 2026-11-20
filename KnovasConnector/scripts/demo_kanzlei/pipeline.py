@@ -31,6 +31,7 @@ STAGES = (
     "mess",
     "site",
     "ground_truth",
+    "changes",
     "verify",
 )
 LAYOUTS = ("aktenplan", "client")
@@ -234,6 +235,15 @@ def _client(cfg, world, rows, bodies, out_root: Path, work_root: Path, manifest_
         raise GateError(f"truth files are empty: {counts}")
     _mark(work_root, "ground_truth", {"path": str(truth_dir), **counts})
     if until_stage == "ground_truth":
+        return 0
+
+    from demo_kanzlei.changes import build_day
+
+    day = build_day(world, cfg, records, entries, bodies, database, out_root, work_root)
+    if not day["statements"] or not day["added"]:
+        raise GateError(f"the working day changed nothing: {day}")
+    _mark(work_root, "changes", day)
+    if until_stage == "changes":
         return 0
 
     rc = verify_client(out_root, cfg, manifest_path=manifest_path, skip_scan_ocr=pilot)

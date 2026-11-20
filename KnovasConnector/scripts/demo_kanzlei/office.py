@@ -61,6 +61,7 @@ class Appointment:
     betreff: str
     ort: str
     kuerzel: str
+    erfasst: str | None = None
 
 
 @dataclass

@@ -38,6 +38,12 @@ cd ../demo/kanzlei/site
 # 3. Check it
 ./smoke.sh                                    # share, permissions, directory, database, a mount as at a client
 ./check-records.sh ~/demo-kanzlei/work/truth  # the database, read as knovas_ro, equals the truth files row for row
+./check-share.sh ~/demo-kanzlei/work          # every file on the share equals the manifest (path and SHA-256)
+
+# 4. Let a working day pass (once; ./load.sh goes back to the build)
+./apply-changes.sh ~/demo-kanzlei/work/site/changes/tag-1
+./check-records.sh ~/demo-kanzlei/work/truth/changes/tag-1     # the database as it must be afterwards
+./check-share.sh ~/demo-kanzlei/work/truth/changes/tag-1       # the share as it must be afterwards
 ```
 
 Stop: `./down.sh`. Start again: `./up.sh` (nothing is lost). Reset the data: `./load.sh` again (it says what it removes
@@ -52,6 +58,8 @@ After a change to the people or groups in the generator: `./reset.sh --all && ./
 | `<work>/site/` | `directory.json`, `acl.json`, `db/*.sql`: what the site is built from |
 | `<work>/truth/` | `questions.jsonl`, `rights.csv`, `people.json`, `processes.json` (the contract with the Platform plan, §6); `inventory.json`; `sources.json` and `records/<TABLE>.jsonl` (for the connection layer) |
 | `<work>/manifest.jsonl` | every file on the share: hash, kind, matter, mess |
+| `<work>/site/changes/tag-1/` | one working day: `db.sql`, `share/` (new and saved-over files), `delete.txt` |
+| `<work>/truth/changes/tag-1/` | the state after that day: `records/`, `manifest.jsonl`, and `changes.json` (what changed, the question it makes answerable, the rights of the new files) |
 | [`site/`](site/README.md) | the containers, their scripts, the accounts |
 | [`requests/`](requests/) | what a person has to decide or create (tenant, certificates; the client profile) |
 | [`reports/`](reports/) | one report per item or run |
@@ -72,6 +80,14 @@ defined itself; a backup table and an import table that are not the firm's data;
 rights that exist only in a table. The schema is invented: vendors do not publish theirs. It has the traits such
 databases share, not one product's names.
 
+**A second read.** `apply-changes.sh` plays the day after the stand-in's today: time is booked (some of it for last
+week), two entries are removed, a matter is closed, deadlines are ticked off, the scanned court order is filed to
+its matter, a note is written, a document is saved over, one is removed in the software and one deleted by hand.
+`truth/changes/tag-1/changes.json` lists every inserted, updated and removed key per table and every added, changed
+and deleted file. Whatever synchronises the sources must arrive at exactly that state: new rows found by their entry
+time, removed rows found although nothing flags them, the new note found by search and refused to the associate
+behind the information barrier.
+
 A site of the connection layer (Knovas Link and its components) reaches the sources when its containers are on the
 network `demo-kanzlei-net`, for example `docker network connect demo-kanzlei-net <container>`. The credentials are in
 `site/.env` on the machine that runs the site and nowhere else.
@@ -83,7 +99,8 @@ Until then nothing is uploaded anywhere.
 
 ## Limits
 
-- Not changing yet: no script plays a working day (new files, changed rows, deletions). That is item DEMO-53.
+- One working day is played, in the database and on the share. The directory does not change yet (a joiner, a
+  leaver, a move between teams), and there is no mass deletion to test the deletion guard: the rest of DEMO-53.
 - SQL Server is the Developer edition: for development and test only.
 - The texts are templates and drafts until a Swiss lawyer has read them (DEMO-42).
 - Scanned PDFs are checked only where an OCR engine is installed.
