@@ -162,12 +162,15 @@ components:
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/img
       - KnovasPlatform/components/docbridge_integration/src/web_interface/shell_routes.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/styleguide.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_parts.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/parts.css
     why: >-
       The frame every page shares: the navigation partial, the one stylesheet every page loads (it also holds the
       styles of pages no card holds yet), the brand tokens that stylesheet takes its values from (PMVP-10), the
-      self-hosted fonts and the logo; and the shell's one route file, shell_routes.py, with the styleguide page.
-      Which links a person gets is still computed in app.py, which stays with the web app. PMVP-11 and PMVP-12 add a
-      base template and the shared page parts here.
+      self-hosted fonts and the logo; the shell's one route file, shell_routes.py, with the styleguide page; and
+      the shared page parts every new screen is built from (PMVP-12): the macros of _parts.html and their rules
+      in parts.css. Which links a person gets is still computed in app.py, which stays with the web app. PMVP-11
+      adds a base template here.
   L2-PLATFORM-ADMIN:
     card: L2-platform-admin.card.yaml
     paths:
