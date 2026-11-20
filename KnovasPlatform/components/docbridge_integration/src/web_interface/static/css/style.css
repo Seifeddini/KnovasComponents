@@ -101,9 +101,8 @@
     --gutter: calc(var(--k-space-md) + var(--k-space-2xs));
     --pad-section: var(--k-space-md) var(--gutter);
     --font-body: var(--k-font-sans);
-    /* Headings are set in the brand's sans. Rules that took the mono face
-       through this name (codes, ids, file names) are listed in the builder's
-       notes of work order PMVP-10; --font-mono is the name for them. */
+    /* Headings are set in the brand's sans. Codes, ids, file names and diffs
+       stay in the mono face: their rules ask for --font-mono. */
     --font-heading: var(--k-font-sans);
     --font-mono: var(--k-font-mono);
 }
@@ -1439,7 +1438,7 @@ mark.context-snippet-match,
     align-self: center;
 }
 .settings-list dd { color: var(--text-primary); }
-.settings-list dd.mono { font-family: var(--font-heading); font-size: 0.85rem; }
+.settings-list dd.mono { font-family: var(--font-mono); font-size: 0.85rem; }
 
 /* Schmale Fenster: Leiste wird zur Kopfzeile, Korpus-Zahl entfaellt. */
 @media (max-width: 900px) {

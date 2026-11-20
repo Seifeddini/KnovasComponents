@@ -400,7 +400,7 @@
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
     padding: 11px 13px;
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     overflow-x: auto;
     margin: 10px 0;
@@ -422,7 +422,7 @@
 .admin .danger-zone input[type=text] {
     border-color: rgba(196, 30, 30, 0.35);
     background: var(--card-bg);
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
 }
 
 .admin .danger-zone input[type=text]:focus {
@@ -431,7 +431,7 @@
 }
 
 .admin .danger-zone code {
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.82rem;
     background: var(--surface-sunken);
     padding: 2px 6px;
@@ -530,7 +530,7 @@
     background: transparent;
     border-color: transparent;
     padding-left: 0;
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.82rem;
 }
 
@@ -823,7 +823,7 @@
     max-width: 360px;
     overflow: hidden;
     color: var(--text-secondary);
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.72rem;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -922,7 +922,7 @@
     padding: 2px 7px;
     border: 1px solid transparent;
     border-radius: 5px;
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.65rem;
     line-height: 1.2;
     white-space: nowrap;

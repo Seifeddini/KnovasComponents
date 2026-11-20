@@ -6,7 +6,9 @@ names. Held here, on the files themselves (no database):
 1. every name style.css declared before the brand came is still declared, takes its value from brand tokens that
    exist, and names no colour of its own;
 2. the two font files the brand added are the brand's own, and each has its face;
-3. the reader the styleguide page uses reads the default theme only, follows a token to its value, and refuses a
+3. codes, ids, file names and diffs stay in the mono face: their rules ask for --font-mono, and headings keep
+   --font-heading;
+4. the reader the styleguide page uses reads the default theme only, follows a token to its value, and refuses a
    name the files do not declare (so a shown token cannot drift from the tokens file).
 """
 from __future__ import annotations
@@ -119,7 +121,69 @@ def test_the_licence_of_the_fonts_is_beside_them():
     assert (FONTS / "OFL.txt").is_file()
 
 
-# --- 3: the reader the styleguide page uses -------------------------------------------------------------
+# --- 3: the mono face for codes -------------------------------------------------------------------------
+
+# The rules that set a code, an id, a file name or a diff (the order's change of 2026-11-20), by selector.
+MONO_RULES = [
+    ("style.css", ".settings-list dd.mono"),
+    ("admin.css", ".admin .admin-pre"),
+    ("admin.css", ".admin .danger-zone input[type=text]"),
+    ("admin.css", ".admin .danger-zone code"),
+    ("admin.css", ".admin input[type=text].folder-path"),
+    ("admin.css", ".admin-page .admin .ptr"),
+    ("admin.css", ".admin-page .admin .role-chip"),
+    ("admin.css", ".admin-page .admin .access-chip"),
+    ("admin.css", ".admin-page .admin .document-status"),
+    ("views.css", ".views-diff"),
+    ("views.css", ".views-docs-box-key"),
+    ("experiments.css", ".kx-mono"),
+    ("experiments.css", ".kx-code"),
+    ("experiments.css", ".kx-table a.kx-key-link"),
+    ("experiments.css", ".kx-key"),
+    ("experiments.css", ".kx-pre"),
+    ("experiments.css", ".kx-markdown code"),
+    ("experiments.css", ".kx-token-box code"),
+    ("custom_views.css", ".cv-mono"),
+]
+HEADING_RULES = [
+    ("style.css", "h1"),
+    ("style.css", ".site-greeting"),
+    ("admin.css", ".admin > h1"),
+    ("views.css", ".views-title"),
+    ("experiments.css", ".kx-title-row h1"),
+]
+
+
+def _font_of(sheet: str, selector: str) -> str:
+    """The font or font-family value of the rule whose selector list names ``selector`` and that sets a face."""
+    css = re.sub(r"/\*.*?\*/", "", _text(CSS / sheet), flags=re.S)
+    values = []
+    for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        if selector not in [" ".join(s.split()) for s in selectors.split(",")]:
+            continue
+        values += re.findall(r"(?:^|;)\s*font(?:-family)?\s*:\s*([^;]+)", body)
+    faces = [v for v in values if "var(--font-" in v]
+    assert len(faces) == 1, f"{sheet}: {selector} should set its face once through a name, found {values}"
+    return faces[0]
+
+
+@pytest.mark.parametrize("sheet, selector", MONO_RULES)
+def test_a_code_an_id_a_file_name_or_a_diff_is_set_in_the_mono_face(sheet, selector):
+    assert "var(--font-mono)" in _font_of(sheet, selector)
+
+
+@pytest.mark.parametrize("sheet, selector", HEADING_RULES)
+def test_a_heading_keeps_the_heading_face(sheet, selector):
+    assert "var(--font-heading)" in _font_of(sheet, selector)
+
+
+def test_the_mono_name_is_the_brands_mono_face():
+    declared = {**_tokens(), **_platform()}
+    assert _platform()["--font-mono"] == "var(--k-font-mono)"
+    assert shell_routes.resolve("--font-mono", declared).lstrip("'\" ").startswith("IBM Plex Mono")
+
+
+# --- 4: the reader the styleguide page uses -------------------------------------------------------------
 
 
 def test_the_reader_reads_the_default_theme_only():
