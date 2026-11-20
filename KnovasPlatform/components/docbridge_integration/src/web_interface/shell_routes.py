@@ -205,9 +205,6 @@ def create_shell_blueprint(gate, *, page_context) -> Blueprint:
     @require_admin
     def styleguide():
         context = dict(page_context())
-        # Nothing on this page points outside the installation, links included: the sidebar's Feedback entry
-        # (an address at Jira) is not drawn here.
-        context["feedback_url"] = None
         context.update(styleguide_sections())
         return render_template("styleguide.html", active_nav="styleguide", **context)
 
