@@ -1673,7 +1673,8 @@ class TestInTheApp:
         resp = experimenter_client.get("/experiments")
         assert resp.status_code == 200
         page = resp.get_data(as_text=True)
-        assert _nav_item(page) is not None
+        # PMVP-11 (founder, 2026-11-20): the page answers; the Workspace menu has no entry for it yet.
+        assert _nav_item(page) is None
         assert 'name="csrf-token"' in page
         assert _page_data(page)["canManage"] is False
 

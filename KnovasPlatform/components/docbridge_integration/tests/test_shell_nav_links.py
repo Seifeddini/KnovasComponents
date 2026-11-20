@@ -92,7 +92,8 @@ def _hrefs(fragment):
 
 
 def _text(fragment):
-    return " ".join(re.sub(r"<[^>]+>", " ", re.sub(r"<(script|style|svg)\b.*?</\1>", " ", fragment, flags=re.S)).split())
+    fragment = re.sub(r"<(script|style|svg)\b.*?</\1>", " ", fragment, flags=re.S)
+    return " ".join(re.sub(r"<[^>]+>", " ", fragment).split())
 
 
 def _into(hrefs, prefix):
@@ -208,7 +209,8 @@ def test_a_route_that_is_not_there_or_a_gate_that_cannot_be_read_draws_no_link(a
 def test_the_web_app_names_no_role_where_it_decides_the_admin_links():
     from pathlib import Path
 
-    source = (Path(conftest.__file__).resolve().parents[1] / "src" / "web_interface" / "app.py").read_text(encoding="utf-8")
+    app_py = Path(conftest.__file__).resolve().parents[1] / "src" / "web_interface" / "app.py"
+    source = app_py.read_text(encoding="utf-8")
     decided = source[source.index("    admin_menu = ("):source.index("    def _experiments_nav(")]
     code = "\n".join(line for line in re.sub(r'""".*?"""', "", decided, flags=re.S).splitlines()
                      if not line.strip().startswith("#"))
