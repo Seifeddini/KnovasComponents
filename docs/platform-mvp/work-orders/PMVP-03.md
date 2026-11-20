@@ -113,10 +113,10 @@ exist today.
 `P/tests/test_pmvp_walkthrough.py`. Commits `8ef18b2` (A, command line, stubs), `40d9d88` (B), `2b74cc4` (C),
 `7369a21` (README), and this one (notes). Not verified by me; a verifier session checks it.
 
-**Tests.** Frozen file: 29 passed, unchanged (all four lines of the check say OK). My own: 130 with `py -3` (90 on
-the harness, 21 on the page helper, 10 examples on the real app, 9 in the walkthrough file; 127 pass and 3 of the
-walkthrough's skip because Playwright is not installed for `py -3`). Before the coordinator's decisions below they
-were 121. Whole suite: see "Whole suite" below.
+**Tests.** Frozen file: 29 passed, unchanged (all four lines of the check say OK). My own: 527 with `py -3` (482 on
+the harness, 25 on the page helper, 11 examples on the real app, 9 in the walkthrough file; 524 pass and 3 of the
+walkthrough's skip because Playwright is not installed for `py -3`). They were 121 at the first report and 130
+after the coordinator's decisions; the rest came with the rework (last paragraph). Whole suite: see "Whole suite" below.
 
 **Formats.** `demo_kanzlei/truth.py` (worktree `.worktrees/demo-kanzlei`, commit `6005034`) writes exactly what the
 frozen file reads: the seven question fields from `_Questions.add`, the header `person,pointer,may_read,rule` and
@@ -133,15 +133,17 @@ fail), and `asked_as` is the person's `key` of `people.json`. The `rule` column 
    false); a wrong type is refused. An id used twice is refused.
 2. `negative`: "the no-answer reply" is read as status `no_answer` **and** no shown sentence.
 3. `rights`: as the frozen file says, only the passages decide. First built so that a `busy` or `failed` reply
-   counted as ok; changed by the coordinator's decision D1 (below): such a reply is never ok.
+   counted as ok. Changed twice since (below): `ok` needs the status `answered` or `no_answer` exactly, in every
+   kind.
 4. `summary()` has, beside the pinned numbers: `leaking_questions`, `by_status` and `error_classes` (class name →
    count). `leaked` counts documents, each once per question. `by_kind` always lists all five kinds.
 5. `report.json` per row: id, kind, in_mvp_set, ok, error, status, and counts. A status outside the contract's
    four is written as `other`, because a recorded file could put any text there. `asked_as` is not in it.
-6. Pointers are compared after: either slash, no leading slash, the instance's prefix cut off, Unicode composed
-   form. Case is kept (as `document_grants` does).
-7. The command line refuses an `--out` inside the working tree the harness runs from (exit 2), because
-   `judging.md` holds customer text. The walkthrough refuses `PMVP_WALK_OUT` the same way. A file that cannot be
+6. Pointers are compared by one key. First built keeping case; overridden in the rework (below): case is folded
+   too.
+7. The command line refuses an `--out` inside a git work tree (exit 2), because `judging.md` holds customer
+   text. The walkthrough refuses `PMVP_WALK_OUT` the same way. First built for this work tree only; since the
+   rework for any work tree. A file that cannot be
    read is exit 2 with role, line and reason; an `OSError` is reported by its class name, not its message.
 8. `pmvp_harness.reply_record(id, reply)` writes one line of a replies file, so whoever records replies on an
    instance (PMVP-20's side) gets the format from one place. `MissingReply` is the error class of a question
@@ -163,8 +165,8 @@ fail), and `asked_as` is the person's `key` of `people.json`. The `rule` column 
 | missing token | A POST, PUT, PATCH or DELETE without the header `X-CSRF-Token`: **403** JSON `{"success": false, "error": "CSRF token invalid or missing"}` before the route runs; `/builder/api/…` too. The Admin console's forms carry the token as the field `csrf_token`: without it **400**, the page again with "Formular ist abgelaufen", nothing changed. `/logout` and `/api/open-tokens/mint`: 400 JSON. Not gated (own bearer token): the Experimente machine API, the connector protocol, open-token redeem |
 
 `assert_missing_token_refused` takes an optional `unchanged=` reader (a row count, a list) and fails when the
-refused request changed something; the three examples use it and then send the same request with its token, to show
-the refusal was about the token. `assert_wrong_owner_looks_missing` compares status, content type and body after
+refused request changed something. Since the rework it sends the same request again with its token itself and
+fails when that one comes back with the same status, so the refusal is shown to be about the token. `assert_wrong_owner_looks_missing` compares status, content type and body after
 blanking each response's own address.
 
 **Walkthrough: it ran, and it skips.** `py -3` has no Playwright, so in the suite the three `test_walkthrough[…]`
@@ -254,3 +256,45 @@ list with PMVP-40, `/views` and `/settings` stay listed until an item reworks th
 list). D3, kept: the two refusals of a questions file (decision 1). D4: F3 and F5 are on the coordinator's
 follow-up list; not touched. D5, kept: an output folder inside the repository is refused (decision 7). The whole
 suite was not run again after this change; it touches `scoring.py`, its tests, the README and one comment.
+
+**Rework after the first verification (2026-11-20, verifier: FAIL on two wrong verdicts).** By the coordinator's
+points; each has tests, most in the new `test_pmvp_harness_verdict.py`.
+
+1. *Ok only when really tested.* `ok` needs the status `answered` or `no_answer` exactly (`scoring.TESTED`).
+   What is not a reply raises `NotAReply` (a `TypeError`, message without content) in `score()` and is an error
+   row without a score in `run()`: None, a dict, a missing or wrongly typed `status`, `sentences`, `passages`,
+   sentence, reference, passage number or `removed`. Added by me in the same spirit: an `answered` reply without
+   a sentence and a `no_answer` reply with one are not ok.
+2. *A leak however the pointer is spelled.* One key for questions, rights table and replies
+   (`pointers.normalise`): either slash, doubled slashes, leading `./` and `/`, trailing slash, white space
+   around it, Unicode form, case. Leaked documents are still reported in the truth files' spelling. New number
+   `unknown_pointers` per score, per row of `report.json` and in the summary beside `passages`; `score()` takes
+   the set's pointers as `known=`, `run()` hands them in. The command line prints it and ends with exit 2,
+   writing nothing, when every passage is unknown.
+3. The prefix is cut only where it ends at a folder.
+4. Two passages with one number: `NotAReply`. A passage without a pointer: a rights question is not ok, and
+   neither is any question where the rights table is applied; it counts as unknown and never as a supporting
+   document. A supporting pointer that names nothing (`""`, spaces, `/`) is refused when the file is loaded.
+5. Contradicting rights rows are caught in any spelling, in `load_rights` (with both line numbers) and in
+   `Rights(...)` built by hand.
+6. An output folder inside any git work tree is refused, for `--out` and `PMVP_WALK_OUT`: walk up from the
+   resolved path looking for `.git`, after taking off an extended-length prefix. On a machine whose temporary
+   folder lies in a git work tree the command-line tests skip, saying so.
+7. `sentences` or `passages` of the wrong type in a replies file: exit 2, "'sentences' is not a list".
+8. No question to ask (an empty file, `--mvp-set` with none marked): exit 2.
+9. A `removed` that is not a count is `NotAReply`; `score()` quotes nothing of a reply in an exception.
+10. `assert_missing_token_refused` sends its own control with the token (header and form field) and fails when
+    that comes back with the same status. The examples no longer send it themselves; one more example shows a
+    member's 403 not passing as a token check.
+
+The frozen file is unchanged and green (29). The whole suite was not run again, on the coordinator's word; the
+run of this section's table is of `7369a21`. The walkthrough ran again with a browser (9 passed).
+
+**Not folded by the pointer key, so such a passage is not recognised and counts as unknown:** percent-encoding,
+a `#fragment`, a `file://` address, a `..` detour, white space inside a name (a no-break space for a space), a
+UNC path without `--pointer-prefix`. A person id (`asked_as`, the table's `person`) is compared as written.
+
+**Decision wanted (D6).** With a rights table, a real run should have no unknown passage at all, because the
+table lists every document Knovas could show. Today one unknown passage among known ones is only counted: if it
+is the forbidden document in a spelling the key does not fold, the rights question is still ok. Should a question
+that is asked as somebody be not ok as soon as one of its passages is unknown to a given rights table?
