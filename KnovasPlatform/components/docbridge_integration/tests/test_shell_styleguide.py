@@ -7,7 +7,8 @@ token names on it. Held here, against the real app and the identity database:
    accounts on;
 2. what the page shows: its sections in German, every token by name with the value the tokens file gives it, the
    Platform's own names, the plain parts that exist today, and one empty section for the parts of PMVP-12;
-3. nothing on the page points outside the installation, and the route writes no log line of its own.
+3. the navigation is the one every page has, the page loads nothing from outside the installation, and the route
+   writes no log line of its own.
 """
 from __future__ import annotations
 
@@ -134,14 +135,26 @@ def test_the_page_loads_the_base_styles_and_names_no_colour_of_its_own(admin_cli
 # --- 3: nothing outside, nothing logged -------------------------------------------------------------------
 
 
-def test_nothing_on_the_page_points_outside_the_installation(admin_client):
+def test_the_navigation_is_the_one_every_page_has(admin_client):
+    """The sidebar partial, with the same entries as on the search page, the Feedback entry among them."""
+    def entries(html: str) -> list[str]:
+        nav = re.search(r'<nav class="app-nav"[^>]*>(.*?)</nav>', html, re.S).group(1)
+        return re.findall(r'<a href="([^"]+)" class="app-nav-item', nav)
+
+    page, search_page = _page(admin_client), admin_client.get("/").data.decode("utf-8")
+    assert entries(page) == entries(search_page)
+    assert FEEDBACK in entries(page)
+
+
+def test_the_page_loads_nothing_from_outside_the_installation(admin_client):
+    """A plain link to another site loads nothing; a stylesheet, a script, an image or a frame from there would."""
     page = _page(admin_client)
     outside = r"(?:https?:)?//"
-    assert not re.search(rf"(?:src|href|action|srcset|poster|data)=[\"']{outside}", page), "an address outside"
+    loading = re.findall(r"<(?:link|script|img|iframe|source|embed|object|video|audio|form)\b[^>]*>", page, re.I)
+    assert loading, "the page has no stylesheet link at all"
+    for tag in loading:
+        assert not re.search(rf"(?:src|href|action|srcset|poster|data)=[\"']{outside}", tag, re.I), tag
     assert not re.search(rf"url\(\s*[\"']?{outside}|@import\s+[\"']{outside}", page), "a style loads from outside"
-    # the other pages' sidebar carries the Feedback entry, an address outside; this page does not draw it
-    assert FEEDBACK in admin_client.get("/").data.decode("utf-8")
-    assert FEEDBACK not in page and "feedback.example.org" not in page
 
 
 def test_the_route_writes_no_log_line_of_its_own(admin_client, member_client, caplog):
