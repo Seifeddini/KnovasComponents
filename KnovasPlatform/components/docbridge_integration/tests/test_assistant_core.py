@@ -78,6 +78,10 @@ def _response(status, payload, url):
     return resp
 
 
+def st(statement, source, quote):
+    return json.dumps({"statement": statement, "source": source, "quote": quote})
+
+
 def _hit(pointer, snippet=None, score=0.8):
     hit = {"pointer": pointer, "cosine_similarity": score,
            "top_chunks": [{"chunk_uuid": f"c-{pointer}", "page_number": 4, "sentence_number": 9}]}
@@ -86,6 +90,11 @@ def _hit(pointer, snippet=None, score=0.8):
         hit["top_chunks"][0]["snippet"] = snippet
     return hit
 
+
+ANSWER = "\n".join([
+    st("Die Kuendigungsfrist betraegt drei Monate.", 1, "Kuendigungsfrist betraegt drei Monate"),
+    st("Die Frist beginnt mit dem Zugang.", 2, "Frist beginnt mit dem Zugang"),
+])
 
 HITS = [
     _hit("Mandate/Mueller/vertrag.pdf", "Die Kuendigungsfrist betraegt drei Monate."),
@@ -98,7 +107,7 @@ HITS = [
 class _Core:
     """One fake Knovas: /secured/query and /secured/llm/generate."""
 
-    def __init__(self, hits=HITS, query_status=200, answer="Drei Monate [1]. Ab Zugang [2]."):
+    def __init__(self, hits=HITS, query_status=200, answer=ANSWER):
         self.hits, self.query_status, self.answer = hits, query_status, answer
         self.sent = []
 
@@ -217,14 +226,14 @@ def test_the_user_key_is_asked_for_per_search(key_dir, monkeypatch, split):
 
 
 def test_generate_returns_the_text_only(key_dir, monkeypatch):
-    core = _Core(answer="Antwort [1].")
+    core = _Core()
     generate = make_generate(_client(key_dir, monkeypatch, core))
     text = generate(system_instruction="Regeln", messages=[{"role": "user", "content": "F?"}],
                     max_tokens=900)
-    assert text == "Antwort [1]."
+    assert text == ANSWER
     (body,) = core.bodies("/secured/llm/generate")
     assert body["max_tokens"] == 900
-    assert body["temperature"] == DEFAULT_TEMPERATURE
+    assert body["temperature"] == DEFAULT_TEMPERATURE == 0.2
     assert body["system_instruction"] == "Regeln"
 
 
@@ -239,8 +248,10 @@ def test_the_service_answers_from_the_persons_own_search(key_dir, monkeypatch, s
     reply = service.answer("Welche Frist gilt?")
 
     assert reply.status == "answered"
-    assert [(s.text, s.refs) for s in reply.sentences] == [("Drei Monate.", (1,)),
-                                                          ("Ab Zugang.", (2,))]
+    assert [(s.text, s.refs, s.quote) for s in reply.sentences] == [
+        ("Die Kuendigungsfrist betraegt drei Monate.", (1,), "Kuendigungsfrist betraegt drei Monate"),
+        ("Die Frist beginnt mit dem Zugang.", (2,), "Frist beginnt mit dem Zugang")]
+    assert reply.removed == 0
     assert [(p.number, p.pointer, p.page) for p in reply.passages] == [
         (1, "Mandate/Mueller/vertrag.pdf", 4), (2, "Mandate/Mueller/brief.pdf", 4)]
 
@@ -265,13 +276,14 @@ def test_the_service_says_busy_when_the_core_is(key_dir, monkeypatch, split):
 
 
 def test_a_reference_opens_the_page_its_text_is_on(key_dir, monkeypatch, split):
-    """Rework 1, rule 5: the first chunk has no snippet (an auto summary ranked first)."""
+    """The first chunk has no snippet (an auto summary ranked first)."""
     hit = {"pointer": "Mandate/Mueller/vertrag.pdf", "cosine_similarity": 0.9,
            "snippet": "Die Frist beginnt mit dem Zugang.",
            "top_chunks": [{"chunk_uuid": "c-0", "page_number": 1, "sentence_number": 1},
                           {"chunk_uuid": "c-1", "page_number": 7, "sentence_number": 31,
                            "snippet": "Die Frist beginnt mit dem Zugang."}]}
-    core = _Core(hits=[hit], answer="Ab Zugang [1].")
+    core = _Core(hits=[hit], answer=st("Die Frist beginnt mit dem Zugang.", 1,
+                                       "Frist beginnt mit dem Zugang"))
     client = _client(key_dir, monkeypatch, core)
     reply = AssistantService(search=make_search(client, split=split),
                              generate=make_generate(client)).answer("Wann beginnt die Frist?")
