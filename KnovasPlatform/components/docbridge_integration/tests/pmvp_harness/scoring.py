@@ -12,6 +12,9 @@ A reply is whatever the assistant returns: ``.status``, ``.sentences`` (each ``.
 - and in every kind: no shown reference without a passage, no shown sentence without a reference, and no passage
   the rights table forbids to the person the question is asked as.
 
+A ``busy`` or ``failed`` reply is never ok, whatever the kind (coordinator, 2026-11-20): nothing was shown, so
+nothing was tested. This matters for a rights question, which the rule above alone would pass.
+
 ``points_found`` is a hint for the judges and never part of the verdict.
 """
 from __future__ import annotations
@@ -24,6 +27,8 @@ from pmvp_harness.pointers import normalise
 
 #: The statuses the assistant's contract knows (PMVP-20). Any other value is reported as "other".
 STATUSES = ("answered", "no_answer", "busy", "failed")
+#: The statuses of a reply that shows nothing: no answer, no passages. Never ok.
+NOTHING_SHOWN = ("busy", "failed")
 ANSWERING_KINDS = ("fact", "document", "process")
 
 
@@ -96,7 +101,7 @@ def score(question, reply, *, rights=None, pointer_prefix: str = "") -> Score:
         if forbidden and pointer not in leaked:
             leaked.append(pointer)
 
-    ok = refs_shown == refs_matching and unreferenced == 0 and not leaked
+    ok = refs_shown == refs_matching and unreferenced == 0 and not leaked and status not in NOTHING_SHOWN
     if question.kind in ANSWERING_KINDS:
         ok = ok and status == "answered" and source_hit is True
     elif question.kind == "negative":

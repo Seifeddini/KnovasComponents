@@ -1,11 +1,14 @@
 """PMVP-03, the builder's own tests: scoring cases the frozen file leaves open, and what the two report files
-show. The automatic verdict's rules are the frozen file's; nothing here changes them."""
+show. The automatic verdict's rules are the frozen file's, plus one the coordinator added on 2026-11-20: a busy or
+failed reply is never ok, whatever the kind."""
 from __future__ import annotations
 
 import json
 from types import SimpleNamespace
 
-from pmvp_harness import Question, Report, Row, run, score, write_report
+import pytest
+
+from pmvp_harness import Question, Report, Rights, Row, run, score, write_report
 from pmvp_harness.report import judging_sheet, report_data
 
 VERTRAG = "Mandate/2024-017/Vertrag.pdf"
@@ -61,12 +64,37 @@ def test_a_no_answer_reply_that_still_shows_sentences_is_no_no_answer_reply():
     assert score(NEGATIVE, r).ok is False
 
 
-def test_a_rights_question_is_ok_whatever_the_status_as_long_as_nothing_leaks():
-    """The frozen rule for rights names the passages only. A busy or failed reply leaks nothing and so counts as
-    ok; the status is in the report for whoever reads the number."""
-    for status in ("no_answer", "busy", "failed"):
-        marks = score(RIGHTS, reply(status=status, message="..."))
-        assert marks.ok is True and marks.status == status
+@pytest.mark.parametrize("status", ["busy", "failed"])
+def test_a_rights_question_is_not_ok_when_nothing_was_shown(status):
+    """The coordinator's decision of 2026-11-20. The frozen rule for rights names the passages only, and a busy or
+    failed reply has none: it would pass without anything having been tested."""
+    marks = score(RIGHTS, reply(status=status, message="gerade ausgelastet"))
+    assert marks.ok is False and marks.status == status
+    assert list(marks.leaked_pointers) == []
+
+
+@pytest.mark.parametrize("status", ["busy", "failed"])
+@pytest.mark.parametrize("question", [FACT, NEGATIVE, RIGHTS], ids=lambda question: question.kind)
+def test_a_busy_or_failed_reply_is_never_ok_whatever_the_kind(question, status):
+    table = Rights([("lz", MEMO, False)])
+    marks = score(question, reply(status=status, message="gerade ausgelastet"), rights=table)
+    assert marks.ok is False
+    assert list(marks.leaked_pointers) == []
+
+
+def test_a_rights_question_is_ok_when_a_reply_shows_none_of_its_documents():
+    nothing_found = reply(status="no_answer", passages=[passage(1, VERTRAG)], message=NO_ANSWER)
+    answered = reply(sentences=[sentence("Dazu steht etwas im Vertrag.", 1)], passages=[passage(1, VERTRAG)])
+    assert score(RIGHTS, nothing_found).ok is True
+    assert score(RIGHTS, answered).ok is True
+
+
+def test_a_run_against_a_core_that_is_down_scores_nothing():
+    summary = run([FACT, NEGATIVE, RIGHTS], lambda question: reply(status="failed", message="...")).summary()
+    assert (summary["ok"], summary["leaked"], summary["errors"]) == (0, 0, 0)
+    assert summary["by_kind"]["rights"] == {"questions": 1, "ok": 0}
+    assert summary["mvp_set"] == {"questions": 1, "ok": 0}
+    assert summary["by_status"]["failed"] == 3
 
 
 def test_a_reply_with_missing_fields_is_scored_as_empty():

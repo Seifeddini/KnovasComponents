@@ -47,6 +47,8 @@ PAGES = {
 #: Pages that scroll sideways at 390 pixels today (found 2026-11-20: they were built before a phone width was
 #: asked of them). Written down so that the walkthrough is green on what is known and red on anything new. A
 #: page that no longer scrolls sideways fails until it is taken off this list, so the list cannot go stale.
+#: The bar applies to new and reworked pages (coordinator, 2026-11-20). The five Admin pages leave the list with
+#: PMVP-40. "/views" and "/settings" stay listed until an item reworks them.
 SCROLLS_SIDEWAYS_TODAY = {
     "/views", "/settings",
     "/admin/people", "/admin/documents", "/admin/ingestion", "/admin/approvals", "/admin/system",

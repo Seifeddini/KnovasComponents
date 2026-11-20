@@ -113,9 +113,10 @@ exist today.
 `P/tests/test_pmvp_walkthrough.py`. Commits `8ef18b2` (A, command line, stubs), `40d9d88` (B), `2b74cc4` (C),
 `7369a21` (README), and this one (notes). Not verified by me; a verifier session checks it.
 
-**Tests.** Frozen file: 29 passed, unchanged (all four lines of the check say OK). My own: 121 with `py -3` (81 on
-the harness, 21 on the page helper, 10 examples on the real app, 9 in the walkthrough file; 118 pass and 3 of the
-walkthrough's skip because Playwright is not installed for `py -3`). Whole suite: see "Whole suite" below.
+**Tests.** Frozen file: 29 passed, unchanged (all four lines of the check say OK). My own: 130 with `py -3` (90 on
+the harness, 21 on the page helper, 10 examples on the real app, 9 in the walkthrough file; 127 pass and 3 of the
+walkthrough's skip because Playwright is not installed for `py -3`). Before the coordinator's decisions below they
+were 121. Whole suite: see "Whole suite" below.
 
 **Formats.** `demo_kanzlei/truth.py` (worktree `.worktrees/demo-kanzlei`, commit `6005034`) writes exactly what the
 frozen file reads: the seven question fields from `_Questions.add`, the header `person,pointer,may_read,rule` and
@@ -131,8 +132,8 @@ fail), and `asked_as` is the person's `key` of `people.json`. The `rule` column 
    `supporting_pointers`, `asked_as`, `in_mvp_set` may be absent from a record (defaults: empty, empty, `""`,
    false); a wrong type is refused. An id used twice is refused.
 2. `negative`: "the no-answer reply" is read as status `no_answer` **and** no shown sentence.
-3. `rights`: as the frozen file says, only the passages decide. A `busy` or `failed` reply therefore counts as ok.
-   **Decision wanted (D1 below).**
+3. `rights`: as the frozen file says, only the passages decide. First built so that a `busy` or `failed` reply
+   counted as ok; changed by the coordinator's decision D1 (below): such a reply is never ok.
 4. `summary()` has, beside the pinned numbers: `leaking_questions`, `by_status` and `error_classes` (class name →
    count). `leaked` counts documents, each once per question. `by_kind` always lists all five kinds.
 5. `report.json` per row: id, kind, in_mvp_set, ok, error, status, and counts. A status outside the contract's
@@ -233,7 +234,7 @@ tests and my 121 (118 passed, 3 skipped: the walkthrough without Playwright). Mo
 - The walkthrough with a browser, if the scratch environment is still there:
   `PMVP_WALK_OUT=<folder> <scratchpad>\venv\Scripts\python.exe -m pytest tests/test_pmvp_walkthrough.py`.
 
-**Open, decisions wanted from the coordinator.**
+**Open after the first report** (all five decided, see the last paragraph).
 
 - **D1.** Should a `rights` question with a `busy` or `failed` reply count as ok? Today it does (frozen rule). In a
   run where the Core is down, the three rights questions of the measured set would count toward the 24.
@@ -243,3 +244,13 @@ tests and my 121 (118 passed, 3 skipped: the walkthrough without Playwright). Mo
 - **D4.** F3 and F5 are in product code. Maintenance items, or part of a page item?
 - The stub files stand in for the demo plan's truth files. When DEMO-11's build exists, the same command runs on
   its `questions.jsonl` and `rights.csv`; nothing in the harness is tied to the stubs.
+
+**Coordinator's decisions (2026-11-20), built in the commit after `e148e5f`.** D1, changed: a `busy` or `failed`
+reply is never ok, whatever the kind, because nothing was shown and so nothing was tested (rule in `scoring.py`,
+said in the README; the test of the opposite rule is replaced by 10 in `test_pmvp_harness_report.py`). Leaks are
+still counted from the passages a reply carries; a busy or failed reply carries none, so its count stays 0. D2,
+kept: the known list and its ratchet; the bar applies to new and reworked pages, the five Admin pages leave the
+list with PMVP-40, `/views` and `/settings` stay listed until an item reworks them (the sentence is beside the
+list). D3, kept: the two refusals of a questions file (decision 1). D4: F3 and F5 are on the coordinator's
+follow-up list; not touched. D5, kept: an output folder inside the repository is refused (decision 7). The whole
+suite was not run again after this change; it touches `scoring.py`, its tests, the README and one comment.

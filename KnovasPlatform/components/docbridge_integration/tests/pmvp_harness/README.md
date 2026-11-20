@@ -47,12 +47,15 @@ write_report(report, folder)        # report.summary() is the numbers
 set. A question that raises becomes a row with the exception's class name, and the run goes on.
 
 **The automatic verdict `ok`** is a first pass; people judge whether an answer is right. It is defined at the top of
-`tests/test_pmvp03_harness_acceptance.py`. Things worth knowing when reading a number:
+`tests/test_pmvp03_harness_acceptance.py`, with one rule added by the coordinator (2026-11-20): **a `busy` or
+`failed` reply is never ok, whatever the kind.** Nothing was shown, so nothing was tested. This matters for a
+`rights` question, which is otherwise ok as soon as none of its documents is among the passages; a run against a
+Core that is down scores nothing. `by_status` in the summary shows how many such replies there were.
+
+Other things worth knowing when reading a number:
 
 - `expected_points` are looked up word for word (ignoring case and spacing) and shown to the judges. They never
   decide `ok`.
-- A `rights` question is ok when none of its documents is among the passages. A busy or failed reply therefore
-  counts as ok; `by_status` in the summary shows how many there were.
 - `leaked` counts documents (each once per question), `leaking_questions` the questions.
 - A questions file is refused when a question other than a `negative` one has no supporting pointer, or a `rights`
   question has no `asked_as`: the generator writes neither, and the verdict would be decided before anything is asked.
