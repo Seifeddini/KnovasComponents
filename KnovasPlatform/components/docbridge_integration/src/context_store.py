@@ -224,7 +224,7 @@ def _load_sidecar_file(path: str, mtime: float) -> Optional[Dict[str, Any]]:
             return None
         return data
     except Exception as exc:
-        logger.debug("Could not load context sidecar %s: %s", path, type(exc).__name__)
+        logger.debug("Could not load a context sidecar: %s", type(exc).__name__)
         return None
 
 
@@ -253,7 +253,7 @@ def load_context(store_dir: Optional[str], pointer_candidates: Sequence[str]) ->
             if version not in SUPPORTED_SIDECAR_VERSIONS:
                 # Read it anyway: every version so far keeps {"i","t","p"}
                 # records, and a snippet from a newer writer beats none.
-                logger.debug("Context sidecar %s has version %r; reading as best effort", path, version)
+                logger.debug("A context sidecar has version %r; reading as best effort", version)
             return data
     return None
 

@@ -747,14 +747,15 @@ class JobWorker(threading.Thread):
         except PermanentError as exc:
             self._settle(conn)
             message = _clip(str(exc)) or MSG_PERMANENT
-            logger.warning("Experiments job %s (%s) failed for good: %s", job.id, job.kind, message)
+            logger.warning("Experiments job %s (%s) failed for good: %s", job.id, job.kind, type(exc).__name__)
             if queue.fail(job, message) and not exc.handled:
                 self._run_on_dead(conn, job)
         except ExperimentsError as exc:
             # errors.py messages are German and free of internal detail.
             self._settle(conn)
+            # The message can quote a label someone typed; it is in the job's row.
             logger.warning("Experiments job %s (%s) attempt %s failed: %s",
-                           job.id, job.kind, job.attempts, exc.message)
+                           job.id, job.kind, job.attempts, type(exc).__name__)
             if queue.retry(job, exc.message) and job.status == "dead":
                 self._run_on_dead(conn, job)
         except BaseException as exc:  # noqa: BLE001 - a job must never take the thread down
@@ -786,7 +787,7 @@ class JobWorker(threading.Thread):
     def _run_on_dead(self, conn: Any, job: Job) -> None:
         hook = self.on_dead.get(job.kind)
         if hook is None:
-            logger.warning("Experiments job %s (%s) is dead: %s", job.id, job.kind, job.last_error)
+            logger.warning("Experiments job %s (%s) is dead; its last error is in its row.", job.id, job.kind)
             return
         try:
             hook(conn, job)

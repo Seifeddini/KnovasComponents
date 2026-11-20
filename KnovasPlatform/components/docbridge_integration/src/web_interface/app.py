@@ -39,7 +39,7 @@ from context_store import (
 from context_store import query_terms as context_query_terms
 import doc_fields_view
 from knovas_client import KnovasAPIClient, QueryRejected
-from log_safety import pointer_hash
+from log_safety import guard_logging, install_excepthooks, pointer_hash, use_secret
 from file_utils import AutoDocFileHandler
 from document_grants import DEFAULT_TTL_SECONDS as GRANT_TTL_DEFAULT
 from document_grants import DocumentGrantStore
@@ -114,6 +114,10 @@ def _configure_logging_for_wsgi(config) -> None:
         root.addHandler(h)
     for name in ('web_interface', 'web_interface.app', 'knovas_client'):
         logging.getLogger(name).setLevel(level)
+    # LOG_LEVEL=DEBUG must not let a library's request lines (URLs with their
+    # query strings) through, nor a traceback quote an exception's message.
+    guard_logging()
+    install_excepthooks()
 
 
 _search_enrichment_cache: Dict[str, dict] = {}
@@ -1142,6 +1146,7 @@ def create_app(config_path: Optional[str] = None):
     # open tokens, so a weak/default secret is exploitable even with login disabled.
     if web_secret_key in weak_secret_values:
         raise RuntimeError('WEB_SECRET_KEY must be set to a strong random value.')
+    use_secret(web_secret_key)  # keys pointer_hash in this process's log lines
     # Only meaningful for the legacy shared credential. With per-user accounts
     # there is no COMPANY_LOGIN_PASSWORD to be weak — the app refuses to start
     # if one is set at all (see the identity block above).

@@ -465,6 +465,10 @@ def main(argv: Optional[Sequence[str]] = None, *, out: Callable[[str], None] = p
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    from log_safety import guard_logging, install_excepthooks
+
+    guard_logging()
+    install_excepthooks()
     try:
         ctx = _Context(args, out)
     except Exception as exc:  # noqa: BLE001 - an operator needs the reason, not a traceback

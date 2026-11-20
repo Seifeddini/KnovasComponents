@@ -3302,13 +3302,14 @@ class KnovasAPIClient:
             for r in normalized_results[:3]
         ):
             raw0 = raw_hits[0] if raw_hits and isinstance(raw_hits[0], dict) else {}
+            chunks = raw0.get("top_chunks")
             logger.info(
                 "Secured query: no page/sentence in first hits; raw[0] keys=%s "
                 "page_number=%r sentence_number=%r top_chunks=%d item(s), not logged",
                 sorted(raw0.keys()) if raw0 else [],
                 raw0.get("page_number"),
                 raw0.get("sentence_number"),
-                len(raw0.get("top_chunks") or []),
+                len(chunks) if isinstance(chunks, list) else 0,
             )
 
         semantix_meta = {

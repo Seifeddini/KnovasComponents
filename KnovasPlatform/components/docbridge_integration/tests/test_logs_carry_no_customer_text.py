@@ -30,9 +30,18 @@ from __future__ import annotations
 
 import ast
 import base64
+import hashlib
+import http.server
+import io
 import json
 import logging
+import os
 import re
+import socket
+import subprocess
+import sys
+import textwrap
+import threading
 from pathlib import Path
 from typing import Iterator, List, Optional, Set, Tuple
 
@@ -77,55 +86,70 @@ _NEUTRAL_CALLS = {"len", "bool", "type", "isinstance", "pointer_hash", "_error_c
 # A module constant (DEFAULT_PDF_TEXT_MODE, ENV_STATE_PATH) is code, not customer content.
 _CONSTANT = re.compile(r"^_*[A-Z][A-Z0-9_]*$")
 
-# (file under src, the flagged expression as ast.unparse prints it, why it is not customer text)
-ALLOWED: List[Tuple[str, str, str]] = [
-    ("web_interface/app.py", "path",
-     "the search enrichment file and the context store directory: paths an operator configures "
-     "(SEARCH_ENRICHMENT_PATH, SEARCH_CONTEXT_STORE_PATH), not documents"),
-    ("file_utils.py", "self.autodoc_path",
-     "the mount root (KNOVAS_DOCUMENTS_PATH), configuration, not a document"),
-    ("ontology_filters.py", "self._state_path",
-     "the filter state file an operator configures (ONTOLOGY_FILTER_STATE_PATH), not a document"),
-    ("ontology_graph_filters.py", "self._state_path",
-     "the review-marks state file an operator configures, not a document"),
-    ("context_store.py", "path",
-     "a context sidecar's file, <store directory>/<sha256 of the pointer>.json: no document name"),
-    ("knovas_client.py", "path",
-     "a route of the Knovas graph or RBAC API: fixed paths with quoted ids (node, type, group, rule); "
-     "a pointer travels in the query parameters, which are not logged"),
-    ("knovas_client.py", "answer",
+# (file under src, function, the flagged expression as ast.unparse prints it, why it is not customer text).
+# Keyed by function so that an entry never exempts the same name somewhere else in the file.
+ALLOWED: List[Tuple[str, str, str, str]] = [
+    ("web_interface/app.py", "_enrichment_path_from_config", "path",
+     "the search enrichment file (SEARCH_ENRICHMENT_PATH): an operator configures it, not a document"),
+    ("web_interface/app.py", "_context_store_path_from_config", "path",
+     "the context store directory (SEARCH_CONTEXT_STORE_PATH): an operator configures it, not a document"),
+    ("web_interface/app.py", "_load_search_enrichment", "path",
+     "the search enrichment file (SEARCH_ENRICHMENT_PATH): an operator configures it, not a document"),
+    ("file_utils.py", "find_autodoc_files", "self.autodoc_path",
+     "the mount root (KNOVAS_DOCUMENTS_PATH): an operator configures it, not a document"),
+    ("ontology_filters.py", "_load_state", "self._state_path",
+     "the filter state file (ONTOLOGY_FILTER_STATE_PATH): an operator configures it, not a document"),
+    ("ontology_filters.py", "_save_state", "self._state_path",
+     "the filter state file (ONTOLOGY_FILTER_STATE_PATH): an operator configures it, not a document"),
+    ("ontology_graph_filters.py", "_load_state", "self._state_path",
+     "the review-marks state file: an operator configures it, not a document"),
+    ("ontology_graph_filters.py", "_save_state", "self._state_path",
+     "the review-marks state file: an operator configures it, not a document"),
+    ("ontology_store.py", "_persist", "self._path",
+     "the ontology fixture file: an operator configures it, not a document"),
+    ("ontology_store.py", "load_ontology", "path",
+     "the ontology fixture file: an operator configures it, not a document"),
+    ("document_grants.py", "_init_store", "path",
+     "the grant store's SQLite file: an operator configures it, not a document"),
+    ("identity/bootstrap.py", "_write_secret", "path",
+     "the first administrator's one-time password file (PLATFORM_ADMIN_BOOTSTRAP_PATH): an operator configures it, not a document"),
+    ("identity/bootstrap.py", "ensure_admin", "secret_path",
+     "the first administrator's one-time password file (PLATFORM_ADMIN_BOOTSTRAP_PATH): an operator configures it, not a document"),
+    ("knovas_client.py", "_rbac_request", "path",
+     "a route of the Knovas RBAC API: a fixed path, at most with a quoted group or rule id. A pointer "
+     "travels in the query string, which no Platform line logs; urllib3's request lines, the one "
+     "place it would show, are dropped by log_safety.guard_logging"),
+    ("knovas_client.py", "one", "path",
+     "a route of the Knovas graph API: a fixed path with quoted node or type ids; the query string "
+     "is not part of it (see _rbac_request)"),
+    ("knovas_client.py", "doc_fields_probe", "answer",
      "the document-fields probe's classification: off, values, filters or unknown"),
-    ("ontology_store.py", "self._path",
-     "the ontology fixture file an operator configures, not a document"),
-    ("ontology_store.py", "path",
-     "the ontology fixture file an operator configures, not a document"),
-    ("document_grants.py", "path",
-     "the grant store's SQLite file, configuration, not a document"),
-    ("identity/bootstrap.py", "path",
-     "the one-time password file of the first administrator, a path an operator configures"),
-    ("identity/bootstrap.py", "secret_path",
-     "the one-time password file of the first administrator, a path an operator configures"),
-    ("experiments/indexer.py", "pointer",
-     "an experiment's pointer is <pointer_prefix>/<domain_key>/<experiment key>: ids, no document name"),
-    ("experiments/indexer.py", "prefix",
+    ("experiments/indexer.py", "_raise_for_knovas_error", "pointer",
+     "an experiment's pointer, <pointer_prefix>/<domain_key>/<experiment key>: ids, no document name"),
+    ("experiments/indexer.py", "_upload_locked", "pointer",
+     "an experiment's pointer, <pointer_prefix>/<domain_key>/<experiment key>: ids, no document name"),
+    ("experiments/indexer.py", "_purge_one", "pointer",
+     "an experiment's pointer, <pointer_prefix>/<domain_key>/<experiment key>: ids, no document name"),
+    ("experiments/indexer.py", "_listing_failed", "prefix",
      "the experiments' own pointer prefix (settings.pointer_prefix), configuration, not a client folder"),
-    ("experiments/indexer.py", "name",
+    ("experiments/indexer.py", "_unlock", "name",
      "an advisory lock's name, exp-upload:<experiment uuid>"),
-    ("experiments/packs.py", "name",
+    ("experiments/packs.py", "available_packs", "name",
      "a shipped experiment pack's file name: code in this repository, not customer data"),
-    ("web_interface/experiments_routes.py", "request.path",
-     "the experiments routes carry ids only (experiment and domain keys, type, evaluator and token ids, "
-     "pack names); the document routes that carry pointers are logged by endpoint"),
-    ("web_interface/experiments_routes.py", "path",
-     "request.path of an experiments route: ids only, see above"),
-    ("knovas_extract_upload.py", "name",
-     "the name of an environment variable (RC_OCR_DPI, ...), configuration"),
-    ("custom_views/registry.py", "name",
+    ("experiments/packs.py", "load_pack", "name",
+     "a shipped experiment pack's file name, checked against _PACK_NAME_RE before it is used"),
+    ("knovas_extract_upload.py", "_env_flag", "name",
+     "the name of an environment variable (RC_..., a constant in the code), configuration"),
+    ("knovas_extract_upload.py", "_env_int", "name",
+     "the name of an environment variable (RC_..., a constant in the code), configuration"),
+    ("knovas_extract_upload.py", "_env_int_at_least", "name",
+     "the name of an environment variable (RC_..., a constant in the code), configuration"),
+    ("custom_views/registry.py", "_log_changes", "name",
      "a file name inside a custom view's folder: view code an operator ships, not customer data"),
-    ("experiments/jobs.py", "exc.reason",
-     "RetryLater reasons are the fixed German messages of experiments/errors.py and the MSG_ constants"),
-    ("experiments/jobs.py", "exc.message",
-     "ExperimentsError messages are the fixed German messages of experiments/errors.py"),
+    ("experiments/jobs.py", "_process", "exc.reason",
+     "every RetryLater reason is an MSG_ constant (indexer, service): fixed text, no label or value"),
+    ("log_safety.py", "_log_uncaught_in_thread", "name",
+     "a thread's name, set by the code that starts it (brain-sync, experiments workers)"),
 ]
 
 
@@ -240,10 +264,25 @@ def _handler_names(tree: ast.AST) -> dict:
     return bound
 
 
-def scan(rel: str, source: str) -> List[Tuple[str, int, str, str]]:
-    """(file, line, kind, expression) for every offending log argument."""
+def _owners(tree: ast.AST) -> dict:
+    """id(node) -> the name of the innermost function around it ("<module>" outside any)."""
+    owner: dict = {}
+
+    def visit(node: ast.AST, name: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            inner = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else name
+            owner[id(child)] = inner
+            visit(child, inner)
+
+    visit(tree, "<module>")
+    return owner
+
+
+def scan(rel: str, source: str) -> List[Tuple[str, int, str, str, str]]:
+    """(file, line, kind, expression, function) for every offending log argument."""
     tree = ast.parse(source)
     handler_names = _handler_names(tree)
+    owner = _owners(tree)
     out = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -251,24 +290,24 @@ def scan(rel: str, source: str) -> List[Tuple[str, int, str, str]]:
         func = node.func
         if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) \
                 and func.value.id == "traceback" and func.attr in ("print_exc", "print_exception"):
-            out.append((rel, node.lineno, "traceback", ast.unparse(node)))
+            out.append((rel, node.lineno, "traceback", ast.unparse(node), owner.get(id(node))))
             continue
         if not _is_log_call(node):
             continue
         if isinstance(func, ast.Attribute) and func.attr == "exception":
-            out.append((rel, node.lineno, "traceback", "logger.exception"))
+            out.append((rel, node.lineno, "traceback", "logger.exception", owner.get(id(node))))
         for keyword in node.keywords:
             if keyword.arg == "exc_info" and not (
                     isinstance(keyword.value, ast.Constant) and keyword.value.value in (None, False)):
-                out.append((rel, node.lineno, "traceback", "exc_info"))
+                out.append((rel, node.lineno, "traceback", "exc_info", owner.get(id(node))))
         exc_names = handler_names.get(id(node), set())
         for arg in list(node.args) + [k.value for k in node.keywords if k.arg != "exc_info"]:
             for kind, found in _findings(arg, exc_names):
-                out.append((rel, node.lineno, kind, ast.unparse(found)))
+                out.append((rel, node.lineno, kind, ast.unparse(found), owner.get(id(node))))
     return out
 
 
-def _scan_src() -> List[Tuple[str, int, str, str]]:
+def _scan_src() -> List[Tuple[str, int, str, str, str]]:
     found = []
     for path in sorted(SRC.rglob("*.py")):
         rel = path.relative_to(SRC).as_posix()
@@ -314,9 +353,10 @@ def test_the_guard_sees_customer_text(snippet, flagged):
 
 
 def test_no_log_call_carries_customer_text():
-    allowed = {(rel, expr) for rel, expr, _ in ALLOWED}
-    offenders = [f"{rel}:{line} {kind}: {expr}" for rel, line, kind, expr in _scan_src()
-                 if (rel, expr) not in allowed]
+    allowed = {(rel, function, expr) for rel, function, expr, _ in ALLOWED}
+    offenders = [f"{rel}:{line} ({function}) {kind}: {expr}"
+                 for rel, line, kind, expr, function in _scan_src()
+                 if (rel, function, expr) not in allowed]
     assert not offenders, (
         "log calls carrying customer text (log ids, counts, type(exc).__name__ or "
         "log_safety.pointer_hash(pointer) instead):\n" + "\n".join(offenders)
@@ -324,10 +364,10 @@ def test_no_log_call_carries_customer_text():
 
 
 def test_every_allow_list_entry_is_used_and_explained():
-    seen = {(rel, expr) for rel, _, _, expr in _scan_src()}
-    for rel, expr, reason in ALLOWED:
-        assert len(reason) > 20, (rel, expr)
-        assert (rel, expr) in seen, f"stale allow-list entry: {rel} {expr}"
+    seen = {(rel, function, expr) for rel, _, _, expr, function in _scan_src()}
+    for rel, function, expr, reason in ALLOWED:
+        assert len(reason) > 20, (rel, function, expr)
+        assert (rel, function, expr) in seen, f"stale allow-list entry: {rel} {function} {expr}"
 
 
 # -- (b) behaviour -------------------------------------------------------------
@@ -409,11 +449,11 @@ def _response(status: int, body: str, url: str) -> requests.Response:
     return response
 
 
-def _client(*, secured: bool = True):
+def _client(*, secured: bool = True, base_url: str = "https://knovas.test"):
     from knovas_client import KnovasAPIClient
 
     values = {
-        "api.base_url": "https://knovas.test",
+        "api.base_url": base_url,
         "api.auth_type": "bearer",
         "api.api_key": "",
         "api.use_secured_api": secured,
@@ -557,3 +597,180 @@ def test_the_development_server_logs_no_request_path():
     handler.log_error("code %d, message %s", 400, f"Bad request syntax ({handler.requestline!r})")
 
     assert seen == ["GET 200 512", "request refused: 400"]
+
+
+# -- the views bundle's report problems ------------------------------------------------------------
+
+def test_unreadable_bundle_reports_are_logged_by_count_and_kind(tmp_path, caplog):
+    from graph_views import bundle
+
+    (tmp_path / f"broken_{MARKER_POINTER}.json").write_text("{" + MARKER_EXC, encoding="utf-8")
+    source = bundle.Source(f"file:{tmp_path / 'bundle.json'}", "file", str(tmp_path / "bundle.json"))
+    header = {"reports": {f"Mandant_{MARKER_QUERY}": f"missing_{MARKER_POINTER}.json",
+                          "broken": f"broken_{MARKER_POINTER}.json"}}
+    caplog.set_level(logging.DEBUG)
+
+    reports, errors = bundle._read_reports(source, header, None)
+
+    assert len(errors) == 2  # the administrator still reads both, names included
+    lines = [r.getMessage() for r in caplog.records]
+    assert lines == ["views bundle: 2 report(s) not read (missing, JSONDecodeError)"]
+    _assert_no_marker(caplog, MARKER_POINTER, MARKER_QUERY, MARKER_EXC)
+
+
+# -- third-party loggers under LOG_LEVEL=DEBUG --------------------------------------------------------
+
+class _QuietJSONHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):  # noqa: N802 - the name http.server calls
+        body = b'{"results": [], "readable": true}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):  # the test server's own lines are not the Platform's
+        pass
+
+
+@pytest.fixture
+def local_server():
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _QuietJSONHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.fixture
+def platform_logging(monkeypatch):
+    """create_app's log set-up with LOG_LEVEL=DEBUG, on a handler of the test's own; restored after."""
+    from web_interface.app import _configure_logging_for_wsgi
+
+    root = logging.getLogger()
+    saved_handlers, saved_level = root.handlers[:], root.level
+    saved_hooks = (sys.excepthook, threading.excepthook)
+    names = ("web_interface", "web_interface.app", "knovas_client", "urllib3")
+    saved_levels = {name: logging.getLogger(name).level for name in names}
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s %(message)s"))
+    root.handlers = [handler]
+    monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+    try:
+        _configure_logging_for_wsgi(_Config({}))
+        yield stream
+    finally:
+        root.handlers = saved_handlers
+        root.setLevel(saved_level)
+        sys.excepthook, threading.excepthook = saved_hooks
+        for name, value in saved_levels.items():
+            logging.getLogger(name).setLevel(value)
+
+
+def test_debug_logging_writes_no_request_url(platform_logging, local_server):
+    import log_safety
+
+    assert threading.excepthook is log_safety._log_uncaught_in_thread
+    requests.get(f"{local_server}/secured/document_readable",
+                 params={"pointer": f"Mandanten/{MARKER_POINTER}.pdf"}, timeout=5)
+    client = _client(secured=False, base_url=local_server)
+    client.search_documents(f"Kuendigung {MARKER_QUERY}", limit=5)
+
+    out = platform_logging.getvalue()
+    assert "DEBUG knovas_client Making GET request" in out  # the Platform's own DEBUG lines pass
+    assert "urllib3" not in out
+    assert MARKER_POINTER not in out and MARKER_QUERY not in out
+
+
+def test_a_refused_connection_retried_by_urllib3_logs_no_url(platform_logging):
+    from urllib3.util import Retry
+
+    with socket.socket() as sock:  # a port nobody listens on
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    session = requests.Session()
+    session.mount("http://", requests.adapters.HTTPAdapter(max_retries=Retry(total=2, backoff_factor=0)))
+
+    with pytest.raises(requests.exceptions.ConnectionError):
+        session.get(f"http://127.0.0.1:{port}/api/search",
+                    params={"query": MARKER_QUERY, "pointer": MARKER_POINTER}, timeout=2)
+
+    out = platform_logging.getvalue()
+    assert "/api/search" not in out and MARKER_QUERY not in out and MARKER_POINTER not in out
+
+
+def test_the_filter_names_every_platform_module():
+    import log_safety
+
+    tops = {p.stem if p.suffix == ".py" else p.name for p in SRC.iterdir()
+            if (p.suffix == ".py" and p.stem != "__init__") or (p.is_dir() and (p / "__init__.py").exists())}
+    assert tops <= log_safety.PLATFORM_MODULES
+    assert log_safety.PLATFORM_MODULES - tops == {"__main__"}
+
+
+# -- uncaught exceptions ---------------------------------------------------------------------------
+
+def test_an_uncaught_exception_is_logged_by_its_type_only():
+    """In a fresh interpreter: inside pytest its threadexception plugin owns threading.excepthook."""
+    script = textwrap.dedent(f"""
+        import logging, threading
+        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s %(message)s")
+        import log_safety
+        log_safety.install_excepthooks()
+
+        def job():
+            raise RuntimeError("cannot open {MARKER_POINTER}")
+
+        worker = threading.Thread(target=job, name="brain-sync")
+        worker.start()
+        worker.join()
+        raise ValueError("bad value {MARKER_EXC}")
+    """)
+    env = {**os.environ, "PYTHONPATH": str(SRC)}
+    proc = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True,
+                          timeout=60)
+
+    out = proc.stdout + proc.stderr
+    assert "Uncaught RuntimeError in thread brain-sync" in out
+    assert "Uncaught ValueError in the main thread" in out
+    assert "Traceback" not in out and MARKER_POINTER not in out and MARKER_EXC not in out
+
+
+# -- pointer_hash ----------------------------------------------------------------------------------
+
+def test_pointer_hash_is_keyed_by_the_installation_secret(monkeypatch):
+    import log_safety
+
+    monkeypatch.setattr(log_safety, "_key", None)
+    monkeypatch.delenv(log_safety.SECRET_ENV, raising=False)
+    assert log_safety.pointer_hash("Mandanten/Mueller") == log_safety.NO_KEY  # never unkeyed
+
+    monkeypatch.setenv(log_safety.SECRET_ENV, "a" * 64)
+    keyed = log_safety.pointer_hash("Mandanten/Mueller")
+    assert len(keyed) == 16 and keyed != hashlib.sha256(b"Mandanten/Mueller").hexdigest()[:16]
+    monkeypatch.setenv(log_safety.SECRET_ENV, "b" * 64)
+    assert log_safety.pointer_hash("Mandanten/Mueller") != keyed
+
+    log_safety.use_secret("a" * 64)  # create_app's way: web.secret_key, the same key as the env
+    assert log_safety.pointer_hash("Mandanten/Mueller") == keyed
+
+
+def test_the_operator_command_prints_the_logged_hash(monkeypatch):
+    import log_safety
+
+    monkeypatch.setattr(log_safety, "_key", None)
+    monkeypatch.setenv(log_safety.SECRET_ENV, "c" * 64)
+    pointer = "Mandanten/Müller AG/Vertrag.pdf"
+    expected = log_safety.pointer_hash(pointer)
+    env = {**os.environ, "PYTHONPATH": str(SRC), "PYTHONIOENCODING": "utf-8"}
+
+    proc = subprocess.run([sys.executable, "-m", "log_safety", "-"], input=pointer + "\n", env=env,
+                          capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert proc.returncode == 0 and proc.stdout.split() == [expected]
+
+    env.pop(log_safety.SECRET_ENV)
+    proc = subprocess.run([sys.executable, "-m", "log_safety", "x"], env=env, capture_output=True,
+                          text=True, timeout=60)
+    assert proc.returncode == 2 and not proc.stdout

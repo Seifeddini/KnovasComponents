@@ -111,7 +111,7 @@ class AutoDocFileHandler:
                     hasher.update(chunk)
             
             hash_value = hasher.hexdigest()
-            logger.debug("Calculated %s hash for file %s: %s", algorithm, pointer_hash(file_path), hash_value)
+            logger.debug("Calculated %s hash for file %s", algorithm, pointer_hash(file_path))
             return hash_value
             
         except Exception as e:
