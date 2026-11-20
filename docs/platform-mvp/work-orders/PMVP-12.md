@@ -175,7 +175,8 @@ Builder session of 2026-11-20 (AGENT-claude-code). `feat/pmvp-12` from `origin/f
 
 ### Checks
 
-- **Tests** (own database `knovas_platform_test_pmvp12`, dropped afterwards): the three new files, 187 passed.
+- **Tests** (own database `knovas_platform_test_pmvp12`; its drop was issued at the end and was still waiting
+  for a checkpoint of the shared server when these notes were written): the three new files, 187 passed.
   With `tests/test_shell_styleguide.py`, `tests/test_shell_tokens.py`, `tests/test_pmvp10_brand_acceptance.py` and
   `tests/test_web_admin_people.py`: 345 tests, 344 passed, 1 failed (the id above). Twelve deliberate breaks of
   `_parts.html`, `parts.css` and the styleguide (a value marked safe, every tab current, a hex colour, no focus
