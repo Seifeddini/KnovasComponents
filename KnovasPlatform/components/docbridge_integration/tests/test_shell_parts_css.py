@@ -305,3 +305,5 @@ def test_long_text_wraps_instead_of_pushing_the_page_sideways():
     tag = _declared(".k-tag")
     assert tag["max-width"] == "100%" and tag["overflow"] == "hidden" and tag["text-overflow"] == "ellipsis"
     assert _declared(".k-rowline > :first-child")["min-width"] == "0"
+    # a row whose end leaves the content too little room puts the end below it
+    assert _declared(".k-rowline")["flex-wrap"] == "wrap" and _declared(".k-rowline > :last-child")["flex"] == "none"

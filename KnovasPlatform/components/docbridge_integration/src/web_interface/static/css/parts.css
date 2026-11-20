@@ -104,17 +104,20 @@
 /* --- one row of a list: content left, end right ---------------------------- */
 .k-rowline {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
-    gap: var(--k-space-md);
+    gap: var(--k-space-xs) var(--k-space-md);
     padding: var(--k-space-sm) 0;
 }
 .k-rowline + .k-rowline { border-top: 1px solid var(--k-gray-100); }
 .k-rowline:first-child { padding-top: 0; }
 .k-rowline:last-child { padding-bottom: 0; }
-/* The end keeps its width; the content takes the rest and wraps. */
+/* The end keeps its width; the content takes the rest and wraps. When the
+   content would be left with less than twelve rem (a button as the end, on
+   a phone), the end goes below it. */
 .k-rowline > :last-child { flex: none; }
-.k-rowline > :first-child { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.k-rowline > :first-child { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
 
 /* --- tabs ------------------------------------------------------------------ */
 /* A row that does not fit scrolls inside itself, and never widens the page:
