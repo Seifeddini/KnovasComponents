@@ -1,0 +1,75 @@
+/* ============================================================
+   KNOVAS BRAND FONTS
+   ============================================================
+
+   IBM Plex Sans and IBM Plex Mono, self-hosted.
+
+   Link this file when you cannot rely on Google Fonts — offline
+   builds, air-gapped demos, email-adjacent renderers, or anywhere
+   a font CDN is blocked. Websites that already load Plex from
+   Google Fonts do not need it.
+
+   Latin subset only, and only the weights the kit actually uses.
+   IBM Plex is licensed under the SIL Open Font License 1.1, which
+   permits redistribution:
+   https://github.com/IBM/plex/blob/master/LICENSE.txt
+
+   Note: IBM Plex Sans has no 800 weight. Its heaviest is Bold 700,
+   which is what --k-weight-black resolves to.
+   ============================================================ */
+
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-sans-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-sans-latin-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-mono-latin-600-normal.woff2') format('woff2');
+}

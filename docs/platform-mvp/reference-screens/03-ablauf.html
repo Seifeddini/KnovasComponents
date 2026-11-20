@@ -1,0 +1,38 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><link rel="stylesheet" href="assets/knovas-fonts.css"><link rel="stylesheet" href="assets/knovas-tokens.css"><link rel="stylesheet" href="app.css">
+<style>
+.line{display:flex;align-items:flex-start;position:relative;margin:4px 0 0}
+.line:before{content:"";position:absolute;left:7%;right:7%;top:15px;height:2px;background:var(--k-gray-200)}
+.line:after{content:"";position:absolute;left:7%;width:43%;top:15px;height:2px;background:var(--k-success)}
+.st{flex:1;text-align:center;font-size:.78rem;position:relative;z-index:1;color:var(--k-gray-500);padding:0 4px;line-height:1.3}
+.st b{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;margin:0 auto 8px;background:#fff;border:2px solid var(--k-gray-300);color:var(--k-gray-400);font-size:.8rem}
+.st.done b{background:var(--k-success);border-color:var(--k-success);color:#fff}
+.st.now b{background:var(--k-blue);border-color:var(--k-blue);color:#fff;box-shadow:0 0 0 6px var(--k-color-accent-soft)}
+.st.now{color:var(--k-navy);font-weight:600}
+.chk{display:flex;gap:11px;align-items:center;padding:9px 0;border-bottom:1px solid var(--k-gray-100);font-size:.95rem}
+.chk i{font-style:normal;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--k-success-bg);color:var(--k-success);font-size:.7rem;font-weight:700;flex:none}
+.chk.miss i{background:#fff;border:2px dashed var(--k-gray-300);color:transparent}
+.chk .end{margin-left:auto}
+</style></head><body data-area="work" data-on="Kündigung Mietvertrag Seefeldstrasse">
+<main><div class="wrap wide">
+  <div><span class="eyebrow">Mandat 2026-0142 · Limmat Immobilien AG</span><h1>Mietstreit Seefeldstrasse 48</h1><p class="lede">Ablauf «Kündigung Geschäftsmiete» · Schritt 4 von 7</p></div>
+  <div class="line">
+    <div class="st done"><b>✓</b>Mandat annehmen</div>
+    <div class="st done"><b>✓</b>Konflikt prüfen</div>
+    <div class="st done"><b>✓</b>Sachverhalt klären</div>
+    <div class="st now"><b>4</b>Kündigung prüfen</div>
+    <div class="st"><b>5</b>Schreiben an Gegenpartei</div>
+    <div class="st"><b>6</b>Schlichtung</div>
+    <div class="st"><b>7</b>Abschluss</div>
+  </div>
+  <div class="card" style="margin-top:6px">
+    <div class="head" style="align-items:baseline;margin-bottom:6px"><h3 style="font-size:1.08rem;color:var(--k-navy)">Jetzt: Kündigung prüfen</h3><span class="muted small">seit 6 Tagen · Dr. M. Keller</span></div>
+    <div class="chk"><i>✓</i><span class="link">Mietvertrag Seefeldstrasse 48</span></div>
+    <div class="chk"><i>✓</i><span class="link">Nachtrag 1 und Nachtrag 2</span></div>
+    <div class="chk miss" style="border:0"><i>·</i><span>Korrespondenz mit der Mieterin</span><span class="tag warn end">fehlt noch</span></div>
+  </div>
+  <div class="head" style="align-items:center">
+    <p class="small"><span class="muted">Danach:</span> Schreiben an Gegenpartei (Kündigung oder Vergleich)</p>
+    <span class="link small" style="white-space:nowrap">Alle 14 Mandate in diesem Ablauf →</span>
+  </div>
+</div></main>
+<script src="shell.js"></script></body></html>
