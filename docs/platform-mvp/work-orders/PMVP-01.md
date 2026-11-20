@@ -191,3 +191,21 @@ Used by row. The manifest drift is fixed in KnowledgeBase: 0025 added, so the ma
 - **Backlog row B33** (Software Map plan, G4): routes attached to a blueprint passed in as a parameter lose its prefix.
 - **Seen in passing**: `app.py` `_console_url` logs a person's e-mail address when it hides the Verwaltung link, which
   GI-DATA-04 would not allow; for the `maint/platform-logs-no-customer-text` sweep.
+
+## Verification (coordinator's record)
+
+- **2026-11-20, fresh verifier session, KnovasComponents `feat/pmvp-01` @ `6f4b5d7` and KnowledgeBase
+  `steering/pmvp-01-workspace-domain` @ `b81c9f8f1`: PASS WITH NOTES.** `card check` 15 cards, 0 errors; no stale
+  page; `map-check --scope touched` 0 problems; `validate.py --no-git` 0 errors. All source paths exist except the two
+  planned ones; no file has two owners; all 26 Admin routes have the gate their line states; the 15 contract lines of
+  plan § 7 are word-identical; `L1-WORKSPACE` is in all six files that declare `L1-BUILDER`; the count pins changed
+  counts only; the Client Zero suite fails the same 33 tests as `origin/master`.
+- The notes' fixes (DEC-0083 says only what the founder decided; the Admin card no longer claims a decision about the
+  Ingestion, Dokumentfelder and System pages; eight gates without a test say so per line; the plan points to DEC-0083)
+  are KnovasComponents `47d3a90` and KnowledgeBase `95c79feee`, read by the coordinator.
+- Integrated into `feat/platform-mvp` by the coordinator (merge `388d223`). The KnowledgeBase branch goes to `master`
+  through a pull request a person merges. **On that merge** the loader writes 7 new nodes (the domain, four
+  components, the decision, the domain's page), 18 edges and 3 changed nodes into the Knovas tenant, with no new type
+  or attribute (verifier's dry run against the in-memory API); only if the repository variable `BRAIN_WRITER` is not
+  `runner`.
+- Carried forward: `docs/platform-mvp/follow-ups.md` FU-15 to FU-21; FU-04's card part is done.
