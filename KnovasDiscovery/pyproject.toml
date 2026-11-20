@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knovas-discovery"
+version = "0.1.0"
+description = "Knovas Discovery: a read-only scan of a client's data sources before onboarding, and the report and connection plan made from it"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "PyYAML>=6,<7",
+    "ldap3>=2.9,<3",
+    "pymssql>=2.3,<3",
+    "requests>=2.31,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4,<10"]
+
+[project.scripts]
+knovas-discovery = "knovas_discovery.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+knovas_discovery = ["catalogue/*.yaml"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

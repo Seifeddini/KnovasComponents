@@ -92,6 +92,12 @@ A site of the connection layer (Knovas Link and its components) reaches the sour
 network `demo-kanzlei-net`, for example `docker network connect demo-kanzlei-net <container>`. The credentials are in
 `site/.env` on the machine that runs the site and nowhere else.
 
+## Discovery, tried here first
+
+`KnovasDiscovery/` is the scan we run at a client before onboarding. [`discovery/`](discovery/) is that scan run
+against this firm: its `intake.yaml`, the report and the connection plan it wrote (`discovery/out/`), and a comparison
+of what it found with what we planted (`discovery/out/verification.txt`). `bash discovery/run-demo.sh` repeats it.
+
 ## Connecting Knovas
 
 Needs a tenant and its certificate, which a person creates: [`requests/DEMO-02-tenant-and-site.md`](requests/DEMO-02-tenant-and-site.md).

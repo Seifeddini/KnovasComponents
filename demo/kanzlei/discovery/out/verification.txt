@@ -1,0 +1,85 @@
+Knovas Discovery against the demo law firm's truth (all data synthetic)
+scan of 2026-11-20T17:13:20Z, knovas-discovery 0.1.0; truth as of 2026-11-18
+
+## File share: per root, against manifest.jsonl (files the account may read)
+PASS  files Quarzfels/Praxis/Autodoc: scan 31,175, manifest 31,175 readable (31,175 on the share)
+PASS  bytes Quarzfels/Praxis/Autodoc: scan 114,840,726, manifest 114,840,726
+PASS  files per extension Quarzfels/Praxis/Autodoc: 15 extensions
+PASS  connector-readable files Quarzfels/Praxis/Autodoc: scan 703, manifest syncable and reachable 703
+PASS  empty files Quarzfels/Praxis/Autodoc: scan 8, manifest 8
+      Quarzfels/Praxis/Autodoc: 63 folders, 0 refused, listed in 0.6 s (48,126 entries/s)
+PASS  files Quarzfels/Gemeinsam: scan 590, manifest 590 readable (601 on the share)
+PASS  bytes Quarzfels/Gemeinsam: scan 3,469,329, manifest 3,469,329
+PASS  files per extension Quarzfels/Gemeinsam: 19 extensions
+PASS  connector-readable files Quarzfels/Gemeinsam: scan 40, manifest syncable and reachable 40
+PASS  empty files Quarzfels/Gemeinsam: scan 1, manifest 1
+      Quarzfels/Gemeinsam: 162 folders, 2 refused, listed in 0.1 s (11,096 entries/s)
+PASS  files Quarzfels/Users: scan 0, manifest 0 readable (40 on the share)
+PASS  bytes Quarzfels/Users: scan 0, manifest 0
+PASS  files per extension Quarzfels/Users: 0 extensions
+PASS  connector-readable files Quarzfels/Users: scan 0, manifest syncable and reachable 0
+PASS  empty files Quarzfels/Users: scan 0, manifest 0
+      Quarzfels/Users: 0 folders, 1 refused, listed in 0.0 s (nothing listable)
+PASS  files Quarzfels/Mail: scan 0, manifest 0 readable (13 on the share)
+PASS  bytes Quarzfels/Mail: scan 0, manifest 0
+PASS  files per extension Quarzfels/Mail: 0 extensions
+PASS  connector-readable files Quarzfels/Mail: scan 0, manifest syncable and reachable 0
+PASS  empty files Quarzfels/Mail: scan 0, manifest 0
+      Quarzfels/Mail: 0 folders, 1 refused, listed in 0.0 s (nothing listable)
+PASS  refused folders: 4 found (Quarzfels/Praxis/Autodoc: 0, Quarzfels/Gemeinsam: 2, Quarzfels/Users: 1, Quarzfels/Mail: 1), 4 expected from site/acl.json (the topmost folders below the roots that the scan account may not list)
+PASS  inventory's unreachable trees: 28 of 28 lie at or below a refused folder found (the inventory names each file's own permission folder, e.g. one per person below a root that already refuses); 0 refused folders hold a file the truth calls readable
+PASS  every unreachable file of the manifest lies below a refused folder: 64 of 64
+PASS  folders Quarzfels/Praxis/Autodoc: scan 63, manifest 63 (below the root, not inside a refused folder)
+PASS  folders Quarzfels/Gemeinsam: scan 162, manifest 162 (below the root, not inside a refused folder)
+PASS  folders Quarzfels/Users: scan 0, manifest 0 (below the root, not inside a refused folder)
+PASS  folders Quarzfels/Mail: scan 0, manifest 0 (below the root, not inside a refused folder)
+PASS  range folders in the store: 63 (truth 63)
+      AutoDoc names in the store: 99.87% of files (manifest: 31,133 of 31,175)
+PASS  scanner output in the common drive: scan 6, manifest kind=scan 6
+PASS  Outlook archives: scan saw 0, manifest readable 0 (of 13 on the share)
+PASS  dictation files: scan 1,245, manifest readable 1,245
+
+## Directory, against truth/sources.json and site/directory.json
+PASS  is Active Directory
+PASS  people enabled: 13 (truth 13)
+PASS  people disabled: 7 (truth 7)
+PASS  service accounts: 4 (truth 4)
+PASS  groups: 7 (truth 7)
+PASS  deepest group nesting: 2 (truth 2)
+PASS  groups without members: 0 (truth 0)
+      computers: 1
+
+## Database, against truth/sources.json (tables: rows, key, changed_by, deleted_by, role)
+PASS  tables: 23 (truth 23)
+PASS  table names equal
+PASS  rows per table: 23 of 23 equal
+PASS  keys: 23 of 23 equal
+PASS  foreign keys: 0 (truth: none declared)
+FAIL  rowversion and changed-at vs changed_by: 22 of 23 tables as in the truth
+      mismatch: JOURNAL: truth changed_by ['JournalNr'], scan rowversion=False changed_at=[]
+PASS  delete flags vs deleted_by: 23 of 23 tables as in the truth
+PASS  role accuracy: 23/23 = 1.000
+      truth roles: leftover 2, lookup 5, records 12, software 4; scan: leftover 2, lookup 5, records 12, software 4
+
+## Classification (report.json)
+PASS  store -> autodoc-store B (want B; no plain fileshare on that root)
+PASS  common drive -> fileshare A (want A)
+PASS  directory -> active-directory B (want B)
+PASS  database -> practice-database C (want C), effort 32 points, class XL
+      Tables that hold the firm's records: 12 record tables -> 12
+      No foreign keys (relations have to be worked out): 0 declared -> 3
+      Change markers on the record tables: 7 of 12 record tables have one (some) -> 2
+      Rows that are removed without a flag: 9 record tables without a delete flag -> 3
+      Rights kept in the source: 1 rights tables -> 5
+      Fields the client defined itself: 2 custom-field tables -> 2
+      Product not in the catalogue: product not recognised -> 5
+      More than a million rows in the record tables: 73,164 rows in record tables -> 0
+      Only Windows authentication: authentication: mixed -> 0
+FAIL  .pst -> outlook-archives not reported (want D): the 13 .pst files are all in folders that refuse the account, so the scan cannot see them
+PASS  dictations -> dictations D on 2 root(s): kanzlei:Quarzfels/Gemeinsam, kanzlei:Quarzfels/Praxis/Autodoc
+PASS  scanner output (common drive) -> scanner-output A (want A)
+      kanzlei:Quarzfels/Mail -> no-access D (nothing readable with the account)
+      kanzlei:Quarzfels/Users -> no-access D (nothing readable with the account)
+      all sources: fileshare@kanzlei:Quarzfels/Gemeinsam A, scanner-output@kanzlei:Quarzfels/Gemeinsam A, active-directory@ad B, autodoc-store@kanzlei:Quarzfels/Praxis/Autodoc B, practice-database@praxis:KanzleiDB C, dictations@kanzlei:Quarzfels/Gemeinsam D, dictations@kanzlei:Quarzfels/Praxis/Autodoc D, no-access@kanzlei:Quarzfels/Mail D, no-access@kanzlei:Quarzfels/Users D
+
+51 PASS, 2 FAIL

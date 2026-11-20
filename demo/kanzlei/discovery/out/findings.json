@@ -1,0 +1,663 @@
+{
+  "client": {
+    "it_provider": "external",
+    "key": "quarzfels",
+    "lawyers": 10,
+    "people": 13,
+    "sector": "law-firm"
+  },
+  "probes": {
+    "databases": [
+      {
+        "error": null,
+        "facts": {
+          "authentication": "mixed",
+          "custom_field_tables": 2,
+          "edition": "Developer Edition (64-bit)",
+          "foreign_keys": 0,
+          "leftover_tables": 2,
+          "lookup_tables": 5,
+          "procedures": 0,
+          "product": null,
+          "record_rows": 73164,
+          "record_tables": 12,
+          "record_tables_without_change_marker": 5,
+          "record_tables_without_delete_flag": 9,
+          "rights_tables": 1,
+          "rows_total": 73994,
+          "software_tables": 4,
+          "table_list": [
+            {
+              "changed_at": [
+                "ErfasstAm",
+                "MutiertAm"
+              ],
+              "columns": 20,
+              "delete_flag": [
+                "Inaktiv"
+              ],
+              "foreign_keys": 0,
+              "key": [
+                "AdrNr"
+              ],
+              "name": "ADRESSEN",
+              "role": "records",
+              "rows": 2500,
+              "rowversion": true
+            },
+            {
+              "changed_at": [
+                "ErfasstAm",
+                "MutiertAm"
+              ],
+              "columns": 20,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "AkteNr"
+              ],
+              "name": "AKTEN",
+              "role": "records",
+              "rows": 1500,
+              "rowversion": true
+            },
+            {
+              "changed_at": [],
+              "columns": 3,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "AkteNr",
+                "AdrNr",
+                "RolleID"
+              ],
+              "name": "AKTENBETEILIGTE",
+              "role": "records",
+              "rows": 4578,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 4,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "AkteNr",
+                "Kuerzel"
+              ],
+              "name": "AKTENRECHTE",
+              "role": "records",
+              "rows": 61,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 7,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [],
+              "name": "AKTEN_BACKUP_20190312",
+              "role": "leftover",
+              "rows": 711,
+              "rowversion": false
+            },
+            {
+              "changed_at": [
+                "ErstelltAm"
+              ],
+              "columns": 13,
+              "delete_flag": [
+                "Geloescht"
+              ],
+              "foreign_keys": 0,
+              "key": [
+                "DokNr"
+              ],
+              "name": "DOKUMENTE",
+              "role": "records",
+              "rows": 31153,
+              "rowversion": true
+            },
+            {
+              "changed_at": [],
+              "columns": 2,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "FristArtID"
+              ],
+              "name": "FRISTARTEN",
+              "role": "lookup",
+              "rows": 6,
+              "rowversion": false
+            },
+            {
+              "changed_at": [
+                "ErfasstAm",
+                "MutiertAm"
+              ],
+              "columns": 10,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "FristNr"
+              ],
+              "name": "FRISTEN",
+              "role": "records",
+              "rows": 2296,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 6,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "JournalNr"
+              ],
+              "name": "JOURNAL",
+              "role": "records",
+              "rows": 2927,
+              "rowversion": false
+            },
+            {
+              "changed_at": [
+                "ErfasstAm",
+                "MutiertAm"
+              ],
+              "columns": 13,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "LeistNr"
+              ],
+              "name": "LEISTUNGEN",
+              "role": "records",
+              "rows": 22504,
+              "rowversion": true
+            },
+            {
+              "changed_at": [],
+              "columns": 3,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "LeistArt"
+              ],
+              "name": "LEISTUNGSARTEN",
+              "role": "lookup",
+              "rows": 9,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 8,
+              "delete_flag": [
+                "Aktiv"
+              ],
+              "foreign_keys": 0,
+              "key": [
+                "Kuerzel"
+              ],
+              "name": "MITARBEITER",
+              "role": "records",
+              "rows": 20,
+              "rowversion": false
+            },
+            {
+              "changed_at": [
+                "ErfasstAm",
+                "MutiertAm"
+              ],
+              "columns": 13,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "RechNr"
+              ],
+              "name": "RECHNUNGEN",
+              "role": "records",
+              "rows": 3363,
+              "rowversion": true
+            },
+            {
+              "changed_at": [],
+              "columns": 2,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "RgID"
+              ],
+              "name": "RECHTSGEBIETE",
+              "role": "lookup",
+              "rows": 22,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 2,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "RolleID"
+              ],
+              "name": "ROLLEN",
+              "role": "lookup",
+              "rows": 7,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 5,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "Login"
+              ],
+              "name": "SYS_BENUTZER",
+              "role": "software",
+              "rows": 21,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 2,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "Bereich"
+              ],
+              "name": "SYS_NUMMERN",
+              "role": "software",
+              "rows": 8,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 2,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "Name"
+              ],
+              "name": "SYS_PARAMETER",
+              "role": "software",
+              "rows": 7,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 4,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "Tabelle",
+                "Schluessel"
+              ],
+              "name": "SYS_SPERREN",
+              "role": "software",
+              "rows": 4,
+              "rowversion": false
+            },
+            {
+              "changed_at": [
+                "ErfasstAm"
+              ],
+              "columns": 9,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "TerminNr"
+              ],
+              "name": "TERMINE",
+              "role": "records",
+              "rows": 1174,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 6,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [],
+              "name": "tmp_Import_Adressen",
+              "role": "leftover",
+              "rows": 30,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 4,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "FeldID"
+              ],
+              "name": "ZUSATZFELDER",
+              "role": "lookup",
+              "rows": 5,
+              "rowversion": false
+            },
+            {
+              "changed_at": [],
+              "columns": 3,
+              "delete_flag": [],
+              "foreign_keys": 0,
+              "key": [
+                "FeldID",
+                "Schluessel"
+              ],
+              "name": "ZUSATZFELDWERTE",
+              "role": "records",
+              "rows": 1088,
+              "rowversion": false
+            }
+          ],
+          "table_names": [
+            "ADRESSEN",
+            "AKTEN",
+            "AKTENBETEILIGTE",
+            "AKTENRECHTE",
+            "AKTEN_BACKUP_20190312",
+            "DOKUMENTE",
+            "FRISTARTEN",
+            "FRISTEN",
+            "JOURNAL",
+            "LEISTUNGEN",
+            "LEISTUNGSARTEN",
+            "MITARBEITER",
+            "RECHNUNGEN",
+            "RECHTSGEBIETE",
+            "ROLLEN",
+            "SYS_BENUTZER",
+            "SYS_NUMMERN",
+            "SYS_PARAMETER",
+            "SYS_SPERREN",
+            "TERMINE",
+            "TMP_IMPORT_ADRESSEN",
+            "ZUSATZFELDER",
+            "ZUSATZFELDWERTE"
+          ],
+          "tables": 23,
+          "tables_with_changed_at": 7,
+          "tables_with_delete_flag": 3,
+          "tables_with_rowversion": 5,
+          "version": "16.0.4325.4",
+          "version_name": "SQL Server 2022",
+          "views": 2,
+          "vocabulary": {
+            "legal_practice": 8
+          }
+        },
+        "key": "praxis:KanzleiDB",
+        "status": "ok"
+      }
+    ],
+    "directories": [
+      {
+        "error": null,
+        "facts": {
+          "computers": 1,
+          "groups": 7,
+          "groups_empty": 0,
+          "is_active_directory": true,
+          "max_nesting": 2,
+          "people_disabled": 7,
+          "people_enabled": 13,
+          "service_accounts": 4
+        },
+        "key": "ad",
+        "status": "ok"
+      }
+    ],
+    "environment": {
+      "error": null,
+      "facts": {
+        "api_error": null,
+        "api_host_set": true,
+        "api_reachable": true,
+        "cpus": 8,
+        "disk_free_bytes": 3227197440,
+        "docker": {
+          "present": false,
+          "version": null
+        },
+        "in_container": true,
+        "memory_bytes": 33658912768,
+        "os": "Linux 6.18.58.1-microsoft-standard-WSL2",
+        "proxy_vars": [],
+        "python": "3.13.18"
+      },
+      "key": "environment",
+      "status": "ok"
+    },
+    "fileshares": [
+      {
+        "error": null,
+        "facts": {
+          "age": {
+            "bands": {
+              "1-5y": 9215,
+              "5-10y": 7945,
+              "<1y": 5162,
+              ">10y": 8853
+            },
+            "newest_days": 2,
+            "oldest_days": 7618
+          },
+          "bytes": 114840726,
+          "connector_readable_files": 703,
+          "connector_readable_share": 0.0226,
+          "extensions": {
+            ".db": 7,
+            ".doc": 16334,
+            ".docx": 201,
+            ".dss": 1215,
+            ".htm": 267,
+            ".jpg": 3362,
+            ".msg": 149,
+            ".pdf": 179,
+            ".rtf": 2708,
+            ".tif": 4681,
+            ".txt": 174,
+            ".wpd": 55,
+            ".xls": 397,
+            ".xlsx": 1177,
+            ".zip": 269
+          },
+          "files": 31175,
+          "first_read_forecast": {
+            "files_to_upload": 703,
+            "hours_at_4_per_minute": 2.9
+          },
+          "folders": 63,
+          "largest_file_bytes": 91220,
+          "listing": {
+            "entries_per_second": 48126.4,
+            "seconds": 0.6
+          },
+          "max_depth": 1,
+          "patterns": {
+            "autodoc_names_share": 0.9987,
+            "dictation_files": 1215,
+            "empty_files": 8,
+            "long_paths": 0,
+            "no_extension_files": 0,
+            "office_lock_files": 20,
+            "outlook_archives": 0,
+            "range_folders": 63,
+            "scanner_files": 1
+          },
+          "refused_folders": 0
+        },
+        "key": "kanzlei:Quarzfels/Praxis/Autodoc",
+        "status": "ok"
+      },
+      {
+        "error": null,
+        "facts": {
+          "age": {
+            "bands": {
+              "1-5y": 21,
+              "5-10y": 8,
+              "<1y": 56,
+              ">10y": 505
+            },
+            "newest_days": 2,
+            "oldest_days": 10433
+          },
+          "bytes": 3469329,
+          "connector_readable_files": 40,
+          "connector_readable_share": 0.0678,
+          "extensions": {
+            ".csv": 1,
+            ".db": 1,
+            ".doc": 249,
+            ".docx": 12,
+            ".dot": 1,
+            ".dotx": 1,
+            ".dss": 30,
+            ".ini": 1,
+            ".pdf": 24,
+            ".pptx": 1,
+            ".rtf": 87,
+            ".tif": 81,
+            ".txt": 4,
+            ".wav": 1,
+            ".wpd": 86,
+            ".xls": 1,
+            ".xlsx": 7,
+            ".xltx": 1,
+            ".xml": 1
+          },
+          "files": 590,
+          "first_read_forecast": {
+            "files_to_upload": 40,
+            "hours_at_4_per_minute": 0.2
+          },
+          "folders": 162,
+          "largest_file_bytes": 90970,
+          "listing": {
+            "entries_per_second": 11095.5,
+            "seconds": 0.1
+          },
+          "max_depth": 3,
+          "patterns": {
+            "autodoc_names_share": 0.0,
+            "dictation_files": 30,
+            "empty_files": 1,
+            "long_paths": 0,
+            "no_extension_files": 0,
+            "office_lock_files": 1,
+            "outlook_archives": 0,
+            "range_folders": 0,
+            "scanner_files": 6
+          },
+          "refused_folders": 2
+        },
+        "key": "kanzlei:Quarzfels/Gemeinsam",
+        "status": "ok"
+      },
+      {
+        "error": null,
+        "facts": {
+          "age": {
+            "bands": {
+              "1-5y": 0,
+              "5-10y": 0,
+              "<1y": 0,
+              ">10y": 0
+            },
+            "newest_days": null,
+            "oldest_days": null
+          },
+          "bytes": 0,
+          "connector_readable_files": 0,
+          "connector_readable_share": null,
+          "extensions": {},
+          "files": 0,
+          "first_read_forecast": {
+            "files_to_upload": 0,
+            "hours_at_4_per_minute": 0.0
+          },
+          "folders": 0,
+          "largest_file_bytes": 0,
+          "listing": {
+            "entries_per_second": null,
+            "seconds": 0.0
+          },
+          "max_depth": 0,
+          "patterns": {
+            "autodoc_names_share": null,
+            "dictation_files": 0,
+            "empty_files": 0,
+            "long_paths": 0,
+            "no_extension_files": 0,
+            "office_lock_files": 0,
+            "outlook_archives": 0,
+            "range_folders": 0,
+            "scanner_files": 0
+          },
+          "refused_folders": 1
+        },
+        "key": "kanzlei:Quarzfels/Users",
+        "status": "ok"
+      },
+      {
+        "error": null,
+        "facts": {
+          "age": {
+            "bands": {
+              "1-5y": 0,
+              "5-10y": 0,
+              "<1y": 0,
+              ">10y": 0
+            },
+            "newest_days": null,
+            "oldest_days": null
+          },
+          "bytes": 0,
+          "connector_readable_files": 0,
+          "connector_readable_share": null,
+          "extensions": {},
+          "files": 0,
+          "first_read_forecast": {
+            "files_to_upload": 0,
+            "hours_at_4_per_minute": 0.0
+          },
+          "folders": 0,
+          "largest_file_bytes": 0,
+          "listing": {
+            "entries_per_second": null,
+            "seconds": 0.0
+          },
+          "max_depth": 0,
+          "patterns": {
+            "autodoc_names_share": null,
+            "dictation_files": 0,
+            "empty_files": 0,
+            "long_paths": 0,
+            "no_extension_files": 0,
+            "office_lock_files": 0,
+            "outlook_archives": 0,
+            "range_folders": 0,
+            "scanner_files": 0
+          },
+          "refused_folders": 1
+        },
+        "key": "kanzlei:Quarzfels/Mail",
+        "status": "ok"
+      }
+    ],
+    "m365": []
+  },
+  "scan_seconds": 1.0,
+  "scanned_at": "2026-11-20T17:13:20Z",
+  "software": [
+    {
+      "category": "practice",
+      "product": "unknown"
+    }
+  ],
+  "tool_version": "0.1.0"
+}
