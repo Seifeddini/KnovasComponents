@@ -17,7 +17,7 @@
     "api_host_set": true,
     "api_reachable": true,
     "cpus": 8,
-    "disk_free_bytes": 3227197440,
+    "disk_free_bytes": 3175165952,
     "docker": {
       "present": false,
       "version": null
@@ -74,7 +74,7 @@
     "unknown_ids": [],
     "used": false
   },
-  "scanned_at": "2026-11-20T17:13:20Z",
+  "scanned_at": "2026-11-20T19:20:06Z",
   "sources": [
     {
       "category": "documents",
@@ -120,7 +120,6 @@
       ],
       "notes": [],
       "origin": "scan",
-      "price": "price not set",
       "probe": "fileshare",
       "questions": [
         "Which folders must never be indexed?",
@@ -161,7 +160,6 @@
       ],
       "notes": [],
       "origin": "scan",
-      "price": "price not set",
       "probe": "fileshare",
       "questions": [
         "How long does post stay in the scan folder before it is filed?"
@@ -210,7 +208,6 @@
       ],
       "notes": [],
       "origin": "scan",
-      "price": "price not set",
       "probe": "directory",
       "questions": [
         "Who adds and removes people today, the firm or the IT provider?",
@@ -268,7 +265,6 @@
       ],
       "notes": [],
       "origin": "scan",
-      "price": "price not set",
       "probe": "fileshare",
       "questions": [
         "Since when is the store in use, and where are the files from before?",
@@ -406,7 +402,6 @@
       ],
       "notes": [],
       "origin": "scan",
-      "price": "price not set",
       "probe": "mssql",
       "questions": [
         "Which product is it, and who is the vendor's contact?",
@@ -447,7 +442,6 @@
       "needs_from_client": [],
       "notes": [],
       "origin": "scan",
-      "price": "not offered",
       "probe": "fileshare",
       "questions": [],
       "result_key": "kanzlei:Quarzfels/Gemeinsam",
@@ -480,7 +474,6 @@
       "needs_from_client": [],
       "notes": [],
       "origin": "scan",
-      "price": "not offered",
       "probe": "fileshare",
       "questions": [],
       "result_key": "kanzlei:Quarzfels/Praxis/Autodoc",
@@ -511,7 +504,6 @@
       "needs_from_client": [],
       "notes": [],
       "origin": "scan",
-      "price": "not offered",
       "probe": "fileshare",
       "questions": [
         "`kanzlei:Quarzfels/Mail`: is it right that the account sees nothing here, or was the wrong account or folder given?"
@@ -544,7 +536,6 @@
       "needs_from_client": [],
       "notes": [],
       "origin": "scan",
-      "price": "not offered",
       "probe": "fileshare",
       "questions": [
         "`kanzlei:Quarzfels/Users`: is it right that the account sees nothing here, or was the wrong account or folder given?"

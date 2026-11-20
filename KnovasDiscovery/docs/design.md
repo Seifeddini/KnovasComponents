@@ -1,16 +1,20 @@
 # Knovas Discovery: design
 
-Founder request of 20 November 2026. Proposed under `BET-2026-11-sources-and-access` (its measure is the time from
-first contact with a kind of source to that source loaded); worked example: the demo law firm
-(`FEAT-2026-11-19-demo-law-firm`). Status: draft, built by an agent, not verified by anyone else.
+Founder request of 20 November 2026. It belongs to `BET-2026-11-sources-and-access` (its measure is the time from
+first contact with a kind of source to that source loaded): agreed by the founder (Siran) on 20 November 2026.
+Worked example: the demo law firm (`FEAT-2026-11-19-demo-law-firm`). Status: draft, built by an agent, not verified
+by anyone else, not yet run at a client.
 
 ## Why
 
 Before we connect a client we need to know what they have, what we can connect today, what needs work, and what that
 work costs. Today that knowledge is in people's heads and in one seven-line checklist. Some sources repeat at every
 client (a file share, Microsoft 365, a directory); some are particular (a practice database). The repeating ones
-should be connected in days at a standard price. The particular ones need an estimate that rests on facts, not on a
-guess made in a sales call.
+should be connected in days. The particular ones need an estimate of the work that rests on facts, not on a guess
+made in a sales call.
+
+Discovery sizes the work. It does not price it (founder, 20 November 2026): no price appears in the tool, the
+catalogue or the reports.
 
 ## What it is
 
@@ -34,11 +38,11 @@ Three things that belong together:
 
 ## Classes
 
-| Class | Meaning | Offer |
-|-------|---------|-------|
-| **A: standard** | A released Knovas component connects it with configuration only | part of onboarding, phase 1 |
-| **B: standard with mapping** | A released component connects it, and someone has to model or map something for this client | fixed package, phase 2 |
-| **C: custom** | No component reads it; a connector or an export has to be built | individual offer from the effort class, phase 3 |
+| Class | Meaning | When |
+|-------|---------|------|
+| **A: standard** | A released Knovas component connects it with configuration only | phase 1, at onboarding |
+| **B: standard with mapping** | A released component connects it, and someone has to model or map something for this client | phase 2, in the first weeks |
+| **C: custom** | No component reads it; a connector or an export has to be built | phase 3, sized by its effort class |
 | **D: not now** | We cannot or should not connect it (no access, no way to read it, no value) | named in the report with the reason |
 
 A source's class comes from the catalogue entry it matches. A source that matches nothing is class C with the
@@ -60,9 +64,9 @@ Effort is counted in points from facts the scan measures, so two people get the 
 | More than a million rows in the record tables | 2 |
 | Only Windows authentication | 2 |
 
-Effort class: **S** up to 8 points, **M** 9 to 16, **L** 17 to 26, **XL** above. What a class costs is in
-`catalogue/pricing.yaml`, which the founders fill in; the tool prints "price not set" until they do. For custom
-sources that are not databases the consultant sets the points by hand, with a reason, in `review.yaml`.
+Effort class: **S** up to 8 points, **M** 9 to 16, **L** 17 to 26, **XL** above. The points per driver and the
+class limits are in `catalogue/effort.yaml`. For custom sources that are not databases the consultant sets the
+points by hand, with a reason, in `review.yaml`.
 
 ## Rules the tool keeps
 
@@ -101,7 +105,7 @@ detail.json        written by: knovas-discovery scan        (stays at the client
 review.yaml        optional, written by the consultant: corrections to classes, manual effort, notes
 report.json        written by: knovas-discovery report
 report.md          the discovery report for Knovas and the client
-connection-plan.md the three phases, what we need from the client, what is open, the basis of the offer
+connection-plan.md the three phases, what we need from the client, what is open, the effort of custom sources
 ```
 
 `intake.yaml`:
@@ -161,10 +165,13 @@ we planted.
 
 ## Not in this version
 
+- **A checked consent text.** The consent for the scan in [fragebogen.md](fragebogen.md) is a draft written by an
+  agent. A lawyer has to check it before the first scan at a client (noted by the founder on 20 November 2026).
+
 - The scan of Microsoft 365 is written against Graph's documented answers and tested with recorded examples. It has
   not run against a tenant.
 - No scan of an Exchange server, a document management system or a cloud service: the questionnaire covers them
   and the catalogue classifies them.
 - No network scan. The tool looks only where `intake.yaml` points. Finding servers nobody named is the IT
   provider's knowledge, and scanning a client's network needs their written consent.
-- Prices. The effort class is computed; what it costs is the founders' decision.
+- Prices. Out of scope by the founder's decision: discovery computes effort, nothing else.

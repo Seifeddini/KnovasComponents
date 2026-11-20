@@ -1,6 +1,6 @@
 import copy
 
-from knovas_discovery.catalogue import check, load_catalogue, load_pricing
+from knovas_discovery.catalogue import check, load_catalogue, load_effort_rules
 from knovas_discovery.classify import classify, match
 from knovas_discovery.conditions import holds, render
 from knovas_discovery.probes import all_facts
@@ -8,7 +8,7 @@ from knovas_discovery.util import load_yaml
 
 
 def test_shipped_catalogue_passes_the_check():
-    assert check(load_catalogue(), load_pricing(), all_facts()) == []
+    assert check(load_catalogue(), load_effort_rules(), all_facts()) == []
 
 
 def test_on_is_a_key_not_a_boolean():
@@ -22,7 +22,7 @@ def test_check_finds_problems():
     cat["entries"][2]["detect"][0]["when"][0]["fact"] = "no_such_fact"                      # fact no probe produces
     cat["entries"][3]["class"] = "E"
     cat["checks"][0]["text"] = "{nothing_here} files"
-    problems = "\n".join(check(cat, load_pricing(), all_facts()))
+    problems = "\n".join(check(cat, load_effort_rules(), all_facts()))
     assert "entry fileshare: duplicate key" in problems
     assert "unknown operator '~='" in problems
     assert "no m365 probe produces the fact 'no_such_fact'" in problems
@@ -94,7 +94,7 @@ def test_classification_of_results():
                           dirs=[failed], software=[{"category": "practice", "product": "unknown"},
                                                    {"category": "time", "product": "vertec"},
                                                    {"category": "other", "product": "fancyapp"}]),
-                 load_catalogue(), load_pricing())
+                 load_catalogue(), load_effort_rules())
     by_id = {s["id"]: s for s in r["sources"]}
     assert by_id["fileshare@s:common"]["class"] == "A"
     assert [c["key"] for c in by_id["fileshare@s:common"]["checks"]] == ["mostly-unread-formats"]
@@ -130,7 +130,7 @@ def test_review_overrides_class_adds_points_and_notes():
                           "fileshare@s:common": {"class": "D", "reason": "the client wants it out of scope"},
                           "nope@x": {"class": "A"}},
               "notes": ["First discovery."]}
-    r = classify(findings(shares=[share_result("s:common")], dbs=[db]), load_catalogue(), load_pricing(), review)
+    r = classify(findings(shares=[share_result("s:common")], dbs=[db]), load_catalogue(), load_effort_rules(), review)
     by_id = {s["id"]: s for s in r["sources"]}
     share = by_id["fileshare@s:common"]
     assert share["class"] == "D" and share["class_from"] == "review" and "out of scope" in share["notes"][0]

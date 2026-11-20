@@ -9,7 +9,7 @@ from pathlib import Path
 from . import __version__
 from . import intake as intake_mod
 from .catalogue import check as check_catalogue
-from .catalogue import load_catalogue, load_pricing
+from .catalogue import load_catalogue, load_effort_rules
 from .probes import all_facts
 from .render import table
 
@@ -65,9 +65,9 @@ def _report(args) -> int:
 
 
 def _catalogue(args) -> int:
-    catalogue, pricing = load_catalogue(), load_pricing()
+    catalogue, rules = load_catalogue(), load_effort_rules()
     if args.check:
-        problems = check_catalogue(catalogue, pricing, all_facts())
+        problems = check_catalogue(catalogue, rules, all_facts())
         if problems:
             for p in problems:
                 print(p)
@@ -106,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=_report)
 
     s = sub.add_parser("catalogue", help="print the catalogue, or check it")
-    s.add_argument("--check", action="store_true", help="validate sources.yaml and pricing.yaml")
+    s.add_argument("--check", action="store_true", help="validate sources.yaml and effort.yaml")
     s.set_defaults(func=_catalogue)
     return p
 

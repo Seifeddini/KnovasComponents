@@ -1,8 +1,10 @@
 # Fragebogen zur technischen Bestandsaufnahme
 
 Für das erste Gespräch mit der Kanzlei und ihrem IT-Betreuer (45 Minuten). Wir füllen ihn im Gespräch selbst aus.
-Jede Antwort landet in `intake.yaml`; die Spalte rechts sagt wo. Entwurf vom 20. November 2026; die Einwilligung im
-Anhang ist vor der ersten Verwendung juristisch zu prüfen.
+Jede Antwort landet in `intake.yaml`; die Spalte rechts sagt wo. Entwurf vom 20. November 2026.
+
+**Offen:** Die Einwilligung im Anhang ist juristisch nicht geprüft. Sie darf erst verwendet werden, wenn eine
+Anwältin oder ein Anwalt sie geprüft und dort unterzeichnet hat (Hinweis des Gründers vom 20. November 2026).
 
 Zu Beginn sagen: Wir lesen bei der Bestandsaufnahme keine Inhalte. Wir zählen und vermessen: wie viele Dateien,
 welche Formate, welche Tabellen, wie viele Benutzer. Namen von Mandanten, Dateien und Personen verlassen Ihre
@@ -84,6 +86,12 @@ Nicht nach Systemen fragen, sondern nach Wegen:
 | F4 | Bis wann soll die Suche über die Akten stehen? | |
 
 ## Anhang: Einwilligung zur technischen Bestandsaufnahme (Entwurf, juristisch zu prüfen)
+
+> **Nicht verwenden, bevor geprüft.** Dieser Text ist der Entwurf eines Agenten und kein juristisch geprüftes
+> Dokument. Bevor er einer Kanzlei vorgelegt wird, muss ihn eine Anwältin oder ein Anwalt prüfen: Berufsgeheimnis
+> (Art. 13 BGFA, Art. 321 StGB), Beizug von Hilfspersonen, Datenschutzgesetz, Haftung.
+>
+> Geprüft von: ___ am: ___ (solange hier nichts steht, gilt der Text als ungeprüft)
 
 > Die Kanzlei ___ beauftragt die Knovas GmbH mit einer technischen Bestandsaufnahme ihrer Informatiksysteme zur
 > Vorbereitung der Einführung von Knovas.

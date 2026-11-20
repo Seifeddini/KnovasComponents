@@ -1,28 +1,28 @@
 # Connection plan: quarzfels
 
-Made by knovas-discovery 0.1.0 from the scan of 2026-11-20T17:13:20Z. Sector: law-firm; 13 people, 10 lawyers; IT provider: external.
+Made by knovas-discovery 0.1.0 from the scan of 2026-11-20T19:20:06Z. Sector: law-firm; 13 people, 10 lawyers; IT provider: external.
 
-Phases follow the class of each source. Prices read "price not set" until the founders set them in `pricing.yaml`.
+Phases follow the class of each source. A custom source carries its effort in points and an effort class; this plan says nothing about cost.
 
 ## Phase 1: standard (class A)
 
-| Source | Kind | Component | How | Price |
-|---|---|---|---|---|
-| `kanzlei:Quarzfels/Gemeinsam` | File share (common drive) | Knovas Connector | The share is mounted read-only on the Connector's machine; the folder is its watch root. | price not set |
-| `kanzlei:Quarzfels/Gemeinsam` | Scanned post that nobody has filed | Knovas Connector (OCR) | Read like any PDF; image-only pages go through OCR. | price not set |
+| Source | Kind | Component | How |
+|---|---|---|---|
+| `kanzlei:Quarzfels/Gemeinsam` | File share (common drive) | Knovas Connector | The share is mounted read-only on the Connector's machine; the folder is its watch root. |
+| `kanzlei:Quarzfels/Gemeinsam` | Scanned post that nobody has filed | Knovas Connector (OCR) | Read like any PDF; image-only pages go through OCR. |
 
 ## Phase 2: standard with mapping (class B)
 
-| Source | Kind | Component | What is set up or mapped | Price |
-|---|---|---|---|---|
-| `ad` | Active Directory | Platform (Verwaltung) | People and groups are entered in the Platform by hand today. Reading groups from the directory is not built. | price not set |
-| `kanzlei:Quarzfels/Praxis/Autodoc` | Document store of a practice software (AutoDoc) | Knovas Connector, Brain Builder | Watch root on the store, one numbered folder per cycle. The matter comes from the file name through a file-pattern mapping in the Builder. | price not set |
+| Source | Kind | Component | What is set up or mapped |
+|---|---|---|---|
+| `ad` | Active Directory | Platform (Verwaltung) | People and groups are entered in the Platform by hand today. Reading groups from the directory is not built. |
+| `kanzlei:Quarzfels/Praxis/Autodoc` | Document store of a practice software (AutoDoc) | Knovas Connector, Brain Builder | Watch root on the store, one numbered folder per cycle. The matter comes from the file name through a file-pattern mapping in the Builder. |
 
 ## Phase 3: custom (class C)
 
-| Source | Kind | Effort points | Effort class | Price |
-|---|---|---|---|---|
-| `praxis:KanzleiDB` | Database of a legal practice software (product not recognised) | 32 | XL | price not set |
+| Source | Kind | Effort points | Effort class |
+|---|---|---|---|
+| `praxis:KanzleiDB` | Database of a legal practice software (product not recognised) | 32 | XL |
 
 ### Effort of `praxis:KanzleiDB` (Database of a legal practice software (product not recognised))
 

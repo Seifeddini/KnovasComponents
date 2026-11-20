@@ -4,8 +4,8 @@ For anyone at Knovas who prepares a client for onboarding. You need no engineeri
 Step 2 needs someone who can open a terminal. Design and reasons: [design.md](design.md).
 
 **The result** is two documents: a discovery report (what the client has) and a connection plan (what we connect
-first, what later, what we need from them, what a custom connection costs in effort). With them an offer can be
-written and an installation planned without a second visit.
+first, what later, what we need from them, how much work a custom connection is). With them an installation can be
+planned without a second visit. Discovery sizes the work; it does not price it.
 
 **Three rules that are not negotiable**
 
@@ -20,7 +20,7 @@ written and an installation planned without a second visit.
 
 | What | Who gives it | Why |
 |------|--------------|-----|
-| Signed consent for the scan ([fragebogen.md](fragebogen.md), annex) | the client's managing partner | We look at a law firm's systems. Their professional secrecy covers what we see |
+| Signed consent for the scan ([fragebogen.md](fragebogen.md), annex). **The text there is an unchecked draft: a lawyer has to check it before it is used at a client. No scan at a client until then** | the client's managing partner | We look at a law firm's systems. Their professional secrecy covers what we see |
 | A contact at their IT provider | the client | They create the account and know where things are |
 | A read-only account for the file server and the directory | IT provider | The scan and, later, the Knovas Connector use the same account. If it sees too much or too little, we learn it now |
 | A read-only database login, if they have a practice database | IT provider | Without it the database is classified from the questionnaire only |
@@ -110,22 +110,21 @@ Run `report` again after every change to `review.yaml`.
 
 `connection-plan.md` has three phases:
 
-| Phase | What | When | Price |
-|-------|------|------|-------|
-| 1 | Class A: what a released component connects with configuration | at onboarding | part of onboarding |
-| 2 | Class B: connected by a released component, with modelling or mapping for this client | in the first weeks | fixed package per source |
-| 3 | Class C: custom | after an individual offer | from the effort class |
+| Phase | What | When |
+|-------|------|------|
+| 1 | Class A: what a released component connects with configuration | at onboarding |
+| 2 | Class B: connected by a released component, with modelling or mapping for this client | in the first weeks |
+| 3 | Class C: custom, sized by effort points and an effort class (S, M, L, XL) | when it has been agreed |
 
 Complete it by hand:
 
 1. **What we need from the client**: the tool lists it per source. Put a name and a date next to each line.
 2. **Open questions**: ask them now, in one e-mail, not one by one over weeks.
-3. **What the client will not get** (class D): say it in the offer, with the reason. A client who finds out later
+3. **What the client will not get** (class D): tell them now, with the reason. A client who finds out later
    that their mail archive is not searchable is an unhappy client.
 4. **Sizing**: the forecast of the first read tells the client when search is complete. Days, not hours, is normal.
 
-The offer is written by a person from this plan. Prices per class are in `catalogue/pricing.yaml` and are set by
-the founders. Where the tool prints "price not set", ask.
+The plan states effort, never money. What Knovas charges is decided elsewhere and is not part of discovery.
 
 ## After every discovery: make the next one cheaper
 

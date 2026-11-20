@@ -7,6 +7,9 @@ the probes produce is listed in [docs/facts.md](docs/facts.md). Status: draft, b
 client. Against the synthetic demo law firm (`demo/kanzlei/discovery/`, `bash run-demo.sh`) 51 comparisons with the
 generator's truth pass and 2 fail, both limits named below: `demo/kanzlei/discovery/out/verification.txt`.
 
+> **Before the first scan at a client:** the consent text in [docs/fragebogen.md](docs/fragebogen.md) is an unchecked
+> draft. A lawyer has to check it first.
+
 ## What it does and does not do
 
 - **It only reads.** On a share it lists folders and reads file sizes and dates; it opens no file. In a database it

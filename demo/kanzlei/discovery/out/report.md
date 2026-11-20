@@ -1,6 +1,6 @@
 # Discovery report: quarzfels
 
-Made by knovas-discovery 0.1.0 from the scan of 2026-11-20T17:13:20Z. Sector: law-firm; 13 people, 10 lawyers; IT provider: external.
+Made by knovas-discovery 0.1.0 from the scan of 2026-11-20T19:20:06Z. Sector: law-firm; 13 people, 10 lawyers; IT provider: external.
 
 This report holds numbers, patterns, and the names of database tables and columns. It holds no name of a person, client, file, folder or group: those are in `detail.json`, which stays at the client.
 
@@ -15,17 +15,17 @@ This report holds numbers, patterns, and the names of database tables and column
 
 ## Sources
 
-| # | Source | Kind | Class | Knovas today | Price |
-|---|---|---|---|---|---|
-| 1 | `kanzlei:Quarzfels/Gemeinsam` | File share (common drive) | A | released (Knovas Connector) | price not set |
-| 2 | `kanzlei:Quarzfels/Gemeinsam` | Scanned post that nobody has filed | A | released (Knovas Connector (OCR)) | price not set |
-| 3 | `ad` | Active Directory | B | partly (Platform (Verwaltung)) | price not set |
-| 4 | `kanzlei:Quarzfels/Praxis/Autodoc` | Document store of a practice software (AutoDoc) | B | released (Knovas Connector, Brain Builder) | price not set |
-| 5 | `praxis:KanzleiDB` | Database of a legal practice software (product not recognised) | C | none | price not set |
-| 6 | `kanzlei:Quarzfels/Gemeinsam` | Dictation files | D | none | not offered |
-| 7 | `kanzlei:Quarzfels/Praxis/Autodoc` | Dictation files | D | none | not offered |
-| 8 | `kanzlei:Quarzfels/Mail` | Nothing the account can read | D | none | not offered |
-| 9 | `kanzlei:Quarzfels/Users` | Nothing the account can read | D | none | not offered |
+| # | Source | Kind | Class | Knovas today |
+|---|---|---|---|---|
+| 1 | `kanzlei:Quarzfels/Gemeinsam` | File share (common drive) | A | released (Knovas Connector) |
+| 2 | `kanzlei:Quarzfels/Gemeinsam` | Scanned post that nobody has filed | A | released (Knovas Connector (OCR)) |
+| 3 | `ad` | Active Directory | B | partly (Platform (Verwaltung)) |
+| 4 | `kanzlei:Quarzfels/Praxis/Autodoc` | Document store of a practice software (AutoDoc) | B | released (Knovas Connector, Brain Builder) |
+| 5 | `praxis:KanzleiDB` | Database of a legal practice software (product not recognised) | C | none |
+| 6 | `kanzlei:Quarzfels/Gemeinsam` | Dictation files | D | none |
+| 7 | `kanzlei:Quarzfels/Praxis/Autodoc` | Dictation files | D | none |
+| 8 | `kanzlei:Quarzfels/Mail` | Nothing the account can read | D | none |
+| 9 | `kanzlei:Quarzfels/Users` | Nothing the account can read | D | none |
 
 ### 1. File share (common drive): `kanzlei:Quarzfels/Gemeinsam`
 
@@ -263,8 +263,8 @@ Questions:
 | Paths over 240 characters | 0 | 0 | 0 | 0 |
 | Empty files | 8 | 1 | 0 | 0 |
 | Largest file | 91.2 kB | 91.0 kB | 0 bytes | 0 bytes |
-| Listing: entries per second | 48,126.4 | 11,095.5 | ? | ? |
-| Listing: seconds | 0.6 | 0.1 | 0 | 0 |
+| Listing: entries per second | 47,804.0 | 11,098.5 | ? | ? |
+| Listing: seconds | 0.7 | 0.1 | 0 | 0 |
 | First read: files to upload | 703 | 40 | 0 | 0 |
 | First read: hours at 4 per minute | 2.9 | 0.2 | 0 | 0 |
 

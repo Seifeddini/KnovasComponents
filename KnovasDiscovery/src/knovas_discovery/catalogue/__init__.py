@@ -1,4 +1,4 @@
-"""The catalogue of kinds of source (sources.yaml) and what each class costs (pricing.yaml)."""
+"""The catalogue of kinds of source (sources.yaml) and how the effort of a custom source is counted (effort.yaml)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from ..conditions import OPERATORS, placeholders
 
 HERE = Path(__file__).parent
 SOURCES = HERE / "sources.yaml"
-PRICING = HERE / "pricing.yaml"
+EFFORT_RULES = HERE / "effort.yaml"
 
 CLASSES = ("A", "B", "C", "D")
 ON = ("fileshare", "directory", "mssql", "m365", "intake")
@@ -22,8 +22,8 @@ def load_catalogue(path: Path | None = None) -> dict:
     return load_yaml(Path(path or SOURCES).read_text(encoding="utf-8"))
 
 
-def load_pricing(path: Path | None = None) -> dict:
-    return load_yaml(Path(path or PRICING).read_text(encoding="utf-8"))
+def load_effort_rules(path: Path | None = None) -> dict:
+    return load_yaml(Path(path or EFFORT_RULES).read_text(encoding="utf-8"))
 
 
 def _fact_known(path: str, known: dict[str, str]) -> bool:
@@ -33,12 +33,12 @@ def _fact_known(path: str, known: dict[str, str]) -> bool:
     return any(path.startswith(k + ".") for k in known)
 
 
-def check(catalogue: dict, pricing: dict, facts: dict[str, dict[str, str]]) -> list[str]:
+def check(catalogue: dict, rules: dict, facts: dict[str, dict[str, str]]) -> list[str]:
     """Problems in the catalogue: unknown operators, facts no probe produces, duplicate keys, bad classes."""
     problems: list[str] = []
     entries = catalogue.get("entries") or []
     checks = catalogue.get("checks") or []
-    drivers = set((pricing.get("effort_points") or {}).keys())
+    drivers = set((rules.get("effort_points") or {}).keys())
 
     def cond_problems(where: str, on: str, conditions) -> None:
         if not isinstance(conditions, list) or not conditions:
@@ -89,7 +89,7 @@ def check(catalogue: dict, pricing: dict, facts: dict[str, dict[str, str]]) -> l
                 groups.setdefault(e["group"], []).append((e["priority"], key))
         for d in e.get("effort_drivers") or []:
             if d != "manual" and d not in drivers:
-                problems.append(f"{where}: unknown effort driver {d!r} (not in pricing.yaml effort_points)")
+                problems.append(f"{where}: unknown effort driver {d!r} (not in effort.yaml effort_points)")
         if "manual" in (e.get("effort_drivers") or []) and len(e["effort_drivers"]) > 1:
             problems.append(f"{where}: effort_drivers [manual] cannot be combined with other drivers")
         sig = e.get("signature")
@@ -124,11 +124,8 @@ def check(catalogue: dict, pricing: dict, facts: dict[str, dict[str, str]]) -> l
         if not c.get("text"):
             problems.append(f"{where}: no text")
 
-    ec = pricing.get("effort_classes") or {}
+    ec = rules.get("effort_classes") or {}
     bounds = [v.get("max_points") for v in ec.values()]
     if not ec or bounds[-1] is not None or any(b is None for b in bounds[:-1]) or bounds[:-1] != sorted(bounds[:-1]):
-        problems.append("pricing: effort_classes must rise, and only the last may have max_points null")
-    for cls in CLASSES:
-        if cls not in (pricing.get("classes") or {}):
-            problems.append(f"pricing: classes has no {cls}")
+        problems.append("effort: effort_classes must rise, and only the last may have max_points null")
     return problems

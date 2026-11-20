@@ -78,24 +78,10 @@ def effort_class(points: int, classes: dict) -> str:
     return list(classes)[-1]
 
 
-def price(source_class: str, eclass: str | None, pricing: dict) -> str:
-    classes = pricing.get("classes") or {}
-    currency = pricing.get("currency") or "CHF"
-    if source_class == "D":
-        return "not offered"
-    spec = classes.get(source_class) or {}
-    value = spec.get(eclass) if source_class == "C" else spec.get("chf")
-    if source_class == "C" and eclass is None:
-        return "price not set"
-    if value is None:
-        return "price not set"
-    return f"{currency} {int(value):,}" if isinstance(value, (int, float)) else str(value)
-
-
-def compute(entry_drivers: list[str], facts: dict | None, review_points: list[dict], pricing: dict,
+def compute(entry_drivers: list[str], facts: dict | None, review_points: list[dict], rules: dict,
             computable: bool) -> dict:
     """The effort of a class C source: computed from facts, or set by the consultant (manual)."""
-    cfg = pricing.get("effort_points") or {}
+    cfg = rules.get("effort_points") or {}
     added = [{"points": int(r.get("points") or 0), "reason": str(r.get("reason") or "")} for r in review_points]
     manual = not entry_drivers or entry_drivers == ["manual"] or not computable or facts is None
     drivers = [] if manual else [driver(d, facts, cfg) for d in entry_drivers]
@@ -104,5 +90,5 @@ def compute(entry_drivers: list[str], facts: dict | None, review_points: list[di
                 "note": "effort: set by the consultant in review.yaml"}
     points = sum(d["points"] for d in drivers) + sum(a["points"] for a in added)
     return {"mode": "manual" if manual else "computed", "drivers": drivers, "review_points": added,
-            "points": points, "effort_class": effort_class(points, pricing.get("effort_classes") or {}),
+            "points": points, "effort_class": effort_class(points, rules.get("effort_classes") or {}),
             "note": None}

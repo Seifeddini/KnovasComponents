@@ -140,11 +140,10 @@ def _source(entry: dict, origin: str, probe: str, result_key: str, facts: dict |
         "_facts": facts,
         "notes": [],
         "effort": None,
-        "price": None,
     }
 
 
-def classify(findings: dict, catalogue: dict, pricing: dict, review: dict | None = None,
+def classify(findings: dict, catalogue: dict, rules: dict, review: dict | None = None,
              software: list[dict] | None = None) -> dict:
     entries = catalogue.get("entries") or []
     checks = catalogue.get("checks") or []
@@ -218,8 +217,7 @@ def classify(findings: dict, catalogue: dict, pricing: dict, review: dict | None
         s["notes"].extend(str(n) for n in r.get("notes") or [])
         if s["class"] == "C":
             computable = s["probe"] == "mssql" and s["entry"] not in ("unknown",)
-            s["effort"] = eff.compute(s["effort_drivers"], s["_facts"], r.get("effort") or [], pricing, computable)
-        s["price"] = eff.price(s["class"], (s["effort"] or {}).get("effort_class"), pricing)
+            s["effort"] = eff.compute(s["effort_drivers"], s["_facts"], r.get("effort") or [], rules, computable)
         del s["_facts"]
     sources.sort(key=lambda s: (CLASS_ORDER[s["class"]], s["entry"], s["result_key"]))
 

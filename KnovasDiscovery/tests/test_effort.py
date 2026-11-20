@@ -1,5 +1,5 @@
 from knovas_discovery import effort as eff
-from knovas_discovery.catalogue import load_pricing
+from knovas_discovery.catalogue import load_effort_rules
 
 ALL = ["record_tables", "foreign_keys", "change_markers", "removed_rows", "rights_in_source", "custom_fields",
        "unknown_product", "volume", "authentication"]
@@ -14,7 +14,7 @@ def facts(**over):
 
 
 def points(f):
-    return {d["driver"]: d["points"] for d in eff.compute(ALL, f, [], load_pricing(), True)["drivers"]}
+    return {d["driver"]: d["points"] for d in eff.compute(ALL, f, [], load_effort_rules(), True)["drivers"]}
 
 
 def test_each_driver_by_the_design_table():
@@ -43,26 +43,27 @@ def test_volume_falls_back_to_the_table_list():
 
 
 def test_total_and_effort_class():
-    e = eff.compute(ALL, facts(), [{"points": 1, "reason": "x"}], load_pricing(), True)
+    e = eff.compute(ALL, facts(), [{"points": 1, "reason": "x"}], load_effort_rules(), True)
     assert e["points"] == 32 + 1 and e["effort_class"] == "XL" and e["mode"] == "computed"
-    classes = load_pricing()["effort_classes"]
+    classes = load_effort_rules()["effort_classes"]
     assert [eff.effort_class(p, classes) for p in (0, 8, 9, 16, 17, 26, 27)] == ["S", "S", "M", "M", "L", "L", "XL"]
 
 
 def test_manual_effort():
-    e = eff.compute(["manual"], None, [], load_pricing(), False)
+    e = eff.compute(["manual"], None, [], load_effort_rules(), False)
     assert e["points"] is None and e["note"] == "effort: set by the consultant in review.yaml"
-    e = eff.compute(["manual"], None, [{"points": 7, "reason": "API study"}], load_pricing(), False)
+    e = eff.compute(["manual"], None, [{"points": 7, "reason": "API study"}], load_effort_rules(), False)
     assert (e["mode"], e["points"], e["effort_class"]) == ("manual", 7, "S")
 
 
-def test_prices():
-    pricing = load_pricing()
-    assert eff.price("A", None, pricing) == "price not set"
-    assert eff.price("C", "XL", pricing) == "price not set"
-    assert eff.price("C", None, pricing) == "price not set"
-    assert eff.price("D", None, pricing) == "not offered"
-    pricing["classes"]["C"]["XL"] = 48000
-    pricing["classes"]["B"]["chf"] = 3500
-    assert eff.price("C", "XL", pricing) == "CHF 48,000"
-    assert eff.price("B", None, pricing) == "CHF 3,500"
+def test_discovery_does_not_price_anything():
+    """Discovery sizes the work in points and classes. What it costs is not its subject."""
+    from pathlib import Path
+
+    import knovas_discovery
+
+    package = Path(knovas_discovery.__file__).parent
+    for path in [*package.rglob("*.py"), *package.rglob("*.yaml")]:
+        text = path.read_text(encoding="utf-8").lower()
+        assert "price" not in text and "chf" not in text and "pricing" not in text, path.name
+

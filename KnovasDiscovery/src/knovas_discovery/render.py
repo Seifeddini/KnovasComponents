@@ -93,8 +93,8 @@ def report_md(report: dict, findings: dict) -> str:
     L += [""]
     sources = report["sources"]
     L += ["## Sources", ""]
-    L += table(["#", "Source", "Kind", "Class", "Knovas today", "Price"],
-               [[i, f"`{s['result_key']}`", s["name"], s["class"], _knovas(s["knovas"]), s["price"]]
+    L += table(["#", "Source", "Kind", "Class", "Knovas today"],
+               [[i, f"`{s['result_key']}`", s["name"], s["class"], _knovas(s["knovas"])]
                 for i, s in enumerate(sources, 1)])
     L += [""]
     for i, s in enumerate(sources, 1):
@@ -232,16 +232,16 @@ def _not_ok(report: dict) -> list[str]:
 # --------------------------------------------------------------------------- connection-plan.md
 def plan_md(report: dict) -> str:
     L = _header(report, "Connection plan")
-    L += ["Phases follow the class of each source. Prices read \"price not set\" until the founders set them in "
-          "`pricing.yaml`.", ""]
+    L += ["Phases follow the class of each source. A custom source carries its effort in points and an effort "
+          "class; this plan says nothing about cost.", ""]
     by = {c: [s for s in report["sources"] if s["class"] == c] for c in "ABCD"}
     L += ["## Phase 1: standard (class A)", ""]
-    L += table(["Source", "Kind", "Component", "How", "Price"],
-               [[f"`{s['result_key']}`", s["name"], s["knovas"]["component"], s["knovas"]["how"], s["price"]] for s in by["A"]]) \
+    L += table(["Source", "Kind", "Component", "How"],
+               [[f"`{s['result_key']}`", s["name"], s["knovas"]["component"], s["knovas"]["how"]] for s in by["A"]]) \
         if by["A"] else ["No source of class A."]
     L += ["", "## Phase 2: standard with mapping (class B)", ""]
-    L += table(["Source", "Kind", "Component", "What is set up or mapped", "Price"],
-               [[f"`{s['result_key']}`", s["name"], s["knovas"]["component"], s["knovas"]["how"], s["price"]] for s in by["B"]]) \
+    L += table(["Source", "Kind", "Component", "What is set up or mapped"],
+               [[f"`{s['result_key']}`", s["name"], s["knovas"]["component"], s["knovas"]["how"]] for s in by["B"]]) \
         if by["B"] else ["No source of class B."]
     L += ["", "## Phase 3: custom (class C)", ""]
     if by["C"]:
@@ -250,8 +250,8 @@ def plan_md(report: dict) -> str:
             e = s["effort"] or {}
             pts = e.get("points")
             rows.append([f"`{s['result_key']}`", s["name"], "set in review.yaml" if pts is None else pts,
-                         e.get("effort_class") or "not set", s["price"]])
-        L += table(["Source", "Kind", "Effort points", "Effort class", "Price"], rows) + [""]
+                         e.get("effort_class") or "not set"])
+        L += table(["Source", "Kind", "Effort points", "Effort class"], rows) + [""]
         for s in by["C"]:
             L += [f"### Effort of `{s['result_key']}` ({s['name']})", ""] + effort_lines(s)
     else:
