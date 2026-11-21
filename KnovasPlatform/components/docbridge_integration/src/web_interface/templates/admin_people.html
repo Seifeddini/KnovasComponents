@@ -19,15 +19,19 @@
    exceptions: an active account carries none.
 
    Roles in plain words (A-02). The form still sends the role's key (name="roles", value = the key); only
-   the words a person reads change. A role this table does not know is shown by its key. #}
+   the words a person reads change.
+
+   Two roles only (the founder, 2026-11-21): the page offers Administration (admin) and Mitglied (member); building
+   roles is an item of its own. The console's other roles (approver, ingestion_manager, experimenter,
+   experiments_manager) stay in the code and the data and are not offered here - not as a box, not in the filter,
+   not in the list. A person who holds one sees it in the details, read only, and keeps it when the roles are
+   saved: a hidden field sends it back with the boxes. No gate changes (admin.py). #}
 {% set role_words = {
     'admin': ('Administration', 'verwaltet Personen, Gruppen und Zugriff'),
-    'approver': ('Freigabe', 'bestätigt als zweite Person, was eine Freigabe braucht'),
-    'ingestion_manager': ('Einlesen', 'bestimmt, welche Ordner eingelesen werden'),
     'member': ('Mitglied', 'sucht und liest, was die Zugriffsgruppen erlauben'),
-    'experimenter': ('Experimente', 'öffnet die Experimente'),
-    'experiments_manager': ('Experimente verwalten', 'legt Experimente an und verwaltet sie'),
 } %}
+{% set offered_roles = [] %}
+{% for role in ('admin', 'member') if role in assignable_roles %}{% set _ = offered_roles.append(role) %}{% endfor %}
 
 <main class="admin admin-column">
 {% call parts.page(wide=True) %}
@@ -54,7 +58,7 @@
         <label class="visually-hidden" for="people-role-filter">Nach Rolle filtern</label>
         <select id="people-role-filter">
             <option value="">Alle Rollen</option>
-            {% for role in assignable_roles %}<option value="{{ role }}">{{ role_words[role][0] if role in role_words else role }}</option>{% endfor %}
+            {% for role in offered_roles %}<option value="{{ role }}">{{ role_words[role][0] }}</option>{% endfor %}
         </select>
         <label class="visually-hidden" for="people-status-filter">Nach Zustand filtern</label>
         <select id="people-status-filter">
@@ -81,8 +85,8 @@
         {% endif %}
         <div class="person-row{% if loop.first %} is-selected{% endif %}" data-person-row
              data-person-id="{{ person.id }}"
-             data-search="{{ person.display_name }} {{ person.email }} {{ person.roles|join(' ') }} {% for role in person.roles %}{{ role_words[role][0] if role in role_words else '' }} {% endfor %}{{ row.access_groups|join(' ') }}"
-             data-role="{{ person.roles|join(' ') }}"
+             data-search="{{ person.display_name }} {{ person.email }} {% for role in offered_roles if role in person.roles %}{{ role }} {{ role_words[role][0] }} {% endfor %}{{ row.access_groups|join(' ') }}"
+             data-role="{{ offered_roles|select('in', person.roles)|join(' ') }}"
              data-status="{{ person_status }}"
              {% if loop.first %}aria-selected="true"{% endif %}>
         {% call parts.rowline() %}
@@ -98,7 +102,7 @@
                 <p class="k-small k-muted">{{ person.email }}</p>
                 <p class="k-small person-access">
                     <span class="k-muted">Rollen:</span>
-                    {% for role in person.roles|sort %}{{ role_words[role][0] if role in role_words else role }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}
+                    {% for role in offered_roles if role in person.roles %}{{ role_words[role][0] }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}
                     {% if row.access_groups %}<span class="k-muted"> · Zugriffsgruppen:</span> {{ row.access_groups|join(', ') }}{% endif %}
                 </p>
             </div>
@@ -139,20 +143,28 @@
                 </ul>
                 {% endif %}
 
+                {% set other_roles = person.roles|reject('in', offered_roles)|sort %}
                 <form class="person-detail-form" method="post" action="{{ url_for('admin.set_roles') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="user_id" value="{{ person.id }}">
                     <fieldset>
                         <legend>Rollen</legend>
-                        {% for role in assignable_roles %}
+                        {% for role in offered_roles %}
                         <label class="admin-check role-choice">
                             <input type="checkbox" name="roles" value="{{ role }}"
                                    {% if role in person.roles %}checked{% endif %}>
-                            <span>{% if role in role_words %}<span class="role-choice-name">{{ role_words[role][0] }}</span>
-                                <span class="k-muted role-choice-text">{{ role_words[role][1] }}</span>{% else %}{{ role }}{% endif %}</span>
+                            <span><span class="role-choice-name">{{ role_words[role][0] }}</span>
+                                <span class="k-muted role-choice-text">{{ role_words[role][1] }}</span></span>
                         </label>
                         {% endfor %}
                     </fieldset>
+                    {% if other_roles %}
+                    {# Read only, and sent back unchanged: saving never drops a role this page does not offer. #}
+                    <p class="k-small person-other-roles" data-other-roles>
+                        <span class="k-muted">Dazu weitere Rollen, hier nicht änderbar:</span> {{ other_roles|join(', ') }}
+                    </p>
+                    {% for role in other_roles %}<input type="hidden" name="roles" value="{{ role }}">{% endfor %}
+                    {% endif %}
                     <button type="submit" class="secondary">Rollen speichern</button>
                 </form>
 
