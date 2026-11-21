@@ -2625,36 +2625,6 @@ class KnovasAPIClient:
             return None
         return _graph_payload_list(payload, 'facts')
 
-    def graph_create_fact(self, node_id: str, value: Any,
-                          attribute_id: Optional[str] = None,
-                          label: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """POST /secured/graph/nodes/<id>/facts.
-
-        Der CHECK des Servers verlangt attribute_id ODER label. Hier abzulehnen
-        heisst, der Aufrufer sieht die Regel - statt eines 422 aus drei Schichten
-        Entfernung.
-        """
-        if not attribute_id and not label:
-            raise ValueError("a fact needs an attribute_id or a label")
-        data: Dict[str, Any] = {'value': value}
-        if attribute_id:
-            data['attribute_id'] = attribute_id
-        else:
-            data['label'] = label
-        return self._graph_request(
-            'POST', f'/nodes/{quote(str(node_id), safe="")}/facts', data=data)
-
-    def graph_update_fact(self, fact_id: str,
-                          **fields: Any) -> Optional[Dict[str, Any]]:
-        """PATCH /secured/graph/facts/<fid>."""
-        return self._graph_request(
-            'PATCH', f'/facts/{quote(str(fact_id), safe="")}', data=dict(fields))
-
-    def graph_delete_fact(self, fact_id: str) -> Optional[Dict[str, Any]]:
-        """DELETE /secured/graph/facts/<fid>."""
-        return self._graph_request(
-            'DELETE', f'/facts/{quote(str(fact_id), safe="")}')
-
     def graph_delete_edge(self, edge_id: str) -> Optional[Dict[str, Any]]:
         """DELETE /secured/graph/edges/<id> - nur manuelle Kanten."""
         return self._graph_request(
