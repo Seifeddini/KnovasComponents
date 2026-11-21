@@ -191,3 +191,17 @@ FU-35); in the browser at 390 px each of them is one line box.
   for it, not the test one.
 - `make_search` fails closed outside the secured API (mTLS); on a machine without it the page shows the plain
   failure for every question (a test pins this).
+
+## Verification (coordinator's record)
+
+- **2026-11-21, fresh verifier session, `feat/pmvp-22a` @ `18f03cf`: PASS WITH NOTES.** No forged POST reached the
+  service (another session's token, empty, forged, missing, query-string only, JSON with the header: all 400 with no
+  service call); the CSRF exemption covers only `assistant.ask`. Every payload (script, img, Markdown, links,
+  `</textarea>`, right-to-left marks) comes out as text in all four statuses; the only links are document links.
+  Busy and failed show no partial answer. At DEBUG the route logs status and counts only. Quotes start closed with
+  JS and open without; ids unique; the search page unchanged (128 search tests passed). 519 tests run, 517 passed
+  (the two shell `@import` tests, fixed on this branch in `fe91aba`).
+- Integrated into `feat/platform-mvp` by the coordinator (merge `205d7126`; card conflicts resolved, pages re-rendered).
+- Notes, ordered as a small follow-up commit: a long last word (compound or file name) with its chip makes the page
+  scroll sideways (`ask.css:20`, `_TAIL` at `assistant_routes.py:84`); `_TAIL` backtracks cubically on runs of
+  stops (bounded by the 500-character cap); titles and quotes are not isolated for right-to-left text.
