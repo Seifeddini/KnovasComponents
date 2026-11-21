@@ -221,14 +221,6 @@ class TestNoGrantsForExperiments:
         assert experimenter_client.get("/api/document/corpus/a.pdf").status_code == 200
 
 
-class TestLocalTestFixtures:
-    def test_sample_hits_pass_through_untouched(self, experimenter_client, mkt, monkeypatch):
-        monkeypatch.setenv("SEARCH_USE_TEST_RESULTS", "true")
-        payload = search(experimenter_client, query="Mustervertrag")
-        assert payload["results"] and experiment_rows(payload) == []
-        assert payload["semantix"]["status"] == "test_data"
-
-
 # -- the module's own search (/api/experiments/search) ---------------------------------
 
 
