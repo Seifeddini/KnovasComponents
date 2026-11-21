@@ -167,3 +167,14 @@ equals `MIN_QUOTE_WORDS`. Two old tests used two-word texts and now use three wo
   without the rule) each make an own test fail.
 - Demo tenant: two `POST /secured/query` and nothing else, through `KnovasAPIClient` with the order's config file;
   the answers stayed in my scratchpad for the counts above, never in a log or the repository.
+
+## Verification (coordinator's record)
+
+- **2026-11-21, fresh verifier session, `feat/pmvp-20-passages` @ `5baf0b4`: PASS WITH NOTES.** Rows outside
+  `keeping_snippets()` identical before and after (old and new client on the same 7-hit answer); one POST per search;
+  never text from two chunks; page and sentence from the chunk used; cut at a word within the limit; bad settings fall
+  back with a warning that carries no customer text; no new request (POST-02). 449 tests passed; search-page tests green.
+- Integrated into `feat/platform-mvp` by the coordinator. Class sensitive: Siran approves before `main`.
+- Notes for a small follow-up: chunk ids and stand-in keys share one namespace (not producible by the Core);
+  `_cut_passage` can cut inside "CHF 1 500" (matters once the Core sends longer text, FU-37); "3 000" counts as two words
+  here and one in the check.
