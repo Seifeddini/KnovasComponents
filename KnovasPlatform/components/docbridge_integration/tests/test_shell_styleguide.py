@@ -6,7 +6,8 @@ token names on it. Held here, against the real app and the identity database:
 1. the gate is the role admin, not "a console role": an approver is refused, and the route exists only with
    accounts on;
 2. what the page shows: its sections in German, every token by name with the value the tokens file gives it, the
-   Platform's own names, the plain parts that exist today, and one empty section for the parts of PMVP-12;
+   Platform's own names and the plain parts that exist today (the section of the shared page parts, PMVP-12, is
+   held by test_shell_parts_styleguide.py);
 3. the navigation is the one every page has, the page loads nothing from outside the installation, and the route
    writes no log line of its own.
 """
@@ -111,16 +112,6 @@ def test_the_plain_parts_are_drawn_with_the_classes_the_pages_use(admin_client):
     assert 'class="btn btn-primary"' in page and 'class="btn btn-outline"' in page
     assert 'id="searchInput"' in page and 'class="login-form"' in page
     assert 'class="btn-text"' in page
-
-
-def test_the_section_for_the_parts_of_pmvp_12_is_there_and_empty(admin_client):
-    page = _page(admin_client)
-    section = re.search(r'<section class="sg-section" aria-labelledby="sg-seitenteile">(.*?)</section>', page, re.S)
-    assert section, "no section for the page parts"
-    body = section.group(1)
-    assert "PMVP-12" in body
-    # a heading and one line saying they follow; no part is drawn
-    assert re.sub(r"<h2[^>]*>.*?</h2>|<p class=\"sg-empty\">.*?</p>", "", body, flags=re.S).strip() == ""
 
 
 def test_the_page_loads_the_base_styles_and_names_no_colour_of_its_own(admin_client):
