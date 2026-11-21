@@ -1,10 +1,11 @@
 # Role builder ("Rollen"): design
 
-State on 21 November 2026, with the founder's answers of the same day (§ 9). Plan `FEAT-2026-11-19-platform-mvp`
-(KnowledgeBase `docs/ModernDocs/plans/2026-11-19-platform-mvp.md`: § 4 Admin A-01 to A-10, § 9 PMVP-40 to PMVP-43,
-§ 10). Mockup: [`../reference-screens/07-rollen.html`](../reference-screens/07-rollen.html), rendered as
-`out/07-rollen.png`. Core changes: [`../core-requests.md`](../core-requests.md). **Everything marked "proposed" is a
-design. None of it is built.**
+State on 21 November 2026, with the founder's answers of the same day (§ 9); answers 6 and 7 ("Core gateway only",
+"only after «Ein»") came after the first draft of RB-6 to RB-8. Plan `FEAT-2026-11-19-platform-mvp` (KnowledgeBase
+`docs/ModernDocs/plans/2026-11-19-platform-mvp.md`: § 4 Admin A-01 to A-10, § 9 PMVP-40 to PMVP-43, § 10).
+Mockup: [`../reference-screens/07-rollen.html`](../reference-screens/07-rollen.html), rendered as `out/07-rollen.png`.
+Core changes: [`../core-requests.md`](../core-requests.md). **Everything marked "proposed" is a design. None of it is
+built.**
 
 **The founder's request.** Create only the roles that are minimally required: one for administration and one for
 everyone else. The page lets a tenant build its own access control: create roles and assign them to people, resources
@@ -14,8 +15,8 @@ access. Members are people, the Knovas Assistent and external AI agents. Externa
 Knovas Assistent, and some clients will have only external agents. Connectors and sync are out of scope.
 
 **Citations.** Platform paths are under `KnovasPlatform/components/docbridge_integration/src/` on `feat/platform-mvp`.
-`KB/` is KnowledgeBase `master` (`be344ad23`), and `S/` is `KB/knovas-software/app/src/`. Every claim comes from
-reading the code; nothing was run.
+`KB/` is KnowledgeBase `master` (`be344ad23`; for § 2.4 and § 5 `1d08d383f`), `S/` is `KB/knovas-software/app/src/`,
+and `G/` is `KB/knovas-software/client/knovas_mcp/gateway/`. Every claim comes from reading the code; nothing was run.
 
 ## 1. What a role is (proposed)
 
@@ -127,14 +128,20 @@ no gate checks `member`. The people page offers the keys as roles (`web_interfac
 
 ### 2.4 External agents today
 
-- The internal MCP server uses the tenant's certificate and is locked to the Knovas tenant
-  (`KB/knovas-software/client/knovas_mcp/mtls.py:1-16`). It allows only the search, `GET` reads and the facts batch
-  (`:13-15`).
-- The model chooses `access_groups` on each call (`knovas_mcp/server.py:79-80`). There is no signed claim, so under
-  `brokered` every call is refused (`principal_resolver.py:165-167`).
-- DEC-0077 (branch `dec-0077-signed-group-claims`) says "a signed claim names a person" and leaves an agent's identity
-  to AGB-01 (`:73-74`). AGB-01 asks that agents never hold the tenant's certificate
-  (`KB/docs/ModernDocs/steering/bets/BET-2026-11-agents-on-the-brain.yaml:85`).
+- **The internal MCP server** (stdio, Claude Code at Knovas) holds the Knovas tenant's certificate
+  (`KB/knovas-software/client/knovas_mcp/mtls.py:1-16`); the model chooses `access_groups` on each call
+  (`server.py:79-80`); under `brokered` every call is refused (`principal_resolver.py:165-167`).
+- **The Core's MCP gateway** (`https://mcp.knovas.ch/mcp`, FEAT-2026-11-16-copilot-mcp-gateway, DEC-0078): stateless
+  Streamable HTTP on cloudscale, tools `search` and `fetch` (`G/app.py:1-16`).
+  - **Authentication:** a company key per tenant (`knovas_gw_<key id>_<secret>`, Bearer or `X-API-Key`), stored as
+    `sha256(secret)` in `mcp_gateway_keys` (tenant, at most 365 days, revoke), compared with `hmac.compare_digest`
+    (`G/keys.py:1-40`). Knovas staff issue it (`S/CLI/manage_mcp_keys.py`). It names a tenant, not a person or agent.
+  - **Groups:** none. Each call is `POST /secured/query` over the tenant's certificate with `Input`, `limit`,
+    `context_budget` 0 and the actor `mcp-gateway.<key id>`: **no `access_groups`, no `principal_assertion`, ever**
+    (`G/search.py:1-12, 67-69`). So it reads as a caller without groups (GI-ACCESSROLES-06): everything under
+    `disabled`, open documents under `enforcing`, and under `brokered` every call is refused (GI-BROKER-02).
+- The Core's verifier burns each claim's `jti` and refuses a lifetime over 300 seconds (`S/services/rbac/assertion.py`).
+  DEC-0077 says "a signed claim names a person"; AGB-01 asks that agents never hold the tenant's certificate.
 
 ## 3. How a role becomes the Core's groups; new and existing installations (proposed)
 
@@ -169,58 +176,55 @@ no gate checks `member`. The people page offers the keys as roles (`web_interfac
 ## 4. One rule for every agent
 
 An agent is a member that is not a person: the Knovas Assistent, or an external agent registered in the role builder.
-**Its requests carry a claim the Platform signs: `sub` = the agent's opaque id, `grp` = the groups of the agent's
-roles, narrowed to the person's groups when the agent acts for a person.** The request also declares
-`{kind: agent, id, on_behalf_of}` for the Core's log. The agent's functions gate which tools it may use, the same way
-a person's functions gate pages.
+**Every claim the Core accepts for an agent is signed by the Platform: `sub` = the agent's opaque id, `grp` = the
+groups of the agent's roles, narrowed to the person's groups when the agent acts for a person** (founder, 21 November:
+"the Platform signs agents' claims"). The agent's functions ride in `rol`; reading needs no function, as for people.
 
-- **The assistant** always acts for the signed-in person. After the migration it is a member of every role, so
-  nothing changes until an administrator takes it out of a role, for example "Personal" (A-10, "may be used by AI").
-- **An external agent** acts either for one person, fixed when its key is issued, or on its own (only its roles'
-  groups). It starts with no role. The first case never reads more than that person, and deactivating the person stops
-  the agent.
+- **The assistant** goes through the Platform and always acts for the signed-in person; each of its Core calls carries
+  its own claim and declares `{kind: agent, id, on_behalf_of}`. It is a member of every role but Administration, also
+  of roles created later, until an administrator takes it out of one, for example "Personal" (A-10).
+- **An external agent** goes through the Core's gateway (§ 5). It acts for one person, fixed when it is registered,
+  or on its own (only its roles' groups), and starts with no role. Deactivating its person stops it.
+- **No agent joins Administration**, and a person's direct group grants reach no agent: only roles carry data to
+  agents (FU-41: RB-5 moves direct grants into roles before «Ein»).
 
-Why a claim and not a filter on returned passages:
+A claim, not a filter on returned passages: the Core stays the only judge (a filter would copy the policy, which
+`knovas_client.py:3326-3331` rejects by name), fewer groups never read more (`access_policy.py:32-33`), and the Core's
+verifier already accepts any subject that is not empty.
 
-1. **The Core stays the only judge.** A filter would need a second copy of the policy, which the code rejects by name
-   (`knovas_client.py:3326-3331`).
-2. **It never shows more.** Fewer groups never read more, because visibility is monotone (`access_policy.py:32-33`).
-3. **It needs no Core code change.** The verifier accepts any subject that is not empty.
+**Limit.** The narrowing acts only under `brokered` (CR-R1); with "Aus", agents, like people, read everything, and the
+role page says so. **On client tenants agents are switched on only after CR-R1 and «Ein»** (founder, 21 November); the
+Knovas GmbH pilot may use them before, as it uses Claude Code today.
 
-**Limit.** The narrowing acts only under `brokered` (CR-R1). With enforcement "Aus", agents, like people, read
-everything the tenant holds, and the role page says so.
+## 5. External agents: through the Core's gateway (founder: "Core gateway only")
 
-## 5. External agents: through the Platform (recommended)
+The Platform has **no** MCP endpoint; external agents use the Core's gateway (§ 2.4), which must learn the Platform's
+roles. The agent is known to both by **one id**, the Platform's agent id: on the Platform it is a member of roles,
+perhaps bound to a person (RB-7); at the Core it is written on the agent's gateway key (CR-R6) and is the claim's
+`sub`. The Platform holds no credential and decides the groups; the gateway holds the key's hash, as today, and decides
+nothing: it carries a Platform-signed claim to the Secure API.
 
-**Recommended: external agents reach the Brain through the Platform, the way the assistant does.**
+**Chosen: the Platform hands the Core a pool of the agent's signed claims ahead of use.**
 
-- The agent authenticates to the Platform with a key issued in the role builder.
-- The Platform checks the agent's functions, signs the claim of § 4 and calls the Core over its own certificate.
-- The Platform serves a remote MCP endpoint with the reads the internal server allows today (`mtls.py:13-15`), so
-  Claude Code or any other MCP client connects with a URL and a key.
+1. Every minute, and at once after a change on the agent pages, the Platform signs 20 claims (the Core's maximum)
+   per live external agent (each 300 seconds, each its own `jti`) and sends them with
+   `PUT /secured/agents/<agent id>/claims`, replacing the agent's pool. A revoked agent, an agent whose person is not
+   active and an agent over 32 groups get `DELETE …/claims` instead. Behind the switch `AGENTS_CORE_GATEWAY`, off
+   until the Core has CR-R5.
+2. Knovas issues the agent's gateway key with the agent's id (`manage_mcp_keys issue --agent <id>`, CR-R6), only for a
+   `brokered` tenant.
+3. On each call with such a key the gateway takes one unused claim of that agent and sends it as `principal_assertion`
+   with the actor `{kind: agent, id: <agent id>}`. The Secure API verifies it exactly as it verifies a person's claim
+   today and burns its `jti`. No claim left, nothing is read: a pool used up within the last five minutes answers
+   "busy, try again"; no pool at all answers that no rights are current (CR-R6).
 
-| | **Through the Platform** (recommended) | Platform-signed claim, agent calls the Core directly |
-|---|---|---|
-| Credentials per agent | one key at the Platform; the tenant certificate never leaves the Platform (meets AGB-01) | a Platform key plus its own Core credential, since the tenant certificate is ruled out (AGB-01) |
-| Enforcement | the assistant's code path and rule | the same claim, minted on request |
-| Revocation | one place, effective within one claim lifetime | two places |
-| Core work | none in code (CR-R5 becomes a decision text; CR-R6 falls away) | CR-R5 (agent credential, verified actor) and CR-R6 (MCP attaches the claim) |
-| Clients with external agents only | works: the gateway does not depend on the assistant's switch | works, after the Core work |
-| Cost | the Platform proxies agents' reads (it already proxies every person's) and must be reachable from where the agent runs; new dependency `mcp` (not in `requirements.txt` today) | no proxy |
-| By 15 December | yes, Platform work only | no |
-
-**What it needs.**
-
-- **In the Platform:**
-  - an agent register, with a hashed key, an end date and a way to revoke it, and optionally the person it acts for;
-  - the claim of § 4;
-  - the MCP endpoint, with an audit line per call (ids only) and a rate limit.
-- **In the Core:**
-  - no code;
-  - DEC-0077's "a signed claim names a person" extended to "or an agent registered on the Platform";
-  - CR-R1 for the narrowing to act.
-- **On the pilot tenant:** the internal MCP server stops at `brokered` (§ 2.4), and Claude Code moves to the Platform's
-  endpoint.
+Why: the Core's verifier and enforcement stay as they are, the Platform needs no inbound connection, a change counts
+at the next push (at once from the agent pages, else within a minute, at most 300 seconds if the Platform is down),
+and the pool bounds an agent to 20 upstream calls a minute (more needs a higher Core maximum). Rejected: the gateway
+signing per call with a key of its own (it would mint principals, and the verifier would change); the gateway asking
+the Platform per call (a client's Platform is not reachable from cloudscale). **Cost:** the Core holds bearer claims
+for at most 300 seconds, readable and deletable only by the gateway's role; one push per agent a minute. On the Knovas
+tenant Claude Code moves from the internal server, which stops at `brokered`, to the gateway with an agent key.
 
 ## 6. Safety rules (proposed, each with its control)
 
@@ -238,16 +242,18 @@ everything the tenant holds, and the role page says so.
    - Proposed: refuse any change that leaves Administration without an active person.
 4. **Every change is audited.**
    - `audit.record` is best effort and never blocks (`identity/audit.py:23-45`), and the Core logs ids only.
-   - Proposed: role, function, member and agent-key changes write their audit row, with before and after, in the same
-     transaction. Data changes write it after the Core answers, with the outcome.
+   - Proposed: role, function, member and agent changes write their audit row by id, with before and after, in the
+     same transaction. Data changes write it after the Core answers, with the outcome.
 5. **A change reaches the Core before it counts.**
    - Data: the Core write comes first, and the page shows what the Core reads back, as `move` does
      (`builder/access_backend.py:42-47`).
    - A new role: its group is created first.
-   - Members and keys: a change counts from the next request, at most 120 seconds later.
+   - Members: a change counts from the next request, at most 120 seconds later; for an external agent at the
+     next push of its claims (at once from the agent pages, at most 300 seconds later).
    - Data changes keep the four-eyes path `acl_change` (`admin_documents.py:341-349`).
-6. **Agents never read more than their roles and, when acting for a person, than that person.** An agent's key is
-   shown once, stored hashed, ends on a date and can be revoked.
+6. **Agents never read more than their roles and, when acting for a person, than that person.** The Platform holds
+   no agent credential; the gateway key is the Core's (hashed, an end date, revoke). Revoking an agent on the Platform
+   drops its claims at once.
 7. **Aus, Probe, Ein.**
    - **Aus** (`disabled`): functions act; data are saved in the Core and hide nothing; the page says so.
    - **Probe** does not exist in the Core; with CR-R4 the page shows what each role would hide.
@@ -264,25 +270,25 @@ Points are an AI first pass on the plan's scale (1, 2, 3, 5, 8).
 | RB-2 | `roles_of` and `access_groups_of` read roles; the 32-group cap; gate tests for every function | sensitive | 3 | RB-1 | data part: CR-R1 |
 | RB-3 | Rollen page, read only (`07-rollen`), behind the admin gate | routine | 3 | RB-1, PMVP-12, PMVP-40 | — |
 | RB-4 | Create, rename and delete roles; functions; people as members; the people page offers only roles; rules 1, 3, 4, 5 | sensitive | 5 | RB-2, RB-3 | — |
-| RB-5 | Data: add or remove a source, folder or document; dry run; four eyes | sensitive | 5 | RB-4 | CR-R1, CR-R2; new folders over existing documents: CR-R3 |
-| RB-6 | One claim for agents (§ 4); the assistant as a member | sensitive | 3 | RB-2, PMVP-20 | narrowing: CR-R1 |
-| RB-7 | Agent register and keys (hashed, end date, revoke, acting for a person) | critical | 5 | RB-4 | — |
-| RB-8 | The agent gateway: the Platform's MCP endpoint, audit per call, rate limit | critical | 8 | RB-6, RB-7 | narrowing: CR-R1 |
+| RB-5 | Data: add or remove a source, folder or document; dry run; four eyes; direct grants into roles (FU-41) | sensitive | 5 | RB-4 | CR-R1, CR-R2; new folders over existing documents: CR-R3 |
+| RB-6 | One claim for agents (§ 4); the assistant as a member of every role but Administration | sensitive | 3 | RB-2, PMVP-20 | narrowing: CR-R1 |
+| RB-7 | External agents as role members (register, pages); their signed claims pushed to the Core behind a switch (§ 5) | critical | 5 | RB-6 | delivery: CR-R5; use: CR-R6; narrowing: CR-R1 |
 | RB-9 | Probe view per role | sensitive | 3 | PMVP-42 | CR-R4 |
 | RB-10 | Split `admin` into finer functions | sensitive | 5 | RB-2 | — |
 
-**By 15 December:** RB-1 to RB-8, 35 points.
+RB-8 (a Platform MCP endpoint) is dropped ("Core gateway only"); its work is the Core's CR-R5 and CR-R6.
+
+**By 15 December:** RB-1 to RB-7, 27 points.
 
 - Functions act at once.
-- Data (RB-5) and the narrowing for the assistant and agents (RB-6, RB-8) are built, but act on the pilot only once
-  CR-R1 and CR-R2 have landed and the Core's rights test has passed twice (DEC-0082). Until then they are saved and
-  shown as "wirkt mit «Ein»".
+- Data (RB-5), the assistant's narrowing (RB-6) and external agents (RB-7) are built, but act on the pilot only once
+  CR-R1 and CR-R2 have landed and the Core's rights test has passed twice (DEC-0082); external agents also need CR-R5
+  and CR-R6. Until then they are saved and shown as "wirkt mit «Ein»", and `AGENTS_CORE_GATEWAY` stays off.
 - RB-9 and RB-10 come later.
-- RB-3 and RB-4 start after PMVP-40, which changes the same people page, is merged.
 
 **If a gate is missed, cut in this order:**
 
-1. RB-8 offers search only.
+1. RB-7's own agent page: agents are registered and put into roles from the Rollen page only.
 2. RB-5 adds only walled folders and documents, so it never walls an open folder.
 3. RB-3 and RB-4 use the current Admin look.
 
@@ -292,12 +298,12 @@ Points are an AI first pass on the plan's scale (1, 2, 3, 5, 8).
 
 | No. | Status with this design |
 |---|---|
-| CR-R1 | **Needed for the pilot**: the posture route accepts `brokered`. Without it no role's data and no agent's narrowing act |
+| CR-R1 | **Needed for the pilot**: the posture route accepts `brokered`. Without it no role's data and no agent's narrowing act, and no external agent is switched on for a client |
 | CR-R2 | **Needed for the pilot**: the folder-rule routes take the signed claim under `brokered` |
 | CR-R3 | Needed: a new folder rule reaches documents already read in |
 | CR-R4 | Later: Probe |
-| CR-R5 | **No code.** A decision text instead: DEC-0077 allows a Platform-registered agent as a claim's subject |
-| CR-R6 | **Not needed**, because agents go through the Platform |
+| CR-R5 | **Needed for external agents**: `PUT` and `DELETE /secured/agents/<agent id>/claims`, the pool of an agent's Platform-signed claims; DEC-0077 amended so a claim may name a Platform-registered agent |
+| CR-R6 | **Needed for external agents**: a gateway key bound to an agent id; the gateway sends one pooled claim per call |
 
 ## 9. The founder's answers (21 November) and what is still open
 
@@ -308,9 +314,12 @@ Points are an AI first pass on the plan's scale (1, 2, 3, 5, 8).
 | 3 | No deny |
 | 4 | The Platform signs agents' identity |
 | 5 | External agents are in the pilot and are enforced like the assistant (§ 4, § 5) |
+| 6 | **Core gateway only**: the Platform gets no MCP endpoint; external agents use the Core's gateway, which learns the Platform's roles (§ 5) |
+| 7 | **Only after «Ein»**: on client tenants agents are switched on once CR-R1 has landed and enforcement is on; the Knovas GmbH pilot may use them before, as it uses Claude Code today |
 
 **Still open, with a recommendation:**
 
-- **The agent's key.** Recommended: a key per agent, sent as a header to the Platform's MCP endpoint, valid for at
-  most 90 days. The alternative is a client certificate to the Platform.
-- **DEC-0077's text.** Recommended: amend it in KnowledgeBase, which is a decision only (CR-R5).
+- **Who issues an agent's gateway key:** Knovas staff with the agent's id for the pilot; later a self-service route.
+- **DEC-0077's text:** amend it in KnowledgeBase (CR-R5).
+- **The RCR Copilot pilot** (`BET-2026-11-rcr-copilot`) uses a company key without groups, which answer 7 does not
+  cover as written: the founder decides whether it waits for «Ein».
