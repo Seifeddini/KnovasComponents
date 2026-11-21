@@ -79,8 +79,10 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 - **External agents** read through Knovas's MCP gateway (`mcp.knovas.ch`), never through the Platform, with a key Knovas
   issues for the agent's id. **The Platform holds no agent key**: no table has a column for one. The Core receives
   signed claims with the agent's groups and keeps them at most 300 seconds; an external agent reads through the gateway
-  what its claim allows, at most 20 calls a minute. Revoking an agent, or deactivating its person, drops its claims at
-  the Core at once (with the switch on).
+  what its claim allows, at most 20 calls a minute. With the switch on, revoking an agent on the Agenten page drops
+  its claims at the Core at once. Deactivating its person on the people page reaches the Core with the next minute's
+  push, which drops them; the claims the Core already holds end within 300 seconds at the latest. Deleting a person
+  deletes her agent and sends the Core nothing; its claims there also end within 300 seconds.
 - **On client installations agents are switched on only after «Ein»** (founder, 21 November); the switch is off by
   default and, off, nothing about agents reaches the Core.
 - **Logs and audit hold ids only:** an agent's id, counts, HTTP statuses and error classes; never a claim, an agent's
