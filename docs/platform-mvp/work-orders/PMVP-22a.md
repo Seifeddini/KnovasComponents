@@ -205,3 +205,20 @@ FU-35); in the browser at 390 px each of them is one line box.
 - Notes, ordered as a small follow-up commit: a long last word (compound or file name) with its chip makes the page
   scroll sideways (`ask.css:20`, `_TAIL` at `assistant_routes.py:84`); `_TAIL` backtracks cubically on runs of
   stops (bounded by the 500-character cap); titles and quotes are not isolated for right-to-left text.
+
+## Builder's notes, the follow-up (the three verification notes)
+
+- **The chip is glued to its full stop and to nothing else.** `.ask-tail` now holds only the chip and the stops
+  after it; the words before it wrap like any text, a long one anywhere (`overflow-wrap: anywhere` on statements,
+  quotes, titles; it was there, the nowrap span overrode it). In Chrome a letter and the chip right after it do not
+  part anyway (probed at 35 widths, with and without a word joiner: never), so no invisible character was added.
+  New `tests/test_assistant_page_layout.py` opens the real page in headless Chrome inside a 390-pixel frame (a
+  headless window is never narrower than about 500) with a 204-character word, a 182-character file name and a
+  44-character compound, every quote open: no sideways scroll. With the old layout the same test measures 1,725 px.
+  It is skipped where no Chrome is installed.
+- **`split_tail` is a plain scan from the end** (`_TAIL` and `re` are gone): it returns `(head, stop)`, linear in
+  the run of stops. A test splits 500-character runs of stops in under 5 ms each.
+- **Titles and quotes carry `dir="auto"`** (the quote inside its guillemets), and `ask.css` isolates them
+  (`unicode-bidi: isolate`), so a right-to-left override in a title or a quote ends with it. A test puts U+202E
+  into a title and a quote and finds each occurrence inside its own isolated element. The card's
+  `http.POST.fragen/P-4` says so.

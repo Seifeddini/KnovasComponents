@@ -313,10 +313,82 @@ def test_each_statement_is_a_paragraph_with_its_reference(member_client, switch_
         assert chips == [str(sentence.refs[0])]
 
 
-def test_the_last_word_the_reference_and_the_stop_stay_together(member_client, switch_on, service, ask_url):
+def test_the_reference_and_the_stop_stay_together_and_the_words_stay_out(member_client, switch_on, service,
+                                                                         ask_url):
+    """FU-35: the chip is glued to its full stop and to nothing else, so a long last word can wrap."""
     main = _main(_ask(member_client, ask_url).data.decode("utf-8"))
     tails = re.findall(r'<span class="ask-tail">(.*?)</span>', main, flags=re.S)
-    assert [_flat(t) for t in tails] == ["k\u00fcndigen2.", "erfolgen1."]
+    assert [_flat(t) for t in tails] == ["2.", "1."]
+    statements = re.findall(r'<p class="ask-statement">(.*?)<span class="ask-tail">', main, flags=re.S)
+    assert [_flat(s) for s in statements] == [SENTENCES[0].text[:-1], SENTENCES[1].text[:-1]]
+
+
+@pytest.mark.parametrize("text, head, stop", [
+    ("Die Frist betr\u00e4gt drei Monate.", "Die Frist betr\u00e4gt drei Monate", "."),
+    ("Ist das so?!  ", "Ist das so", "?!"),
+    ("Siehe Anhang \u2026", "Siehe Anhang ", "\u2026"),
+    ("Ohne Schlusszeichen", "Ohne Schlusszeichen", ""),
+    ("(Art. 266a OR).", "(Art. 266a OR)", "."),
+    ("...", "", "..."),
+    ("", "", ""),
+])
+def test_the_tail_is_the_closing_stops(text, head, stop):
+    assert assistant_routes.split_tail(text) == (head, stop)
+
+
+@pytest.mark.parametrize("run", [".", "?", "\u2026", ".?\u2026!:;"])
+def test_a_long_run_of_stops_is_split_in_a_few_milliseconds(run):
+    import time
+
+    for text in ("Wort" + (run * 500)[:500], (run * 500)[:500], ("a" + run) * 250, (run * 500)[:500] + " x"):
+        started = time.perf_counter()
+        head, stop = assistant_routes.split_tail(text)
+        took = time.perf_counter() - started
+        assert head + stop == text.rstrip()
+        assert took < 0.005, f"{took * 1000:.1f} ms for {len(text)} characters"
+
+
+LONG_WORD = "Rechtsschutz" * 17                                         # 204 characters, no space
+LONG_FILE = "Mandat_2026-0142_" + "Mietvertrag_Seefeldstrasse_48_Nachtrag_" * 4 + "final.pdf"
+LONG_COMPOUND = "Mietvertragsmindestdauerverl\u00e4ngerungsklausel"           # 44 characters
+
+
+def test_a_long_word_is_never_held_on_one_line_with_the_reference(workbench_app, member_client, switch_on, ask_url):
+    passage = Passage(number=1, pointer="mandate/" + LONG_FILE, title=LONG_FILE, page=3,
+                      text="t " + LONG_COMPOUND + " " + LONG_WORD, sentence=None)
+    sentences = [Sentence(text="Es gilt die " + LONG_COMPOUND + ".", refs=(1,), quote=LONG_COMPOUND + " " + LONG_WORD),
+                 Sentence(text="Siehe " + LONG_WORD + ".", refs=(1,), quote=LONG_WORD)]
+    fake = FakeService(answered(passages=[passage], sentences=sentences))
+    workbench_app.extensions[assistant_routes.EXTENSION]["service"] = lambda: fake
+    main = _main(_ask(member_client, ask_url).data.decode("utf-8"))
+    tails = re.findall(r'<span class="ask-tail">(.*?)</span>', main, flags=re.S)
+    assert [_flat(t) for t in tails] == ["1.", "1."]
+    for word in (LONG_WORD, LONG_COMPOUND, LONG_FILE):
+        assert all(word not in _flat(t) for t in tails)
+
+
+# --- right-to-left isolation --------------------------------------------------------------------------------
+
+RLO = "\u202e"
+
+
+def test_titles_and_quotes_are_isolated_runs(workbench_app, member_client, switch_on, ask_url):
+    """A right-to-left override in a document's title or a quote ends with that title or quote: each stands in an
+    element of its own with dir="auto" (an isolate), so it cannot reorder the rest of the line."""
+    title = RLO + "fdp.gartrev"
+    passage = Passage(number=1, pointer="mandate/vertrag.pdf", title=title, page=2, text="t", sentence=None)
+    quote = RLO + "drei Monate zum Ende"
+    fake = FakeService(answered(passages=[passage], sentences=[Sentence(text="Ein Satz.", refs=(1,), quote=quote)]))
+    workbench_app.extensions[assistant_routes.EXTENSION]["service"] = lambda: fake
+    main = _main(_ask(member_client, ask_url).data.decode("utf-8"))
+    isolated = re.findall(r'<(a|span)\b[^>]*\bdir="auto"[^>]*>([^<]*)</\1>', main)
+    texts = [html_lib.unescape(text) for _, text in isolated]
+    assert texts.count(title) == 2  # the quote card's head and the list of passages
+    assert texts.count(quote) == 1
+    # Nowhere else: every occurrence of the override sits inside one of those elements.
+    assert main.count(RLO) == len([t for t in texts if RLO in t])
+    quote_line = re.search(r'<p class="ask-quote-text">(.*?)</p>', main, flags=re.S).group(1)
+    assert quote_line.startswith("\u00ab<span dir=\"auto\">") and quote_line.endswith("</span>\u00bb")
 
 
 def test_each_reference_controls_its_own_quote(member_client, switch_on, service, ask_url):
@@ -327,7 +399,7 @@ def test_each_reference_controls_its_own_quote(member_client, switch_on, service
         block = re.search(rf'<div class="ask-quote" id="{re.escape(quote_id)}">(.*?)</div>\s*</div>', main,
                           flags=re.S)
         assert block, quote_id
-        assert "\u00ab" + sentence.quote + "\u00bb" in html_lib.unescape(block.group(1))
+        assert "\u00ab" + sentence.quote + "\u00bb" in _flat(block.group(1))
 
 
 def test_the_quote_stands_right_under_its_statement(member_client, switch_on, service, ask_url):
