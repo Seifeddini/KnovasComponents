@@ -3,7 +3,8 @@
 Item PMVP-20 (Jira SS-732), plan `FEAT-2026-11-19-platform-mvp` § 5.2, § 7, § 9, bet `BET-2026-11-platform-mvp`.
 Requirements W-03, W-05; contract L2-PLATFORM-ASSISTANT POST-01, POST-02, POST-04, POST-05, POST-06.
 Frozen acceptance tests: `tests/test_pmvp20_statements_acceptance.py`. Work orders: `PMVP-20.md` (searching as the
-person, the Core's limits, the failure replies, the logs) and `PMVP-20-rework-2.md` (the check described here).
+person, the Core's limits, the failure replies, the logs), `PMVP-20-rework-2.md` (the check described here) and
+`PMVP-25.md` (the switch, and the language model the customer chooses: see "The switch and the provider" below).
 
 The service behind the one company assistant. Given a signed-in person's question and the chat so far, it answers
 from the passages that person's own search returns. The model answers in statements, each with one source and a
@@ -15,7 +16,8 @@ No routes, no pages (PMVP-22a, 22b), no chat storage (PMVP-21, PMVP-23).
 | `service.py` | `AssistantService`, `Turn`, `Passage`, `Sentence`, `Reply`, the instruction to the model, the composer. Imports neither Flask, nor the app, nor the HTTP client. |
 | `check.py` | The check of the answer: one function per check, `check_answer`, `NO_ANSWER_TEXT`, the reasons. Imports nothing of the service. |
 | `errors.py` | `CoreBusy`, `CoreFailed` (base `CoreError`): an HTTP status and a reason code, never a body. |
-| `core.py` | `make_search`, `make_generate`: the two callables, built from `KnovasAPIClient`. |
+| `core.py` | `make_search`, `make_generate`: the two callables, built from `KnovasAPIClient`. `make_service` and `OFF`: the switch and the provider the settings choose (PMVP-25). |
+| `providers.py` | `make_anthropic_generate` (Claude, the provider `anthropic`), `connection_test` ("Verbindung testen"), `settings_problems`, the four settings' names and values (PMVP-25). |
 | `../knovas_client.py` | `llm_generate` (`POST /secured/llm/generate`), `keeping_snippets()` and `_snippet_from_hit` (the passage text in the row). |
 
 ## The five steps
@@ -49,6 +51,60 @@ No routes, no pages (PMVP-22a, 22b), no chat storage (PMVP-21, PMVP-23).
 `removed` counts what the check took out (also on `no_answer`); `removed_by` gives the count for each reason
 (`not_a_statement`, `unknown_source`, `quote_not_found`, `number_not_found`, `too_long`; every key is always
 there). The harness and the log line use it to tune the instruction to the model. Counts only.
+
+## The switch and the provider (PMVP-25)
+
+Founder, 2026-11-21: the Platform calls the language model itself, and the customer chooses the provider on the
+Platform's settings page. Four installation-wide entries of the settings registry (`platform_settings.REGISTRY`),
+read through its `Resolver`, decide; `core.make_service(settings, api_client, split=..., user_key=...)` reads them
+each time it is called, so build the service per request and a change applies without a restart:
+
+| Entry | Values | Default | Pinned by |
+|---|---|---|---|
+| `assistant.enabled` | `an`, `aus` (the environment also takes `true`, `on`, `yes`, `ja`, `1`; anything else is off) | `aus` | `ASSISTANT_ENABLED` |
+| `assistant.provider` | `knovas` (the Core's `/secured/llm/generate`, `make_generate`, unchanged), `anthropic` (Claude) | `knovas` | `ASSISTANT_PROVIDER` |
+| `assistant.model` | `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5` (with `anthropic`) | `claude-opus-5-5` | `ASSISTANT_MODEL` |
+| `assistant.anthropic_api_key` | the key, sealed by the registry's `SecretBox`, never shown | none | nothing (the page only) |
+
+Off, `make_service` returns `OFF`: nothing is built, nothing is searched, and the assistant's routes (PMVP-22a)
+refuse. On, the search is `make_search` whatever the provider (POST-02), and the provider chooses the generate. A
+provider value that is not offered (only a deployment can set one) fails every answer.
+
+**`anthropic`** (`providers.make_anthropic_generate`) is the same `generate(*, system_instruction, messages,
+max_tokens) -> str`, so the service and the check do not change. One request with the official SDK
+(`anthropic==2.12.0`):
+
+```python
+client.beta.messages.create(model=..., max_tokens=max(max_tokens, 8000), system=system_instruction,
+                            messages=[{"role": ..., "content": ...}, ...], output_config={"effort": "medium"},
+                            betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+```
+
+- No `temperature` (the current models refuse it) and no thinking setting (adaptive is the default and cannot be
+  switched off on Opus 5.5). `max_tokens` is at least 8,000 because thinking counts against it; the service asks for
+  1,536 (sized for the Core's model) and this path raises it. For `claude-haiku-5-5` the fallback does nothing (it
+  has no server-side fallback): a decline stays a decline.
+- The provider receives the system instruction and the messages, each reduced to its role and its content: the
+  passages the person's search returned, the question and its history. Nothing else (POST-02).
+- The client: the key of the resolved setting, `timeout` 60 seconds, `max_retries` 0 (the coordinator,
+  2026-11-21: a 429 or 529 is "ausgelastet" at once and the person asks again; the SDK would otherwise wait whatever
+  `retry-after` it names, past nginx's 180 seconds, FU-08), built per call and closed after it. Without a key no client is built (the SDK would
+  otherwise take `ANTHROPIC_API_KEY` from the environment, which pins the Brain Builder's own key); the answer fails.
+- The answer is the `text` blocks joined (thinking and fallback blocks are not text). `stop_reason` `refusal` ->
+  `CoreFailed`; `max_tokens` -> the text as it is (the check drops a cut last line).
+- Errors: `RateLimitError` and HTTP 529 -> `CoreBusy` ("ausgelastet"); 401, 403, every other HTTP error, no
+  connection and a timeout -> `CoreFailed`. The mapped error carries a reason code and a status only and is raised
+  outside the SDK's `except` block, so the SDK's exception (its request holds the key in a header) is neither its
+  cause nor its context.
+- One log line per call: the model asked for, the model that served, the stop reason, token counts, milliseconds;
+  a failure logs the SDK's exception class and the status. Never a key, a question, a passage or an answer.
+
+**The settings page** (`web_interface/settings_routes.py`, `static/js/platform_settings.js`, administrators only,
+like every entry there) shows the four entries and, next to the key, "Verbindung testen":
+`providers.connection_test` makes one call with an invented passage and question (`TEST_PASSAGE`,
+`TEST_QUESTION`; never a customer's text), with the key typed into the field or else the saved one, and answers
+"funktioniert" or the plain failure ("Schlüssel abgelehnt", "ausgelastet", "keine Verbindung", ...). It logs the
+outcome class only. With `anthropic` chosen and no readable key, the page says so next to the key.
 
 ## The design: statements with a source and a quote
 
@@ -172,7 +228,10 @@ when the prompt held a shortened copy.
 | most statements | `service.MAX_STATEMENTS` | 8 | told to the model; sizes the answer budget |
 | most words of a quote | `service.MAX_QUOTE_WORDS` | 25 | told to the model |
 | the answer's token cap | `service.DEFAULT_MAX_TOKENS` | 1,536 | eight lines of 543 bytes (300-byte statement, 200-byte quote) are about 1,450 tokens at 3 bytes a token |
-| temperature | `core.DEFAULT_TEMPERATURE` | 0.2 | low, so the model copies |
+| temperature | `core.DEFAULT_TEMPERATURE` | 0.2 | low, so the model copies; the Core's model only (`knovas`): Claude refuses a temperature |
+| Claude's least `max_tokens` | `providers.ANTHROPIC_MIN_MAX_TOKENS` | 8,000 | thinking counts against it |
+| Claude's effort | `providers.ANTHROPIC_EFFORT` | `medium` | |
+| Claude's timeout and retries | `providers.ANTHROPIC_TIMEOUT_SECONDS`, `ANTHROPIC_MAX_RETRIES` | 60 s, 0 | under nginx's 180 s (FU-08): no retry, so no `retry-after` wait |
 | passages asked for | `service.DEFAULT_PASSAGE_LIMIT` | 10 | |
 | prompt budget | `service.DEFAULT_PROMPT_BUDGET_BYTES` | 14,000 | system instruction (2,361 bytes) plus all messages |
 
@@ -221,15 +280,15 @@ when the prompt held a shortened copy.
 
 ## Open for the page and the chat (PMVP-22a, 22b, 23)
 
-- **Wiring.** Build the service where `api_client`, `identity_gate` and the experiments integration are known:
+- **Wiring.** Build the service per request where `api_client`, `identity_gate` and the experiments integration
+  are known, through the switch (PMVP-25):
 
   ```python
-  service = AssistantService(
-      search=make_search(api_client,
+  service = make_service(app.extensions["platform_settings"], api_client,
                          split=app.extensions["experiments"]["search"].split,
-                         user_key=lambda: doc_fields_routes.user_key_for(identity_gate)),
-      generate=make_generate(api_client),
-  )
+                         user_key=lambda: doc_fields_routes.user_key_for(identity_gate))
+  if service is OFF:
+      ...                                      # the route refuses: the assistant is switched off
   reply = service.answer(question, history)   # history: Turn(role, text), oldest first
   ```
 
