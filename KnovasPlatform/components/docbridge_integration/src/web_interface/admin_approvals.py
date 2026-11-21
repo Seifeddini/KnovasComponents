@@ -51,6 +51,14 @@ def _summary(kind: str, payload: Mapping[str, Any]) -> str:
         return f"Ordner {payload.get('pointer_prefix') or payload.get('rule_id')} -> {groups}"
     if action == "folder_rule_delete":
         return f"Ordnerregel {payload.get('rule_id')} loeschen"
+    if action in ("role_data_add", "role_data_remove"):
+        # RB-5: a role's data. A page, not a log: the folder or document may be named here (the payload holds it).
+        what = {"source": "Quelle", "folder": "Ordner", "document": "Dokument"}.get(str(payload.get("kind")), "Daten")
+        verb = "hinzufuegen" if action == "role_data_add" else "entfernen"
+        text = f"Daten einer Rolle: {what} {payload.get('pointer') or '?'} {verb}"
+        if payload.get("confirm") is True:
+            text += " (Warnung bestaetigt)"
+        return text + "; ausfuehren kann nur eine Person der Administration"
     if kind == "ingestion_profile_change":
         # KC-B5-4 asks for a readable diff. Without this an approver was
         # confirming a folder list, its walls, a schedule and a throughput

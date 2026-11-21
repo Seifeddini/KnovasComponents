@@ -211,6 +211,30 @@ def claim_groups(conn: Any, user_id: Any) -> Tuple[str, ...]:
     return tuple(r[0] for r in rows)
 
 
+def active_claim_groups(conn: Any) -> dict:
+    """Every active person's claim groups, ``{user id (str): set of group ids}``: what ``claim_groups`` answers for each
+    of them, in one query (RB-5's dry runs ask it for everyone at once).
+
+    The same two sources as ``claim_groups`` (the direct grants that still run, the Core groups of their roles); a
+    person without a group is in the answer with an empty set. tests/test_web_admin_role_data_rules.py keeps the two in
+    step.
+    """
+    rows = conn.execute(
+        "SELECT u.id, g.group_id FROM users u LEFT JOIN ("
+        "  SELECT user_id, group_id FROM user_access_groups WHERE ends_on IS NULL OR ends_on >= current_date "
+        "  UNION "
+        "  SELECT m.user_id, r.core_group_id FROM tenant_role_members m JOIN tenant_roles r ON r.id = m.role_id "
+        "  WHERE r.core_group_id IS NOT NULL"
+        ") g ON g.user_id = u.id WHERE u.status = 'active'"
+    ).fetchall()
+    out: dict = {}
+    for user_id, group_id in rows:
+        held = out.setdefault(str(user_id), set())
+        if group_id is not None:
+            held.add(group_id)
+    return out
+
+
 @contextmanager
 def group_cap(conn: Any, user_ids: Iterable[Any]) -> Iterator[None]:
     """Refuse the change made inside this block if it gives one of ``user_ids`` more than 32 groups.

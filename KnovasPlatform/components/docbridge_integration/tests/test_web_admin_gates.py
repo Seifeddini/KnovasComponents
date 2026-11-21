@@ -20,6 +20,12 @@ fields drawer answer JSON; an administrator's 200 there is shown in test_web_adm
 RB-3, RB-4: the Rollen page and its forms are here too (FU-17: every console route has a gate test); ``{role}`` in a
 path is a role of the tenant's own without a Core group, ``{mitglied}`` the role Mitglied. The people page's roles
 form sends role ids (``role_id``). Their behaviour is pinned in test_rb34_roles_page_acceptance.py.
+
+RB-5: the seven routes of a role's data are here too (FU-17); their behaviour is pinned in
+test_rb5_role_data_acceptance.py. ``{grouped}`` in a path is a role of the tenant's own whose Core group is
+``g-lit``: a role's data need one. The fake Core lists one folder rule of that group (``rc-sync/rolle/``) and one more
+group (``g-team``) that a role may adopt. Adding an open folder and removing the rule's only group warn, so their forms
+carry ``confirm``; with the bypass off they are queued, never sent.
 """
 
 from __future__ import annotations
@@ -69,10 +75,19 @@ FORMS = {
     "/admin/roles/{role}/members/add": {"user_id": "{person}"},
     "/admin/roles/{role}/members/remove": {"user_id": "{person}"},
     "/admin/roles/{role}/delete": {},
+    "/admin/roles/{grouped}/data/preview": {"op": "add", "kind": "folder", "pointer": "rc-sync/mandate/"},
+    "/admin/roles/{grouped}/data/add": {"kind": "folder", "pointer": "rc-sync/mandate/", "confirm": "1"},
+    "/admin/roles/{grouped}/data/remove": {"kind": "folder", "pointer": "rc-sync/rolle/", "confirm": "1"},
+    "/admin/roles/{role}/adopt/preview": {"group_id": "g-team"},
+    "/admin/roles/{role}/adopt": {"group_id": "g-team"},
+    "/admin/roles/direct-grants/preview": {},
+    "/admin/roles/direct-grants/move": {},
 }
 
 #: A role id for the routes of one role where no role of the tenant's own is needed (the gate answers first).
 NO_ROLE = "00000000-0000-0000-0000-000000000000"
+#: Every role placeholder of a path filled with it.
+NO_ROLES = {"role": NO_ROLE, "grouped": NO_ROLE}
 
 
 def _fill(value, **ids):
@@ -105,9 +120,15 @@ class _Client(DummyKnovasClient):
         return {"group_id": "g-new", "name": name, "parent_id": parent}
 
     def access_groups(self):
-        """The fake's groups and the tenant's administrator group (RB-4's «Mit Knovas verbinden» reads it)."""
+        """The fake's groups and the tenant's administrator group (RB-4's «Mit Knovas verbinden» reads it), and a
+        group no role has (RB-5: a role may adopt it)."""
         return super().access_groups() + [
-            {"group_id": "g-admins", "name": "Administratoren", "parent_id": None, "is_admin": True}]
+            {"group_id": "g-admins", "name": "Administratoren", "parent_id": None, "is_admin": True},
+            {"group_id": "g-team", "name": "Team", "parent_id": None}]
+
+    def folder_rules(self):
+        """One rule of g-lit, the group of the role {grouped} (RB-5 removes it from the role's data)."""
+        return [{"rule_id": "r-rolle", "pointer_prefix": "rc-sync/rolle/", "access_groups": ["g-lit"]}]
 
 
 def _csrf_from(html: str) -> str:
@@ -152,10 +173,20 @@ def role(identity_repo):
     return RoleStore(identity_repo._conn).create_role(name="Sekretariat", functions={"approver"})
 
 
+def _grouped(identity_repo):
+    """A role of the tenant's own with the Core group g-lit (RB-5's data forms need a role with a group)."""
+    from identity.roles import RoleStore
+
+    store = RoleStore(identity_repo._conn)
+    found = next((r for r in store.list_roles() if r.core_group_id == "g-lit"), None)
+    return found or store.create_role(name="Prozessteam", functions={"approver"}, core_group_id="g-lit")
+
+
 def _ids(identity_repo, role=None, person=None):
     from identity.roles import RoleStore
 
     return {"role": str(role.id) if role is not None else NO_ROLE,
+            "grouped": str(_grouped(identity_repo).id),
             "mitglied": str(RoleStore(identity_repo._conn).mitglied().id),
             "person": str(person.id) if person is not None else ""}
 
@@ -174,14 +205,14 @@ def _sent_to_sign_in(response) -> bool:
 class TestSignedOut:
     @pytest.mark.parametrize("path", PAGES)
     def test_a_page_sends_a_signed_out_visitor_to_sign_in(self, app, path):
-        assert _sent_to_sign_in(app.test_client().get(_fill(path, role=NO_ROLE)))
+        assert _sent_to_sign_in(app.test_client().get(_fill(path, **NO_ROLES)))
 
     @pytest.mark.parametrize("path", sorted(FORMS))
     def test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing(self, app, path, member,
                                                                           identity_repo):
         before = (identity_repo.get(member.id).is_active, set(identity_repo.roles_of(member.id)),
                   _roles_state(identity_repo))
-        response = app.test_client().post(_fill(path, role=NO_ROLE), data={"user_id": str(member.id)})
+        response = app.test_client().post(_fill(path, **NO_ROLES), data={"user_id": str(member.id)})
         assert _sent_to_sign_in(response)
         assert (identity_repo.get(member.id).is_active, set(identity_repo.roles_of(member.id)),
                 _roles_state(identity_repo)) == before
@@ -200,7 +231,7 @@ class TestTheGate:
     @pytest.mark.parametrize("path, method", ROUTES)
     def test_the_route_lets_in_the_administrator_alone(self, app, path, method):
         """The roles the app's registered view checks (allowed_roles, put there by _require_roles)."""
-        endpoint, _ = app.url_map.bind("localhost").match(_fill(path, role=NO_ROLE), method=method)
+        endpoint, _ = app.url_map.bind("localhost").match(_fill(path, **NO_ROLES), method=method)
         assert getattr(app.view_functions[endpoint], "allowed_roles", None) == ADMITTED, endpoint
 
 
@@ -232,7 +263,7 @@ class TestRefused:
     def test_every_role_but_the_administrator_is_refused_a_page(self, app, identity_repo, path, role):
         person = _person_with(identity_repo, role)
         client = _sign_in(app.test_client(), person.email)
-        assert client.get(_fill(path, role=NO_ROLE)).status_code == 403   # signed out it would be 302
+        assert client.get(_fill(path, **NO_ROLES)).status_code == 403   # signed out it would be 302
 
     @pytest.mark.parametrize("role", REFUSED, ids=_role_id)
     @pytest.mark.parametrize("path", sorted(FORMS))
