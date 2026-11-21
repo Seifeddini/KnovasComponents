@@ -130,6 +130,10 @@ class TestRoles:
     def test_revoking_a_role_removes_it(self, repo):
         created = repo.create(email="anna@kanzlei.ch", display_name="Anna",
                               password="korrektes-pferd-batterie")
+        # A second administrator: the last active one cannot lose admin (RB-1, rule 4).
+        other = repo.create(email="chef@kanzlei.ch", display_name="Chef",
+                            password="korrektes-pferd-batterie")
+        repo.grant_role(other.id, "admin")
         repo.grant_role(created.id, "admin")
         repo.revoke_role(created.id, "admin")
         assert repo.roles_of(created.id) == frozenset()

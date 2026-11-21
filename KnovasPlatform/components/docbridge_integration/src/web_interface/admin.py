@@ -26,6 +26,7 @@ from flask import Blueprint, abort, redirect, render_template, request, url_for
 
 from identity import audit
 from identity.passwords import WeakPasswordError
+from identity.roles import RoleError
 from identity.users import EmailTakenError, UnknownRoleError
 
 logger = logging.getLogger(__name__)
@@ -247,13 +248,17 @@ def create_admin_blueprint(
         user_id = str(request.form.get("user_id", "") or "")
         wanted = [r for r in request.form.getlist("roles") if r in ASSIGNABLE_ROLES]
         repo = gate.users()
-        current = repo.roles_of(user_id)
         try:
-            for role in (set(current) & set(ASSIGNABLE_ROLES)) - set(wanted):
-                repo.revoke_role(user_id, role)
-            for role in set(wanted) - set(current):
-                repo.grant_role(user_id, role, by=gate.current_user().id)
-        except UnknownRoleError as exc:
+            # One transaction for the whole form: a refusal half-way (the last
+            # administrator, a 33rd group; RB-1, RB-2) leaves every role as it
+            # was, and the page shows the refusal's own words.
+            with gate.connection().transaction():
+                current = repo.roles_of(user_id)
+                for role in (set(current) & set(ASSIGNABLE_ROLES)) - set(wanted):
+                    repo.revoke_role(user_id, role)
+                for role in set(wanted) - set(current):
+                    repo.grant_role(user_id, role, by=gate.current_user().id)
+        except (UnknownRoleError, RoleError) as exc:
             return _people_page(error=str(exc), status=400)
         audit.record(
             gate.connection(), action="user.roles_changed", actor=gate.current_user(),
@@ -269,9 +274,12 @@ def create_admin_blueprint(
         user_id = str(request.form.get("user_id", "") or "")
         raw = str(request.form.get("access_groups", "") or "")
         wanted = [part.strip() for part in raw.split(",") if part.strip()]
-        applied = gate.users().set_access_groups(
-            user_id, wanted, by=gate.current_user().id
-        )
+        try:
+            applied = gate.users().set_access_groups(
+                user_id, wanted, by=gate.current_user().id
+            )
+        except RoleError as exc:  # more than 32 groups (RB-2): nothing was written
+            return _people_page(error=str(exc), status=400)
         audit.record(
             gate.connection(), action="user.access_groups_changed",
             actor=gate.current_user(), target_type="user", target_id=user_id,

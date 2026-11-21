@@ -23,7 +23,13 @@ There is no caching. The grant table is read for every assertion, so an
 administrator's change lands on the user's next request rather than whenever a
 cache happened to expire.
 
-Plan: docs/superpowers/plans/2026-08-14-section-b-buildout.md (KC-B2-1)
+A claim carries at most 32 groups (the Core's QUERY_MAX_ASSERTED_GROUPS): the
+person's running direct grants plus the Core groups of their roles. For more,
+the broker raises ``TooManyGroupsError`` and signs nothing. It never cuts the
+list, because a cut claim would silently drop groups the person was given.
+
+Plan: docs/superpowers/plans/2026-08-14-section-b-buildout.md (KC-B2-1);
+the cap: FEAT-2026-11-19-platform-mvp, RB-2 (docs/platform-mvp/work-orders/RB-1-2.md)
 """
 from __future__ import annotations
 
@@ -31,6 +37,7 @@ import logging
 from typing import Any, Mapping
 
 from identity.assertion import AssertionSigner
+from identity.roles import MAX_CLAIM_GROUPS, TooManyGroupsError
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +59,17 @@ class PrincipalBroker:
         self._tenant_id = tenant_id
 
     def groups_for(self, user: Any) -> tuple[str, ...]:
-        """This user's granted access groups, straight from the database."""
-        return self._users.access_groups_of(user.id)
+        """This user's claim groups, straight from the database: direct grants and the groups of their roles.
+
+        Raises:
+            TooManyGroupsError: more than 32. Nothing is signed, and the list is never cut.
+        """
+        groups = self._users.access_groups_of(user.id)
+        if len(groups) > MAX_CLAIM_GROUPS:
+            logger.warning("Refused to sign a claim for user %s: %d access groups, at most %d",
+                           user.id, len(groups), MAX_CLAIM_GROUPS)
+            raise TooManyGroupsError()
+        return groups
 
     def assertion_for(self, user: Any) -> str:
         """Sign the principal for one outbound request.

@@ -108,9 +108,10 @@ def test_create_app_applies_migrations_and_creates_the_admin(
     roles = [
         r[0]
         for r in conn.execute(
-            "SELECT r.key FROM user_roles ur "
-            "JOIN roles r ON r.id = ur.role_id "
-            "JOIN users u ON u.id = ur.user_id "
+            # Functions come from roles since RB-2 (user_roles is no longer read).
+            "SELECT f.function FROM tenant_role_members m "
+            "JOIN tenant_role_functions f ON f.role_id = m.role_id "
+            "JOIN users u ON u.id = m.user_id "
             "WHERE u.email = %s",
             ("chef@kanzlei.ch",),
         )

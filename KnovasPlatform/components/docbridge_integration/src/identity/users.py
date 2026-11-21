@@ -15,8 +15,17 @@ load-bearing and worth stating where they can be read:
     Access groups come back sorted and deduplicated. The B2 assertion signs
     this tuple, so a stable order keeps two assertions for the same user
     byte-comparable — useful in tests, in logs, and in a support conversation.
+    They are the running direct grants plus the Core groups of the person's
+    roles, at most 32 of them (RB-2, ``identity.roles``).
 
-Plan: docs/superpowers/plans/2026-08-14-section-b-buildout.md (KC-B1-1, B1-5)
+    A person's functions come from their roles (RB-1, RB-2). ``roles_of``
+    returns the keys of the person's roles (``identity.roles``), so every gate
+    reads them as before; the old per-key grants of migration 0001 are kept
+    for one release as the way back and read by nothing. ``grant_role`` and
+    ``revoke_role`` keep their meaning through roles.
+
+Plan: docs/superpowers/plans/2026-08-14-section-b-buildout.md (KC-B1-1, B1-5);
+roles: FEAT-2026-11-19-platform-mvp, RB-1 and RB-2 (docs/platform-mvp/work-orders/RB-1-2.md)
 """
 from __future__ import annotations
 
@@ -27,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping, Sequence
 from uuid import UUID
 
-from identity import passwords
+from identity import passwords, roles as roles_mod
 
 logger = logging.getLogger(__name__)
 
@@ -319,9 +328,11 @@ class UserRepository:
     # ── roles ──────────────────────────────────────────────────────────────
 
     def roles_of(self, user_id: UUID | str) -> frozenset[str]:
+        """The person's functions: the keys of all their roles (RB-2). Every gate reads them here."""
         rows = self._conn.execute(
-            "SELECT r.key FROM user_roles ur JOIN roles r ON r.id = ur.role_id "
-            "WHERE ur.user_id = %s",
+            "SELECT DISTINCT f.function FROM tenant_role_members m "
+            "JOIN tenant_role_functions f ON f.role_id = m.role_id "
+            "WHERE m.user_id = %s",
             (str(user_id),),
         ).fetchall()
         return frozenset(r[0] for r in rows)
@@ -329,6 +340,18 @@ class UserRepository:
     def grant_role(
         self, user_id: UUID | str, role_key: str, *, by: UUID | str | None = None
     ) -> None:
+        """Give the person the function ``role_key`` through a role (RB-1, rule 8).
+
+        ``admin`` puts the person into Administration, ``member`` into
+        Mitglied, any other key into the role whose functions are exactly that
+        key (``RoleStore.role_for_function``, created on first use). Granting
+        twice is no change.
+
+        Raises:
+            UnknownRoleError: no such key. Nothing changes.
+            RoleError: the person does not exist, or the role's Core group
+                would be the person's 33rd group. Nothing changes.
+        """
         role = self._conn.execute(
             "SELECT id FROM roles WHERE key = %s", (role_key,)
         ).fetchone()
@@ -337,30 +360,52 @@ class UserRepository:
                 sorted(r[0] for r in self._conn.execute("SELECT key FROM roles"))
             )
             raise UnknownRoleError(f"No role {role_key!r}. Known roles: {known}.")
-        self._conn.execute(
-            "INSERT INTO user_roles (user_id, role_id, granted_by) VALUES (%s, %s, %s) "
-            "ON CONFLICT (user_id, role_id) DO NOTHING",
-            (str(user_id), role[0], str(by) if by else None),
-        )
+        store = roles_mod.RoleStore(self._conn)
+        with self._conn.transaction():
+            target = store.role_for_function(role_key, by=by)
+            store.add_member(target.id, user_id, by=by)
 
     def revoke_role(self, user_id: UUID | str, role_key: str) -> None:
-        self._conn.execute(
-            "DELETE FROM user_roles USING roles "
-            "WHERE user_roles.role_id = roles.id AND user_roles.user_id = %s "
-            "AND roles.key = %s",
-            (str(user_id), role_key),
-        )
+        """Take exactly the function ``role_key`` from the person; every other function stays (RB-1, rule 8).
+
+        The person leaves each role that gives the key, and gets that role's
+        other functions back through single-function roles (``admin`` and
+        ``member`` through Administration and Mitglied). ``admin`` is leaving
+        Administration and ``member`` leaving Mitglied. A key the person holds
+        through nothing is no change.
+
+        Raises:
+            LastAdministratorError: ``admin`` of the last active administrator.
+            RoleError: the key comes from Administration or Mitglied and is not
+                ``admin`` or ``member`` itself, so leaving would take more.
+            Nothing changes on any refusal.
+        """
+        store = roles_mod.RoleStore(self._conn)
+        with self._conn.transaction():
+            holding = [r for r in store.roles_of_user(user_id) if role_key in r.functions]
+            for role in holding:
+                if (role.kind == roles_mod.ADMINISTRATION and role_key != roles_mod.ADMIN) or (
+                        role.kind == roles_mod.MITGLIED and role_key != roles_mod.MEMBER):
+                    raise roles_mod.RoleError(
+                        "Diese Funktion kommt aus der Rolle Administration oder Mitglied "
+                        "und kann nicht einzeln entzogen werden.")
+            left = frozenset().union(*(r.functions for r in holding)) - {role_key}
+            for role in holding:
+                store.remove_member(role.id, user_id)
+            for function in sorted(left - self.roles_of(user_id)):
+                store.add_member(store.role_for_function(function).id, user_id)
 
     # ── access groups (what B2 signs) ──────────────────────────────────────
 
     def access_groups_of(self, user_id: UUID | str) -> tuple[str, ...]:
-        """The groups this user is granted today: a grant past its end date no longer counts (B14)."""
-        rows = self._conn.execute(
-            "SELECT group_id FROM user_access_groups WHERE user_id = %s "
-            "AND (ends_on IS NULL OR ends_on >= current_date) ORDER BY group_id",
-            (str(user_id),),
-        ).fetchall()
-        return tuple(r[0] for r in rows)
+        """The groups this user's claim carries (RB-2), sorted and deduplicated.
+
+        The direct grants that run today (a grant past its end date no longer
+        counts, B14) plus the Core groups of the person's roles. What is stored
+        comes back, even more than 32: the people page still shows such a
+        person; the principal broker refuses to sign the claim.
+        """
+        return roles_mod.claim_groups(self._conn, user_id)
 
     def access_grants_of(self, user_id: UUID | str) -> list[dict]:
         """Every group grant of this user with its end date, ended ones too (the access window shows them)."""
@@ -373,13 +418,19 @@ class UserRepository:
 
     def grant_access_group(self, user_id: UUID | str, group_id: str, *, ends_on: str | None = None,
                            by: UUID | str | None = None) -> None:
-        """Grant one group (a second grant replaces the first, with its end date)."""
-        self._conn.execute(
-            "INSERT INTO user_access_groups (user_id, group_id, source, granted_by, ends_on) "
-            "VALUES (%s, %s, 'manual', %s, %s) ON CONFLICT (user_id, group_id) DO UPDATE "
-            "SET ends_on = EXCLUDED.ends_on, granted_by = EXCLUDED.granted_by, granted_at = now()",
-            (str(user_id), str(group_id), str(by) if by else None, ends_on),
-        )
+        """Grant one group (a second grant replaces the first, with its end date).
+
+        Raises:
+            TooManyGroupsError: the person would hold more than 32 groups,
+                directly and through roles together. Nothing is written.
+        """
+        with self._conn.transaction(), roles_mod.group_cap(self._conn, [user_id]):
+            self._conn.execute(
+                "INSERT INTO user_access_groups (user_id, group_id, source, granted_by, ends_on) "
+                "VALUES (%s, %s, 'manual', %s, %s) ON CONFLICT (user_id, group_id) DO UPDATE "
+                "SET ends_on = EXCLUDED.ends_on, granted_by = EXCLUDED.granted_by, granted_at = now()",
+                (str(user_id), str(group_id), str(by) if by else None, ends_on),
+            )
 
     def revoke_access_group(self, user_id: UUID | str, group_id: str) -> bool:
         row = self._conn.execute(
@@ -411,15 +462,21 @@ class UserRepository:
         Replace rather than merge, because the admin console shows the whole
         set and saves the whole set: a merge would make un-granting impossible
         through the only UI that exists.
+
+        Raises:
+            TooManyGroupsError: the person would hold more than 32 groups,
+                directly and through roles together. Nothing is written: the
+                old grants stay.
         """
         wanted = sorted({g.strip() for g in group_ids if g and g.strip()})
-        self._conn.execute(
-            "DELETE FROM user_access_groups WHERE user_id = %s", (str(user_id),)
-        )
-        for group_id in wanted:
+        with self._conn.transaction(), roles_mod.group_cap(self._conn, [user_id]):
             self._conn.execute(
-                "INSERT INTO user_access_groups (user_id, group_id, source, granted_by) "
-                "VALUES (%s, %s, %s, %s)",
-                (str(user_id), group_id, source, str(by) if by else None),
+                "DELETE FROM user_access_groups WHERE user_id = %s", (str(user_id),)
             )
+            for group_id in wanted:
+                self._conn.execute(
+                    "INSERT INTO user_access_groups (user_id, group_id, source, granted_by) "
+                    "VALUES (%s, %s, %s, %s)",
+                    (str(user_id), group_id, source, str(by) if by else None),
+                )
         return tuple(wanted)
