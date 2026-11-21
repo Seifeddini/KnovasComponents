@@ -3519,6 +3519,13 @@ def create_app(config_path: Optional[str] = None):
             csrf_valid=_csrf_token_is_valid,
         ))
 
+    # Brain views (PMVP-30a): the dossier of one thing, read as the person signed in; off unless brain_views.enabled.
+    from web_interface.brain_views_routes import create_brain_views_blueprint
+    app.register_blueprint(create_brain_views_blueprint(
+        identity_gate, client=lambda: api_client, settings=lambda: settings_resolver, grant=_grant_for_current_user,
+        page_context=lambda: {**_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+                              'asset_version': _static_asset_version()}))
+
     @app.route('/api/ontology/summary', methods=['GET'])
     def ontology_summary():
         try:

@@ -168,6 +168,11 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
             "Liest das Definitionsbündel und öffnet Änderungsanträge. Rechte: Contents und Pull requests auf "
             "dem Repository der Wissensbasis, sonst nichts. Wird nur geschrieben, nie angezeigt.",
             "secret", "tenant", env=("KB_GITHUB_TOKEN",), file_key="views.change_requests.github_token_file"),
+    # Brain views (PMVP-30a): the members' dossier. Off by default; "an" or BRAIN_VIEWS_ENABLED=true switches it on.
+    Setting("brain_views.enabled", "Brain-Ansichten (Dossier)",
+            "Zeigt Mitgliedern unter /dossier/<id> die Angaben und Dokumente zu einem Eintrag des Brain, gelesen "
+            "mit ihren eigenen Rechten. Aus: die Adresse antwortet 404.",
+            "choice", "installation", env=("BRAIN_VIEWS_ENABLED",), choices=("aus", "an"), fallback="aus"),
 )}
 
 
