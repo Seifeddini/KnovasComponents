@@ -318,12 +318,13 @@ def test_the_snippet_is_read_where_the_core_puts_it():
     # Only on the chunks (a hit whose row-level copy is missing): the first chunk's.
     only_chunks = {k: v for k, v in HIT.items() if k not in ("snippet", "text")}
     assert _snippet_from_hit(only_chunks) == HIT["top_chunks"][0]["snippet"]
-    camel = {"pointer": "p", "topChunks": [{"snippet": "  aus topChunks  "}]}
-    assert _snippet_from_hit(camel) == "aus topChunks"
+    camel = {"pointer": "p", "topChunks": [{"snippet": "  aus den topChunks gelesen  "}]}
+    assert _snippet_from_hit(camel) == "aus den topChunks gelesen"
 
 
 def test_only_the_snippet_key_is_passage_text():
-    """Not ``text``/``content``: GI-QUERY-04 serves original_text only as ``snippet``."""
+    """Not ``text``/``content``: GI-QUERY-04 serves original_text only as
+    ``snippet`` (or, on a chunk, as ``original_text``)."""
     assert _snippet_from_hit({"pointer": "p", "text": "BM25 ohne Ziffern", "content": "x",
                               "top_chunks": [{"page_number": 1, "text": "y"}]}) is None
     assert _snippet_from_hit({"pointer": "p", "snippet": "   ", "top_chunks": "kaputt"}) is None
@@ -428,8 +429,8 @@ def test_the_snippet_comes_with_its_own_chunks_location():
     assert _snippet_with_location(FIRST_CHUNK_WITHOUT_TEXT) == (
         "Die Frist beginnt mit dem Zugang.", {"page_number": 7, "sentence_number": 31})
     # A row-level snippet that no chunk carries: the text, and no location.
-    assert _snippet_with_location({"pointer": "p", "snippet": "nur oben",
-                                   "top_chunks": [{"page_number": 3}]}) == ("nur oben", {})
+    assert _snippet_with_location({"pointer": "p", "snippet": "nur oben im Treffer",
+                                   "top_chunks": [{"page_number": 3}]}) == ("nur oben im Treffer", {})
     assert _snippet_with_location({"pointer": "p"}) is None
 
 
@@ -440,3 +441,185 @@ def test_a_row_keeps_the_page_of_its_snippet_not_of_the_first_chunk(client, monk
         (row,) = client.search_documents("Frist", limit=5)["results"]
     assert row["page_number"] == 1  # the row's own location is untouched
     assert (row["snippet_page_number"], row["snippet_sentence_number"]) == (7, 31)
+
+
+# --- PMVP-20 passages: the longest text of one chunk, at least three words ------------------------
+
+# Shaped like the demo tenant's answers (2026-11-21): sentence-sized chunks, a snippet on the first
+# three, the reranker's order, no page for a .docx. The texts are invented here.
+SHORT_FIRST = {
+    "pointer": "Mandate/Keller/mietvertrag.docx",
+    "cosine_similarity": 0.52,
+    "snippet": "Aktenzeichen: 2023-041",
+    "top_chunks": [
+        {"uuid": "c-a", "chunk_uuid": "c-a", "page_number": None, "sentence_number": 6,
+         "sentence_number_end": 6, "cosine_similarity": 0.5185, "rerank_score": 4.79,
+         "snippet": "Aktenzeichen: 2023-041"},
+        {"uuid": "c-b", "chunk_uuid": "c-b", "page_number": 2, "sentence_number": 15,
+         "sentence_number_end": 15, "cosine_similarity": 0.5044, "rerank_score": 4.73,
+         "snippet": "Die Mieterin kuendigt per Ende Juni."},
+        {"uuid": "c-c", "chunk_uuid": "c-c", "page_number": 3, "sentence_number": 2,
+         "cosine_similarity": 0.5, "rerank_score": None},
+    ],
+}
+
+LONG_TEXT = " ".join(f"Satz{n} der Kuendigungsfrist von drei Monaten." for n in range(60))  # ~2,700
+
+
+def test_a_passage_has_at_least_as_many_words_as_the_least_quote():
+    from assistant.check import MIN_QUOTE_WORDS
+    from knovas_client import MIN_PASSAGE_WORDS
+
+    assert MIN_PASSAGE_WORDS == MIN_QUOTE_WORDS
+
+
+def test_the_chunks_full_text_is_preferred_over_its_snippet():
+    hit = {"pointer": "p", "snippet": "Die Frist betraegt drei Monate.",
+           "top_chunks": [{"chunk_uuid": "c-1", "page_number": 4, "sentence_number": 9,
+                           "snippet": "Die Frist betraegt drei Monate.",
+                           "original_text": "Die Frist betraegt drei Monate. Sie beginnt mit dem Zugang."}]}
+    assert _snippet_with_location(hit) == (
+        "Die Frist betraegt drei Monate. Sie beginnt mit dem Zugang.",
+        {"page_number": 4, "sentence_number": 9})
+
+
+def test_the_snippets_of_one_chunk_are_joined_in_order():
+    hit = {"pointer": "p", "top_chunks": [
+        {"chunk_uuid": "c-1", "page_number": 4, "sentence_number": 9, "rerank_score": 5.0,
+         "snippet": "Die Frist betraegt drei Monate."},
+        {"chunk_uuid": "c-2", "page_number": 8, "sentence_number": 40, "rerank_score": 4.0,
+         "snippet": "Ein anderer Abschnitt der Akte."},
+        {"chunk_uuid": "c-1", "page_number": 4, "sentence_number": 9, "rerank_score": 3.0,
+         "snippet": "Sie beginnt mit dem Zugang."},
+        {"chunk_uuid": "c-1", "page_number": 4, "sentence_number": 9, "rerank_score": 2.0,
+         "snippet": "Die Frist betraegt drei Monate."},
+    ]}
+    assert _snippet_with_location(hit) == (
+        "Die Frist betraegt drei Monate. \u2026 Sie beginnt mit dem Zugang.",
+        {"page_number": 4, "sentence_number": 9})
+
+
+def test_never_text_of_two_chunks():
+    hit = {"pointer": "p", "top_chunks": [
+        {"chunk_uuid": "c-1", "page_number": 1, "rerank_score": 5.0, "snippet": "Der Vertrag beginnt am Montag."},
+        {"chunk_uuid": "c-2", "page_number": 2, "rerank_score": 4.0, "snippet": "Die Frist betraegt drei Monate."},
+        {"page_number": 3, "snippet": "Ein Chunk ohne seine Kennung."},
+        {"page_number": 4, "snippet": "Noch ein Chunk ohne Kennung."},
+    ]}
+    assert _snippet_with_location(hit) == ("Der Vertrag beginnt am Montag.", {"page_number": 1})
+    # Without an id each entry is a chunk of its own: never joined with another.
+    no_ids = {"pointer": "p", "top_chunks": hit["top_chunks"][2:]}
+    assert _snippet_with_location(no_ids) == ("Ein Chunk ohne seine Kennung.", {"page_number": 3})
+
+
+def test_the_best_ranked_chunk_with_three_words_gives_text_and_page():
+    # The first chunk has two words: the next one gives text, page and sentence.
+    assert _snippet_with_location(SHORT_FIRST) == (
+        "Die Mieterin kuendigt per Ende Juni.",
+        {"page_number": 2, "sentence_number": 15, "sentence_number_end": 15})
+    # The reranker's score decides, not the order of the list nor the stage-1 cosine.
+    reordered = dict(SHORT_FIRST, top_chunks=[
+        dict(SHORT_FIRST["top_chunks"][1], rerank_score=4.0, cosine_similarity=0.9),
+        dict(SHORT_FIRST["top_chunks"][1], chunk_uuid="c-d", uuid="c-d", page_number=5,
+             sentence_number=30, sentence_number_end=31, rerank_score=6.0, cosine_similarity=0.1,
+             snippet="Der Vermieter verzichtet auf die Kaution."),
+    ])
+    assert _snippet_with_location(reordered) == (
+        "Der Vermieter verzichtet auf die Kaution.",
+        {"page_number": 5, "sentence_number": 30, "sentence_number_end": 31})
+    # Unscored chunks come after every scored one, in the order Knovas sent them.
+    unscored_first = dict(SHORT_FIRST, top_chunks=[
+        {"chunk_uuid": "u-1", "page_number": 9, "snippet": "Ohne Score aber lang genug."},
+        dict(SHORT_FIRST["top_chunks"][1]),
+    ])
+    assert _snippet_with_location(unscored_first)[1]["page_number"] == 2
+
+
+def test_the_page_is_that_of_the_passages_chunk_in_the_row(client, monkeypatch):
+    _wire(client, monkeypatch, _response(200, _query_answer(SHORT_FIRST),
+                                         url="https://core.test/secured/query"))
+    with client.keeping_snippets():
+        (row,) = client.search_documents("Kuendigung", limit=5)["results"]
+    assert row["snippet"] == "Die Mieterin kuendigt per Ende Juni."
+    assert (row["snippet_page_number"], row["snippet_sentence_number"]) == (2, 15)
+    assert row["page_number"] is None  # the row's own location is untouched
+
+
+def test_text_of_fewer_than_three_words_is_not_a_passage(client, monkeypatch):
+    numbers_only = {"pointer": "Akten/a.docx", "snippet": "1.",
+                    "top_chunks": [{"chunk_uuid": "c-1", "snippet": "1."},
+                                   {"chunk_uuid": "c-2", "snippet": "2023-03-09"},
+                                   {"chunk_uuid": "c-3", "snippet": "\u2026 \u2013 \u2026"}]}
+    assert _snippet_with_location(numbers_only) is None
+    assert _snippet_with_location({"pointer": "p", "snippet": "zwei Woerter"}) is None
+    assert _snippet_with_location({"pointer": "p", "snippet": "genau drei Woerter"}) == (
+        "genau drei Woerter", {})
+    _wire(client, monkeypatch, _response(200, _query_answer(numbers_only, HIT),
+                                         url="https://core.test/secured/query"))
+    with client.keeping_snippets():
+        rows = client.search_documents("Frist", limit=5)["results"]
+    assert not set(SNIPPET_KEYS) & set(rows[0])
+    assert rows[1]["snippet"] == HIT["snippet"]
+
+
+def test_the_passage_is_cut_at_a_word():
+    from knovas_client import _cut_passage
+
+    text = "eins zwei drei vier fuenf sechs"
+    assert _cut_passage(text, 100) == text
+    assert _cut_passage(text, 20) == "eins zwei drei vier\u2026"      # exactly 20
+    assert _cut_passage(text, 18) == "eins zwei drei\u2026"           # not inside "vier"
+    assert _cut_passage("Donaudampfschifffahrt ist lang", 10) == "Donaudamp\u2026"
+    assert _cut_passage("eins zwei\ndrei vier", 14) == "eins zwei\u2026"  # a line break ends a word too
+    hit = {"pointer": "p", "top_chunks": [{"chunk_uuid": "c-1", "page_number": 2,
+                                           "original_text": LONG_TEXT}]}
+    text, location = _snippet_with_location(hit)
+    assert len(LONG_TEXT) > 1_200 >= len(text) > 1_100
+    assert text.endswith("\u2026") and LONG_TEXT.startswith(text[:-1])
+    assert LONG_TEXT[len(text) - 1].isspace()  # the word before the mark is whole
+    assert location == {"page_number": 2}
+
+
+def test_assistant_passage_chars_sets_the_limit(client, monkeypatch, caplog):
+    # A chunk with a location: one without makes an older INFO line log the raw chunks (FU-09).
+    hit = {"pointer": "p", "snippet": "Satz0 der Kuendigungsfrist",
+           "top_chunks": [{"chunk_uuid": "c-1", "sentence_number": 3, "original_text": LONG_TEXT}]}
+    _wire(client, monkeypatch, _response(200, _query_answer(hit), url="https://core.test/secured/query"))
+
+    def passage():
+        with client.keeping_snippets():
+            return client.search_documents("Frist", limit=5)["results"][0]["snippet"]
+
+    monkeypatch.setenv("ASSISTANT_PASSAGE_CHARS", "300")
+    assert 250 < len(passage()) <= 300
+    with caplog.at_level(logging.DEBUG):
+        for wrong in ("99", "1.5e3", "abc", "-500"):
+            monkeypatch.setenv("ASSISTANT_PASSAGE_CHARS", wrong)
+            assert 1_100 < len(passage()) <= 1_200
+    warnings = [r.getMessage() for r in caplog.records if "ASSISTANT_PASSAGE_CHARS" in r.getMessage()]
+    assert len(warnings) == 4
+    # No passage text in any log line of those searches.
+    assert not any("Satz" in r.getMessage() or "Kuendigung" in r.getMessage() for r in caplog.records)
+    monkeypatch.delenv("ASSISTANT_PASSAGE_CHARS")
+    assert 1_100 < len(passage()) <= 1_200
+
+
+def test_outside_the_block_the_search_page_rows_are_unchanged(client, monkeypatch):
+    """The setting is not even read, and a hit with chunk text gives the row it always gave."""
+    import knovas_client
+
+    def not_here():
+        raise AssertionError("read outside keeping_snippets()")
+
+    long_hit = {"pointer": "Akten/lang.pdf", "cosine_similarity": 0.7, "snippet": "Satz0 der Kuendigungsfrist",
+                "top_chunks": [{"chunk_uuid": "c-1", "page_number": 4, "sentence_number": 2,
+                                "original_text": LONG_TEXT, "snippet": "Satz0 der Kuendigungsfrist"}]}
+    _wire(client, monkeypatch, _response(200, _query_answer(long_hit, SHORT_FIRST, HIT),
+                                         url="https://core.test/secured/query"))
+    monkeypatch.setenv("ASSISTANT_PASSAGE_CHARS", "abc")
+    monkeypatch.setattr(knovas_client, "_passage_chars", not_here)
+    page_rows = client.search_documents("Frist", limit=5)["results"]
+    assert all(not set(SNIPPET_KEYS) & set(row) for row in page_rows)
+    assert [row["doc_id"] for row in page_rows] == [long_hit["pointer"], SHORT_FIRST["pointer"], HIT["pointer"]]
+    assert [row["page_number"] for row in page_rows] == [4, None, 2]
+    assert all(LONG_TEXT not in json.dumps(row) for row in page_rows)
