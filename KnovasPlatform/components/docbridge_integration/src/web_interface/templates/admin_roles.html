@@ -186,6 +186,47 @@
                 {% else %}
                 <p class="k-small k-muted">Noch keine Personen in dieser Rolle.</p>
                 {% endif %}
+                {#- The role's agents (RB-6, RB-7): the Knovas Assistent first, then external agents, each with whom it
+                    acts for and «Entfernen» (the assistant too: «darf nicht von KI genutzt werden»); then «+ Agent
+                    hinzufügen». No agent joins Administration. The Platform holds no agent key, so none is shown. -#}
+                {% for agent in agents.members %}
+                <div class="role-row role-agent" data-agent-id="{{ agent.id }}">
+                    <span class="role-agent-icon{% if agent.kind == 'assistant' %} role-agent-icon--assistant{% endif %}" aria-hidden="true">
+                        {{- 'K' if agent.kind == 'assistant' else initials(agent.name) -}}
+                    </span>
+                    <span class="role-row-text"><span class="role-person-name">{{ agent.name }}</span>
+                        <span class="k-small k-muted">· {{ agent.note }}</span>
+                        {%- if agent.revoked %} {{ parts.tag('widerrufen', 'bad') }}{% endif %}</span>
+                    <form method="post" action="{{ url_for('admin.remove_agent_from_role', role_id=shown.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="agent_id" value="{{ agent.id }}">
+                        <button type="submit" class="secondary compact"
+                            {%- if agent.kind == 'assistant' %} title="Diese Rolle darf nicht von KI genutzt werden"{% endif %}>Entfernen</button>
+                    </form>
+                </div>
+                {% endfor %}
+                {% if shown.kind == 'administration' %}
+                <p class="k-small k-muted role-agent-note">Kein Agent gehört zur Administration.</p>
+                {% else %}
+                <details class="role-agent-add">
+                    <summary>+ Agent hinzufügen</summary>
+                    {% if agents.addable %}
+                    <form class="role-form" method="post" action="{{ url_for('admin.add_agent_to_role', role_id=shown.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <label for="role-add-agent">Agent</label>
+                        <select id="role-add-agent" name="agent_id" required>
+                            {% for agent in agents.addable %}
+                            <option value="{{ agent.id }}">{{ agent.name }} · {{ agent.note }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="secondary">Hinzufügen</button>
+                    </form>
+                    {% else %}
+                    <p class="k-small k-muted">Alle Agenten sind schon in dieser Rolle. Neue registrieren Sie unter
+                        {{ parts.link('Agenten', url_for('admin.agents')) }}.</p>
+                    {% endif %}
+                </details>
+                {% endif %}
             {#- === end of the role's members === -#}
             </div>
         </section>

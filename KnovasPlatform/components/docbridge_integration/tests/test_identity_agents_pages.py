@@ -212,3 +212,42 @@ def test_the_revoke_says_what_happened_at_knovas(app, browser, platform_db, monk
     failed = browser.post(f"/admin/agents/{second.id}/revoke", data={"csrf_token": browser._token})
     assert failed.status_code == 200 and "Knovas war nicht erreichbar" in failed.get_data(as_text=True)
     assert store.get_agent(first.id).revoked and store.get_agent(second.id).revoked
+
+
+def _members_part(page):
+    return re.search(r'<section\b[^>]*data-role-part="members"[^>]*>(.*?)</section>', _main(page), flags=re.S).group(1)
+
+
+def test_the_role_page_draws_its_agents_under_mitglieder_and_offers_the_others(app, browser, platform_db, repo):
+    store, roles = AgentStore(platform_db), RoleStore(platform_db)
+    anna = repo.create(email="anna@kanzlei.ch", display_name="Anna Muster", password=conftest.PASSWORD)
+    bound = store.create_agent(name="Fristenpruefung", on_behalf_of=anna.id)
+    alone = store.create_agent(name="Copilot")
+    role = roles.create_role(name="Baurecht", core_group_id="g-bau")
+    store.add_to_role(role.id, bound.id)
+    members = _members_part(browser.get(f"/admin/roles/{role.id}").get_data(as_text=True))
+    assistant = store.assistant()
+    rows = re.findall(r'data-agent-id="([^"]+)"', members)
+    assert rows == [str(assistant.id), str(bound.id)]
+    text = html_lib.unescape(re.sub(r"<[^>]+>", " ", members))
+    assert "Knovas Assistent" in text and "Fristenpruefung" in text and "handelt für Anna Muster" in text
+    assert members.count(f'action="/admin/roles/{role.id}/agents/remove"') == 2
+    add = re.search(rf'<form[^>]*action="/admin/roles/{role.id}/agents/add"[^>]*>(.*?)</form>', members, flags=re.S)
+    assert add and re.findall(r'<option value="([^"]+)"', add.group(1)) == [str(alone.id)]
+    assert "+ Agent hinzufügen" in members
+    answer = browser.post(f"/admin/roles/{role.id}/agents/remove",
+                          data={"csrf_token": browser._token, "agent_id": str(assistant.id)})
+    assert answer.status_code == 200 and f'data-role-id="{role.id}"' in answer.get_data(as_text=True)
+    assert re.findall(r'data-agent-id="([^"]+)"', _members_part(answer.get_data(as_text=True))) == [str(bound.id)]
+    administration = _members_part(browser.get(f"/admin/roles/{roles.administration().id}").get_data(as_text=True))
+    assert "/agents/add" not in administration and "Kein Agent gehört zur Administration" in administration
+
+
+def test_a_refused_agent_change_draws_the_role_page_with_its_reason(app, browser, platform_db):
+    roles = RoleStore(platform_db)
+    administration = roles.administration()
+    answer = browser.post(f"/admin/roles/{administration.id}/agents/add",
+                          data={"csrf_token": browser._token, "agent_id": str(AgentStore(platform_db).assistant().id)})
+    page = answer.get_data(as_text=True)
+    assert answer.status_code == 400 and f'data-role-id="{administration.id}"' in page
+    assert 'role="alert"' in page and "Kein Agent gehört zur Administration" in page

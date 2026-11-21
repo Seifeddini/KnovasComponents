@@ -2140,6 +2140,42 @@
 .role-person-name { font-weight: var(--k-weight-semibold); color: var(--k-color-text-strong); }
 .role-person > form { flex: none; }
 
+/* Mitglieder: the role's agents (RB-6, RB-7), one row each, then «+ Agent hinzufügen» as a link in the flow (the part's
+   corner holds «+ Mitglied hinzufügen»). */
+.role-agent > form { flex: none; }
+.role-agent-icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--k-radius-xs);
+    background: var(--k-gray-100);
+    color: var(--k-color-text-strong);
+    font-size: var(--k-text-2xs);
+    font-weight: var(--k-weight-semibold);
+    line-height: 1;
+}
+.role-agent-icon--assistant { background: var(--k-color-accent); color: var(--k-white); }
+.role-agent-add { padding: var(--k-space-xs) 0; }
+.role-agent-add > summary {
+    width: fit-content;
+    list-style: none;
+    cursor: pointer;
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-accent);
+}
+.role-agent-add > summary::-webkit-details-marker { display: none; }
+.role-agent-add > summary:hover { color: var(--k-color-accent-hover); text-decoration: underline; }
+.role-agent-add > summary:focus-visible {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: 2px;
+    border-radius: var(--k-radius-xs);
+}
+.role-agent-add > .role-form { margin-top: var(--k-space-xs); }
+.role-agent-note { margin: 0; padding: var(--k-space-xs) 0; }
+
 /* Deleting: the order in words and the button, behind one more click. */
 .role-delete {
     margin-top: var(--k-space-md);

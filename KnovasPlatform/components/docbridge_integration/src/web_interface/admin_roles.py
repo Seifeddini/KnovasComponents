@@ -46,6 +46,7 @@ from identity.roles import (
     RoleStore,
     check_grantable,
 )
+from web_interface.admin_agents import role_agents
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,8 @@ def attach_role_routes(bp, gate, *, csrf_valid, csrf_token, page_context, client
     """Mount the Rollen page and its forms onto the console's blueprint.
 
     Takes ``require_admin`` from the blueprint factory rather than redefining it, so there is exactly one definition
-    of "who may reach the console", as ``attach_document_routes`` does.
+    of "who may reach the console", as ``attach_document_routes`` does. Returns the page function
+    (``page(role_id, *, error, notice, status)``): the agents' forms of a role (``admin_agents``, RB-7) answer with it.
     """
 
     def _csrf_ok() -> bool:
@@ -115,6 +117,8 @@ def attach_role_routes(bp, gate, *, csrf_valid, csrf_token, page_context, client
         people = sorted(gate.users().list_all(), key=lambda p: (p.display_name or "").casefold())
         members = [p for p in people if p.id in shown.members]
         by_kind = {r.kind: r for r in roles}
+        # RB-6, RB-7: the role's agents under «Mitglieder» and the agents «+ Agent hinzufügen» offers.
+        agents = role_agents(gate.connection(), shown, {p.id: p.display_name or p.email for p in people})
         return render_template(
             "admin_roles.html",
             active_nav="admin",
@@ -123,6 +127,7 @@ def attach_role_routes(bp, gate, *, csrf_valid, csrf_token, page_context, client
             shown=shown,
             members=members,
             candidates=[p for p in people if p.id not in shown.members],
+            agents=agents,
             function_words=FUNCTION_WORDS,
             offered=offered_functions(),
             unlinked=[r for r in (by_kind.get("administration"), by_kind.get("mitglied"))
@@ -456,6 +461,8 @@ def attach_role_routes(bp, gate, *, csrf_valid, csrf_token, page_context, client
         if created is not None and created not in used:
             _core_delete_quietly(created, actor=me, role_id=mitglied.id)
         return _page(notice="Administration und Mitglied sind mit Knovas verbunden.")
+
+    return _page
 
 
 def offered_functions(words: Iterable[str] = FUNCTION_WORDS) -> list:
