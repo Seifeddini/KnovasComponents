@@ -36,6 +36,14 @@
     return node;
   }
 
+  // A document's state in words, as admin_documents.html has them (state_words); an unknown one by its key.
+  var STATE_WORDS = { deleted: 'gelöscht', archived: 'archiviert', quarantined: 'zurückgehalten' };
+
+  function stateWord(state) {
+    var key = String(state);
+    return Object.prototype.hasOwnProperty.call(STATE_WORDS, key) ? STATE_WORDS[key] : key;
+  }
+
   function checkbox(pointer, label) {
     var box = document.createElement('input');
     box.type = 'checkbox';
@@ -66,7 +74,7 @@
     title.appendChild(el('span', null, (doc.title == null || doc.title === '') ? '—' : doc.title));
     if (doc.status != null && doc.status !== '' && doc.status !== 'active') {
       title.appendChild(document.createTextNode(' '));
-      title.appendChild(el('span', 'k-tag k-tag--warn', doc.status));
+      title.appendChild(el('span', 'k-tag k-tag--warn', stateWord(doc.status)));
     }
     text.appendChild(title);
     text.appendChild(el('p', 'ptr', doc.pointer == null ? '' : doc.pointer));

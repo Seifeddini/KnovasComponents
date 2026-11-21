@@ -370,6 +370,66 @@ class TestTemplatesRender:
         assert html.count('aria-current="page">Personen</a>') == 1
 
 
+class TestTheLookOfTheAccessPages:
+    """PMVP-40's follow-up: a state in words, one main action, a box named by its visible label."""
+
+    STATES = {"active": None, "deleted": "gelöscht", "archived": "archiviert", "quarantined": "zurückgehalten",
+              "unbekannt_42": "unbekannt_42"}
+
+    def _documents(self, documents):
+        return TestTemplatesRender._env().get_template("admin_documents.html").render(
+            TestTemplatesRender._context(
+                documents=documents, next_after=None, total_count=len(documents), unavailable=False,
+                filters={"prefix": None, "group": None, "unrestricted": False, "conflicts": False, "status": None},
+                groups=[{"group_id": "g-lit", "name": "Litigation"}]))
+
+    def test_a_state_is_shown_in_words_and_an_unknown_one_by_its_key(self):
+        import re
+
+        html = self._documents([{"pointer": f"rc-sync/{s}.pdf", "title": s.upper(), "access_groups": [],
+                                 "status": s} for s in self.STATES])
+        tags = re.findall(r'<span class="k-tag k-tag--warn">([^<]*)</span>', html)
+        assert tags == [w for w in self.STATES.values() if w]          # active carries none
+        assert "quarantined" not in tags and "deleted" not in tags
+
+    def test_the_script_holds_the_same_words_as_the_template(self):
+        import json
+        import re
+
+        html = (TEMPLATES / "admin_documents.html").read_text(encoding="utf-8")
+        js = (TEMPLATES.parent / "static" / "js" / "admin_documents.js").read_text(encoding="utf-8")
+        in_template = re.search(r"{% set state_words = ({[^}]*}) %}", html).group(1)
+        in_script = re.search(r"var STATE_WORDS = ({[^}]*});", js).group(1)
+        template_words = json.loads(in_template.replace("'", '"'))
+        script_words = json.loads(re.sub(r"(\w+):", lambda m: '"' + m.group(1) + '":', in_script).replace("'", '"'))
+        assert template_words == script_words == {k: v for k, v in self.STATES.items() if k in template_words}
+        assert set(template_words) == {"deleted", "archived", "quarantined"}
+        assert "stateWord(doc.status)" in js
+
+    def test_the_select_all_box_is_named_by_its_visible_label(self):
+        """WCAG 2.5.3: no aria-label that differs from what the box's label shows."""
+        import re
+
+        html = self._documents([])
+        box = re.search(r'<label class="admin-check">\s*(<input[^>]*id="document-select-all"[^>]*>)\s*'
+                        r'<span>([^<]*)</span>', html)
+        assert box, "the box sits in its label"
+        assert "aria-label" not in box.group(1)
+        assert box.group(2) == "Alle sichtbaren auswählen"
+
+    def test_the_access_groups_page_has_one_main_action(self):
+        import re
+
+        html = TestTemplatesRender._env().get_template("admin_access_groups.html").render(
+            TestTemplatesRender._context(groups=[{"group_id": "g-lit", "name": "Litigation", "parent_id": None}],
+                                         rules=[]))
+        main = html[html.index("<main"):html.index("</main>")]
+        primary = re.findall(r'<button type="submit">([^<]*)</button>', main) + re.findall(
+            r'class="admin-primary-action"', main)
+        assert primary == ["Gruppe anlegen"]
+        assert '<a class="k-link" href="#create-access-group">Gruppe anlegen</a>' in main
+
+
 from conftest import DummyKnovasClient, platform_db_reachable
 
 

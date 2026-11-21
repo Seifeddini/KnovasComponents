@@ -1,19 +1,21 @@
 """The role gate of every route of Personen, Zugriffsgruppen and Dokumente, asked live (PMVP-40, FU-17).
 
-Each route the Admin card lists for these three pages, the console's entry (GET /admin/, which leads to
-Personen) and System (FU-17 names its gate with the people routes) is asked three times through the real app
-and the real sign-in:
+Each route the cards list for these three pages (L2-PLATFORM-ADMIN, L2-PLATFORM-ACCESS), the console's entry
+(GET /admin/, which leads to Personen) and System (FU-17 names its gate with the people routes). Every one of
+them is require_admin (each route's N-1 on the cards):
 
-- signed out: 302 to the sign-in, nothing run;
-- as a member (the role every account gets): 403;
-- as an administrator, the role the gate names (require_admin): 200.
+- the gate itself: the view the app registered for the route lets in the role admin and no other (the set
+  _require_roles puts on it, allowed_roles), so a widened gate fails here by name;
+- every role the console can give except admin (admin.ASSIGNABLE_ROLES: approver, ingestion_manager, member,
+  experimenter, experiments_manager), and an account with no role at all: 403, with a valid token and a complete
+  form, and nothing run. This is what catches a missing or widened gate;
+- an administrator: 200, with the smallest form the route accepts;
+- signed out: 302 to the sign-in, nothing run. This alone cannot catch a missing route gate: the app's own
+  sign-in check sends a signed-out visitor away before any route runs.
 
-The administrator's requests are real requests with a valid CSRF token and the smallest form the route
-accepts. The guarded actions (a document's groups, a folder rule, erasing the corpus) run with the
-administrator's bypass switched off, so they are queued for a second person and never carried out.
-
-The three POST routes of a document's fields drawer answer JSON; a member's 403 and an administrator's 200
-are shown in test_web_admin_documents.py (TestDocFieldsLive), the signed-out visitor here.
+The guarded actions (a document's groups, a folder rule, erasing the corpus) run with the administrator's bypass
+switched off, so they are queued for a second person and never carried out. The three POST routes of a document's
+fields drawer answer JSON; an administrator's 200 there is shown in test_web_admin_documents.py (TestDocFieldsLive).
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from __future__ import annotations
 import pytest
 
 from conftest import PLATFORM_DB_TEST_DSN, DummyKnovasClient, platform_db_reachable
+from web_interface.admin import ASSIGNABLE_ROLES
 
 pytestmark = pytest.mark.skipif(
     not platform_db_reachable(),
@@ -61,6 +64,17 @@ JSON_ROUTES = [
     "/admin/documents/fields/edit",
     "/admin/documents/fields/find",
 ]
+
+#: Who the gate of every route here lets in (require_admin, each route's N-1 on the cards).
+ADMITTED = frozenset({"admin"})
+#: Who it must refuse: every other role the console can give, and an account with no role (None).
+REFUSED = [role for role in ASSIGNABLE_ROLES if role not in ADMITTED] + [None]
+ROUTES = [(path, "GET") for path in PAGES] + [(path, "POST") for path in sorted(FORMS)] + [
+    (path, "POST") for path in JSON_ROUTES]
+
+
+def _role_id(role):
+    return role or "no-role"
 
 
 class _Client(DummyKnovasClient):
@@ -127,26 +141,66 @@ class TestSignedOut:
         assert _sent_to_sign_in(app.test_client().post(path, json={"pointer": "k/a.pdf"}))
 
 
-class TestMember:
-    @pytest.mark.parametrize("path", PAGES)
-    def test_a_member_is_refused_a_page(self, app, member, path):
-        client = _sign_in(app.test_client(), member.email)
-        assert client.get("/").status_code == 200, "the member is signed in"
-        assert client.get(path).status_code == 403
+class TestTheGate:
+    def test_the_refused_are_every_role_the_console_gives_but_admin_and_no_role(self):
+        assert set(REFUSED) == (set(ASSIGNABLE_ROLES) - ADMITTED) | {None}
+        assert {"approver", "ingestion_manager", "member", "experimenter", "experiments_manager"} <= set(REFUSED)
 
+    @pytest.mark.parametrize("path, method", ROUTES)
+    def test_the_route_lets_in_the_administrator_alone(self, app, path, method):
+        """The roles the app's registered view checks (allowed_roles, put there by _require_roles)."""
+        endpoint, _ = app.url_map.bind("localhost").match(path, method=method)
+        assert getattr(app.view_functions[endpoint], "allowed_roles", None) == ADMITTED, endpoint
+
+
+def _person_with(identity_repo, role):
+    """A signed-in account holding exactly ``role`` (None: no role at all)."""
+    email = f"{(role or 'ohne-rolle').replace('_', '-')}@kanzlei.ch"
+    user = identity_repo.create(email=email, display_name="Gast", password=PASSWORD)
+    if role:
+        identity_repo.grant_role(user.id, role)
+    return identity_repo.get(user.id)
+
+
+def _token(client):
+    with client.session_transaction() as sess:
+        return sess["csrf_token"]
+
+
+class TestRefused:
+    """403 for every role the gate does not name, and for an account without a role; nothing runs."""
+
+    @pytest.mark.parametrize("role", REFUSED, ids=_role_id)
+    @pytest.mark.parametrize("path", PAGES)
+    def test_every_role_but_the_administrator_is_refused_a_page(self, app, identity_repo, path, role):
+        person = _person_with(identity_repo, role)
+        client = _sign_in(app.test_client(), person.email)
+        assert client.get(path).status_code == 403          # signed out it would be 302: the person is signed in
+
+    @pytest.mark.parametrize("role", REFUSED, ids=_role_id)
     @pytest.mark.parametrize("path", sorted(FORMS))
-    def test_a_member_is_refused_a_form_and_nothing_runs(self, app, member, admin, path, identity_repo):
-        """The gate refuses before anything else: the member's token is valid, the form complete."""
-        client = _sign_in(app.test_client(), member.email)
-        token = _csrf_from(client.get("/settings").data.decode("utf-8"))
+    def test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs(self, app, admin, identity_repo,
+                                                                                 path, role):
+        """The gate refuses before anything else: the token is valid, the form complete."""
+        person = _person_with(identity_repo, role)
+        client = _sign_in(app.test_client(), person.email)
         fields = {k: (v.format(person=admin.id) if isinstance(v, str) else v)
                   for k, v in FORMS[path].items()}
         before = (identity_repo.get(admin.id).is_active, set(identity_repo.roles_of(admin.id)))
-        response = client.post(path, data=dict(fields, csrf_token=token))
+        response = client.post(path, data=dict(fields, csrf_token=_token(client)))
         assert response.status_code == 403
         assert (identity_repo.get(admin.id).is_active, set(identity_repo.roles_of(admin.id))) == before
         assert identity_repo.get_by_email("neu@kanzlei.ch") is None
         assert DummyKnovasClient.last_instance.acl_calls == []
+
+    @pytest.mark.parametrize("role", REFUSED, ids=_role_id)
+    @pytest.mark.parametrize("path", JSON_ROUTES)
+    def test_every_role_but_the_administrator_is_refused_the_fields_routes(self, app, identity_repo, path, role):
+        person = _person_with(identity_repo, role)
+        client = _sign_in(app.test_client(), person.email)
+        response = client.post(path, json={"pointer": "k/a.pdf", "set": {"title": "x"}},
+                               headers={"X-CSRF-Token": _token(client)})
+        assert response.status_code == 403
 
 
 class TestAdministrator:
