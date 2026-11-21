@@ -8,18 +8,14 @@ parent: L1-WORKSPACE
 source_paths:
 - KnovasPlatform/components/docbridge_integration/src/web_interface/admin.py
 - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_approvals.py
-- KnovasPlatform/components/docbridge_integration/src/web_interface/admin_roles.py
-- KnovasPlatform/components/docbridge_integration/src/web_interface/admin_agents.py
 - KnovasPlatform/components/docbridge_integration/src/web_interface/guarded.py
 - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_people.html
 - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_approvals.html
-- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_roles.html
-- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_agents.html
 - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_people.js
 - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/admin.css
-purpose: The firm's administration console in the Platform, where an administrator manages people and their roles (the
-  role builder's Rollen page), and a second person confirms guarded actions; the console's blueprint and role gates, on which the access pages
-  (L2-PLATFORM-ACCESS) hang.
+purpose: The firm's administration console in the Platform, where an administrator manages people and which roles they
+  hold, and a second person confirms guarded actions; the console's blueprint and role gates, on which the access pages
+  (L2-PLATFORM-ACCESS) and the role builder's pages (L2-PLATFORM-ROLES, L2-PLATFORM-AGENTS) hang.
 responsible_for:
 - id: L2-PLATFORM-ADMIN/R-1
   statement: 'People (A-01, A-02): create, deactivate and activate an account (never the last active administrator),
@@ -39,36 +35,18 @@ responsible_for:
   - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_approvals.html
 - id: L2-PLATFORM-ADMIN/R-4
   statement: The console's one blueprint and its role gates, on which the other console pages (Zugriffsgruppen and Dokumente
-    of L2-PLATFORM-ACCESS, Ingestion, Dokumentfelder, System's checks) are mounted, and the console's stylesheet. The console
+    of L2-PLATFORM-ACCESS, Rollen of L2-PLATFORM-ROLES, Agenten of L2-PLATFORM-AGENTS, Ingestion, Dokumentfelder, System's
+    checks) are mounted, and the console's stylesheet. The console
     draws no menu of its own - its pages are the entries of the navigation's area Verwaltung, which the shell draws; each
     page names itself to the navigation.
   code:
   - KnovasPlatform/components/docbridge_integration/src/web_interface/admin.py
   - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/admin.css
-- id: L2-PLATFORM-ADMIN/R-5
-  statement: 'Roles (role builder RB-3, RB-4): the Rollen page shows each role (its functions in words, what it may read,
-    its people) and lets an administrator create, rename and delete a role of the firm''s own, change a role''s functions
-    and people, and link Administration and Mitglied to their Core groups. The Core is written first and only on an
-    administrator''s form: a new role''s group before the role, a rename before the role, deleting goes members, Core group,
-    role. Every change writes its audit row by id in the same transaction, and the last active administrator keeps
-    Administration.'
-  code:
-  - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_roles.py
-  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_roles.html
-- id: L2-PLATFORM-ADMIN/R-6
-  statement: 'Agents (RB-6, RB-7): the page Agenten lists every agent (the Knovas Assistent and the external agents)
-    with whom it acts for, its id (Knovas binds the gateway key to it) and its roles; registers an external agent for an
-    active person or on its own, and revokes one; on a role, adds and removes an agent, the assistant included, never
-    into Administration (the agent rows and «+ Agent hinzufügen» under «Mitglieder» of the Rollen page).
-    After each change is committed it hands that agent''s claims to the Core''s gateway at once,
-    behind the switch agents.core_gateway; a Core that refuses never breaks the page.'
-  code:
-  - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_agents.py
-  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_agents.html
 not_responsible_for:
 - Accounts, roles, sessions, the audit log and the approval queue's storage; the Platform's identity package (src/identity)
   keeps them (the roles in identity/roles.py, RB-1).
-- 'A role''s data (sources, folders, documents; RB-5): the Rollen page leaves room for it.'
+- The Rollen page (L2-PLATFORM-ROLES) and the Agenten page (L2-PLATFORM-AGENTS), whose routes hang on this blueprint and
+  its gate.
 - The access groups, the folder rules and the documents with their access groups (A-03, A-04); L2-PLATFORM-ACCESS, whose
   routes hang on this blueprint and its gate.
 - Whether a person may read a document; the Brain decides, per customer, where enforcement is on.
@@ -117,42 +95,6 @@ operations:
   name: POST /admin/people/sign-out - sign a person out everywhere (A-01)
   entrance: http
   ref: POST /admin/people/sign-out
-- id: http.GET.roles
-  name: 'GET /admin/roles - Rollen: the roles as tabs and the first role''s card (Administration)'
-  entrance: http
-  ref: GET /admin/roles
-- id: http.GET.roles._role_id
-  name: 'GET /admin/roles/{role_id} - one role''s card: functions, data, members'
-  entrance: http
-  ref: GET /admin/roles/{role_id}
-- id: http.POST.roles.create
-  name: 'POST /admin/roles/create - create a role: its Core group first, then the role'
-  entrance: http
-  ref: POST /admin/roles/create
-- id: http.POST.roles._role_id.rename
-  name: 'POST /admin/roles/{role_id}/rename - rename a role: its Core group first'
-  entrance: http
-  ref: POST /admin/roles/{role_id}/rename
-- id: http.POST.roles._role_id.functions
-  name: 'POST /admin/roles/{role_id}/functions - replace a role''s functions'
-  entrance: http
-  ref: POST /admin/roles/{role_id}/functions
-- id: http.POST.roles._role_id.members.add
-  name: 'POST /admin/roles/{role_id}/members/add - put a person into a role'
-  entrance: http
-  ref: POST /admin/roles/{role_id}/members/add
-- id: http.POST.roles._role_id.members.remove
-  name: 'POST /admin/roles/{role_id}/members/remove - take a person out of a role'
-  entrance: http
-  ref: POST /admin/roles/{role_id}/members/remove
-- id: http.POST.roles._role_id.delete
-  name: 'POST /admin/roles/{role_id}/delete - delete a role: members, Core group, role'
-  entrance: http
-  ref: POST /admin/roles/{role_id}/delete
-- id: http.POST.roles.connect
-  name: 'POST /admin/roles/connect - link Administration and Mitglied to their Core groups'
-  entrance: http
-  ref: POST /admin/roles/connect
 - id: http.GET.admin.system
   name: 'GET /admin/system - System: whether the outside connections hold, as a page'
   entrance: http
@@ -177,26 +119,6 @@ operations:
   name: POST /admin/approvals/admin-bypass - switch whether an administrator may act alone
   entrance: http
   ref: POST /admin/approvals/admin-bypass
-- id: http.GET.agents
-  name: 'GET /admin/agents - Agenten: every agent, whom it acts for, its id, its roles, revoked or not; the switch'
-  entrance: http
-  ref: GET /admin/agents
-- id: http.POST.agents.create
-  name: POST /admin/agents/create - register an external agent (name, on_behalf_of); the answer names its id
-  entrance: http
-  ref: POST /admin/agents/create
-- id: http.POST.agents._agent_id.revoke
-  name: POST /admin/agents/{agent_id}/revoke - revoke an external agent
-  entrance: http
-  ref: POST /admin/agents/{agent_id}/revoke
-- id: http.POST.roles._role_id.agents.add
-  name: POST /admin/roles/{role_id}/agents/add - make an agent a member of a role (agent_id); never Administration
-  entrance: http
-  ref: POST /admin/roles/{role_id}/agents/add
-- id: http.POST.roles._role_id.agents.remove
-  name: POST /admin/roles/{role_id}/agents/remove - take an agent out of a role (agent_id), the assistant included
-  entrance: http
-  ref: POST /admin/roles/{role_id}/agents/remove
 - id: call.web_interface.admin.create_admin_blueprint
   name: create_admin_blueprint - builds the console's one blueprint under /admin with its role gates; the app registers
     it
@@ -207,14 +129,16 @@ operations:
     a bypass'
   entrance: call
   ref: KnovasPlatform/components/docbridge_integration/src/web_interface/guarded.py#run_guarded
+# A gate line that repeats word for word on many routes is written once, as a YAML anchor (&admin-gate), and named
+# where it repeats (*admin-gate): the parsed card is the same (RB-FIX-1, context budget).
 contract:
   http.GET.admin:
     needs:
     - id: L2-PLATFORM-ADMIN/http.GET.admin/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+      statement: &admin-gate 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
         anyone else gets 403, whatever the page shows.'
       risk_class: standard
-      evidence:
+      evidence: &gates-page
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
@@ -225,8 +149,7 @@ contract:
   http.GET.admin.people:
     needs:
     - id: L2-PLATFORM-ADMIN/http.GET.admin.people/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
+      statement: *admin-gate
       risk_class: standard
       evidence:
       - kind: test
@@ -245,8 +168,7 @@ contract:
   http.POST.admin.people.create:
     needs:
     - id: L2-PLATFORM-ADMIN/http.POST.admin.people.create/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
+      statement: *admin-gate
       risk_class: standard
       evidence:
       - kind: test
@@ -263,10 +185,9 @@ contract:
   http.POST.admin.people.disable:
     needs:
     - id: L2-PLATFORM-ADMIN/http.POST.admin.people.disable/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
+      statement: *admin-gate
       risk_class: standard
-      evidence:
+      evidence: &gates-form
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
@@ -277,31 +198,15 @@ contract:
   http.POST.admin.people.enable:
     needs:
     - id: L2-PLATFORM-ADMIN/http.POST.admin.people.enable/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
+      statement: *admin-gate
       risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
+      evidence: *gates-form
   http.POST.admin.people.roles:
     needs:
     - id: L2-PLATFORM-ADMIN/http.POST.admin.people.roles/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
+      statement: *admin-gate
       risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
+      evidence: *gates-form
     promises:
     - id: L2-PLATFORM-ADMIN/http.POST.admin.people.roles/P-1
       statement: 'The person''s roles become exactly the checked ones (role_id), in one transaction with one audit row;
@@ -319,345 +224,34 @@ contract:
   http.POST.admin.people.groups:
     needs:
     - id: L2-PLATFORM-ADMIN/http.POST.admin.people.groups/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
+      statement: *admin-gate
       risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
+      evidence: *gates-form
   http.POST.admin.people.reset-password:
     needs:
     - id: L2-PLATFORM-ADMIN/http.POST.admin.people.reset-password/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
+      statement: *admin-gate
       risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
+      evidence: *gates-form
   http.POST.admin.people.sign-out:
     needs:
     - id: L2-PLATFORM-ADMIN/http.POST.admin.people.sign-out/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
+      statement: *admin-gate
       risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
-  http.GET.roles:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.GET.roles/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_every_route_carries_the_console_admin_gate
-        - test_a_signed_out_visitor_is_sent_to_sign_in
-        - test_every_other_function_and_none_is_refused_the_pages
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_the_page
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.GET.roles/P-1
-      statement: 'Opening the page writes nothing, at the Core or in the roles.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_opening_the_pages_writes_nothing_to_the_core_and_nothing_to_the_roles
-  http.GET.roles._role_id:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.GET.roles._role_id/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_every_route_carries_the_console_admin_gate
-        - test_a_signed_out_visitor_is_sent_to_sign_in
-        - test_every_other_function_and_none_is_refused_the_pages
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_the_page
-  http.POST.roles.create:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles.create/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows. The form''s csrf_token is checked next (400, nothing changed, nothing sent to the Core).'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_every_route_carries_the_console_admin_gate
-        - test_a_signed_out_visitor_is_sent_to_sign_in
-        - test_everybody_but_an_administrator_is_refused_every_form_and_nothing_changes
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles.create/P-1
-      statement: 'The role''s Core group is created first, as a root group named like the role, and the role is saved only when the Core answers with a group (otherwise 502, no role). What the store would refuse is refused with 400 before the Core is asked; a group the role could not be saved with is deleted again.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_rolle_anlegen_creates_the_core_group_first_and_saves_the_role_with_it
-        - test_when_the_core_refuses_the_group_no_role_is_saved
-        - test_what_the_store_would_refuse_is_refused_before_the_core_is_asked
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_roles_rules.py
-        checks:
-        - test_a_new_roles_group_is_deleted_again_when_the_role_cannot_be_saved
-    - id: L2-PLATFORM-ADMIN/http.POST.roles.create/P-2
-      statement: 'Every change of a role or a person''s roles writes its audit row, by id, in the same transaction: a row that cannot be written undoes the change.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_every_change_writes_its_audit_row_with_ids_only
-        - test_a_change_whose_audit_row_cannot_be_written_is_not_kept
-  http.POST.roles._role_id.rename:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.rename/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows. The form''s csrf_token is checked next (400, nothing changed, nothing sent to the Core).'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_every_route_carries_the_console_admin_gate
-        - test_a_signed_out_visitor_is_sent_to_sign_in
-        - test_everybody_but_an_administrator_is_refused_every_form_and_nothing_changes
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.rename/P-1
-      statement: 'The Core group is renamed first and keeps its id; a Core refusal keeps the old name (502). Administration and Mitglied keep their names (400).'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_umbenennen_renames_the_core_group_first_and_keeps_its_id
-        - test_when_the_core_refuses_the_rename_the_role_keeps_its_name
-        - test_administration_and_mitglied_keep_their_names
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_roles_rules.py
-        checks:
-        - test_a_rename_that_cannot_be_saved_gives_the_group_its_old_name_back
-  http.POST.roles._role_id.functions:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.functions/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows. The form''s csrf_token is checked next (400, nothing changed, nothing sent to the Core).'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_every_route_carries_the_console_admin_gate
-        - test_a_signed_out_visitor_is_sent_to_sign_in
-        - test_everybody_but_an_administrator_is_refused_every_form_and_nothing_changes
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.functions/P-1
-      statement: 'Verwaltung (admin) belongs to Administration alone and Administration keeps it; a function outside the ten is refused (400). No Core call.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_admin_is_refused_outside_administration
-        - test_administration_keeps_admin_and_its_own_form_keeps_it
-        - test_a_function_outside_the_ten_is_refused
-  http.POST.roles._role_id.members.add:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.members.add/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows. The form''s csrf_token is checked next (400, nothing changed, nothing sent to the Core).'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_every_route_carries_the_console_admin_gate
-        - test_a_signed_out_visitor_is_sent_to_sign_in
-        - test_everybody_but_an_administrator_is_refused_every_form_and_nothing_changes
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
-  http.POST.roles._role_id.members.remove:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.members.remove/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows. The form''s csrf_token is checked next (400, nothing changed, nothing sent to the Core).'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_every_route_carries_the_console_admin_gate
-        - test_a_signed_out_visitor_is_sent_to_sign_in
-        - test_everybody_but_an_administrator_is_refused_every_form_and_nothing_changes
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.members.remove/P-1
-      statement: 'The last active administrator cannot leave Administration (400, nothing changed); a deactivation at the same moment waits for the removal and counts after it.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_the_last_active_administrator_cannot_leave_administration
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_roles_rules.py
-        checks:
-        - test_a_removal_then_a_deactivation_at_once_keep_an_active_administrator
-        - test_a_deactivation_then_a_removal_at_once_keep_an_active_administrator
-  http.POST.roles._role_id.delete:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.delete/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows. The form''s csrf_token is checked next (400, nothing changed, nothing sent to the Core).'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_every_route_carries_the_console_admin_gate
-        - test_a_signed_out_visitor_is_sent_to_sign_in
-        - test_everybody_but_an_administrator_is_refused_every_form_and_nothing_changes
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.delete/P-1
-      statement: 'Administration and Mitglied cannot be deleted. A role is deleted in the design''s order: its members (committed), its Core group, the role. A Core 404 means the group is gone already: the role is deleted and the audit row says core_group_already_absent; any other refusal keeps the role, without its members (502).'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_administration_and_mitglied_cannot_be_deleted
-        - test_a_role_in_use_is_deleted_members_first_then_its_core_group_then_the_role
-        - test_a_core_404_means_the_group_is_already_gone_and_the_role_is_deleted
-        - test_a_core_refusal_leaves_the_role_without_its_members_and_says_so
-  http.POST.roles.connect:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles.connect/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows. The form''s csrf_token is checked next (400, nothing changed, nothing sent to the Core).'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_every_route_carries_the_console_admin_gate
-        - test_a_signed_out_visitor_is_sent_to_sign_in
-        - test_everybody_but_an_administrator_is_refused_every_form_and_nothing_changes
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_through_the_form
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles.connect/P-1
-      statement: 'Administration gets the tenant''s administrator group (exactly one, or nothing is linked and 502), Mitglied a new root group «Mitglied»; a role that has a group is left alone, so a second call sends nothing.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb34_roles_page_acceptance.py
-        checks:
-        - test_the_two_roles_get_their_core_groups_on_an_administrators_action
-        - test_without_an_administrator_group_at_the_core_administration_is_not_linked
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_roles_rules.py
-        checks:
-        - test_linking_refused_by_the_cap_links_nothing_and_deletes_mitglieds_new_group
+      evidence: *gates-form
   http.GET.admin.system:
     needs:
     - id: L2-PLATFORM-ADMIN/http.GET.admin.system/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
+      statement: *admin-gate
       risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
-        checks:
-        - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
-        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
-        - TestTheGate::test_the_route_lets_in_the_administrator_alone
-        - TestAdministrator::test_an_administrator_gets_the_page
+      evidence: *gates-page
   http.GET.approvals:
     needs:
     - id: L2-PLATFORM-ADMIN/http.GET.approvals/N-1
-      statement: 'The caller is signed in and holds the role admin or approver (require_approver): a signed-out caller is
+      statement: &approver-gate 'The caller is signed in and holds the role admin or approver (require_approver): a signed-out caller is
         sent to the login, anyone else gets 403, whatever the page shows.'
       risk_class: standard
-      evidence:
+      evidence: &approvals-gate
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_approvals.py
         checks:
@@ -666,44 +260,25 @@ contract:
   http.POST.approvals._request_id.approve:
     needs:
     - id: L2-PLATFORM-ADMIN/http.POST.approvals._request_id.approve/N-1
-      statement: 'The caller is signed in and holds the role admin or approver (require_approver): a signed-out caller is
-        sent to the login, anyone else gets 403, whatever the page shows.'
+      statement: *approver-gate
       risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_approvals.py
-        checks:
-        - TestRoutesAreGated::test_every_route_carries_a_role_gate_and_posts_check_csrf_first
-        - TestLive::test_who_may_open_it
+      evidence: *approvals-gate
   http.POST.approvals._request_id.execute:
     needs:
     - id: L2-PLATFORM-ADMIN/http.POST.approvals._request_id.execute/N-1
-      statement: 'The caller is signed in and holds the role admin or approver (require_approver): a signed-out caller is
-        sent to the login, anyone else gets 403, whatever the page shows.'
+      statement: *approver-gate
       risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_approvals.py
-        checks:
-        - TestRoutesAreGated::test_every_route_carries_a_role_gate_and_posts_check_csrf_first
-        - TestLive::test_who_may_open_it
+      evidence: *approvals-gate
   http.POST.approvals._request_id.reject:
     needs:
     - id: L2-PLATFORM-ADMIN/http.POST.approvals._request_id.reject/N-1
-      statement: 'The caller is signed in and holds the role admin or approver (require_approver): a signed-out caller is
-        sent to the login, anyone else gets 403, whatever the page shows.'
+      statement: *approver-gate
       risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_approvals.py
-        checks:
-        - TestRoutesAreGated::test_every_route_carries_a_role_gate_and_posts_check_csrf_first
-        - TestLive::test_who_may_open_it
+      evidence: *approvals-gate
   http.POST.approvals.admin-bypass:
     needs:
     - id: L2-PLATFORM-ADMIN/http.POST.approvals.admin-bypass/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
+      statement: *admin-gate
       risk_class: standard
       evidence:
       - kind: test
@@ -712,142 +287,6 @@ contract:
         - TestRoutesAreGated::test_every_route_carries_a_role_gate_and_posts_check_csrf_first
         - TestRoutesAreGated::test_the_bypass_toggle_is_admin_only
         - TestLive::test_only_an_admin_flips_the_bypass
-  http.GET.agents:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.GET.agents/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
-        checks:
-        - test_the_agent_pages_are_behind_the_admin_gate
-        - test_the_page_creates_an_agent_names_its_id_and_audits_by_id
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
-        checks:
-        - test_the_menu_offers_agenten_and_the_page_lists_every_agent
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.GET.agents/P-1
-      statement: 'Lists every agent, the assistant first: its name, Knovas Assistent or Externer Agent, whom it acts for (a person''s name, selbständig, or die angemeldete Person), its id, its roles and whether it is revoked; offers no revoke for the assistant or a revoked agent; says whether the switch agents.core_gateway is on and that what an agent may read acts with «Ein».'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
-        checks:
-        - test_the_page_creates_an_agent_names_its_id_and_audits_by_id
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
-        checks:
-        - test_the_menu_offers_agenten_and_the_page_lists_every_agent
-        - test_the_page_says_the_switchs_state_and_that_it_acts_with_ein
-        - test_only_active_people_are_offered
-  http.POST.agents.create:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.POST.agents.create/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
-        checks:
-        - test_the_agent_pages_are_behind_the_admin_gate
-        - test_every_agent_form_needs_its_token
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.POST.agents.create/P-1
-      statement: 'Registers an external agent for an active person or on its own (a name of 1 to 80 characters, unique), audited by id as agent.created in the same transaction, and names its id on the answer; a refusal answers 400 and writes nothing. With the switch on, the new agent''s claims reach the Core at once; off, nothing does.'
-      risk_class: critical
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
-        checks:
-        - test_the_page_creates_an_agent_names_its_id_and_audits_by_id
-        - test_changes_on_the_agent_pages_reach_the_core_at_once
-        - test_with_the_switch_off_nothing_reaches_the_core
-        - test_a_core_without_the_route_leaves_the_platform_working
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
-        checks:
-        - test_refusals_answer_400_or_404_and_write_nothing
-  http.POST.agents._agent_id.revoke:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.POST.agents._agent_id.revoke/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
-        checks:
-        - test_the_agent_pages_are_behind_the_admin_gate
-        - test_every_agent_form_needs_its_token
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.POST.agents._agent_id.revoke/P-1
-      statement: 'Revokes an external agent, audited by id as agent.revoked; from then on it has no claim, and with the switch on the Core drops its claims in the same request (DELETE, never a PUT). The assistant is refused (400), an unknown id is 404.'
-      risk_class: critical
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
-        checks:
-        - test_the_page_creates_an_agent_names_its_id_and_audits_by_id
-        - test_changes_on_the_agent_pages_reach_the_core_at_once
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
-        checks:
-        - test_refusals_answer_400_or_404_and_write_nothing
-  http.POST.roles._role_id.agents.add:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.agents.add/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
-        checks:
-        - test_the_agent_pages_are_behind_the_admin_gate
-        - test_every_agent_form_needs_its_token
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.agents.add/P-1
-      statement: 'Makes the agent a member of the role, audited by id; Administration, a revoked or unknown agent and a 33rd group for an agent on its own answer 400 and write nothing, an unknown role 404. With the switch on the agent''s new claims reach the Core at once.'
-      risk_class: critical
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
-        checks:
-        - test_an_administrator_may_take_the_assistant_out_of_a_role_and_no_agent_into_administration
-        - test_changes_on_the_agent_pages_reach_the_core_at_once
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
-        checks:
-        - test_refusals_answer_400_or_404_and_write_nothing
-  http.POST.roles._role_id.agents.remove:
-    needs:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.agents.remove/N-1
-      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
-        anyone else gets 403, whatever the page shows.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
-        checks:
-        - test_the_agent_pages_are_behind_the_admin_gate
-        - test_every_agent_form_needs_its_token
-    promises:
-    - id: L2-PLATFORM-ADMIN/http.POST.roles._role_id.agents.remove/P-1
-      statement: 'Takes the agent out of the role, the Knovas Assistent included (the role may not be used by AI), audited by id; an unknown role is 404.'
-      risk_class: critical
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
-        checks:
-        - test_an_administrator_may_take_the_assistant_out_of_a_role_and_no_agent_into_administration
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
-        checks:
-        - test_refusals_answer_400_or_404_and_write_nothing
 uses:
 - component: L2-PLATFORM-ACCESS
   operations:
@@ -858,31 +297,32 @@ uses:
   method: 'imported in create_admin_blueprint: the access routes are attached to this blueprint with its require_admin,
     and the two executors are what the Freigaben page runs once a second person has confirmed'
   protocol: in-process call
+- component: L2-PLATFORM-ROLES
+  operations:
+  - call.web_interface.admin_roles.attach_role_routes
+  expects: []
+  method: 'imported in create_admin_blueprint: the Rollen routes are attached to this blueprint with its require_admin and
+    its page helpers; the function returns the Rollen page, which admin.py hands to attach_agent_routes'
+  protocol: in-process call
+- component: L2-PLATFORM-AGENTS
+  operations:
+  - call.web_interface.admin_agents.attach_agent_routes
+  expects: []
+  method: 'imported in create_admin_blueprint: the Agenten routes and a role''s agent forms are attached to this blueprint
+    with its require_admin, after the Rollen routes'
+  protocol: in-process call
 - component: EXT-BRAIN-API
   operations:
   - access-routes
   expects:
   - EXT-BRAIN-API/access-routes/P-1
   method: 'through the Platform''s own client on the Platform''s certificate (knovas_client, passed in by the app as client_factory):
-    the access groups, for the people page''s hint on members of the tenant''s administrator group at Knovas; and the Rollen
-    page''s group calls on an administrator''s form (create, rename and delete a role''s group, read the tenant''s administrator
-    group for Administration)'
-  protocol: HTTPS with mTLS
-- component: EXT-MCP-GATEWAY
-  operations:
-  - agent-claims-put
-  - agent-claims-delete
-  expects:
-  - EXT-MCP-GATEWAY/agent-claims-put/P-1
-  - EXT-MCP-GATEWAY/agent-claims-delete/P-1
-  method: 'after an agent page''s change is committed, through app.extensions["agents"]["deliver"] (identity/agent_delivery.py,
-    no card) and the Platform''s own client on the Platform''s certificate, without a person''s assertion: the agent''s
-    pool of 20 claims, or its drop; only while agents.core_gateway is on'
+    the access groups, for the people page''s hint on members of the tenant''s administrator group at Knovas'
   protocol: HTTPS with mTLS
 hides:
 - The German texts of the console.
-- The functions' plain words (FUNCTION_WORDS in identity/roles.py); the pages never show a key, the forms send role ids
-  and function keys.
+- The functions' plain words (FUNCTION_WORDS in identity/roles.py); the people page never shows a key, its form sends
+  role ids.
 - How a guarded action's payload is summarised on the Freigaben page.
 review:
 - at: /owner
@@ -913,18 +353,15 @@ review:
     inside it (RoleStore.check_deactivation; coordinator''s amendment F3), so a deactivation and a removal from
     Administration at once never leave it without an active person. No gate changed; ASSIGNABLE_ROLES stays for the tests
     that name it.'
-- at: L2-PLATFORM-ADMIN/R-5
-  why: 'RB-3, RB-4 (work order docs/platform-mvp/work-orders/RB-3-4.md): the routes are attached by attach_role_routes with
-    the console''s require_admin, as attach_document_routes is. A Core group the request created and could not use is deleted
-    again and the audit log names it (role.core_group_abandoned); a Core group id is never logged (a tenant may choose a
-    speaking one). Rule 1 (no role gives more than its creator holds) is identity/roles.py grantable, which refuses nobody
-    while admin is one coarse function (RB-10 narrows it there).'
 - at: /source_paths
   why: 'The work order''s scope: the people page and the approvals PMVP-40 to PMVP-42 change. guarded.py is here because
     only console modules use it (admin_documents.py, admin_ingestion.py). admin.css is the stylesheet of every console page,
     those without a card too. PMVP-40 split the access groups, folder rules and documents (admin_documents.py, their two
     templates and admin_documents.js) into L2-PLATFORM-ACCESS: together the card was over its context budget, the code
-    alone (16,724 tokens) over 16,000 (FU-17). The other console modules (admin_ingestion.py, admin_doc_fields.py, admin_system.py)
+    alone (16,724 tokens) over 16,000 (FU-17). RB-FIX-1 (FU-44) split the role builder''s pages off the same way, as
+    two cards (one would still have been about 18,900 tokens): L2-PLATFORM-ROLES (admin_roles.py and its page, R-5 and
+    the lines of its nine routes) and L2-PLATFORM-AGENTS (admin_agents.py and its page, R-6 and the lines of its five
+    routes), each line with its old id as its first alias; together the card was 33,409 tokens. The other console modules (admin_ingestion.py, admin_doc_fields.py, admin_system.py)
     and their pages stay outside (boundaries.yaml, not_carded); their domain is open (DEC-0083 names the Admin pages,
     not each console module): the project that cards them decides.'
 - at: /operations
@@ -943,17 +380,8 @@ review:
   why: 'create_admin_blueprint and run_guarded have no line: plan § 7 gives none. run_guarded''s two outcomes (queued, or
     executed and recorded as a bypass) are a candidate for PMVP-42, which needs a second administrator for the enforcement
     switch.'
-- at: L2-PLATFORM-ADMIN/R-6
-  why: 'RB-6, RB-7 (2026-11-21, work order docs/platform-mvp/work-orders/RB-6-7.md; founder: "Core gateway only", "only
-    after «Ein»"). The agent store (identity/agents.py, migration 0028_agents) and the delivery to the Core
-    (identity/agent_delivery.py, its job every minute) are the identity package''s, which has no card; this card holds
-    the pages. The two role routes live in admin_agents.py and answer with RB-3/RB-4''s Rollen page
-    (attach_role_routes returns its page function, admin.py hands it to attach_agent_routes); the agent rows
-    under «Mitglieder» are drawn from admin_agents.role_agents. Every route uses the console''s
-    require_admin and checks the form field csrf_token first (400). No gate changed. The Platform holds no agent key.
-    As for the approvals, the routes are attached to the blueprint admin.py passes in, so the code reader shows them
-    without the prefix /admin and the operation ids follow it; the refs name the served path.'
 - at: /uses
   why: 'Not declared because they have no card yet: the Platform''s identity package (users, passwords, audit, approvals),
     the web app''s client (knovas_client.py) and the console modules mounted here (admin_doc_fields.py, admin_ingestion.py,
-    admin_system.py). L2-PLATFORM-ACCESS''s three names have no line to expect: plan § 7 gives none.'
+    admin_system.py). L2-PLATFORM-ACCESS''s three names and the attach functions of L2-PLATFORM-ROLES and
+    L2-PLATFORM-AGENTS have no line to expect: plan § 7 gives none.'

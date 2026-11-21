@@ -204,6 +204,7 @@ None stated.
 | `L2-PLATFORM-ADMIN` | `access-routes` | `EXT-BRAIN-API/access-routes/P-1` |
 | `L2-PLATFORM-ASSISTANT` |  |  |
 | `L2-PLATFORM-BRAIN-VIEWS` | `graph-routes` |  |
+| `L2-PLATFORM-ROLES` | `access-routes` | `EXT-BRAIN-API/access-routes/P-1` |
 | `L3-KNOVAS-LINK` | `connector-jobs-claim`; `connector-job-part`; `connector-job-result`; `connector-probe`; `graph-routes`; `ingest-routes` | `EXT-BRAIN-API/*/A-1`; `EXT-BRAIN-API/connector-jobs-claim/P-1`; `EXT-BRAIN-API/connector-job-part/P-1`; `EXT-BRAIN-API/connector-job-result/P-1`; `EXT-BRAIN-API/connector-probe/P-1`; `EXT-BRAIN-API/graph-routes/P-1`; `EXT-BRAIN-API/ingest-routes/P-1` |
 
 ## Hides
