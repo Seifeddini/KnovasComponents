@@ -206,3 +206,84 @@ class TestResettingAPassword:
         _post(as_admin, "/admin/people/reset-password", user_id=str(member.id),
               password="ein-ganz-neues-passwort")
         assert other.get("/").status_code == 302
+
+
+# --- PMVP-40: two roles on the page (the founder, 2026-11-21) -------------------------------------------------
+
+import re  # noqa: E402
+
+
+def _details(html: str, person_id) -> str:
+    """The details section of one person (up to the next one)."""
+    start = html.index(f'data-person-detail="{person_id}"')
+    end = html.find("data-person-detail=", start + 1)
+    return html[start:end if end != -1 else len(html)]
+
+
+def _roles_form(html: str, person_id) -> str:
+    section = _details(html, person_id)
+    start = section.index('action="/admin/people/roles"')
+    return section[start:section.index("</form>", start)]
+
+
+def _as_the_browser_sends_it(form: str, uncheck=()) -> list[str]:
+    """The roles the form sends: its ticked boxes (less those unticked here) and its hidden fields."""
+    ticked = re.findall(r'<input type="checkbox" name="roles" value="([^"]+)"\s*checked>', form)
+    hidden = re.findall(r'<input type="hidden" name="roles" value="([^"]+)">', form)
+    return [r for r in ticked if r not in uncheck] + hidden
+
+
+class TestTwoRoles:
+    """The page offers Administration (admin) and Mitglied (member) only; the console's other roles stay in the
+    data, are shown read only, and survive a save. No gate changes."""
+
+    def test_only_the_two_role_boxes_are_drawn(self, as_admin, member, identity_repo):
+        identity_repo.grant_role(member.id, "approver")
+        html = as_admin.get("/admin/people").data.decode("utf-8")
+        boxes = re.findall(r'<input type="checkbox" name="roles" value="([^"]+)"', html)
+        assert set(boxes) == {"admin", "member"}
+        assert set(re.findall(r'<span class="role-choice-name">([^<]*)</span>', html)) == {"Administration", "Mitglied"}
+        assert "Einlesen" not in html and "Experimente verwalten" not in html
+
+    def test_the_filter_offers_the_two_and_the_search_matches_their_words(self, as_admin, admin, member):
+        html = as_admin.get("/admin/people").data.decode("utf-8")
+        select = html[html.index('<select id="people-role-filter">'):]
+        select = select[:select.index("</select>")]
+        assert re.findall(r'<option value="([^"]*)">([^<]*)</option>', select) == [
+            ("", "Alle Rollen"), ("admin", "Administration"), ("member", "Mitglied")]
+        rows = dict(re.findall(r'data-person-id="([^"]+)"\s*data-search="([^"]*)"', html))
+        assert "Mitglied" in rows[str(member.id)]
+        assert "Administration" in rows[str(admin.id)]
+
+    def test_saving_keeps_the_roles_the_page_does_not_offer(self, as_admin, member, identity_repo):
+        for role in ("approver", "ingestion_manager", "experimenter", "experiments_manager"):
+            identity_repo.grant_role(member.id, role)
+        html = as_admin.get("/admin/people").data.decode("utf-8")
+        form = _roles_form(html, member.id)
+        # The administrator makes the member an administrator too, through the page's own form.
+        sent = _as_the_browser_sends_it(form) + ["admin"]
+        _post(as_admin, "/admin/people/roles", user_id=str(member.id), roles=sent)
+        assert identity_repo.roles_of(member.id) == {"admin", "member", "approver", "ingestion_manager",
+                                                     "experimenter", "experiments_manager"}
+        # ... and takes both offered roles away again: the others stay.
+        form = _roles_form(as_admin.get("/admin/people").data.decode("utf-8"), member.id)
+        _post(as_admin, "/admin/people/roles", user_id=str(member.id),
+              roles=_as_the_browser_sends_it(form, uncheck=("admin", "member")))
+        assert identity_repo.roles_of(member.id) == {"approver", "ingestion_manager", "experimenter",
+                                                     "experiments_manager"}
+
+    def test_a_person_with_only_a_role_the_page_does_not_offer_shows_it_read_only(self, as_admin, identity_repo):
+        from conftest import _person
+
+        approver = _person(identity_repo, "pruefer@kanzlei.ch", "Pruefer", "approver")
+        html = as_admin.get("/admin/people").data.decode("utf-8")
+        details = _details(html, approver.id)
+        shown = re.search(r"<p[^>]*data-other-roles>(.*?)</p>", details, flags=re.S)
+        assert shown and "weitere Rollen" in shown.group(1) and "approver" in shown.group(1)
+        assert 'type="checkbox" name="roles" value="approver"' not in details
+        assert re.findall(r'<input type="checkbox" name="roles" value="([^"]+)"\s*checked>',
+                          _roles_form(html, approver.id)) == []
+        # In the list the person holds no role the page offers.
+        row = html[html.index(f'data-person-id="{approver.id}"'):]
+        row = row[:row.index("Verwalten")]
+        assert re.search(r"Rollen:</span>\s*—", row)

@@ -223,6 +223,33 @@ Tests (own database): `tests/test_web_admin_*.py` 629 passed; `tests/test_shell_
 `tests/test_pmvp11_navigation_acceptance.py` 441 passed. Frozen check all OK. `card check` 0 errors on the admin,
 access and shell cards; `card render --check` 17 cards, 0 not current.
 
+### Two roles on the people page (the founder's answer, 2026-11-21)
+
+`origin/feat/platform-mvp` (`e7c15215`) merged in first. "For now only create the roles that are minimally
+required"; building roles becomes its own item. `admin_people.html` only - no route, decorator or role check changed:
+
+- The page offers **Administration** (`admin`) and **Mitglied** (`member`): the only role boxes, the only filter
+  options, the only words in the role table and in the list's «Rollen:» line. The search matches those two words.
+- The console's other roles (`approver`, `ingestion_manager`, `experimenter`, `experiments_manager`) stay in
+  `ASSIGNABLE_ROLES`, the data and every gate. A person who holds one sees it in the details, read only («Dazu weitere
+  Rollen, hier nicht änderbar: …»), and the roles form sends it back as a hidden field, so saving keeps it.
+- Tests: `test_web_admin_people.py`, `TestTwoRoles` (4): only the two boxes; the filter offers the two and the search
+  matches their words; saving through the page's own form keeps the four other roles, adding and taking away
+  `admin` and `member`; a person holding only `approver` sees it read only, with no box for it.
+
+**Stopped on**, for the coordinator:
+
+1. **A Builder role is still dropped on save.** `POST /admin/people/roles` keeps only the sent roles that are in
+   `ASSIGNABLE_ROLES` and revokes every other role the person holds, so `builder_author` and the other `builder_*`
+   roles (same `user_roles` table) go when an administrator saves a person's roles. A throwaway probe showed it: sent
+   `approver, builder_author, member`, left `approver, member`. This was so before PMVP-40 (the old page drew only
+   `ASSIGNABLE_ROLES` boxes). The page now shows such a role read only, and sends it back, but the route drops it. The
+   fix is one line in `admin.py` (`set_roles`: revoke only `(current & ASSIGNABLE_ROLES) - wanted`), a route change
+   this order forbids. The admin card's review entry at `L2-PLATFORM-ADMIN/R-1` says so.
+2. **`tests/test_experiments_switch.py::TestConsoleRoles::test_an_administrator_grants_the_role_in_the_console`** asserts
+   that the people page offers `value="experimenter"` and `value="experiments_manager"`. The founder's answer takes
+   them off the page, so that assertion fails; the file is not this order's to change.
+
 ## Verification (coordinator's record)
 
 - **2026-11-21, fresh verifier session, `feat/pmvp-40` @ `3d46214`: PASS WITH NOTES.** No behaviour change: all eight
