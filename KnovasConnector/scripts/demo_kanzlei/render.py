@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import html
 import textwrap
-from datetime import datetime
+import zipfile
+from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 
 import fitz
@@ -26,8 +28,45 @@ def render_txt(path: Path, body: str) -> None:
     path.write_text(body, encoding="utf-8")
 
 
-def render_docx(path: Path, body: str, title: str | None = None) -> None:
+#: Used when a caller gives no date. A fixed instant, never the wall clock:
+#: two builds of the same world must be identical, file for file (POST-01).
+PINNED = datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc)
+
+
+def _stamp(created: datetime | None) -> datetime:
+    when = created or PINNED
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when.astimezone(timezone.utc)
+
+
+def _pdf_date(when: datetime) -> str:
+    return when.strftime("D:%Y%m%d%H%M%S+00'00'")
+
+
+def repack_zip(blob: bytes, when: datetime) -> bytes:
+    """Rewrite a zip so every entry carries ``when`` instead of the build time."""
+    stamp = (max(when.year, 1980), when.month, when.day, when.hour, when.minute, when.second - when.second % 2)
+    out = BytesIO()
+    with zipfile.ZipFile(BytesIO(blob)) as src, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst:
+        for item in src.infolist():
+            info = zipfile.ZipInfo(item.filename, date_time=stamp)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = item.external_attr
+            dst.writestr(info, src.read(item.filename))
+    return out.getvalue()
+
+
+def render_docx(
+    path: Path,
+    body: str,
+    title: str | None = None,
+    *,
+    created: datetime | None = None,
+    author: str | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    when = _stamp(created)
     doc = Document()
     if title:
         heading = doc.add_heading(title, level=1)
@@ -35,10 +74,43 @@ def render_docx(path: Path, body: str, title: str | None = None) -> None:
             run.font.size = Pt(14)
     for paragraph in body.split("\n"):
         doc.add_paragraph(paragraph)
-    doc.save(str(path))
+    props = doc.core_properties
+    props.created = when.replace(tzinfo=None)
+    props.modified = when.replace(tzinfo=None)
+    props.author = author or ""
+    props.last_modified_by = author or ""
+    props.title = title or ""
+    props.revision = 1
+    buf = BytesIO()
+    doc.save(buf)
+    path.write_bytes(repack_zip(buf.getvalue(), when))
 
 
-def render_pdf(path: Path, body: str, title: str | None = None) -> None:
+def _save_pdf(doc, path: Path, *, title: str | None, created: datetime | None, author: str | None) -> None:
+    when = _stamp(created)
+    doc.set_metadata(
+        {
+            "title": title or "",
+            "author": author or "",
+            "creator": "Microsoft Word",
+            "producer": "Microsoft: Print To PDF",
+            "creationDate": _pdf_date(when),
+            "modDate": _pdf_date(when),
+        }
+    )
+    # no_new_id: PyMuPDF otherwise writes a fresh random /ID into every file.
+    doc.save(str(path), deflate=True, no_new_id=True)
+    doc.close()
+
+
+def render_pdf(
+    path: Path,
+    body: str,
+    title: str | None = None,
+    *,
+    created: datetime | None = None,
+    author: str | None = None,
+) -> None:
     """Text-layer PDF so extraction works without OCR."""
     path.parent.mkdir(parents=True, exist_ok=True)
     doc = fitz.open()
@@ -47,8 +119,7 @@ def render_pdf(path: Path, body: str, title: str | None = None) -> None:
     escaped = html.escape(body).replace("\n", "<br/>")
     heading = f"<h1>{html.escape(title)}</h1>" if title else ""
     page.insert_htmlbox(rect, f"{heading}<p style='font-size:11pt;line-height:1.35'>{escaped}</p>")
-    doc.save(str(path), deflate=True)
-    doc.close()
+    _save_pdf(doc, path, title=title, created=created, author=author)
 
 
 def render_msg(
@@ -73,7 +144,7 @@ def render_msg(
     message.save(str(path))
 
 
-def render_scan_pdf(path: Path, body: str) -> None:
+def render_scan_pdf(path: Path, body: str, *, created: datetime | None = None) -> None:
     """Image-only PDF (no text layer) for the OCR ingest path."""
     path.parent.mkdir(parents=True, exist_ok=True)
     width, height = 1240, 1754  # ~150 dpi A4
@@ -93,8 +164,7 @@ def render_scan_pdf(path: Path, body: str) -> None:
     page = pdf.new_page(width=595, height=842)
     buf = _png_bytes(image)
     page.insert_image(page.rect, stream=buf)
-    pdf.save(str(path), deflate=True)
-    pdf.close()
+    _save_pdf(pdf, path, title=None, created=created, author=None)
 
 
 def _png_bytes(image: Image.Image) -> bytes:
@@ -125,16 +195,18 @@ def render_document(
     sender: tuple[str, str] | None = None,
     to: list[tuple[str, str]] | None = None,
     sent: datetime | None = None,
+    created: datetime | None = None,
+    author: str | None = None,
 ) -> None:
     kind = fmt.lstrip(".").lower()
     if kind == "txt":
         render_txt(path, body)
     elif kind == "docx":
-        render_docx(path, body, title=title)
+        render_docx(path, body, title=title, created=created, author=author)
     elif kind == "pdf":
-        render_pdf(path, body, title=title)
+        render_pdf(path, body, title=title, created=created, author=author)
     elif kind == "scan_pdf":
-        render_scan_pdf(path, body)
+        render_scan_pdf(path, body, created=created)
     elif kind == "msg":
         if not (subject and sender and to and sent):
             raise ValueError("msg render requires subject, sender, to, sent")
