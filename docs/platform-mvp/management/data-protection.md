@@ -14,6 +14,9 @@ for the pilot. It is not one component; each rule lives in the part named beside
   enters the provider's key, and sets access groups and folder rules; later she sees and switches the enforcement
   position with a second administrator (PMVP-42, not started).
 - **An employee** sees and deletes only her own chats; a document opens only if her own search or view handed it to her.
+- **Who may do what is decided by roles** (RB-1, RB-2, built, not yet verified): a person may do what her roles allow,
+  and the Platform signs her requests with the access groups she holds directly and through her roles, never more than
+  32.
 
 ## How it protects data and access
 
@@ -52,6 +55,14 @@ building are kept outside the repository.
 
 **Chats** stay in the Platform's own database, owner only; the chat store does not encrypt their text itself.
 
+**Roles** (RB-1, RB-2). Who may do what is now decided by roles, kept in the Platform's own database like accounts.
+The move to roles happens inside the installation when the new version starts: nothing leaves it, nothing is written
+to the Knovas Core, and everyone keeps exactly the functions she had (each person passes the same pages and buttons as
+before; tested). The old grants stay untouched for one release as the way back. A role's Core group is only recorded
+until RB-4 links it in the Core on an administrator's action, so roles do not yet change what anyone may read. No role
+name, description, person's name or address is written to a log. A request is never signed with more than 32 access
+groups (the Core's limit): a change that would give a 33rd is refused, and nothing is dropped silently.
+
 **Demo tenant and Knovas GmbH tenant.**
 
 | | Demo law firm tenant | Knovas GmbH tenant (Client Zero) |
@@ -68,6 +79,7 @@ building are kept outside the repository.
 | Second log sweep (FU-22, FU-31) | not started; waits for #55 | its web-server part is deployment: sensitive |
 | Key handling (PMVP-25) | built; no verification verdict yet | management (critical) |
 | Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | not started; PMVP-42 waits for the Core's rights test | management (critical); Siran (sensitive) |
+| Roles: the move to roles, functions and groups read from roles, the 32-group cap (RB-1, RB-2) | built; no verification verdict yet | management (critical: a migration) |
 
 ## Decisions taken
 

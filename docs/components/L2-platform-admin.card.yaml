@@ -390,6 +390,13 @@ review:
     A role outside ASSIGNABLE_ROLES (the Builder''s builder_* roles) is not this route''s to take away: since PMVP-40
     POST /admin/people/roles revokes only within ASSIGNABLE_ROLES (admin.py, set_roles; before, saving a person''s roles
     dropped her Builder roles). The coordinator allowed that one line as a data-preservation fix; no gate changed.'
+- at: L2-PLATFORM-ADMIN/R-1
+  why: 'RB-1, RB-2 (2026-11-21): a person''s roles are read from the role builder''s roles (identity/roles.py), so the
+    page shows the functions of her roles. POST /admin/people/roles still offers the keys and changes them through
+    grant_role and revoke_role, now in one transaction; POST /admin/people/groups stores the groups as before. Both show
+    a refusal of the role store (RoleError: the last active administrator, a 33rd access group, a function that comes
+    from Administration or Mitglied) on the page with status 400, nothing changed (tests/test_identity_roles_people_page.py).
+    No gate changed. RB-4 replaces the roles form with roles.'
 - at: /source_paths
   why: 'The work order''s scope: the people page and the approvals PMVP-40 to PMVP-42 change. guarded.py is here because
     only console modules use it (admin_documents.py, admin_ingestion.py). admin.css is the stylesheet of every console page,

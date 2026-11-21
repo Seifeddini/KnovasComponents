@@ -36,6 +36,42 @@ the new navigation and look and adds the assistant's and the views' settings.
 **Planned:** "Was sieht …?" (what does a given person see) moves here from the Builder (PMVP-41); the enforcement
 position is shown and switched with a second administrator (PMVP-42); the pilot's rights test set (PMVP-43).
 
+## Roles (the role builder, RB-1 and RB-2)
+
+**What a role is.** A bundle with a name and a description: **functions** (what its members may do, from the ten the
+Platform knows, such as "Freigaben bestätigen" or "Einlesen"), at most one **Core group** (what its members may read)
+and **members** (people for now; the Knovas Assistent and external agents come with RB-6 to RB-8). A person may do
+everything any of her roles allows. The Rollen page itself comes with RB-3 (read only) and RB-4 (changes).
+
+**The two roles.** Every installation has exactly «Administration» and «Mitglied», and neither can be deleted.
+Administration alone holds "Verwaltung" (the old administrator key), so an administrator is exactly a member of
+Administration. Mitglied holds "Fragen und suchen". A new installation starts with these two only; its first
+administrator joins Administration at the first start. Every other role is the firm's own.
+
+**The move of an existing installation.** When the new version starts, the database is moved once, inside the
+installation: everyone joins Mitglied; every administrator joins Administration; and for each combination of the other
+functions that people hold, one role is made, named after its functions (for example «Freigaben bestätigen» or
+«Experimente + Experimente verwalten»), and exactly those people join it. Nobody loses a function and nobody gains one
+except "Fragen und suchen", which no page checks. Every person passes exactly the pages and buttons they passed before
+(tested for each function and for a sample firm). A very long combination keeps its first words and a number, so every
+name is unique and at most 80 characters. The old grants table stays untouched for one release as the way back: going
+back to the previous version restores everyone's functions as they were at the move, but changes made after the move
+are lost.
+
+**Safety rules built now.**
+
+- **The last administrator stays.** Removing the last active person from Administration, or taking "Verwaltung" from
+  her on the people page, is refused with a plain message and nothing changes; two removals at the same moment cannot
+  both pass. (Deactivating the last administrator through the people page stays as today until RB-4: only deactivating
+  oneself is refused.)
+- **At most 32 access groups per person**, directly and through her roles together, because the Knovas Core refuses a
+  longer list. A change that would give a 33rd is refused with a plain message and nothing is written; the Platform
+  never signs a request with more than 32 and never silently drops any.
+- **Granting oneself a role needs no second administrator** (founder, 21 November).
+- **Nothing reaches the Core.** A role's Core group is only recorded; creating and linking the groups in the Core (also
+  Administration's and Mitglied's) is RB-4's, on an administrator's action, never at start-up.
+- No role name, description, person's name or address is written to a log.
+
 ## How it protects data and access
 
 - **Each page checks on the server.** Every Admin route has its own role gate; the menu only reflects it. Signed out
@@ -59,6 +95,8 @@ position is shown and switched with a second administrator (PMVP-42); the pilot'
 | PMVP-41 | "Was sieht …?" in Admin | not started | Siran (sensitive) |
 | PMVP-42 | enforcement position and switch | not started; waits for two green rights runs of the Core | management (critical) |
 | PMVP-43 | the pilot's rights test set | not started | Siran (sensitive) |
+| RB-1, RB-2 | roles: tables, the two roles, the move of an existing installation; functions and groups read from roles; the last-administrator rule and the 32-group cap | built; no verification verdict yet | management (critical: a migration) |
+| RB-3, RB-4 | the Rollen page; creating, renaming and deleting roles; the people page offers roles | not started; no work order yet | Jannik or Siran (RB-3, routine); Siran (RB-4, sensitive) |
 
 ## Decisions taken
 
@@ -69,6 +107,8 @@ position is shown and switched with a second administrator (PMVP-42); the pilot'
 | 20 Nov | founder | "Hide, place later": Einstellungen has no menu entry; the person's block leads there |
 | 21 Nov | coordinator | The menu reads the roles each Admin gate lets in; as a result an ingestion manager now sees "Verwaltung", leading to Ingestion only |
 | 21 Nov | coordinator | The assistant's key has no setting in the deployment files; it is entered on the settings page only |
+| 21 Nov | founder | Roles: a new installation has only Administration and Mitglied; granting oneself a role needs no second administrator; the last-administrator rule stays; no deny |
+| 21 Nov | coordinator (RB-1, RB-2 work order) | "Verwaltung" belongs to Administration alone; Administration's and Mitglied's Core groups are linked by an administrator in RB-4, not at start-up; a new account joins no role until the console makes it a member |
 
 ## Known limits and open points
 
@@ -80,6 +120,9 @@ position is shown and switched with a second administrator (PMVP-42); the pilot'
 - Small findings: an approver who is also an ingestion manager lands on Ingestion; malformed roles give an error page;
   a signed-out call to the Builder's data routes is redirected to sign-in instead of refused (FU-24).
 - The settings page's section title "Ansichten und Wissensbasis" now also holds the assistant's entries.
+- **Roles until RB-4:** the people page still offers single functions; ticking one puts the person into a role holding
+  just that function (made on first use), and unticking takes exactly that function away. Roles have no Core group
+  until RB-4 links them, so for now roles decide only what a person may do, not what she may read.
 
 ## Depends on
 
@@ -93,4 +136,5 @@ The engine owner role, proposed on the cards (Verwaltung, and "Zugriff" on PMVP-
 confirm it.
 
 **Where the detail is:** `docs/platform-mvp/work-orders/PMVP-11.md`, `PMVP-40.md` (branch `feat/pmvp-40`), `PMVP-25.md`
-(branch `feat/pmvp-25`); `docs/components/L2-platform-admin.md`; `docs/platform-mvp/follow-ups.md`.
+(branch `feat/pmvp-25`), `RB-1-2.md` (branch `feat/rb-1-2`); `docs/platform-mvp/design/role-builder.md`;
+`docs/components/L2-platform-admin.md`; `docs/platform-mvp/follow-ups.md`.
