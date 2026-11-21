@@ -252,3 +252,17 @@ four slips, a short check, then integrate; the rarer spellings are known limits 
 993 passed (`test_assistant_check.py` 602). `realistic.py`: 6 removed; shown only the two accepted limits (the
 glued footnote digit, `Abs. 1` for "1 Jahr"). `fuzz.py`: 0 wrong quotes, 0 exceptions (4 oracle hits are `drei`
 for `3`). `cost.py`: exact 10 of 10, with slips 7 of 10. My files are ASCII.
+
+## Verification (coordinator's record)
+
+- **First verification, `33dca42`: FAIL** (Art. 12 bis on Art. 12 ter, %-Punkte on %, ein Jahr on zwei
+  aufeinanderfolgende volle Jahre; the cost fell to 6 of 10 exact answers). The coordinator changed the design: numbers
+  against the cited passage as whole tokens, the quote still word for word.
+- **Second verification, `5213918`: FAIL** (English "a month" on "two months", %-Pkt., § 12 bis, "einen (1) Monat", and
+  a quadratic slowdown: 522 s on a hostile 150,000-character passage). Cost 10 of 10 exact, 7 of 10 with slips.
+- **Founder, 2026-11-21, on the decision request:** fix the speed problem and four slips, a short check, then
+  integrate; the rarer spellings are known limits for a judge model later (FU-27).
+- **Short check by the coordinator, `87aedba`:** frozen check OK; frozen file and check tests green; the verifier's
+  `realistic.py`: the four slips removed, only the two accepted limits shown (a footnote digit glued to a word, and
+  `Abs. 1` supporting "1 Jahr"); `perf4.py`: slowest hostile shape 0.5 s. Integrated into `feat/platform-mvp`
+  (merge `a45fb1e7`).
