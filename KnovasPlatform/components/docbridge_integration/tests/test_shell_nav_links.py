@@ -29,11 +29,11 @@ from conftest import platform_db_reachable  # noqa: E402
 pytestmark = pytest.mark.skipif(not platform_db_reachable(), reason="No PostgreSQL at the identity test DSN")
 
 # the Admin pages in the menu's order; Dokumentfelder is drawn only while Knovas offers document fields
-ADMIN_PAGES = ["admin.people", "admin.documents", "admin.access_groups", "admin.doc_fields", "admin.ingestion",
-               "admin.system", "admin.approvals"]
-NAMES = {"admin.people": "Personen", "admin.documents": "Dokumente", "admin.access_groups": "Zugriffsgruppen",
-         "admin.doc_fields": "Dokumentfelder", "admin.ingestion": "Ingestion", "admin.system": "System",
-         "admin.approvals": "Freigaben"}
+ADMIN_PAGES = ["admin.people", "admin.agents", "admin.documents", "admin.access_groups", "admin.doc_fields",
+               "admin.ingestion", "admin.system", "admin.approvals"]
+NAMES = {"admin.people": "Personen", "admin.agents": "Agenten", "admin.documents": "Dokumente",
+         "admin.access_groups": "Zugriffsgruppen", "admin.doc_fields": "Dokumentfelder", "admin.ingestion": "Ingestion",
+         "admin.system": "System", "admin.approvals": "Freigaben"}
 # every role the console can give a person (admin.ASSIGNABLE_ROLES), alone, and two that are held together
 ROLE_SETS = [("admin",), ("approver",), ("ingestion_manager",), ("member",), ("experimenter",),
              ("experiments_manager",), ("approver", "ingestion_manager"), ("member", "approver")]
@@ -200,7 +200,7 @@ def test_a_gate_that_lets_administrators_out_takes_the_entry_out_of_their_menu(a
     client = _client(app, identity_repo, ("admin",))
     app.view_functions["admin.people"] = _gated(frozenset({"member"}))
     index = _sidebar(_html(client, urls["index"]))
-    assert _into(_hrefs(index), "/admin") == [urls["admin.documents"]]      # the next page they may open
+    assert _into(_hrefs(index), "/admin") == [urls["admin.agents"]]         # the next page they may open
     assert urls["admin.people"] not in _hrefs(_nav(_html(client, urls["admin.system"])))
 
 

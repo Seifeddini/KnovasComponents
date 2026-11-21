@@ -38,6 +38,14 @@ responsible_for:
   - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ask.html
   - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/ask.css
   - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/ask.js
+- id: L2-PLATFORM-ASSISTANT/R-4
+  statement: 'Its own claim (RB-6): the assistant is a member of roles, and every Core call of an answer (the search,
+    the document-fields probe inside it, the generation) carries the claim the Platform signs for it, narrowed to the
+    signed-in person (its roles'' groups and functions that she also holds), and declares the actor {kind: agent, id:
+    the assistant, on_behalf_of: the person}. Without the assistant''s claim it answers failed; it never falls back to
+    the person''s own claim.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/assistant_routes.py
 not_responsible_for:
 - Reading documents any other way than through the person's own search; there is no second way (plan § 5.2, step 2).
 - Deciding who may see a document; the Brain's search does, as the signed-in person.
@@ -422,6 +430,27 @@ contract:
         checks:
         - test_the_real_service_is_wired_and_fails_closed_without_the_secured_api
         - test_the_settings_page_switches_it_on
+    - id: L2-PLATFORM-ASSISTANT/call.web_interface.assistant_routes.install_assistant/P-2
+      statement: 'The service answers as the Knovas Assistent for the signed-in person (AsTheAssistant): the whole
+        answer runs inside client.asserting_for(AgentPrincipal(<the assistant>, <the person>)), so every Core call of it
+        carries the assistant''s claim narrowed to that person and declares the actor; a client without asserting_for,
+        no signed-in person or no assistant answers failed and nothing is searched.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
+        checks:
+        - test_the_assistant_searches_with_its_claim_narrowed_to_the_person
+        - test_no_claim_name_or_question_reaches_a_log_line
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
+        checks:
+        - test_the_ask_page_answers_as_the_assistant_for_the_signed_in_person
+        - test_without_the_assistant_the_ask_page_fails_closed
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_page_routes.py
+        checks:
+        - test_the_real_service_is_wired_and_fails_closed_without_the_secured_api
   call.assistant.core.make_service:
     needs:
     - id: L2-PLATFORM-ASSISTANT/call.assistant.core.make_service/N-1
@@ -510,7 +539,7 @@ contract:
         - test_the_service_says_busy_or_failed_and_nothing_else
 uses:
 - component: EXT-BRAIN-API
-  method: 'POST /secured/query (the person''s own search, the only way the assistant reads documents) and POST /secured/llm/generate (one whole answer, no streaming), through the Platform''s client (knovas_client.py) on the Platform''s certificate, as the signed-in person (plan § 5.2)'
+  method: 'POST /secured/query (the person''s own search, the only way the assistant reads documents) and POST /secured/llm/generate (one whole answer, no streaming), through the Platform''s client (knovas_client.py) on the Platform''s certificate, as the Knovas Assistent for the signed-in person: its own claim narrowed to her and the declared actor (plan § 5.2; RB-6)'
   protocol: HTTPS with mTLS
 - component: EXT-ANTHROPIC-API
   operations:
@@ -574,5 +603,12 @@ review:
   why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing; Claude's client waits 60 seconds and never retries (a 429 or 529 is busy at once), under nginx's 180. FU-08 (a 504 from nginx before the plain message) is PMVP-24's.
 - at: L2-PLATFORM-ASSISTANT/*/L-1
   why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The limits are the Core's; with anthropic the service keeps them all the same (PMVP-25 changes nothing of the service). FU-06 (a digit-heavy history can overflow the prompt budget) and FU-07 (no history at all when the turns are long) are PMVP-23's.
+- at: L2-PLATFORM-ASSISTANT/R-4
+  why: 'RB-6 (2026-11-21, work order docs/platform-mvp/work-orders/RB-6-7.md; design role-builder.md § 4). The claim
+    is AgentStore.claim_for (identity/agents.py) signed by PrincipalBroker (identity/principal.py), and the actor is
+    knovas_client.py''s (body of a POST, ?actor= on a GET): the identity package and the client have no card. The
+    assistant''s membership (every role but Administration, migration 0028_agents and RoleStore.create_role) is the
+    identity package''s too. It narrows only where the Core enforces the claim (CR-R1, «Ein»); until then it is signed
+    and logged and changes nothing. make_service is unchanged: the wrapping is in install_assistant.'
 - at: L2-PLATFORM-ASSISTANT/R-2
   why: Not a line of plan § 7 (which has RESP-01 only); written from plan § 5.2 and W-07, which the chat store and its frozen tests implement.

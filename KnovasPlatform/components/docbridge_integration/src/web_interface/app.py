@@ -1278,6 +1278,7 @@ def create_app(config_path: Optional[str] = None):
     #: Who may open a page is not listed here: it is read from the route's gate.
     admin_menu = (
         ('people', 'Personen', 'admin.people', False),
+        ('agents', 'Agenten', 'admin.agents', False),
         ('documents', 'Dokumente', 'admin.documents', False),
         ('access_groups', 'Zugriffsgruppen', 'admin.access_groups', False),
         ('doc_fields', 'Dokumentfelder', 'admin.doc_fields', True),
@@ -2648,6 +2649,15 @@ def create_app(config_path: Optional[str] = None):
         # Once a sync from GitHub succeeded, the views read its bundle unless a source is configured (KC-0.2).
         defaults={'views.config_source': lambda: _sync_default()})
     app.extensions['platform_settings'] = settings_resolver
+
+    # External agents' signed claims for the Core's MCP gateway (RB-7, CR-R5): app.extensions['agents'] and the
+    # job that pushes them every minute in one worker, behind agents.core_gateway (off by default). Nothing is sent
+    # at start. Only with accounts on: agents are members of roles.
+    if identity_gate is not None:
+        from identity.agent_delivery import install_agent_delivery
+
+        install_agent_delivery(app, gate=identity_gate, client=api_client, signer=broker_signer,
+                               tenant_id=str(api_client.customer_id), settings=settings_resolver)
 
     # Sync from GitHub (KC-0.2): the tenant's Brain from its knowledge base through the installed brain-runner
     # package, read-only token from the settings, written with the tenant's certificate. Per tenant storage under

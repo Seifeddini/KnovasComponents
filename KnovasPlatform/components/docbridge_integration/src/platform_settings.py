@@ -191,6 +191,15 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
             "Textstellen aus den Dokumenten des Mandanten. Wird nur geschrieben, nie angezeigt. „Verbindung testen“ "
             "schickt eine erfundene Frage, nie einen Text des Mandanten.",
             "secret", "installation"),
+    # External agents (RB-7): the Platform hands the Core's MCP gateway each external agent's signed claims
+    # (identity/agent_delivery.py), read through the Resolver on every push. Off until the Core has CR-R5 and, on a
+    # client's installation, until enforcement is «Ein» (founder, 2026-11-21: "only after «Ein»").
+    Setting("agents.core_gateway", "Agenten über das Knovas-Gateway",
+            "an oder aus (Standard: aus). An: Die Plattform gibt dem MCP-Gateway von Knovas jede Minute die "
+            "signierten Rechte jedes externen Agenten (je 20, gültig höchstens 5 Minuten). Erst einschalten, wenn "
+            "Knovas das unterstützt und die Rechte bei Knovas wirken («Ein»). Aus: Externe Agenten lesen über das "
+            "Gateway nichts.",
+            "choice", "installation", env=("AGENTS_CORE_GATEWAY",), choices=("aus", "an"), fallback="aus"),
     # Brain views (PMVP-30a): the members' dossier. Off by default; "an" or BRAIN_VIEWS_ENABLED=true switches it on.
     Setting("brain_views.enabled", "Brain-Ansichten (Dossier)",
             "Zeigt Mitgliedern unter /dossier/<id> die Angaben und Dokumente zu einem Eintrag des Brain, gelesen "

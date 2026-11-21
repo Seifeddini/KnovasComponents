@@ -46,9 +46,12 @@ branch reaches main only through a pull request a person reviews and merges; the
 | Dossier | PMVP-30a | built; no verification verdict yet | routine: Jannik or Siran |
 | Admin in the new look | PMVP-40 | in build (pushed; builder's notes not written) | routine: Jannik or Siran |
 | Roles: tables, the two roles, the move of an existing installation; functions and groups read from roles | RB-1, RB-2 | built; no verification verdict yet | critical (a migration): management |
+| Rollen page: create, rename, delete roles; people as members | RB-3, RB-4 | in build | RB-3 routine: Jannik or Siran; RB-4 sensitive: Siran |
+| Agents: one signed claim for every agent; the Knovas Assistent in every role but Administration, answering with its own claim | RB-6 | built; no verification verdict yet | critical (a migration, with RB-7): management |
+| External agents: the Agenten page, agents on the role page, their claims handed to the Core's gateway behind a switch (off) | RB-7 | built; the agent rows on the role page wait for RB-3/RB-4; no verification verdict yet; acts with the Core's CR-R1, CR-R5, CR-R6 | critical (a migration, signing and claims): management |
 | Cleanup | CLEANUP-1 | in build; nothing pushed | sensitive: Siran |
 | No customer text in logs (pull request #55) | maintenance | verified (second verification, with notes); not on main, not in the build branch | open: no class named |
-| Not started (no work order) | PMVP-02, 04, 22b, 23, 24, 30b, 31–34, 41–43, 60–62; RB-3 to RB-10 | not started | as the plan and the role builder's design say |
+| Not started (no work order) | PMVP-02, 04, 22b, 23, 24, 30b, 31–34, 41–43, 60–62; RB-5, RB-9, RB-10 (RB-8 dropped: "Core gateway only") | not started | as the plan and the role builder's design say |
 
 "Management" approves critical items (DEC-0081); who exactly is **open**. Updating the pilot instance (PMVP-62) needs
 both founders.
@@ -78,6 +81,7 @@ both founders.
 | 21 Nov | The harness accepted with its known limit (FU-36) |
 | 21 Nov | The Platform calls the language model itself; the customer chooses the provider; the pilot chose Anthropic |
 | 21 Nov | Clean up what is not needed; keep the shared company login and the hidden views (CLEANUP-1) |
+| 21 Nov | Agents: the Platform signs their claims; external agents use only Knovas's MCP gateway ("Core gateway only"); on client installations only after «Ein» |
 
 **Open:** Olymp's CTO signs off the reference screens (D-A5, due 24 Nov); the final cap on agent cost (27 Nov); who
 brings a language model to production (FU-32); the provider's region and retention terms, and the decision record for

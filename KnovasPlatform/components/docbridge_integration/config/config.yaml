@@ -278,6 +278,13 @@ custom_views:
 brain_views:
   enabled: "${BRAIN_VIEWS_ENABLED:-aus}"
 
+# External agents (RB-7): every minute, and at once after a change on the agent pages, the Platform hands the Core's
+# MCP gateway each external agent's signed claims (20, each valid at most 300 s; identity/agent_delivery.py). On the
+# settings page (registry agents.core_gateway: aus or an); the environment pins it. Off by default: switch it on only
+# once the Core has the agents' pool (CR-R5) and, on a client's installation, once enforcement is «Ein».
+agents:
+  core_gateway: "${AGENTS_CORE_GATEWAY:-aus}"
+
 # Client file open: browser launches UNC/local path on the user's PC (no install).
 # Ansichten (/views): process and spine views drawn from the ontology's
 # definitions. Plan: docs/superpowers/plans/2026-10-27-process-and-spine-views.md

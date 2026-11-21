@@ -1865,6 +1865,31 @@ class KnovasAPIClient:
         """
         return bool(self.mtls_enabled)
 
+    # -- External agents' claims for the Core's MCP gateway (RB-7, CR-R5) ----------------------------------------
+    # The Platform's own calls: no person's principal_assertion, no access_groups and no actor
+    # (as_person=False). The claims carry the authority; the Core verifies each with the tenant's broker key.
+    # Sent once, never retried (the next push replaces the pool anyway), and no body is logged: it holds
+    # bearer claims.
+
+    def put_agent_claims(self, agent_id: str, claims: List[str], *, timeout: Optional[float] = None) -> None:
+        """``PUT /secured/agents/<agent id>/claims`` with exactly ``{"claims": [...]}``: the agent's whole pool.
+
+        Replaces the pool the Core holds for the agent (CR-R5). Raises the
+        ``requests`` error of a refusal (404 without CR-R5, 409
+        ``not_brokered``, 400 ``invalid_claims``, 5xx) or of no connection;
+        the caller logs its class and status, never its text.
+        """
+        self._request_no_retry('PUT', f"/secured/agents/{quote(str(agent_id), safe='')}/claims",
+                               data={'claims': list(claims)}, timeout=timeout, as_person=False)
+
+    def delete_agent_claims(self, agent_id: str, *, timeout: Optional[float] = None) -> None:
+        """``DELETE /secured/agents/<agent id>/claims``: the Core drops the agent's pool at once (CR-R5).
+
+        No body. Raises as ``put_agent_claims``.
+        """
+        self._request_no_retry('DELETE', f"/secured/agents/{quote(str(agent_id), safe='')}/claims",
+                               timeout=timeout, as_person=False)
+
     def delete_all_documents(self, confirm_client_id: str) -> Dict[str, Any]:
         """DELETE /secured/delete_all_documents — erase the whole corpus.
 

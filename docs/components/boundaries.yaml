@@ -188,14 +188,18 @@ components:
     paths:
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_approvals.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_agents.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/guarded.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_people.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_approvals.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_agents.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_people.js
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/admin.css
     why: >-
       The console's blueprint with its role gates (admin.py), the people page and the approvals that PMVP-40 to
-      PMVP-42 change, and guarded.py, which only console modules call. The other console modules mounted on the same
+      PMVP-42 change, and guarded.py, which only console modules call. The agent pages and the agents of a role
+      (admin_agents.py and its page, RB-7) hang on the same blueprint and gate; the agent store and the delivery to the
+      Core they call stay in identity/, which has no card. The other console modules mounted on the same
       blueprint (admin_ingestion.py, admin_doc_fields.py, admin_system.py) and their pages are not changed by the plan
       and stay with the web app for now; admin.css styles them too. The access groups, folder rules and documents
       (admin_documents.py and their pages) are L2-PLATFORM-ACCESS since PMVP-40 split the card: together the two were
@@ -231,6 +235,11 @@ components:
     paths: []
     why: External - Anthropic's Messages API, called through the official SDK with the key the customer saved in the
       Platform's settings (PMVP-25).
+  EXT-MCP-GATEWAY:
+    card: EXT-mcp-gateway.card.yaml
+    paths: []
+    why: External - the Core's MCP gateway for external agents and the Secure API's pool of each agent's
+      Platform-signed claims (CR-R5, CR-R6; RB-7), not built in the Core yet.
   EXT-JIRA-API:
     card: EXT-jira-api.card.yaml
     paths: []

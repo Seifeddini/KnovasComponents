@@ -1,0 +1,84 @@
+# Component card (format 2) of EXT-MCP-GATEWAY; written for RB-7 of FEAT-2026-11-19-platform-mvp: the founder decided
+# on 2026-11-21 "Core gateway only" (the Platform has no MCP endpoint; external agents use the Core's gateway). What
+# the Platform relies on in the Core for its external agents: the pool of an agent's signed claims (CR-R5, two routes
+# of the Secure API) and the gateway that spends them (CR-R6). Neither exists in the Core yet (docs/platform-mvp/
+# core-requests.md). Edit this file, then `brain-runner card render`; the page beside it is generated.
+card: 2
+id: EXT-MCP-GATEWAY
+name: The Knovas Core's MCP gateway and its agents' claims (external)
+kind: external
+owner: ROLE-ENGINE-OWNER
+purpose: The Core's MCP gateway (https://mcp.knovas.ch/mcp), through which external agents read, and the Secure API's
+  pool of each agent's Platform-signed claims that the gateway spends, one per upstream call, as far as the Platform
+  relies on them.
+not_responsible_for:
+- Deciding an agent's groups; the Platform signs them (its roles, narrowed to its person), and the Core only verifies
+  each claim with the tenant's registered broker key.
+- Holding the agent's key on the Platform; Knovas issues it with the agent's id (manage_mcp_keys --agent) and the
+  gateway keeps its hash.
+- Anything this repository builds; the gateway's and the Secure API's code, cards and tests live in KnowledgeBase.
+terms:
+- agent id (the Platform's id of an agent; the subject of its claims and the id its gateway key is bound to)
+- pool (the unused claims the Core holds for one agent; a PUT replaces it, a DELETE drops it)
+operations:
+- id: agent-claims-put
+  name: 'PUT /secured/agents/{agent_id}/claims - replace the agent''s pool with {"claims": [...]}, 1 to 20 claims
+    (CR-R5)'
+  entrance: http
+  ref: PUT /secured/agents/{agent_id}/claims
+- id: agent-claims-delete
+  name: DELETE /secured/agents/{agent_id}/claims - drop the agent's pool at once (CR-R5)
+  entrance: http
+  ref: DELETE /secured/agents/{agent_id}/claims
+- id: mcp
+  name: POST https://mcp.knovas.ch/mcp - the gateway's tools search and fetch, called by an external agent with its
+    agent-bound key (CR-R6); the Platform does not call it
+  entrance: http
+  ref: POST /mcp
+contract:
+  '*':
+    always:
+    - id: EXT-MCP-GATEWAY/*/A-1
+      statement: The tenant of every pool call is the one the caller's client certificate names; a request never names
+        it, and a claim for another tenant is refused.
+      risk_class: critical
+  agent-claims-put:
+    promises:
+    - id: EXT-MCP-GATEWAY/agent-claims-put/P-1
+      statement: 'Takes exactly {"claims": [...]}, 1 to 20 claims, each verified like a person''s (typ
+        knovas-principal+jws, EdDSA, a key registered for the tenant, sub = the agent id, exp - iat at most 300 seconds,
+        at most 32 groups) without burning its jti, and replaces the agent''s whole pool (204). One bad claim refuses
+        the request (400 invalid_claims), nothing stored; a tenant not brokered answers 409 not_brokered, nothing
+        stored.'
+      risk_class: critical
+  agent-claims-delete:
+    promises:
+    - id: EXT-MCP-GATEWAY/agent-claims-delete/P-1
+      statement: Drops the agent's pool at once and answers 204, also when it has none.
+      risk_class: critical
+  mcp:
+    promises:
+    - id: EXT-MCP-GATEWAY/mcp/P-1
+      statement: 'A call with an agent-bound key sends exactly one unused, unexpired claim of that agent upstream as
+        principal_assertion with the actor {"kind": "agent", "id": <agent id>}, and a retry takes a fresh one; with no
+        unused claim nothing is read and it answers busy when the pool of the last five minutes is used up, "No current
+        rights for this agent" when there is none.'
+      risk_class: critical
+    limits:
+    - id: EXT-MCP-GATEWAY/mcp/L-1
+      statement: An agent makes at most as many upstream calls a minute as the Platform pushes claims a minute (20, the
+        pool's maximum, once a minute).
+      risk_class: standard
+review:
+- at: /contract
+  why: 'No line has evidence: CR-R5 and CR-R6 are requests to the Core (docs/platform-mvp/core-requests.md), not built
+    on 2026-11-21. The lines state what the Platform relies on once they are. The Platform''s tests run against a
+    recording fake of the two pool routes (tests/test_rb67_agents_acceptance.py, Wire; tests/test_agent_delivery_job.py,
+    FakeCore), which shows what is sent, not that the Core keeps it. Until the Core has them, the Platform''s switch
+    agents.core_gateway stays off (aus).'
+- at: /operations
+  why: 'The two pool routes are served by the Secure API (as EXT-BRAIN-API''s routes are), not by the gateway; they are
+    here because they exist for the gateway and nothing else reads them. They could move to EXT-BRAIN-API once the
+    Core lists them.'
+- at: /owner
+  why: Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4).
