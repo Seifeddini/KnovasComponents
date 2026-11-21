@@ -12,7 +12,7 @@ and counted under the first check it failed:
 1. ``check_form``     the line is such an object            ``not_a_statement``
 2. ``check_source``   ``source`` is a retrieved passage     ``unknown_source``
 3. ``check_quote``    ``quote`` stands in that passage      ``quote_not_found``
-4. ``check_numbers``  every number stands in that quote     ``number_not_found``
+4. ``check_numbers``  every number stands in that passage   ``number_not_found``
 5. ``check_length``   at most ``MAX_STATEMENT_CHARS``       ``too_long``
 
 One function per check, called in ``check_answer``; a further check (a judge
@@ -71,6 +71,15 @@ NO_ANSWER_WORDINGS = (
     "ich konnte keine finden",
     "ich fand nichts",
     "ich fand keine",
+    "ist nichts bekannt",
+    "steht nirgends",
+    "gibt es keine Angaben",
+    "geht nicht hervor",
+    "ergibt sich nichts",
+    "sagen nichts",
+    "ist nicht verfuegbar",
+    "nothing in the documents",
+    "nothing in your",
     "I find nothing",
     "I found nothing",
     "I found no",
@@ -128,14 +137,12 @@ class Statement:
 
     ``text`` is the statement as the page shows it. ``quote`` is the model's
     wording until ``check_quote`` has found it; from then on it is the
-    passage's own characters, and ``span`` is where they stand in the
-    passage (start, end).
+    passage's own characters.
     """
 
     text: str
     source: int
     quote: str
-    span: Optional[Tuple[int, int]] = None
 
 
 def check_answer(text: str, passages: Mapping[int, str]) -> Tuple[List[Statement], Dict[str, int]]:
@@ -421,7 +428,7 @@ _DOUBLE_MARKS = "\"\u201c\u201d\u201e\u201f\u00ab\u00bb"
 _APOSTROPHES = "'\u2018\u2019\u02bc\u00b4`\u2032"
 _SINGLE_MARKS = _APOSTROPHES + "\u201a\u201b\u2039\u203a"
 _DASHES = ("-\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
-           "\ufe63\uff0d\u2796\u02d7\u207b\u2e3a\u2e3b\ufe58\u2043")
+           "\ufe63\uff0d\u2796\u02d7\u207b\u2e3a\u2e3b\ufe58\u2043\u208b\u2238\u2e1a")
 #: Every kind of quotation mark, apostrophe and dash as its plain form.
 _PLAIN = str.maketrans({
     **{mark: '"' for mark in _DOUBLE_MARKS},
@@ -440,13 +447,10 @@ _TIE = chr(0)
 
 def check_quote(statement: Statement, passages: Mapping[int, str]) -> Optional[Statement]:
     """The statement with its quote found in the source passage: ``quote``
-    is then that piece of the passage, in the passage's own characters, and
-    ``span`` where it stands. None when the quote does not stand there."""
-    passage = passages[statement.source]
-    span = locate_quote(statement.quote, passage)
-    if span is None:
-        return None
-    return replace(statement, quote=passage[span[0]:span[1]], span=span)
+    is then that piece of the passage, in the passage's own characters. None
+    when the quote does not stand there."""
+    found = find_quote(statement.quote, passages[statement.source])
+    return None if found is None else replace(statement, quote=found)
 
 
 def find_quote(quote: str, passage: str) -> Optional[str]:
@@ -601,6 +605,10 @@ _DIGIT_LOOKALIKES = frozenset(
     "\ua76e\ua76f\ua75c\ua75d\u0222\u0223\u1d15\u0196\u0269\u1d7c\u01c0\u01c1\ua7fe"
     "\ua722\ua723\ua75a\ua75b\u1d08\ua762\ua763\u2125\u204a"
     "|\u00a6\u2223\u2502\u2503\u2758\u2759\u275a\ufe31\uff5c"
+    # signs that show digits but have no numeric value: the telegraph signs for the hours and the days, the
+    # Kangxi radicals one, two and ten, the turned two and three, the keycap ten
+    + "".join(chr(code) for code in range(0x3358, 0x3371)) + "".join(chr(code) for code in range(0x33E0, 0x33FF))
+    + "\u2f00\u2f06\u2f17\u218a\u218b\U0001f51f"
 )
 #: Letters that read as digits next to digits ("l5" is 15, "O,5" is 0,5):
 #: part of the number they stand before.
@@ -608,6 +616,12 @@ _DIGIT_LETTERS = "lio"
 #: A lone letter after a number is mostly an article's letter ("266 a"); not
 #: these, which are mostly units ("10 m", "5 l", "2 t", "30 s").
 _UNIT_LETTERS = "mlts"
+#: Latin words after a number and a space that are part of it ("Art. 12 bis", "Abs. 2 ter"); "bis"
+#: only when no number follows it ("5 bis 7" is a range).
+_LATIN_AFTER = re.compile(" (bis|ter|quater|quinquies|sexies|septies|octies|novies|decies)(?![^\\W\\d_])")
+_NUMBER_NEXT = re.compile(" +(?:[0-9]|[^\\W\\d_]+)")
+#: "%-Punkte", "Prozent-Punkte": percentage points, a unit of their own.
+_POINTS = re.compile("[- ]?punkt[^\\W\\d_]*")
 #: "v. H." (vom Hundert) after a number: per cent, not an article letter.
 _PER_HUNDRED = re.compile("v\\. ?h(?![a-z])")
 
@@ -665,6 +679,11 @@ _NOT_NUMBERS = ("zweifel", "zweigniederlass", "zweigstell", "zweigbetrieb", "ach
 _NOT_NUMBER_STEMS = frozenset({"zweig", "dreist"})
 _ENDINGS = ("en", "er", "es", "em", "e", "n", "s")
 
+#: Words after "ein" that are a quantity of their own: "ein paar Tage" is no "ein Tag".
+_QUANTITIES = frozenset({"paar", "bisschen", "wenig", "weniges", "dutzend", "few", "couple"})
+#: Markdown emphasis in a statement: left out before its numbers are read ("zw**ei**").
+_MARKDOWN = re.compile("[*_]+")
+
 #: "ausser Acht lassen", "in Acht nehmen", "Acht geben": "acht" after
 #: "ausser" or beside one of these verbs is the noun, not the number 8.
 _NOUN_ACHT_VERBS = frozenset({
@@ -714,14 +733,14 @@ _SPELLINGS = (("funf", "fuenf"), ("zwolf", "zwoelf"), ("marz", "maerz"), ("janne
 
 
 def check_numbers(statement: Statement, passages: Mapping[int, str]) -> bool:
-    """Whether every number of the statement stands in its quote.
+    """Whether every number of the statement stands in its source passage.
 
-    The quote is the piece of the source passage ``check_quote`` found
-    (``span``); a number elsewhere in the passage does not count. Each claim
-    of ``claimed_numbers`` must meet a token that ``offered_numbers`` finds
-    wholly inside the quote, and each character of the statement that has a
-    numeric value but is no digit 0 to 9, or looks like a digit
-    (``_DIGIT_LOOKALIKES``), must stand in the quote itself.
+    Each claim of ``claimed_numbers`` must meet a token that
+    ``offered_numbers`` reads in the passage, and each character of the
+    statement that has a numeric value but is no digit 0 to 9, or shows a
+    digit (``_DIGIT_LOOKALIKES``), must stand in the passage itself. The quote
+    must stand in the passage too, but that is check 3: a number may stand in
+    the passage outside the quote ("Art. 266c OR" in the passage's heading).
     """
     claims = claimed_numbers(statement.text)
     odd = _odd_characters(statement.text)
@@ -730,13 +749,9 @@ def check_numbers(statement: Statement, passages: Mapping[int, str]) -> bool:
     if any(unicodedata.bidirectional(char) in _RIGHT_TO_LEFT for char in statement.text):
         return False  # such a character can show two numbers in another order than they are read
     passage = passages[statement.source]
-    span = statement.span if statement.span is not None else locate_quote(statement.quote, passage)
-    if span is None:
+    if any(char not in passage for char in odd):
         return False
-    quote = passage[span[0]:span[1]]
-    if any(char not in quote for char in odd):
-        return False
-    offered = offered_numbers(passage, span)
+    offered = offered_numbers(passage)
     return all(claim & offered for claim in claims)
 
 
@@ -751,10 +766,11 @@ def claimed_numbers(statement: str) -> List[FrozenSet[str]]:
       before it ("-500"; "- 500" as written), also the word "minus" ("minus
       500" is "-500"); letters, accents and raised digits right after it
       ("266a", "12bis", "10\u00b3"); one letter standing alone after it
-      ("266 a"; not a unit: "10 m" is 10); a letter that reads as a digit
+      ("266 a"; not a unit: "10 m" is 10); a Latin "bis", "ter", "quater" after
+      it ("12 bis" is "12bis"; not "5 bis 7"); a letter that reads as a digit
       right before it ("l5", "O,5"); a per cent or per mille sign or word after
       it ("5%", "5 Prozent", "5-prozentig", "5 vom Hundert", "5\u2030";
-      "5 Prozentpunkte" is its own); a scale after it ("2 Mio.", "500 Mia.",
+      "5 Prozentpunkte", "5 %-Punkte" are their own); a scale after it ("2 Mio.", "500 Mia.",
       "5 Tausend"); a fraction after it ("zwei Drittel", "1 1/2", "1 \u00bd").
       Raised digits, fractions and other number signs on their own are
       numbers too. Two numbers with only marks between them are one ("2/3",
@@ -767,8 +783,10 @@ def claimed_numbers(statement: str) -> List[FrozenSet[str]]:
       "five hundred"). It is the same as its digits: "drei" is "3". Words are
       read through accents, umlaut spellings and letters that look like plain
       ones ("dr\u00e9i", "funf", "dre\u0131").
-    - "ein" and its forms ("eine", "einen", "eins", "one"): the article or
-      the number 1, read with the word after it ("einen Monat").
+    - "ein" and its forms ("eine", "einen", "eins", "one"), and the digit 1:
+      the article or the number 1, read with the word they count ("einen
+      Monat", "1 Monat"): "ein X" and "1 X" support each other, nothing else
+      supports them but the digit 1 alone for a "1".
     - a word that begins with a number word and goes on ("dreimonatig",
       "zweite", "Zweidrittelmehrheit", "Drittel", "doppelt"), or holds one
       before a unit or a fraction ("Mindestdreimonatsfrist"): that word,
@@ -787,19 +805,24 @@ def claimed_numbers(statement: str) -> List[FrozenSet[str]]:
       or 8. "null und nichtig" is a phrase of its own, not a 0. English words
       for an order or a count ("third", "twice") are each their own.
 
+    Markdown emphasis marks (``*``, ``_``) are left out before a statement
+    is read: "zw**ei**" is "zwei".
+
     Numbers are compared as written, never by value: "1500.00" is not
     "1500", "266" is not "266a", "1 500" is not "1500", "31. Dezember 2025"
     is not "31.12.2025". One and the same are only "1'500" and "1500", upper
     and lower case, a number word and its digits, a word that counts a span of
     time and its number, and the spellings of a month.
     """
-    items, _, _, _, _ = _read(statement, passage=False)
+    items = _read(_MARKDOWN.sub("", statement), passage=False)
     return [_tokens(item, passage=False) for item in items]
 
 
-def offered_numbers(passage: str, span: Optional[Tuple[int, int]] = None) -> FrozenSet[str]:
+@lru_cache(maxsize=64)
+def offered_numbers(passage: str) -> FrozenSet[str]:
     """The tokens a passage offers, read as ``claimed_numbers`` reads a
-    statement; with ``span`` only those that stand wholly inside it.
+    statement; kept, as an answer checks several statements against one
+    passage.
 
     Whole tokens only: "2/3" offers neither 2 nor 3, "14:30" no 30, "10\u2076"
     no 10, "266 a" no 266, "1. M\u00e4rz 2024" no 2024. Where the passage can
@@ -809,35 +832,10 @@ def offered_numbers(passage: str, span: Optional[Tuple[int, int]] = None) -> Fro
     part ("drei-" + line break + "zehn"); "acht" after "ausser" or beside
     "geben", "nehmen", "lassen", "bleiben" (the noun, no 8); "ein" (never the
     digit 1); "Jan", "August" and "may" outside a date (the word, no month).
-    Every word of the quote with no number in the two words before it is
-    offered as well, for a statement's "ein" with that word.
     """
-    reading = _read_passage(passage)
-    items, starts, ends, spans, words = reading[:5]
-    item_starts, word_starts, counting, begins = reading[5:]
-    low, high = (0, len(passage)) if span is None else span
-
-    def inside(start: int, end: int) -> bool:
-        return low <= starts[start] and ends[end - 1] <= high
-
     offered: Set[str] = set()
-    for at in range(bisect_left(item_starts, low), bisect_left(item_starts, high)):
-        if inside(items[at].start, items[at].end):
-            offered |= _tokens(items[at], passage=True)
-    for at in range(bisect_left(word_starts, low), bisect_left(word_starts, high)):
-        start, end = spans[at]
-        if not inside(start, end):
-            continue
-        window = spans[at - 2][0] if at >= 2 else 0
-        first = bisect_left(begins, window)
-        before = []
-        while first < len(counting) and counting[first].start < start:
-            before.append(counting[first])
-            first += 1
-        if not before:
-            offered.add("n" + _TAG + _stem(words[at]))
-        elif all(item.kind == "num" and item.text == "1" for item in before):
-            offered.add("o" + _TAG + _stem(words[at]))  # "1 Jahr" supports "ein Jahr"
+    for item in _read(passage, passage=True):
+        offered |= _tokens(item, passage=True)
     return frozenset(offered)
 
 
@@ -863,6 +861,8 @@ def _tokens(item: _Item, *, passage: bool) -> FrozenSet[str]:
     """What a statement's number accepts, or what a passage's number offers."""
     tail = item.per + (_TAG + "e" + item.scale if item.scale else "")
     if item.kind == "num":
+        if item.value:  # "1 Monat" is "ein Monat"
+            return frozenset([item.text + tail, "w" + _TAG + "ein:" + item.value])
         return frozenset([item.text + tail])
     if item.kind == "ein" and item.value:  # "minus ein ...": only the same words support it
         return frozenset(["w" + _TAG + "-ein:" + item.text + tail])
@@ -874,11 +874,10 @@ def _tokens(item: _Item, *, passage: bool) -> FrozenSet[str]:
             own = "w" + _TAG + ("eins" if item.word == "eins" else "ein")
             return frozenset([own, "w" + _TAG + "ein"] if passage else [own])
         own = "w" + _TAG + "ein:" + item.text
-        if passage:
-            return frozenset([own, "w" + _TAG + "ein"])
-        return frozenset([own, "n" + _TAG + item.text, "o" + _TAG + item.text])
-    if item.kind == "acht":
-        return frozenset(["w" + _TAG + "acht"] if passage else ["w" + _TAG + "acht", "8"])
+        return frozenset([own, "w" + _TAG + "ein"] if passage else [own])
+    if item.kind == "noun":
+        own = "w" + _TAG + item.word
+        return frozenset([own] if passage else [own, item.text])
     if item.kind == "month":
         month = "D" + _TAG + "." + item.text + "."
         if item.sure:
@@ -895,12 +894,9 @@ def _tokens(item: _Item, *, passage: bool) -> FrozenSet[str]:
     return frozenset([own, item.value] if item.value else [own])
 
 
-def _read(text: str, *, passage: bool) -> Tuple[List[_Item], List[int], List[int],
-                                                List[Tuple[int, int]], List[str]]:
-    """The numbers of ``text``; for each character of the read text where it
-    starts and ends in ``text``; and the read text's words, where they stand
-    and as number words are looked up."""
-    cased, starts, ends = _plain_for_numbers(text, keep_lines=passage)
+def _read(text: str, *, passage: bool) -> List[_Item]:
+    """The numbers of ``text``, in their order."""
+    cased, _, _ = _plain_for_numbers(text, keep_lines=passage)
     plain = "".join(char.lower() if len(char.lower()) == 1 else char for char in cased)
     items = _join_runs(plain, _digit_numbers(plain, passage=passage))
     covered = bytearray(len(plain))
@@ -910,19 +906,14 @@ def _read(text: str, *, passage: bool) -> Tuple[List[_Item], List[int], List[int
     words = [_word_key(plain[start:end]) for start, end in spans]
     items.extend(_word_numbers(plain, cased, spans, words, passage=passage))
     items.sort(key=lambda item: item.start)
-    return _join_dates(plain, _apply_modifiers(plain, items)), starts, ends, spans, words
-
-
-@lru_cache(maxsize=64)
-def _read_passage(passage: str) -> Tuple[Any, ...]:
-    """``_read`` of a passage, kept: an answer checks several statements
-    against one passage. Besides: where its numbers and words start in the
-    passage, and the numbers that are no "ein" with where they start. What
-    it returns is not changed afterwards."""
-    items, starts, ends, spans, words = _read(passage, passage=True)
-    counting = [item for item in items if item.kind not in ("ein", "acht")]
-    return (items, starts, ends, spans, words, [starts[item.start] for item in items],
-            [starts[start] for start, _ in spans], counting, [item.start for item in counting])
+    items = _join_dates(plain, _apply_modifiers(plain, items))
+    begins = [start for start, _ in spans]
+    for item in items:
+        if item.kind == "num" and item.text == "1" and not item.word and not item.per and not item.scale:
+            following = bisect_left(begins, item.end)
+            if following < len(spans) and plain[item.end:spans[following][0]].isspace():
+                item.value = _noun_from(plain, cased, spans, words, following)
+    return items
 
 
 def _plain_for_numbers(text: str, *, keep_lines: bool) -> Tuple[str, List[int], List[int]]:
@@ -1014,7 +1005,14 @@ def _digit_numbers(plain: str, *, passage: bool) -> List[_Item]:
                                   or _is_number_sign(plain[end])):
                 end += 1
             written += plain[match.end():end]
-            if end == match.end() and _lone_letter_follows(plain, end):
+            latin = _LATIN_AFTER.match(plain, end) if end == match.end() else None
+            if latin is not None and latin.group(1) == "bis" and (
+                    not _after_enumeration_word(plain, start) or _number_follows(plain, latin.end())):
+                latin = None  # "von 3 bis zu 5", "5 bis 7": the German "bis"
+            if latin is not None:
+                written += latin.group(1)
+                end = latin.end()
+            elif end == match.end() and _lone_letter_follows(plain, end):
                 written += plain[end:end + 2]
                 end += 2
         if plain[end:end + 1] and plain[end] in _PER:
@@ -1023,6 +1021,10 @@ def _digit_numbers(plain: str, *, passage: bool) -> List[_Item]:
         elif plain[end:end + 1] in (" ", "\n") and plain[end + 1:end + 2] and plain[end + 1] in _PER:
             written += plain[end + 1]
             end += 2
+        points = _POINTS.match(plain, end) if written[-1:] == "%" else None
+        if points is not None:
+            written += "p"  # "5 %-Punkte": percentage points
+            end = points.end()
         found.append(_Item(start, end, "num", written))
         at = end
     return found
@@ -1030,9 +1032,11 @@ def _digit_numbers(plain: str, *, passage: bool) -> List[_Item]:
 
 def _what_stands_before(plain: str, at: int, written: str, *, passage: bool) -> Tuple[int, str]:
     """Where a number written with digits starts, and how: with its sign
-    ("-500"; "- 500" when no number stands before the dash), with a letter
-    that reads as a digit ("l5", "o,5"), or, in a passage, with a sign a line
-    break parts from it ("-" + line break + "5": read neither way)."""
+    ("-500"; "- 500" when no number stands before the dash), with a code of
+    up to three letters right before it ("Q1", "A4", "m2", "l5"), with a
+    letter that reads as a digit before a stop or a comma ("o,5"), or, in a
+    passage, with a sign a line break parts from it ("-" + line break + "5":
+    read neither way)."""
     before = plain[at - 1:at]
     if before and before in _SIGNS and not plain[at - 2:at - 1].isalnum():
         return at - 1, before + written
@@ -1045,12 +1049,36 @@ def _what_stands_before(plain: str, at: int, written: str, *, passage: bool) -> 
             return at - 2, plain[at - 2] + " " + written
     if passage and before == "\n" and plain[at - 2:at - 1] and plain[at - 2] in _SIGNS:
         return at - 2, plain[at - 2] + "\n" + written
-    if before and before in _DIGIT_LETTERS and not plain[at - 2:at - 1].isalpha():
-        return at - 1, before + written
+    if before.isalpha():
+        first = at - 1
+        while first > 0 and plain[first - 1].isalpha():
+            first -= 1
+        if at - first <= 3 and not plain[first - 1:first].isalnum():
+            return first, plain[first:at] + written  # "Q1", "H2", "A4", "m2", "l5"
     if (before in (",", ".") and plain[at - 2:at - 1] and plain[at - 2] in _DIGIT_LETTERS
             and not plain[at - 3:at - 2].isalpha()):
         return at - 2, plain[at - 2:at] + written
     return at, written
+
+
+def _after_enumeration_word(plain: str, at: int) -> bool:
+    """Whether the number at ``at`` follows "Art.", "Abs.", "Ziff." or the like."""
+    back = at - 1
+    while back >= 0 and plain[back] in " .":
+        back -= 1
+    first = back
+    while first >= 0 and plain[first].isalpha():
+        first -= 1
+    return back > first and plain[first + 1:back + 1] in _ENUMERATION_WORDS
+
+
+def _number_follows(plain: str, at: int) -> bool:
+    """Whether a number follows at ``at`` after a space ("bis 7", "bis drei")."""
+    match = _NUMBER_NEXT.match(plain, at)
+    if match is None:
+        return False
+    word = match.group().strip()
+    return word[:1].isdecimal() or _number_word(_word_key(word)) is not None or word in _ENGLISH
 
 
 def _lone_letter_follows(plain: str, at: int) -> bool:
@@ -1157,6 +1185,15 @@ def _word_numbers(plain: str, cased: str, spans: List[Tuple[int, int]], words: L
             found.append(_Item(start, spans[current + 2][1], "phrase", "null und nichtig"))
             at = current + 3
             continue
+        if word in ("per", "pro") and following in ("cent", "centum", "mille") and spaced:
+            found.append(_Item(start, spans[current + 1][1], "per", "%" if following != "mille" else "\u2030"))
+            at = current + 2
+            continue
+        if (word.startswith("prozent") and following.startswith("punkt")
+                and plain[end:spans[current + 1][0]] in ("-", " ")):
+            found.append(_Item(start, spans[current + 1][1], "per", "%p"))  # "Prozent-Punkte"
+            at = current + 2
+            continue
         if word == "vom" and following in ("hundert", "tausend") and spaced:
             found.append(_Item(start, spans[current + 1][1], "per", "%" if following == "hundert" else "\u2030"))
             at = current + 2
@@ -1165,6 +1202,12 @@ def _word_numbers(plain: str, cased: str, spans: List[Tuple[int, int]], words: L
             found.append(_Item(start, spans[current + 1][1], "per", "%"))
             at = current + 2
             continue
+        if len(word) == 1:
+            spelled, last = _spelled_out(plain, spans, words, current)
+            if last > current:  # "z-w-e-i", "d r e i"
+                found.append(_Item(start, spans[last][1], "num", spelled))
+                at = last + 1
+                continue
         joined, last, value = _joined_number(plain, spans, words, current)
         if last > current:
             found.append(_Item(start, spans[last][1], "num", str(value), word=joined))
@@ -1183,7 +1226,12 @@ def _word_numbers(plain: str, cased: str, spans: List[Tuple[int, int]], words: L
             value = _ENGLISH.get(word)
         if value is not None:
             if word == "acht" and _is_noun_acht(words, current) and (passage or cased[start] == "A"):
-                found.append(_Item(start, end, "acht"))
+                found.append(_Item(start, end, "noun", "8", word="acht"))
+            elif word in _ONES or word in _TEENS or word in _TENS or _number_word(word) is not None:
+                if word not in _SCALE_WORDS and _is_noun(plain, cased, start, end):  # "die Elf", "eine Drei"
+                    found.append(_Item(start, end, "noun", str(value), word=word))
+                else:
+                    found.append(_Item(start, end, "num", str(value), word=word))
             else:
                 found.append(_Item(start, end, "num", str(value), word=word))
             continue
@@ -1213,23 +1261,69 @@ def _word_numbers(plain: str, cased: str, spans: List[Tuple[int, int]], words: L
     return found
 
 
+def _spelled_out(plain: str, spans: List[Tuple[int, int]], words: List[str], at: int) -> Tuple[str, int]:
+    """A number word spelled out letter by letter ("z-w-e-i", "d r e i",
+    "d.r.e.i"): its value and the index of its last letter; else ``at``."""
+    letters, last = words[at], at
+    while (last + 1 < len(spans) and len(words[last + 1]) == 1
+           and plain[spans[last][1]:spans[last + 1][0]] in ("-", " ", ".", ". ", "_", "/")):
+        last += 1
+        letters += words[last]
+    if last == at:
+        return "", at
+    value = _number_word(letters)
+    if value is None:
+        value = _ENGLISH.get(letters, 1 if letters in _ONE else None)
+    return ("", at) if value is None else (str(value), last)
+
+
+_BEFORE_A_WORD = frozenset(" ([{" + chr(10) + chr(34) + chr(39))
+
+
+def _is_noun(plain: str, cased: str, start: int, end: int) -> bool:
+    """Whether a number word is written as a noun: a capital and then small
+    letters, not at the start of a sentence ("die Elf", "eine Drei")."""
+    written = cased[start:end]
+    if not (written[:1].isupper() and written[1:].islower()):
+        return False
+    back = start - 1
+    while back >= 0 and plain[back] in _BEFORE_A_WORD:
+        back -= 1
+    return back >= 0 and plain[back] not in ".!?:;"
+
+
 def _noun_after(plain: str, cased: str, spans: List[Tuple[int, int]], words: List[str], at: int) -> str:
-    """The word an "ein" counts: the first word in capitals among the next
-    three ("eine dreimonatige Frist": Frist), else the next word; empty when
-    no word follows with only white space between, or when a scale or a per
-    cent word follows (they become part of the number)."""
+    """The word the "ein" at ``at`` counts (``_noun_from``); empty when no word
+    follows it with only white space between."""
+    if at + 1 >= len(spans) or not plain[spans[at][1]:spans[at + 1][0]].isspace():
+        return ""
+    return _noun_from(plain, cased, spans, words, at + 1)
+
+
+def _noun_from(plain: str, cased: str, spans: List[Tuple[int, int]], words: List[str], index: int) -> str:
+    """The word an "ein" or a "1" counts, looked for from the word at
+    ``index`` on: the first word in capitals among three ("eine dreimonatige
+    Frist": Frist), else the first word. A word that is a number or a
+    quantity itself ("halbe", "doppelte", "paar", "Drittel") is the one, so
+    "eine halbe Stunde" is not "eine Stunde". Empty when a scale or a per
+    cent word comes first: it becomes part of the number."""
     first = ""
-    for index in range(at + 1, min(at + 4, len(spans))):
-        if not plain[spans[index - 1][1]:spans[index][0]].isspace():
+    for at in range(index, min(index + 3, len(spans))):
+        if at > index and not plain[spans[at - 1][1]:spans[at][0]].isspace():
             break
-        word = words[index]
-        if index == at + 1:
+        word = words[at]
+        if at == index:
             if word in _SCALES or _per_of(word):
                 return ""
             first = _stem(word)
-        if cased[spans[index][0]].isupper():
+        if _counts_itself(word) or cased[spans[at][0]].isupper():
             return _stem(word)
     return first
+
+
+def _counts_itself(word: str) -> bool:
+    return (word in _QUANTITIES or word in _ONE or word in _ENGLISH or _number_word(word) is not None
+            or _month(word) is not None or _compound(word) is not None)
 
 
 def _enumerates(plain: str, cased: str, spans: List[Tuple[int, int]], words: List[str], at: int,
