@@ -46,3 +46,24 @@ its evidence chunk (`provenance_chunk_id`), but no route returns that chunk's te
 On the demo tenant, as a member: "Welche Kündigungsfrist gilt im Mietvertrag?" and a question about the Abmahnung in
 matter 2023-041 get answers with a quote under each statement, through the local demo copy (the coordinator's
 launcher). Nothing is ever written to the Knovas GmbH tenant for this.
+
+## Added on 2026-11-21: what roles and "enforcement on" need from the Core (CR-R1 to CR-R6)
+
+From the role builder's design (`design/role-builder.md`, § 2 and § 7, with the code lines that show each point). The
+founder decided the same day that these go with CR-1 and CR-2 to whoever takes the Core work. **The most urgent is
+CR-R1**: today, when a tenant is switched to `enforcing`, the Core ignores the Platform's signed identity
+(`principal_resolver.py` reads the body field `access_groups`, which the Platform never sends), so every Platform
+search would see open documents only. The Platform's claims are verified only in the posture `brokered`, and no route
+can switch a tenant to it. Until CR-R1 and CR-R2 land, the pilot runs with enforcement off and roles' data do not act.
+
+| No. | What | Why |
+|---|---|---|
+| CR-R1 | The posture route accepts `brokered` once a key is registered and the backfill is complete (DEC-0077 point 5; bet item SA-03) | Under `enforcing` the Platform's claim is ignored, so neither roles' data nor "Ein" act for the Platform |
+| CR-R2 | Folder-rule routes take the caller's signed claim under `brokered` (today they build the caller from `acting_as` only, and `brokered` refuses a caller without a claim) | Without it, under "Ein" no folder rule can be set from the Platform |
+| CR-R3 | A new folder rule reaches documents already read in (a backfill for one rule, started by the route) | Without it, a new folder covers only documents read in later |
+| CR-R4 | Probe: evaluate without applying; count per day what would be hidden, no names | A-06's middle position |
+| CR-R5 | Accept a Platform-signed claim whose subject is an agent, and record it as a verified actor (the shape of AGB-01) | Agents enforced like people; the role design may route agents through the Platform instead (see the design's § 5) |
+| CR-R6 | The MCP server attaches the claim and drops the per-call `access_groups` | Only if agents keep calling the Core directly |
+
+Also from the design: **the Core has no deny** (its filter is a disjunction without negation), so A-04's "a denial
+wins" is not "Exist" as the plan says; the founder decided on 2026-11-21: no deny for the pilot.
