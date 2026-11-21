@@ -194,3 +194,16 @@ executors the other). After: L2-PLATFORM-ADMIN 13,835 tokens, L2-PLATFORM-ACCESS
   integrated.
 - **The parent card**: `L1-WORKSPACE` (KnowledgeBase) does not list `L2-PLATFORM-ACCESS`; outside this repository.
 - **The role words** want a person's yes (the third point of «The look»).
+
+## Verification (coordinator's record)
+
+- **2026-11-21, fresh verifier session, `feat/pmvp-40` @ `3d46214`: PASS WITH NOTES.** No behaviour change: all eight
+  actions (plus enable and rule delete) driven through the rendered forms on base `4b7791b` and head gave identical
+  forms, status codes, messages and effects; no Python changed. All 21 routes have gate tests; the eight review
+  entries are replaced by test evidence. Nothing scrolls sideways at 390 px (base 567/665/769 px); lowest contrast
+  4.76 (base 3.46); 52 controls with a focus ring; names, paths and titles escaped. Card split clean.
+- Integrated into `feat/platform-mvp` by the coordinator (merge `b0c0d56c`; card conflicts resolved, pages re-rendered).
+- Notes, ordered as a small follow-up: the shell card still points at two lines that moved to the access card
+  (`map-check --scope all`: 4 findings); the signed-out tests cannot catch a missing route gate and only a member is
+  tried (a gate widened to approver would pass); two primary «Gruppe anlegen» buttons; a visible label that differs
+  from its aria-label; a raw English state word («quarantined»). The German role names wait on the founder.
