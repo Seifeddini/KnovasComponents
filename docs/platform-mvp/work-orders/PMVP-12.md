@@ -172,6 +172,7 @@ Builder session of 2026-11-20 (AGENT-claude-code). `feat/pmvp-12` from `origin/f
   I did not change it. It needs deleting (its successor is
   `test_shell_parts_styleguide.py::test_the_section_is_there_under_its_heading`). "`tests/test_shell_*.py` green"
   therefore holds for every id but this one.
+- **Done 2026-11-21** (AGENT-claude-code): that test deleted; `937677a` merged; `test_shell_*.py` 288 and `test_pmvp10_brand_acceptance.py` 33 passed (`knovas_platform_test_pmvp12b`); frozen check all OK.
 
 ### Checks
 
