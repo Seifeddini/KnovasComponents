@@ -166,3 +166,61 @@ statements about the sources with a negation. Not measured against a model: the 
 - Attacks before the push: my own round (19 inputs, 14 wrong, fixed); a second agent's round with the code and
   the rules only; its cases replayed (111): 110 now as intended, the last a
   paraphrase cost kept (`Arbeitszeugnis`/`Zeugnis`). 20,000 fuzzed inputs: no exception.
+
+## Builder's notes, rework after verification
+
+Builder session, 2026-11-21, same branch. The verifier's FAIL at `33dca42` and the coordinator's order (numbers
+against the cited passage; `bis`/`ter`, percentage points, a strict `ein`; the low points). Commits `6129bc4`
+(merge of `origin/feat/platform-mvp`; the only conflict, the README's list of work orders, keeps both lines) and
+`21f19d5` (the rework), plus the commit of these notes. Nothing here is verified.
+
+**Built.**
+
+- `check_numbers` reads the whole cited passage (`offered_numbers(passage)`, kept per passage); the digit-like
+  characters must stand in the passage. `Statement.span`, the quote-span reading and the "word with no number
+  before it" relief for `ein` are gone. Whole tokens as before: `2/3`, `14:30`, `10⁶`, `30.09.2027` support
+  nothing smaller.
+- (a) `12 bis`, `2 ter`, `quater` … after a space are part of the number (`12bis`). `bis` only after `Art.`,
+  `Abs.`, `Ziff.` and the like and when no number follows, so `5 bis 7` and `von 3 bis zu 5` stay ranges.
+- (b) `%-Punkte`, `% Punkte`, `Prozent-Punkte`, `Prozentpunkte` are `%p`, their own unit.
+- (c) `ein` (and the digit `1`) is bound to the word it counts: the first capitalised word of the next three,
+  else the next word; a word that is a number or a quantity itself ends the search (`halbe`, `paar`,
+  `dreimonatige`). A statement's `ein X` is supported only by `ein X` or `1 X` in the passage; its `1 X` also by a
+  bare `1`. `mehrere`, `einige`, `keinen`, `jeden`, `several` support nothing.
+- Low: `U+208B`, `U+2238`, `U+2E1A` are dashes; `per cent`, `per mille`, `pro mille` are per cent and per mille;
+  `U+3358–3370`, `U+33E0–33FE`, `U+2F00/2F06/2F17`, `U+218A/B` and 🔟 must stand in the passage; "Dazu ist nichts
+  bekannt", "Das steht nirgends", "Dazu gibt es keine Angaben" are not statements; `*` and `_` are left out of a
+  statement before its numbers are read.
+- From the verifier's v20h scripts, beyond the order: number words spelled out letter by letter (`z-w-e-i`);
+  codes of up to three letters before digits (`Q1`, `H1`, `m2`, `A4`); a number word in capitals inside a sentence
+  is a noun (`die Elf`: the passage offers the word, not 11); five more no-answer paraphrases ("geht … nicht
+  hervor", "ergibt sich nichts", "sagen nichts", "ist nicht verfügbar", "nothing in the documents").
+
+**Cost** (`v20/cost.py`): exact answers that survive 6 → **10 of 10**; answers with slips 3 → **7 of 10** (rework
+2 had 10 and 6). Still removed: the date written another way (`31. Dezember 2025` for `31.12.2025`, the order's
+safe side), the "corrected" quote (`7 Tagen` for `sieben Tagen`, check 3), and `bis zum 3. Werktag eines Monats`
+(`eines Monats` against `eines Kalendermonats`: the strict `ein`). The strict `ein` also costs "eine Kaution"
+against "Kaution", "Eine Mietzinserhöhung" against "Mietzinserhöhungen", "eine dreimonatige Kündigungsfrist"
+against "drei Monate" (tests in `test_what_the_hardening_costs`).
+
+**Existing tests changed, with reasons** (all `test_assistant_check.py`): `_offered` reads the whole passage and
+the quote-span test is gone (design change); three of the verifier's earlier inputs (a number outside the quote)
+and the matching cost case now are shown, so they left those lists and a test pins the new rule; the `ein`
+tokens lost the relief alternatives; `eine dreimonatige Frist` against "Frist von drei Monaten" and "eine
+Kaution" against "Kaution" moved from found to cost; `1 Monat` against `einen Monat` and `1 Jahr` against `ein
+Jahr` moved to found (`1 X` is `ein X`); `Format A4` claims `a4`; `1_500` claims `1500` (Markdown); `in Acht
+Tagen` is the noun or 8.
+
+**For the verifier.** `v20h/harness.py` and `costdiag.py` call `offered_numbers(passage, span)`; the span is gone
+by the design change, so I ran a copy with `offered_numbers(passage)` (`scratchpad/v20h_run`). Results there:
+every case as expected except `stmt number elsewhere in passage` (now shown, by the design change) and `md 3\0`
+(`"3\0"` in Python is 3 and a NUL, no zero: the statement shows "3 Tage", which is true). `v20/attack.py`:
+`5**0**0` and `**3**0` are now shown on passages that hold 500 and 30, as the coordinator's Markdown point asks.
+`v20/fuzz.py`: 0 wrong quotes, 0 exceptions; the 4 "digit oracle" hits are `drei` for `3`.
+
+**Still open** (decisions as before): `erste` (the frozen file), French and Italian number words.
+
+**Evidence.** Frozen file 88 passed, frozen check OK (5 files). `tests/test_assistant_*.py` (all nine files, with
+PMVP-22a's and PMVP-25's) and the frozen file: 943 passed (`test_assistant_check.py` 572). The whole suite was not
+run. 150,000 characters × 50 statements: 0.34 s. My files are ASCII; `check_ascii_py.py 77e309c..HEAD` now also lists the merged files of
+other items (none of mine).
