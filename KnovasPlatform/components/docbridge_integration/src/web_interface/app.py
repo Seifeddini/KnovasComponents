@@ -20,12 +20,9 @@ from flask_cors import CORS
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
-import subprocess
-import platform
 import re
 
 import requests
-from urllib.parse import quote
 
 from config_loader import get_config
 import german_text
@@ -41,7 +38,6 @@ from knovas_client import KnovasAPIClient, QueryRejected
 from file_utils import AutoDocFileHandler
 from document_grants import DEFAULT_TTL_SECONDS as GRANT_TTL_DEFAULT
 from document_grants import DocumentGrantStore
-from open_tokens import OpenTokenManager
 from ontology_filters import get_filter_engine
 from ontology_store import get_ontology
 from web_interface import doc_fields_routes
@@ -655,8 +651,8 @@ def create_app(config_path: Optional[str] = None):
         logger.warning(
             "Company login is enabled but COMPANY_LOGIN_NAME or COMPANY_LOGIN_PASSWORD is missing."
         )
-    # Unconditional: SECRET_KEY signs both the session cookie AND the single-use
-    # open tokens, so a weak/default secret is exploitable even with login disabled.
+    # Unconditional: SECRET_KEY signs the session cookie, which carries the
+    # CSRF token whether or not login is enabled.
     if web_secret_key in weak_secret_values:
         raise RuntimeError('WEB_SECRET_KEY must be set to a strong random value.')
     # Only meaningful for the legacy shared credential. With per-user accounts
@@ -670,41 +666,21 @@ def create_app(config_path: Optional[str] = None):
     # download or render. Every hit opens and previews in Microsoft 365.
     m365_mode = str(config.get('documents.source', 'files') or 'files').strip().lower() == 'm365'
     browser_client_open_enabled = config.get_bool('open.browser_client_path', True)
-    companion_enabled = config.get_bool('open.companion_enabled', False)
-    open_token_ttl = max(30, config.get_int('open.token_ttl_seconds', 120))
-    open_token_store_path = str(open_section.get('token_store_path') or '').strip()
-    if not open_token_store_path:
-        # Shared cross-worker store under the app data dir (default 2 gunicorn
-        # workers each get their own process, so an in-process cache is not enough).
+    # A store under the app data dir that every worker shares: gunicorn runs
+    # several worker processes, and a grant written while serving the search
+    # has to be visible to the worker that serves the thumbnail.
+    document_grant_store_path = str(open_section.get('grant_store_path') or '').strip()
+    if not document_grant_store_path:
         data_dir = os.path.dirname(
             str(config.get('sync.last_sync_file', '/app/data/last_sync.txt')) or ''
         ) or '/app/data'
-        open_token_store_path = os.path.join(data_dir, 'open_tokens.sqlite3')
-    open_token_manager = OpenTokenManager(
-        str(app.config['SECRET_KEY']),
-        max_age_seconds=open_token_ttl,
-        store_path=open_token_store_path,
-    )
-    # Same shape and the same reason as the open-token store above: several
-    # gunicorn workers, and a grant written while serving the search has to be
-    # visible to the worker that serves the thumbnail.
-    document_grant_store_path = str(open_section.get('grant_store_path') or '').strip()
-    if not document_grant_store_path:
-        document_grant_store_path = os.path.join(
-            os.path.dirname(open_token_store_path) or '/app/data',
-            'document_grants.sqlite3',
-        )
+        document_grant_store_path = os.path.join(data_dir, 'document_grants.sqlite3')
     document_grants = DocumentGrantStore(
         document_grant_store_path,
         ttl_seconds=config.get_int('open.grant_ttl_seconds', GRANT_TTL_DEFAULT),
     )
     pdf_inline_in_browser = config.get_bool('open.pdf_inline_in_browser', True)
-    allow_server_side_startfile = config.get_bool('open.allow_server_side_startfile', False)
     allow_degraded_download_open = config.get_bool('open.allow_degraded_download_open', False)
-    companion_uri_scheme = str(open_section.get('companion_uri_scheme') or 'semantix-doc').strip()
-    public_base_url_config = str(open_section.get('public_base_url') or '').strip().rstrip('/')
-    if not public_base_url_config:
-        public_base_url_config = (os.getenv('KNOVAS_PLATFORM_URL') or '').strip().rstrip('/')
 
     client_local_root = normalize_client_local_root(str(open_section.get('client_local_root') or ''))
 
@@ -782,9 +758,6 @@ def create_app(config_path: Optional[str] = None):
             if p:
                 return p
         return None
-
-    def _can_open_via_companion(full_path: str) -> bool:
-        return bool(_unc_for_resolved_path(full_path) or _client_path_for_resolved_path(full_path))
 
     def _client_open_targets(full_path: str) -> Dict[str, str]:
         """Client-visible paths the user's OS can open (UNC on Windows, mount path on Linux)."""
@@ -923,8 +896,6 @@ def create_app(config_path: Optional[str] = None):
             'stats',
             'api_version',
             'health',
-            'open_token_redeem',
-            'open_tokens_spec',
         }:
             return None
         if session.get('company_login_ok') is True:
@@ -935,8 +906,6 @@ def create_app(config_path: Optional[str] = None):
 
     # Endpoints exempt from the uniform X-CSRF-Token gate below:
     #   login / logout   -> form-based csrf_token, validated in the handler
-    #   open_token_mint  -> in-handler X-CSRF-Token check (returns 400), kept as-is
-    #   open_token_redeem-> companion Bearer token, no browser session/CSRF
     #   static           -> asset serving
     _CSRF_EXEMPT_ENDPOINTS = frozenset({
         'static',
@@ -946,8 +915,6 @@ def create_app(config_path: Optional[str] = None):
         # validates it in the handler, exactly as login/logout do. Leaving it
         # in the header gate would reject the form before it was read.
         'account_password',
-        'open_token_mint',
-        'open_token_redeem',
     })
 
     @app.before_request
@@ -1454,7 +1421,6 @@ def create_app(config_path: Optional[str] = None):
             app_title=web_app_title,
             brand=web_brand,
             csrf_token=_ensure_csrf_token(),
-            companion_enabled=companion_enabled,
             browser_client_open_enabled=browser_client_open_enabled,
             allow_degraded_download_open=_download_open_enabled(),
             open_mapping_configured=_open_mapping_configured(),
@@ -1806,7 +1772,7 @@ def create_app(config_path: Optional[str] = None):
             ))
 
     def _apply_open_hints(rows: List[Dict[str, Any]]) -> None:
-        """How the browser may open each row's file: client path, UNC, companion.
+        """How the browser may open each row's file: client path or UNC.
 
         Not "and not enrichment_loaded": a mirrored OneDrive corpus has an
         enrichment file and still holds documents with no webUrl, which are
@@ -1825,9 +1791,6 @@ def create_app(config_path: Optional[str] = None):
                             result['client_open_unc'] = targets['unc']
                         if targets.get('path'):
                             result['client_open_path'] = targets['path']
-                    if companion_enabled and _open_mapping_configured():
-                        result['open_via_companion'] = True
-                        result['companion_scheme'] = companion_uri_scheme
 
     def _apply_onedrive_links(rows: List[Dict[str, Any]]) -> None:
         """Only a document that actually resolved to a webUrl can be opened in
@@ -2136,73 +2099,6 @@ def create_app(config_path: Optional[str] = None):
                 'error': _GENERIC_ERROR_MESSAGE
             }), 500
     
-    @app.route('/api/document/<path:doc_id>/open', methods=['POST'])
-    def open_document(doc_id: str):
-        """
-        Legacy: open on server host (os.startfile). Disabled when companion open is mandatory.
-
-        Prefer POST /api/open-tokens/mint + Semantix Open Companion (UNC, no temp copy).
-        """
-        try:
-            data = request.get_json() or {}
-            file_path = data.get('path')
-
-            if not file_path:
-                return jsonify({
-                    'success': False,
-                    'error': 'Document path required'
-                }), 400
-
-            full_path = _resolve_autodoc_path(file_path)
-            if not full_path:
-                return jsonify({
-                    'success': False,
-                    'error': 'Document path not allowed'
-                }), 400
-
-            if not allow_server_side_startfile:
-                hint = (
-                    'Server-seitiges Öffnen ist deaktiviert. Dateien werden auf dem Client-PC geöffnet.'
-                )
-                if browser_client_open_enabled:
-                    hint += ' Bitte „Öffnen“ in der Suchoberfläche verwenden (Browser-Client-Pfad).'
-                elif companion_enabled:
-                    hint += ' Bitte Companion-Open (POST /api/open-tokens/mint).'
-                return jsonify({
-                    'success': False,
-                    'error': hint,
-                    'use_browser_client_path': browser_client_open_enabled,
-                    'use_companion': companion_enabled,
-                }), 410
-
-            if not os.path.exists(full_path):
-                return jsonify({
-                    'success': False,
-                    'error': 'Document file not found'
-                }), 404
-
-            logger.info(f"Opening document (server-side): {full_path}")
-
-            success = _open_file_external(full_path, config)
-
-            if success:
-                return jsonify({
-                    'success': True,
-                    'message': f'Document opened: {doc_id}'
-                })
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Failed to open document'
-                }), 500
-
-        except Exception as e:
-            logger.error(f"Error opening document: {e}", exc_info=True)
-            return jsonify({
-                'success': False,
-                'error': _GENERIC_ERROR_MESSAGE
-            }), 500
-    
     @app.route('/api/document/<path:doc_id>/download', methods=['GET'])
     def download_document(doc_id: str):
         """
@@ -2474,7 +2370,7 @@ def create_app(config_path: Optional[str] = None):
     def document_client_path(doc_id: str):
         """
         Return UNC and/or POSIX path for opening on the user's machine (session required).
-        The browser uses this to launch the OS default app — no companion install.
+        The browser uses this to launch the OS default app.
         """
         if not browser_client_open_enabled:
             return jsonify({'success': False, 'error': 'Browser client-path open disabled'}), 503
@@ -2588,160 +2484,6 @@ def create_app(config_path: Optional[str] = None):
             return jsonify({'success': False, 'error': 'Keine Vorschau f\u00fcr dieses Dokument.'}), 502
         return jsonify(body)
 
-    @app.route('/api/open-tokens/mint', methods=['POST'])
-    def open_token_mint():
-        """Mint a short-lived signed token for companion redeem (browser must send CSRF)."""
-        if not companion_enabled:
-            return jsonify({'success': False, 'error': 'Companion open disabled'}), 503
-        if not _open_mapping_configured():
-            return jsonify({
-                'success': False,
-                'error': (
-                    'Open mapping not configured (open.unc_root / open.unc_roots '
-                    'and/or open.client_local_root + open.local_root)'
-                ),
-            }), 503
-        csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
-        if not _csrf_token_is_valid(csrf_header):
-            return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 400
-        try:
-            data = request.get_json() or {}
-            doc_id = str(data.get('doc_id') or '').strip()
-            file_path = data.get('path')
-            if not doc_id or not file_path:
-                return jsonify({'success': False, 'error': 'doc_id and path required'}), 400
-            full_path = _resolve_autodoc_path(str(file_path).strip())
-            if not full_path or not os.path.exists(full_path):
-                return jsonify({'success': False, 'error': 'Document path not allowed or missing'}), 400
-            if not _can_open_via_companion(full_path):
-                return jsonify({'success': False, 'error': 'No open mapping for this file'}), 503
-            rel = str(file_path).strip()
-            # The uniform content gate keys on a doc_id in the URL; this route
-            # carries it in the body, so the wall is applied here explicitly.
-            # Minting is the moment a document leaves the session's protection.
-            subject = ''
-            if identity_gate is not None:
-                minter = identity_gate.current_user()
-                if minter is None:
-                    return jsonify({'success': False, 'error': 'Not found'}), 404
-                subject = str(minter.id)
-                if not document_grants.granted(
-                    subject, doc_id, _rel_path_for_autodoc(str(doc_id))
-                ):
-                    return jsonify({'success': False, 'error': 'Not found'}), 404
-            token = open_token_manager.mint(rel, doc_id, subject=subject)
-            api_base = public_base_url_config or request.url_root.rstrip('/')
-            redeem_url = f"{api_base}/api/open-tokens/redeem"
-            companion_href = (
-                f"{companion_uri_scheme}:open?token={quote(token, safe='')}"
-                f"&apiBase={quote(api_base, safe='')}"
-            )
-            return jsonify({
-                'success': True,
-                'token': token,
-                'redeem_url': redeem_url,
-                'companion_href': companion_href,
-                'doc_id': doc_id,
-            })
-        except Exception as e:
-            logger.error(f"open_token_mint: {e}", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
-
-    @app.route('/api/open-tokens/redeem', methods=['POST'])
-    def open_token_redeem():
-        """
-        Redeem token → UNC and/or client-local path. No login (companion calls with Bearer).
-        """
-        if not companion_enabled:
-            return jsonify({'success': False, 'error': 'Companion open disabled'}), 503
-        try:
-            auth = str(request.headers.get('Authorization', '') or '')
-            token = ''
-            if auth.lower().startswith('bearer '):
-                token = auth[7:].strip()
-            if not token:
-                body = request.get_json(silent=True) or {}
-                token = str(body.get('token') or '').strip()
-            if not token:
-                return jsonify({'success': False, 'error': 'Bearer token required'}), 400
-            payload = open_token_manager.verify_and_consume(token, consume=True)
-            if not payload:
-                return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
-            # This route is exempt from the session and CSRF gates by necessity
-            # -- the companion has no browser session -- which is exactly why it
-            # cannot also be exempt from the wall. Re-check the minting subject
-            # rather than trusting the token alone, so a person whose access was
-            # withdrawn cannot spend a token they were holding.
-            if identity_gate is not None:
-                subject = payload.get('sub') or ''
-                if not subject:
-                    logger.warning("Refusing an open token minted without a subject")
-                    return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
-                if not document_grants.granted(
-                    subject, payload['doc'], _rel_path_for_autodoc(str(payload['doc']))
-                ):
-                    return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
-            full_path = _resolve_autodoc_path(payload['rel'])
-            if not full_path or not os.path.exists(full_path):
-                return jsonify({'success': False, 'error': 'File no longer available'}), 410
-            unc = _unc_for_resolved_path(full_path)
-            client_path = _client_path_for_resolved_path(full_path)
-            if not unc and not client_path:
-                return jsonify({'success': False, 'error': 'No open mapping'}), 503
-            body: Dict[str, Any] = {'success': True}
-            if unc:
-                body['unc'] = unc
-            if client_path:
-                body['path'] = client_path
-            return jsonify(body)
-        except Exception as e:
-            logger.error(f"open_token_redeem: {e}", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
-
-    @app.route('/api/open-tokens/spec', methods=['GET'])
-    def open_tokens_spec():
-        """Minimal OpenAPI 3 description for mint/redeem (unauthenticated read)."""
-        spec = {
-            'openapi': '3.0.3',
-            'info': {
-                'title': 'DocBridge open tokens',
-                'version': '1.0.0',
-            },
-            'paths': {
-                '/api/open-tokens/mint': {
-                    'post': {
-                        'summary': 'Mint signed open token (session + X-CSRF-Token)',
-                        'requestBody': {
-                            'required': True,
-                            'content': {
-                                'application/json': {
-                                    'schema': {
-                                        'type': 'object',
-                                        'required': ['doc_id', 'path'],
-                                        'properties': {
-                                            'doc_id': {'type': 'string'},
-                                            'path': {
-                                                'type': 'string',
-                                                'description': 'Relative path under AutoDoc root',
-                                            },
-                                        },
-                                    }
-                                }
-                            },
-                        },
-                        'responses': {'200': {'description': 'token payload'}},
-                    }
-                },
-                '/api/open-tokens/redeem': {
-                    'post': {
-                        'summary': 'Redeem token for UNC (Authorization: Bearer)',
-                        'responses': {'200': {'description': '{success, unc}'}},
-                    }
-                },
-            },
-        }
-        return jsonify(spec)
-
     @app.route('/api/health', methods=['GET'])
     def health():
         """Health check endpoint."""
@@ -2764,7 +2506,6 @@ def create_app(config_path: Optional[str] = None):
             js_flags = {
                 'onedrive_external_open': 'externalOpenHref' in js_text,
                 'match_locations': '_buildMatchLocationsHtml' in js_text,
-                'open_document_legacy_shim': 'pathOrBrowserFlag' in js_text,
             }
         except OSError:
             js_flags = {'readable': False}
@@ -3944,7 +3685,6 @@ def _apply_external_open_mode(result: Dict[str, Any], url: str) -> None:
     result["can_open"] = True
     result["open_mode"] = "external"
     result.pop("open_via_browser", None)
-    result.pop("open_via_companion", None)
     result.pop("client_open_unc", None)
     result.pop("client_open_path", None)
 
@@ -4206,40 +3946,6 @@ def _enhance_search_results(
             )
 
     return enhanced_results
-
-
-def _open_file_external(file_path: str, config) -> bool:
-    """
-    Open file with external application.
-    
-    Args:
-        file_path: Path to file
-        config: Configuration object
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        system = platform.system()
-        
-        external_app = config.get('web.document_handler.external_app')
-        
-        if external_app and os.path.exists(external_app):
-            subprocess.Popen([external_app, file_path])
-            return True
-        
-        if system == 'Windows':
-            os.startfile(file_path)
-        elif system == 'Darwin':
-            subprocess.Popen(['open', file_path])
-        else:
-            subprocess.Popen(['xdg-open', file_path])
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error opening file externally: {e}")
-        return False
 
 
 def main():

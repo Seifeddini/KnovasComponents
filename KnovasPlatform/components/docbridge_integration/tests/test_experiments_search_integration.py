@@ -95,7 +95,7 @@ class TestAViewerSeesExperimentCards:
 
     def test_no_open_hints_and_no_file_fields(self, experimenter_client, mkt, knovas):
         row = experiment_rows(search(experimenter_client))[0]
-        for field in ("open_via_browser", "open_via_companion", "client_open_unc",
+        for field in ("open_via_browser", "client_open_unc",
                       "client_open_path", "external_url", "onedrive_open_available",
                       "autodoc_rel_path", "top_chunks"):
             assert field not in row, field

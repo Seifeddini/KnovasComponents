@@ -47,7 +47,7 @@ Required:
 | Variable | Meaning |
 |----------|---------|
 | `KNOVAS_API_URL` | `https://<knovas-api-host>:8443`, reachable **from inside** the container |
-| `KNOVAS_PLATFORM_URL` | `https://<your-fqdn>` — how users reach this app; also `OPEN_PUBLIC_BASE_URL` |
+| `KNOVAS_PLATFORM_URL` | `https://<your-fqdn>` — how users reach this app |
 | `KNOVAS_DOCUMENTS_PATH` | Host path of the document share, mounted read-only |
 | `PLATFORM_ADMIN_EMAIL` | The firm's first administrator; there is no default account |
 
@@ -163,8 +163,6 @@ Skip for search-only deployments.
 
 1. Mount the share; set `AUTODOC_MOUNT_PATH` and `OPEN_LOCAL_ROOT=/mnt/autodoc`.
 2. Set `OPEN_UNC_ROOT` (Windows clients) and/or `OPEN_CLIENT_LOCAL_ROOT` (Linux clients).
-3. Keep `OPEN_COMPANION_ENABLED=false` unless browser open is blocked by IT policy.
-4. Leave `OPEN_ALLOW_SERVER_SIDE_STARTFILE=false`.
 
 Clients only need share access + a normal browser. Details: [integration/opening-documents.md](integration/opening-documents.md). DFS aliases: `open.unc_roots` in [config.yaml](../components/docbridge_integration/config/config.yaml).
 
@@ -173,8 +171,7 @@ Clients only need share access + a normal browser. Details: [integration/opening
 - **Internal DNS + TLS on host nginx:** follow [deployment/host-nginx-internal.md](deployment/host-nginx-internal.md) — nginx template in `deploy/host-nginx/`, checklist in [deployment/checklist-host-nginx.md](deployment/checklist-host-nginx.md)
 - The stack binds **`127.0.0.1` only** — both the UI (`8081`) and Knovas Connector (`5001`). Reaching it from another machine means putting a reverse proxy in front; there is no mode that exposes it directly
 - Firewall: allow **443** at nginx; 8081 and 5001 stay unreachable from other hosts
-- Use a strong `WEB_SECRET_KEY`; restrict `/api/open-tokens/redeem` to client subnets when possible
-- Multiple Gunicorn workers weaken one-time token replay protection — prefer one worker or sticky sessions
+- Use a strong `WEB_SECRET_KEY`
 
 ## 8. Issues
 

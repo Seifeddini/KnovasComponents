@@ -1,5 +1,5 @@
 """
-Map resolved AutoDoc filesystem paths to client-facing UNC paths for companion open.
+Map resolved AutoDoc filesystem paths to the UNC or mount paths a client PC opens.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def normalize_local_root(local_root: str) -> str:
 
 def normalize_client_local_root(client_root: str) -> str:
     """
-    Desktop mount path returned to Linux companions (POSIX).
+    Desktop mount path returned to Linux clients (POSIX).
 
     Paths starting with ``/`` are kept as POSIX (not passed through abspath on Windows dev hosts).
     """

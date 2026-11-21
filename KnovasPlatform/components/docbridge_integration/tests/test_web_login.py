@@ -158,24 +158,11 @@ def test_health_endpoints_remain_public(app):
 
     assert client.get("/api/stats").status_code == 200
     assert client.get("/api/health").status_code == 200
-    spec = client.get("/api/open-tokens/spec")
-    assert spec.status_code == 200
-    assert spec.get_json()["openapi"] == "3.0.3"
 
 
 def test_document_paths_cannot_escape_autodoc_root(app):
     client = app.test_client()
     _login(client)
-    with client.session_transaction() as sess:
-        token = sess["csrf_token"]
-
-    response = client.post(
-        "/api/document/example/open",
-        json={"path": "../secrets/client.key"},
-        headers={"X-CSRF-Token": token},
-    )
-    assert response.status_code == 400
-    assert response.get_json()["error"] == "Document path not allowed"
 
     response = client.get("/api/document/example/download?path=../secrets/client.key")
     assert response.status_code == 400

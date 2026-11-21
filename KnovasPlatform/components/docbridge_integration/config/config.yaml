@@ -227,16 +227,6 @@ web:
     # Documents per page of the field listing (at most 200).
     find_page_size: 50
 
-  # Document opening
-  document_handler:
-    # How to handle document opening
-    # Options: "link", "download", "external"
-    mode: "external"
-    
-    # External application to open documents (Windows)
-    # e.g., "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
-    external_app: null
-
 # Logging Configuration
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -324,7 +314,6 @@ custom_views:
   facts_per_minute: "${CUSTOM_VIEWS_FACTS_PER_MINUTE:-60}"
 
 # Client file open: browser launches UNC/local path on the user's PC (no install).
-# Optional companion (semantix-doc:) if browser launch is blocked by policy.
 # Ansichten (/views): process and spine views drawn from the ontology's
 # definitions. Plan: docs/superpowers/plans/2026-10-27-process-and-spine-views.md
 views:
@@ -430,21 +419,16 @@ builder:
 
 open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"
-  companion_enabled: "${OPEN_COMPANION_ENABLED:-false}"
-  token_ttl_seconds: "${OPEN_TOKEN_TTL_SECONDS:-120}"
   # How long a document stays reachable after a person's search returned it.
   # The file routes serve only what that person's own retrieval handed them;
   # see src/document_grants.py. Shorter means a withdrawn access takes effect
   # sooner and a long reading session has to search again.
   grant_ttl_seconds: "${OPEN_GRANT_TTL_SECONDS:-3600}"
   grant_store_path: "${OPEN_GRANT_STORE_PATH:-}"
-  public_base_url: "${OPEN_PUBLIC_BASE_URL:-}"
-  companion_uri_scheme: "${OPEN_COMPANION_URI_SCHEME:-semantix-doc}"
   unc_root: "${OPEN_UNC_ROOT:-}"
   local_root: "${OPEN_LOCAL_ROOT:-}"
   client_local_root: "${OPEN_CLIENT_LOCAL_ROOT:-}"
   pdf_inline_in_browser: "${OPEN_PDF_INLINE_IN_BROWSER:-true}"
-  allow_server_side_startfile: "${OPEN_ALLOW_SERVER_SIDE_STARTFILE:-false}"
   allow_degraded_download_open: "${OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN:-false}"
 
 # Security Configuration

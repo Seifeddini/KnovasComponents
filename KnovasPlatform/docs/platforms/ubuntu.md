@@ -13,7 +13,7 @@ cp knovas.env.example knovas.env   # edit
 
 **Server A:** Mount CIFS; set `OPEN_UNC_ROOT` / `OPEN_CLIENT_LOCAL_ROOT` for how **client PCs** see the share. Users open files from the browser without installing anything — [integration/opening-documents.md](../integration/opening-documents.md).
 
-**Clients:** Same share access as today; no Knovas package. Optional companion only if browser open is blocked.
+**Clients:** Same share access as today; no Knovas package.
 
 **LAN access:** the stack binds `127.0.0.1` only, so opening `DOCBRIDGE_WEB_PORT` in ufw achieves nothing on its own — put nginx in front of it instead.
 

@@ -44,7 +44,7 @@ Set at minimum:
 | Variable | Example |
 |----------|---------|
 | `KNOVAS_API_URL` | `https://<knovas-api-host>:8443` reachable **from inside** the container |
-| `KNOVAS_PLATFORM_URL` | `https://<your-fqdn>` — the address users type; also drives open-tokens |
+| `KNOVAS_PLATFORM_URL` | `https://<your-fqdn>` — the address users type |
 | `KNOVAS_DOCUMENTS_PATH` | Host path of the document share |
 | `PLATFORM_ADMIN_EMAIL` | The firm's first administrator |
 

@@ -3,7 +3,7 @@
 ## Architecture
 
 - **Server A** hosts the web app (e.g. Ubuntu + Docker). Users open the site from **other PCs** in a normal browser.
-- **No download or companion** is required on client machines.
+- **No download or install** is required on client machines.
 - Each client already has access to the **same document share** (SMB / mount). On **Öffnen**, the browser asks Server A for the path that PC should use (`\\server\share\...` or `/mnt/autodoc/...`) and triggers the OS to open it locally.
 
 ```mermaid
@@ -25,7 +25,7 @@ sequenceDiagram
 
 PDFs can still use **PDF Vorschau** in the browser (streamed from Server A).
 
-API details: [open-tokens-api.md](open-tokens-api.md). Setup: [setup.md](../setup.md) step 6.
+Setup: [setup.md](../setup.md) step 6.
 
 ---
 
@@ -37,8 +37,6 @@ Mount AutoDoc read-only into the container (see [platforms/ubuntu.md](../platfor
 AUTODOC_MOUNT_PATH=/mnt/docbridge_share/AutoDoc
 OPEN_LOCAL_ROOT=/mnt/autodoc
 OPEN_BROWSER_CLIENT_PATH=true
-OPEN_COMPANION_ENABLED=false
-OPEN_ALLOW_SERVER_SIDE_STARTFILE=false
 ```
 
 | Variable | Purpose |
@@ -69,12 +67,6 @@ Nothing is installed from Knovas on the client — only standard browser + share
 
 ---
 
-## Optional: Open Companion
-
-If browser launch is blocked by policy, set `OPEN_COMPANION_ENABLED=true` and deploy the Knovas Open Companion (Windows: `components/semantix_open_companion/`, Linux: `components/knovas_open_companion/linux/`). That is a fallback, not the default.
-
----
-
 ## Large corpora (slow SMB / millions of files)
 
 For tenants with very large AutoDoc shares, reduce per-search SMB load:
@@ -87,11 +79,11 @@ web:
     supplement_max_enrichment_scan: 5000
 ```
 
-When `verify_files_on_disk` is false, search results set `can_open` from path mapping only; **Öffnen** and companion mint still verify the file exists once at open time.
+When `verify_files_on_disk` is false, search results set `can_open` from path mapping only; **Öffnen** still verifies the file exists once at open time.
 
 ## Search-only
 
-`OPEN_BROWSER_CLIENT_PATH=false` and `OPEN_COMPANION_ENABLED=false` — no **Öffnen** button for local files; PDF preview may still work on Server A.
+`OPEN_BROWSER_CLIENT_PATH=false` — no **Öffnen** button for local files; PDF preview may still work on Server A.
 
 ## Issues
 

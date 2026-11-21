@@ -378,7 +378,6 @@ on every run.
 - `DOCBRIDGE_WEB_WORKERS`, `DOCBRIDGE_WEB_THREADS`, `DOCBRIDGE_WEB_TIMEOUT` (defaults 2, 4, 180; the timeout must stay above `RC_EXTRACT_TIMEOUT_SECONDS`, default 120)
 - `SEMANTIX_USE_SECURED_API` (default `true`)
 - `AUTODOC_MOUNT_PATH` (host path) → mounted to `/mnt/autodoc` (read-only)
-- `OPEN_PUBLIC_BASE_URL` — public HTTPS base URL (required for production host-NGINX; e.g. `https://knovas.example.internal`)
 - `OPEN_LOCAL_ROOT` — document path inside the container (e.g. `/mnt/autodoc`); maps server paths to client paths
 - `OPEN_UNC_ROOT` — how Windows clients see the share (e.g. `\\fileserver\AutoDocShare`)
 - `OPEN_CLIENT_LOCAL_ROOT` — how Linux clients mount the share (e.g. `/mnt/autodoc`)
@@ -386,9 +385,8 @@ on every run.
 - `DOC_FIELDS_UI` (default `auto`) — `off` hides all document-field UI; there is no `on`: the Platform shows what Knovas serves for the tenant, in secured mode only (`KnovasPlatform/docs/features/document-fields.md`)
 - `DOC_FIELDS_EDIT_ROLES` (default `admin`) — roles that may edit document-field values; `special` fields stay admin-only
 
-**File-open companion (optional fallback)**
+**File open**
 
-- `OPEN_COMPANION_ENABLED` (default `false`)
 - `OPEN_BROWSER_CLIENT_PATH` (default `true`)
 
 ### 2.6 Storage
@@ -447,16 +445,7 @@ The **Open** (*Öffnen*) feature opens documents from the browser without a clie
 - The browser must be allowed by IT policy to follow `file:` / UNC links from an HTTPS origin
 - The user must have the native application for the file type installed (Word, Excel, etc.)
 
-If the browser cannot open `file:`/UNC links, deploy the optional open companion:
-
-
-| Platform | Location                                                 |
-| -------- | -------------------------------------------------------- |
-| Windows  | `KnovasPlatform/components/semantix_open_companion/`     |
-| Linux    | `KnovasPlatform/components/knovas_open_companion/linux/` |
-
-
-Enable with `OPEN_COMPANION_ENABLED=true`. API endpoints: `GET /api/document/<doc_id>/client-path`, `POST /api/open-tokens/mint`, `POST /api/open-tokens/redeem`.
+API endpoint: `GET /api/document/<doc_id>/client-path`.
 
 **Supported browsers:** Current versions of Microsoft Edge or Google Chrome on Windows; Firefox or Chromium on Linux. Safari is not formally tested.
 
@@ -627,8 +616,7 @@ Guide: `KnovasConnector/docs/operations.md`.
 | Container restart loop     | Check `docker compose logs docbridge-web` — often a missing `WEB_SECRET_KEY`, or `COMPANY_LOGIN_*` still set while per-user identity is on                          |
 | NGINX 502 bad gateway      | Stack not running or on another port; `./scripts/start.sh`; match `proxy_pass` port to `DOCBRIDGE_WEB_PORT`                                                        |
 | Login page missing         | Set real secrets in `knovas.env`, re-run `./scripts/setup.sh && ./scripts/start.sh`                                                                                |
-| Open / Öffnen does nothing | Share not mounted on client PC; set `OPEN_UNC_ROOT` / `OPEN_CLIENT_LOCAL_ROOT` / `OPEN_LOCAL_ROOT`; browser may block `file:` links from HTTPS — try companion mode |
-| Open-token wrong host      | Set `OPEN_PUBLIC_BASE_URL=https://<fqdn>` and recreate `docbridge-web`                                                                                              |
+| Open / Öffnen does nothing | Share not mounted on client PC; set `OPEN_UNC_ROOT` / `OPEN_CLIENT_LOCAL_ROOT` / `OPEN_LOCAL_ROOT`; browser may block `file:` links from HTTPS |
 | Search returns no results  | Confirm Knovas Connector ingestion completed; verify `SEMANTIX_API_URL` and mTLS certs                                                                              |
 
 
@@ -664,7 +652,6 @@ Guide: `KnovasPlatform/docs/integration/troubleshooting.md`.
 | `KnovasPlatform/docs/platforms/debian.md`                | Debian-specific notes     |
 | `KnovasPlatform/docs/platforms/windows.md`               | Windows-specific notes    |
 | `KnovasPlatform/docs/integration/opening-documents.md`   | Document open feature     |
-| `KnovasPlatform/docs/integration/open-tokens-api.md`     | Companion-mode API        |
 | `KnovasPlatform/docs/demo.md`                            | Mock-tenant evaluation    |
 
 

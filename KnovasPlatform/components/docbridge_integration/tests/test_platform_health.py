@@ -126,24 +126,6 @@ class TestPlatformLoginPage:
 
 
 # ---------------------------------------------------------------------------
-# /api/open-tokens/spec tests
-# ---------------------------------------------------------------------------
-
-class TestPlatformOpenApiSpec:
-    def test_openapi_spec_returns_200(self, docbridge_app):
-        assert docbridge_app.test_client().get("/api/open-tokens/spec").status_code == 200
-
-    def test_openapi_spec_valid(self, docbridge_app):
-        body = docbridge_app.test_client().get("/api/open-tokens/spec").get_json()
-        assert body["openapi"] == "3.0.3"
-        assert "paths" in body
-
-    def test_openapi_spec_public(self, docbridge_app):
-        resp = docbridge_app.test_client().get("/api/open-tokens/spec")
-        assert resp.status_code == 200
-
-
-# ---------------------------------------------------------------------------
 # Auth boundary tests
 # ---------------------------------------------------------------------------
 
@@ -284,7 +266,6 @@ class TestPlatformRouteRegistration:
             "/api/stats",
             "/login",
             "/api/search",
-            "/api/open-tokens/spec",
         )
         for route in expected:
             assert route in rules, f"Route {route!r} not registered in URL map"

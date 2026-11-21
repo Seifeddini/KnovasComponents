@@ -271,7 +271,7 @@ class TestSidebar:
         env = _env()
         common = _context(active_nav="suche")
         del common["experiments_nav"]
-        index_ctx = dict(common, browser_client_open_enabled=False, companion_enabled=False,
+        index_ctx = dict(common, browser_client_open_enabled=False,
                          allow_degraded_download_open=False, open_mapping_configured=False,
                          pdf_inline_in_browser=False, onedrive_enrichment_loaded=False,
                          m365_mode=False, results_per_page=20, build_id="b")
