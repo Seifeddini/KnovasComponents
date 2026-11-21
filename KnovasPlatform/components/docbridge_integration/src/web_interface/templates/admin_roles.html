@@ -258,7 +258,7 @@
                 <p class="role-dry-warning" data-warning="{{ code }}">{{ words }}</p>
                 {% endfor %}
                 {% for note in dry_run.notes %}<p class="k-small k-muted">{{ note }}</p>{% endfor %}
-                {{ dry_people(dry_run.gains, 'data-gains-person', 'Sehen es danach') }}
+                {{ dry_people(dry_run.gains, 'data-gains-person', 'Sehen es danach neu') }}
                 {{ dry_people(dry_run.losses, 'data-loses-person', 'Sehen es danach nicht mehr') }}
                 <form class="role-form" method="post" action="{{ dry_run.action }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

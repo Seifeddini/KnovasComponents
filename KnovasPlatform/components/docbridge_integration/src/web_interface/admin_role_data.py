@@ -97,8 +97,8 @@ POINTER_MAX = 1024
 WALLS_OPEN, OPENS, ALREADY_READ_IN = "walls-open", "opens", "already-read-in"
 NEEDS_CONFIRM = frozenset({WALLS_OPEN, OPENS})
 WARNING_WORDS = {
-    WALLS_OPEN: ("Heute offen: mit «Ein» sieht es danach nur noch, wer die Gruppe der Rolle oder eine andere Gruppe "
-                 "der Regel hat. Alle anderen verlieren die Sicht."),
+    WALLS_OPEN: ("Heute offen: mit «Ein» sehen es danach nur noch die Mitglieder der Rolle und wer eine Gruppe "
+                 "darüber hat. Alle anderen verlieren die Sicht."),
     OPENS: ("Danach hat es keine Gruppe mehr: mit «Ein» sieht es danach jede Person im Mandanten."),
     ALREADY_READ_IN: ("Unter diesem Ordner sind schon Dokumente eingelesen. Die neue Regel erreicht sie erst, wenn "
                       "Knovas sie nachträgt; bis dahin gilt für sie die bisherige Regel."),
