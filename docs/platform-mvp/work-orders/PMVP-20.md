@@ -99,3 +99,79 @@ If the work needs one of these, stop and write the reason under "Builder's notes
 ## Builder's notes
 
 (the builder writes here: what was decided, what is open, what the verifier should look at)
+
+Builder session, 2026-11-19, branch `feat/pmvp-20`. Nothing here is verified; that is the verifier's.
+
+**Built.** `P/src/assistant/{__init__,errors,service,core}.py` and `README.md`; in `P/src/knovas_client.py`
+`llm_generate`, `keeping_snippets()`, `_snippet_from_hit`, `_llm_generate_result` (nothing else changed); own
+tests `P/tests/test_assistant_service.py`, `test_assistant_knovas_client.py`, `test_assistant_core.py`. The
+adapter is `assistant.core.make_search` / `make_generate`.
+
+**Decisions beyond this work order** (the verifier should judge each):
+
+1. *Snippet kept only on request (rule 1).* An always-present `snippet` key would change the search page:
+   `app.py::_search_result_haystack` reads `result.get('snippet')`, and it decides the "exact match" filter
+   (`_apply_search_refinement`) and `literal_query_matches`. So the row keeps the snippet only inside
+   `client.keeping_snippets()` (per thread, like `asserting_for`), which `make_search` wraps around `run_search`.
+   A `snippets=` keyword on `search_documents` was tried first and dropped: it breaks
+   `test_knovas_client_doc_fields.py::test_the_fake_takes_exactly_what_the_real_client_takes[search_documents]`,
+   whose fake lives in `tests/doc_fields_fakes.py` (not a file of this item). The request Knovas receives is the
+   same; rows outside the block are unchanged (tested). Only the key `snippet` is read (row, then `top_chunks`),
+   never `text`/`content`: the Core puts `original_text` windows there (KnowledgeBase
+   `services/query_two_stage.py::attach_chunk_snippets`, GI-QUERY-04); `_chunk_text_from_hit` stays unused.
+2. *The Core's success envelope is flat, not nested under `data`.* On `origin/master`,
+   `APIResponseService.create_success_response` does `response.update(data)`, and
+   `docs/Docs/02_SERVICES/llm_service.md` shows `{"status": "success", "content": ...}`. `llm_generate` reads the
+   flat form and the nested form of this work order; anything else is `CoreFailed`.
+3. *A prompt budget below the Core's limits.* 32 x 50,000 bytes is far more than the model takes:
+   `LLM_MAX_MODEL_LEN` is 8,192 tokens for prompt and answer (KnowledgeBase `L2-llm/README.md`), and a longer
+   prompt comes back as a 400. Defaults: prompt (system + messages) at most 14,000 UTF-8 bytes, `max_tokens`
+   1,024, 10 passages, temperature 0.2, generation timeout 120 s (`api.llm_generate_timeout`). The question is
+   capped at 4,000 bytes (`failed` with its own message, before any search); a blank question is `no_answer`
+   without a search.
+4. *`make_search` requires the experiments split* (`SearchIntegration.split`, as `/api/search` applies it) and
+   *refuses legacy mode* (`CoreFailed` before any request): the legacy GET search logs the question text
+   (`Legacy search successful: query=...`), and `/secured/llm/generate` needs mTLS anyway. What app.py does after
+   Knovas answers (enrichment, the score thresholds that are off unless configured, the filename supplement) is
+   not applied to the assistant's rows.
+5. *Passages and history.* A passage needs text and a pointer. `busy`/`failed` replies carry no passages. History
+   is cleaned: `[n]` markers out of assistant turns (old numbers), two turns of one role in a row reduced to the
+   later one, a trailing unanswered user turn dropped, the window starting with a user turn, one turn at most
+   4,000 bytes. The system instruction is English, says to answer in the question's language, and has no digit in
+   brackets (the frozen test checks that `[2]` is absent when one passage exists).
+6. *Splitter/check details.* A bracket holding digits that is not a plain number list (`[1-3]`, `[S. 4]`,
+   `[2024]`) removes its sentence; brackets without digits are text; full-width brackets count as references;
+   a reference right after a full stop belongs to the sentence before and makes that stop an end even after a
+   number. Each case has a test in `test_assistant_service.py`.
+
+**Open, or for the verifier to look at.**
+
+- Two pre-existing log lines on the shared search path can carry text and were not changed (not this item's
+  files): `_make_request` logs up to 600 characters of a `/secured/query` error body (for the assistant's search
+  as for the page's), and `_search_documents_secured` logs the first raw hit's `top_chunks` at INFO when the first
+  three rows have no page, sentence or chunk location -- since 2026-10-02 those chunks may carry `snippet` text.
+  Worth an item of its own (GI-DATA-04 style).
+- For PMVP-22a (also in the README): the wiring; the grant (`_grant_for_current_user` for the passages shown,
+  before a reference can open its document); `tests/conftest.py::DummyKnovasClient` has neither
+  `keeping_snippets()` nor `llm_generate()`.
+- Nothing was run against a live Core; the client is tested against a fake session only.
+- Test environment: the per-test schemas of `tests/conftest.py` create `citext` inside the first test schema, so
+  two suites running at once on the same database break each other (about 890 errors `type "citext" does not
+  exist` in a first attempt). The full suites below ran on databases of their own on the same server
+  (created for the run and dropped afterwards).
+
+**Evidence** (run from `P`, Windows, Python 3.13.5):
+
+- `py -3 -m pytest tests/test_pmvp20_assistant_acceptance.py -q` -> 22 passed; the frozen-test check prints
+  `OK` for both files.
+- `py -3 -m pytest tests/test_pmvp20_assistant_acceptance.py tests/test_assistant_service.py
+  tests/test_assistant_knovas_client.py tests/test_assistant_core.py -q` -> 129 passed.
+- Whole suite, `PLATFORM_DB_REQUIRED=true`, `--continue-on-collection-errors`: branch 6,305 passed, 106 failed,
+  56 errors, 40 skipped, 8 xfailed, 1 xpassed; base `87afe42` (same command, its own database) 6,176 passed and
+  exactly the same 106 failed and 56 errors (identical test ids; environment failures on this Windows box:
+  modules not installed -- `anthropic`, `brain_runner`, `snowballstemmer` --, `bash` scripts, Windows limits on
+  environment size, path length, Unix sockets and file modes, console encoding, a stale connector-kit
+  `codes.json`). Collection errors in
+  both: `test_experiments_runner_client.py` (socket attribute missing on Windows) and
+  `test_pmvp21_chats_acceptance.py` (PMVP-21 is built elsewhere); on base also the PMVP-20 frozen file.
+- `py -3 scripts/check_ascii_py.py 87afe42..HEAD` -> 0 added lines with a byte > 0x7F.
