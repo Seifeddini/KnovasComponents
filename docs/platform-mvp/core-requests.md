@@ -111,6 +111,10 @@ gateway sends one per call.** The agent is known to both by the Platform's agent
 - **Decision text:** DEC-0077 amended: "a signed claim names a person **or an agent registered on the Platform**".
 - **Depends on:** CR-R1 (a tenant can be `brokered`). **Used by:** RB-7 (the Platform pushes) and CR-R6.
 
+- **Order of PUT and DELETE** (added 2026-11-21 from RB-7's security read): the Core refuses (409) a `PUT` whose
+  claims were all issued (`iat`) before the agent's last `DELETE`, so a delayed push can never bring back a pool the
+  Platform has already withdrawn (a revoked agent, an inactive person).
+
 ### CR-R6: a gateway key bound to an agent (the MCP gateway)
 
 - **Key:** `mcp_gateway_keys.agent_id TEXT NULL` (a non-destructive migration; mirrored in `DB/init.sql`; the reader role
