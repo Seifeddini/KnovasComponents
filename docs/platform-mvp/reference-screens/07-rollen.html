@@ -1,0 +1,61 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><link rel="stylesheet" href="assets/knovas-fonts.css"><link rel="stylesheet" href="assets/knovas-tokens.css"><link rel="stylesheet" href="app.css">
+<!-- Proposed screen (role builder design, 21 Nov 2026): docs/platform-mvp/design/role-builder.md. Invented data. -->
+<style>
+.roles{display:flex;flex-wrap:wrap;gap:7px}
+.role{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--k-color-border);border-radius:var(--k-radius-full);padding:3px 11px;font-size:.82rem;color:var(--k-gray-700);background:#fff}
+.role b{font-weight:500;color:var(--k-gray-400);font-size:.8rem}
+.role.on{border-color:var(--k-blue);color:var(--k-navy);font-weight:600;box-shadow:var(--k-shadow-sm)}
+.role.on b{color:var(--k-blue)}
+.rhead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:12px;border-bottom:1px solid var(--k-color-border)}
+.rname{font-size:1.15rem;font-weight:600;color:var(--k-navy);line-height:1.3}
+.part{padding-top:10px}
+.part h2{display:flex;justify-content:space-between;margin-bottom:5px}
+.part h2 .link{font-size:.8rem;letter-spacing:0;text-transform:none}
+.fn{font-size:.93rem;color:var(--k-gray-800)}
+.fn i{font-style:normal;color:var(--k-gray-300);margin:0 7px}
+.row{display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--k-gray-100);font-size:.92rem}
+.row:last-child{border-bottom:0}
+.row .n{font-weight:600;color:var(--k-navy)}
+.row .s{color:var(--k-gray-500);font-size:.86rem;margin-left:auto;white-space:nowrap}
+.faces{display:flex}
+.faces .av{width:24px;height:24px;font-size:.6rem;border:2px solid #fff;margin-left:-4px}
+.faces .av:first-child{margin-left:0}
+.ico{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-size:.7rem;font-weight:700;flex:none}
+.ico.ai{background:var(--k-color-accent-soft);color:var(--k-blue)}
+.ico.ag{background:var(--k-gray-100);color:var(--k-gray-600)}
+</style></head><body data-area="admin" data-on="Rollen" data-nav="Personen,Rollen,Gruppen,Zugriff,Protokoll">
+<main><div class="wrap wide" style="gap:16px">
+  <div class="head"><div><h1>Rollen</h1><p class="lede">Was jemand tun darf und was er lesen darf, in einer Rolle.</p></div><span class="btn p">+ Rolle anlegen</span></div>
+  <div class="roles">
+    <span class="role">Administration <b>2</b></span>
+    <span class="role">Mitglied <b>41</b></span>
+    <span class="role">Partner <b>6</b></span>
+    <span class="role on">Mandatsteam Bau <b>9</b></span>
+    <span class="role">Sekretariat <b>5</b></span>
+    <span class="role">Praktikum <b>3</b></span>
+  </div>
+  <div class="card" style="padding:16px 20px 12px">
+    <div class="rhead">
+      <div><div class="rname">Mandatsteam Bau</div><div class="muted small">Bearbeitet die Mandate im Bau- und Planungsrecht.</div></div>
+      <span class="link small">Umbenennen</span>
+    </div>
+    <div class="part">
+      <h2>Darf tun <span class="link">Ändern</span></h2>
+      <div class="fn">Fragen und suchen<i>·</i>Freigaben bestätigen<i>·</i>Builder lesen</div>
+    </div>
+    <div class="part">
+      <h2>Darf lesen <span class="link">+ Daten hinzufügen</span></h2>
+      <div class="row"><span class="n">DMS Mandate › Bau- und Planungsrecht</span><span class="s">Ordner · 1'284 Dokumente</span></div>
+      <div class="row"><span class="n">SharePoint Vorlagen › Baurecht</span><span class="s">Ordner · 96 Dokumente</span></div>
+      <div class="row"><span class="n mono" style="font-weight:500">Gutachten_Hardturm-Areal_2026-05.pdf</span><span class="s">Dokument</span></div>
+    </div>
+    <div class="part">
+      <h2>Mitglieder <span class="link">+ Mitglied hinzufügen</span></h2>
+      <div class="row"><span class="faces"><span class="av">LB</span><span class="av">JM</span><span class="av">SK</span></span><span>Lea Brunner, Jonas Meier, Sara Keller und 6 weitere</span><span class="s">Personen</span></div>
+      <div class="row"><span class="ico ai">K</span><span>Knovas Assistent <span class="muted small">· verwendet diese Daten in Antworten an Mitglieder</span></span></div>
+      <div class="row"><span class="ico ag">CC</span><span>Fristenprüfung <span class="muted small">· externer Agent</span></span><span class="tag warn" style="margin-left:auto">Noch nicht wirksam</span></div>
+    </div>
+  </div>
+  <p class="small muted">Eine Rolle gibt nie mehr, als Sie selbst dürfen. Jede Änderung steht im Protokoll.</p>
+</div></main>
+<script src="shell.js"></script></body></html>
