@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import german_text
+from log_safety import pointer_hash
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +210,7 @@ def write_context_sidecar(
             raise
         return True
     except Exception as exc:
-        logger.warning("Failed to write context sidecar for %s: %s", pointer_s, exc)
+        logger.warning("Failed to write context sidecar for doc %s: %s", pointer_hash(pointer_s), type(exc).__name__)
         return False
 
 
@@ -223,7 +224,7 @@ def _load_sidecar_file(path: str, mtime: float) -> Optional[Dict[str, Any]]:
             return None
         return data
     except Exception as exc:
-        logger.debug("Could not load context sidecar %s: %s", path, exc)
+        logger.debug("Could not load a context sidecar: %s", type(exc).__name__)
         return None
 
 
@@ -252,7 +253,7 @@ def load_context(store_dir: Optional[str], pointer_candidates: Sequence[str]) ->
             if version not in SUPPORTED_SIDECAR_VERSIONS:
                 # Read it anyway: every version so far keeps {"i","t","p"}
                 # records, and a snippet from a newer writer beats none.
-                logger.debug("Context sidecar %s has version %r; reading as best effort", path, version)
+                logger.debug("A context sidecar has version %r; reading as best effort", version)
             return data
     return None
 
@@ -1103,8 +1104,8 @@ def enrich_result_with_context(
                 snippet["before"] = _trim_leading_context(snippet.get("before", ""))
     except Exception as exc:  # noqa: BLE001 - decoration must not break the result
         logger.warning(
-            "Context enrichment skipped for %s: %s",
-            (list(pointer_candidates) or ["<no pointer>"])[0], exc,
+            "Context enrichment skipped for doc %s: %s",
+            pointer_hash((list(pointer_candidates) or [""])[0]), type(exc).__name__,
         )
         return False
     if first:

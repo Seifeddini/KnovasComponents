@@ -30,6 +30,7 @@ from tenacity import (
 from config_loader import get_config
 from doc_fields_view import display_title as _doc_fields_display_title
 from part_metadata import enrich_transmit_parts_with_location
+from log_safety import pointer_hash
 
 
 logger = logging.getLogger(__name__)
@@ -488,7 +489,8 @@ def _secured_transmit_parts_from_document(
                 if extracted.parts:
                     return extracted.parts, init_fields, extracted.partial
             except Exception as exc:
-                logger.warning("Secured single-doc extract failed for %s: %s", identifier, exc)
+                logger.warning("Secured single-doc extract failed for doc %s: %s",
+                               pointer_hash(identifier), type(exc).__name__)
 
     path_line = init_fields.get("path") or identifier
     lines = [path_line]
@@ -1363,7 +1365,7 @@ class KnovasAPIClient:
                 cert = x509.load_pem_x509_certificate(f.read(), default_backend())
             return cert.not_valid_after_utc
         except Exception as exc:
-            logger.warning("Could not parse cert expiry: %s", exc)
+            logger.warning("Could not parse cert expiry: %s", type(exc).__name__)
             return None
 
     def _extract_customer_id_from_cert(self) -> Optional[str]:
@@ -1423,7 +1425,7 @@ class KnovasAPIClient:
             resp.raise_for_status()
             return True
         except Exception as exc:
-            logger.error("Renewed certificate validation failed: %s", exc)
+            logger.error("Renewed certificate validation failed: %s", type(exc).__name__)
             return False
         finally:
             session.close()
@@ -1463,7 +1465,7 @@ class KnovasAPIClient:
             csr_pem, private_key_pem = self._generate_csr_key_pair()
             payload = self.sign_certificate(csr_pem, validity_days=365)
         except Exception as exc:
-            logger.error("CSR auto-renew request failed: %s", exc)
+            logger.error("CSR auto-renew request failed: %s", type(exc).__name__)
             return False
 
         certificate_pem = payload.get("certificate")
@@ -1497,7 +1499,7 @@ class KnovasAPIClient:
             response.raise_for_status()
             payload = response.json()
         except Exception as exc:
-            logger.error("Auto-renew request failed: %s", exc)
+            logger.error("Auto-renew request failed: %s", type(exc).__name__)
             return False
 
         certificate_pem = payload.get('certificate_pem')
@@ -1535,7 +1537,7 @@ class KnovasAPIClient:
                 os.replace(key_tmp, self.key_path)
                 key_tmp = None
             except Exception as exc:
-                logger.error("Auto-renew: install failed (%s); rolling back", exc)
+                logger.error("Auto-renew: install failed (%s); rolling back", type(exc).__name__)
                 if orig_cert is not None:
                     self._atomic_write(self.cert_path, orig_cert)
                 if orig_key is not None:
@@ -1713,18 +1715,18 @@ class KnovasAPIClient:
         )
 
         if response.status_code >= 400:
-            # raise_for_status discards the body, and the body is where the API
-            # says what went wrong. Without this an upstream 500 reaches the log
-            # as "500 Server Error for url ..." and nothing else, which is
-            # indistinguishable from a fault in this deployment.
-            detail = ""
+            # Says which call to the API failed and how, so an upstream 500 is
+            # not mistaken for a fault in this deployment. The body itself is
+            # not logged: it can quote the question or a document (no customer
+            # text in the logs); its size says whether the API said anything.
+            size = -1
             try:
-                detail = (response.text or "")[:600]
+                size = len(response.text or "")
             except Exception:  # noqa: BLE001 - never fail while reporting a failure
-                detail = "<response body unreadable>"
+                pass
             logger.error(
-                "Knovas API %s %s -> %s. Response body: %s",
-                method, endpoint, response.status_code, detail or "<empty>",
+                "Knovas API %s %s -> %s. Response body: %d chars, not logged",
+                method, endpoint, response.status_code, size,
             )
         response.raise_for_status()
         return response
@@ -1929,7 +1931,7 @@ class KnovasAPIClient:
             payload = _secured_transmit_part_payload(transmission_key_id, idx, part)
             self._request_no_retry(method='POST', endpoint=part_endpoint, data=payload)
 
-        logger.info("Text document uploaded: %s (%d part(s))", ident, len(clean_parts))
+        logger.info("Text document uploaded: doc %s (%d part(s))", pointer_hash(ident), len(clean_parts))
         return {'status': 'success', 'identifier': ident, 'part_count': len(clean_parts)}
 
     def sign_certificate(
@@ -1992,12 +1994,13 @@ class KnovasAPIClient:
             return result
             
         except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error during batch sync: {e}")
+            logger.error("HTTP error during batch sync: %s", type(e).__name__)
             if e.response is not None:
-                logger.error(f"Response body: {e.response.text}")
+                logger.error("Response: HTTP %s, %d chars, not logged",
+                             e.response.status_code, len(e.response.text or ""))
             raise
         except Exception as e:
-            logger.error(f"Error during batch sync: {e}")
+            logger.error("Error during batch sync: %s", type(e).__name__)
             raise
     
     def sync_single_document(
@@ -2026,14 +2029,14 @@ class KnovasAPIClient:
             )
             
             result = response.json()
-            logger.info(f"Single document sync successful: {document.get('doc_id')}")
+            logger.info("Single document sync successful: doc %s", pointer_hash(document.get('doc_id')))
             return result
             
         except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error during single document sync: {e}")
+            logger.error("HTTP error during single document sync: %s", type(e).__name__)
             raise
         except Exception as e:
-            logger.error(f"Error during single document sync: {e}")
+            logger.error("Error during single document sync: %s", type(e).__name__)
             raise
     
     def search_documents(
@@ -2097,10 +2100,11 @@ class KnovasAPIClient:
         try:
             response = self._make_request(method='GET', endpoint=endpoint, params=params)
             result = response.json()
-            logger.info(f"Legacy search successful: query='{query}', results={len(result.get('results', []))}")
+            logger.info("Legacy search successful: query_len=%d, results=%d",
+                        len(str(query or '')), len(result.get('results', [])))
             return result
         except Exception as e:
-            logger.error(f"Error during search: {e}")
+            logger.error("Error during search: %s", type(e).__name__)
             raise
     
     def health_check(self) -> bool:
@@ -2119,7 +2123,7 @@ class KnovasAPIClient:
             return is_healthy
             
         except Exception as e:
-            logger.warning(f"Health check failed: {e}")
+            logger.warning("Health check failed: %s", type(e).__name__)
             return False
 
     # ------------------------------------------------------------------
@@ -2185,8 +2189,8 @@ class KnovasAPIClient:
                 # name in the console.
                 logger.error(
                     "Knovas API %s %s -> 404, so nothing was written. "
-                    "Response body: %s",
-                    method, endpoint, (response.text or "")[:600] or "<empty>",
+                    "Response body: %d chars, not logged",
+                    method, endpoint, len(response.text or ""),
                 )
             else:
                 logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, endpoint)
@@ -2200,8 +2204,8 @@ class KnovasAPIClient:
             payload = response.json()
         except ValueError:
             logger.warning(
-                "Graph-Antwort ohne JSON-Body: %s %s -> %s. Body: %s",
-                method, endpoint, response.status_code, (response.text or "")[:300] or "<empty>",
+                "Graph-Antwort ohne JSON-Body: %s %s -> %s. Body: %d chars, not logged",
+                method, endpoint, response.status_code, len(response.text or ""),
             )
             return {}
         if method.upper() != 'GET' and not payload:
@@ -2212,9 +2216,9 @@ class KnovasAPIClient:
             # fails in complete silence.
             logger.error(
                 "Knovas API %s %s -> %s with an empty body; treating "
-                "the write as failed. Body: %s",
+                "the write as failed. Body: %d chars, not logged",
                 method, endpoint, response.status_code,
-                (response.text or "")[:300] or "<empty>",
+                len(response.text or ""),
             )
         return payload or {}
 
@@ -2974,8 +2978,8 @@ class KnovasAPIClient:
                 # Gruppe, die es nie gab.
                 logger.error(
                     "Knovas API %s %s -> 404, es wurde nichts geschrieben. "
-                    "Antwort: %s",
-                    method, path, (response.text or "")[:600] or "<leer>",
+                    "Antwort: %d Zeichen, nicht protokolliert",
+                    method, path, len(response.text or ""),
                 )
             else:
                 logger.info("RBAC 404 (unbekannt oder fremd): %s %s", method, path)
@@ -2986,9 +2990,9 @@ class KnovasAPIClient:
             return response.json() or {}
         except ValueError:
             logger.warning(
-                "RBAC-Antwort ohne JSON-Body: %s %s -> %s. Body: %s",
+                "RBAC-Antwort ohne JSON-Body: %s %s -> %s. Body: %d Zeichen, nicht protokolliert",
                 method, path, response.status_code,
-                (response.text or "")[:300] or "<leer>",
+                len(response.text or ""),
             )
             return {}
 
@@ -3056,8 +3060,8 @@ class KnovasAPIClient:
             )
         except Exception as exc:  # noqa: BLE001 - transport, TLS, HTTP, JSON
             logger.warning(
-                "document_readable failed for %r; refusing the document: %s",
-                pointer, exc,
+                "document_readable failed for doc %s; refusing the document: %s",
+                pointer_hash(pointer), type(exc).__name__,
             )
             return False
         if not isinstance(payload, dict):
@@ -3298,13 +3302,14 @@ class KnovasAPIClient:
             for r in normalized_results[:3]
         ):
             raw0 = raw_hits[0] if raw_hits and isinstance(raw_hits[0], dict) else {}
+            chunks = raw0.get("top_chunks")
             logger.info(
                 "Secured query: no page/sentence in first hits; raw[0] keys=%s "
-                "page_number=%r sentence_number=%r top_chunks=%r",
+                "page_number=%r sentence_number=%r top_chunks=%d item(s), not logged",
                 sorted(raw0.keys()) if raw0 else [],
                 raw0.get("page_number"),
                 raw0.get("sentence_number"),
-                raw0.get("top_chunks") if isinstance(raw0.get("top_chunks"), list) else raw0.get("top_chunks"),
+                len(chunks) if isinstance(chunks, list) else 0,
             )
 
         semantix_meta = {
@@ -3328,7 +3333,7 @@ class KnovasAPIClient:
         if partial:
             logger.warning(
                 "Secured single document %s is partial: %s",
-                identifier,
+                pointer_hash(identifier),
                 " ".join(f"{k}={v}" for k, v in sorted(partial.items())),
             )
 
@@ -3360,11 +3365,11 @@ class KnovasAPIClient:
                     "Secured transmit part 0 location page=%s sentence=%s doc=%s",
                     payload.get('page_number'),
                     payload.get('sentence_number'),
-                    identifier,
+                    pointer_hash(identifier),
                 )
             self._request_no_retry(method='POST', endpoint=part_endpoint, data=payload)
 
-        logger.info(f"Secured single document sync successful: {identifier}")
+        logger.info("Secured single document sync successful: doc %s", pointer_hash(identifier))
         result: Dict[str, Any] = {'status': 'success', 'identifier': identifier, 'mode': 'secured'}
         if partial:
             # Counts only (GI-EXTRACT-04): the caller can tell the operator
@@ -3434,7 +3439,7 @@ class BatchProcessor:
                     progress_callback(processed, total_docs, result)
                 
             except Exception as e:
-                logger.error(f"Batch {batch_num} failed: {e}")
+                logger.error("Batch %s failed: %s", batch_num, type(e).__name__)
                 failed += len(batch)
         
         summary = {

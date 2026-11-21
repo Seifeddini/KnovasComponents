@@ -20,6 +20,8 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from log_safety import pointer_hash
+
 logger = logging.getLogger(__name__)
 
 ENV_STATE_PATH = "ONTOLOGY_FILTER_STATE_PATH"
@@ -166,7 +168,7 @@ class FilterEngine:
         except FileNotFoundError:
             return empty
         except (OSError, ValueError) as exc:
-            logger.warning("Filter-State nicht ladbar (%s): %s", self._state_path, exc)
+            logger.warning("Filter-State nicht ladbar (%s): %s", self._state_path, type(exc).__name__)
             return empty
         if not isinstance(raw, dict):
             return empty
@@ -183,7 +185,7 @@ class FilterEngine:
             os.replace(tmp, self._state_path)
         except OSError as exc:
             logger.error("Filter-State nicht speicherbar (%s): %s",
-                         self._state_path, exc)
+                         self._state_path, type(exc).__name__)
 
     # -- Filter-Verwaltung --------------------------------------------------
 
@@ -249,7 +251,7 @@ class FilterEngine:
             try:
                 self._segments_cache[key] = _segment_pages(abs_path)
             except Exception as exc:  # kaputtes PDF darf nie eskalieren
-                logger.warning("Filter: PDF nicht lesbar (%s): %s", abs_path, exc)
+                logger.warning("Filter: PDF nicht lesbar (doc %s): %s", pointer_hash(abs_path), type(exc).__name__)
                 self._segments_cache[key] = []
         return self._segments_cache[key]
 

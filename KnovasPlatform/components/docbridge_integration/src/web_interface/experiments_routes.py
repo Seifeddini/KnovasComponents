@@ -52,6 +52,13 @@ from experiments.service import ExperimentService
 
 logger = logging.getLogger(__name__)
 
+
+def _rule() -> str:
+    """The matched route's rule for a log line; request.path is text the caller chose."""
+    rule = request.url_rule
+    return rule.rule if rule is not None else "-"
+
+
 #: Experiment keys: <id_prefix>-<n>, e.g. MKT-58 (exp_domains.id_prefix).
 KEY_RE = re.compile(r"^[A-Z][A-Z0-9]{1,7}-[0-9]{1,9}$")
 
@@ -192,10 +199,10 @@ def _json_view(view: Callable) -> Callable:
         except Exception as exc:  # noqa: BLE001 - the one place that turns anything into a 500
             if _concurrent_change(exc):
                 logger.warning("Experiments request rolled back by the database: %s %s (%s)",
-                               request.method, request.path, type(exc).__name__)
+                               request.method, _rule(), type(exc).__name__)
                 return _error(409, MSG_CONCURRENT)
-            logger.error("Experiments request failed: %s %s", request.method, request.path,
-                         exc_info=True)
+            logger.error("Experiments request failed: %s %s (%s)", request.method, _rule(),
+                         type(exc).__name__)
             return _error(500, MSG_INTERNAL)
 
     return wrapped
@@ -326,8 +333,8 @@ def _error_handlers(bp: Blueprint, *, pages: bool) -> None:
 
     @bp.errorhandler(Exception)
     def _unexpected(exc: Exception):
-        logger.error("Experiments request failed: %s %s", request.method, request.path,
-                     exc_info=exc)
+        logger.error("Experiments request failed: %s %s (%s)", request.method, _rule(),
+                     type(exc).__name__)
         if pages and not _is_api_path():
             return InternalServerError()
         return _error(500, MSG_INTERNAL)
@@ -818,12 +825,12 @@ def create_experiments_api_blueprint(gate: Any, *, settings: Any, runner: Any = 
         _without_session()
         try:
             user, token_id, reason = _admit(gate.connection(), _bearer_token())
-        except Exception:  # noqa: BLE001 - never a 401 for our own failure
-            logger.error("Experiments API: token check failed.", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - never a 401 for our own failure
+            logger.error("Experiments API: token check failed (%s).", type(exc).__name__)
             return _error(500, MSG_INTERNAL)
         if user is None:
             logger.info("Experiments API refused %s %s from %s: %s%s", request.method,
-                        request.path, _client_ip(), reason,
+                        _rule(), _client_ip(), reason,
                         f" (token {token_id})" if token_id else "")
             return _unauthorized()
         g.experiments_api_caller = (user, token_id)
@@ -936,9 +943,9 @@ def _install_method_not_allowed(app: Any, gate: Any) -> None:
             return exc
         try:
             viewer = permissions.can_view(gate.current_user())
-        except Exception:  # noqa: BLE001 - same answer as a failing role gate
-            logger.error("Experiments request failed: %s %s", request.method, path,
-                         exc_info=True)
+        except Exception as err:  # noqa: BLE001 - same answer as a failing role gate
+            logger.error("Experiments request failed: %s %s (%s)", request.method, _rule(),
+                         type(err).__name__)
             if _is_api_path():
                 response, status = _error(500, MSG_INTERNAL)
                 return _no_store(response), status
@@ -974,9 +981,9 @@ def _prepare_database(connect: Callable[[], Any]) -> None:
 
     try:
         conn = connect()
-    except Exception:  # noqa: BLE001
-        logger.error("Experimente: no database connection at start; built-in evaluators "
-                     "and the core pack were not checked.", exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Experimente: no database connection at start (%s); built-in evaluators "
+                     "and the core pack were not checked.", type(exc).__name__)
         return
     try:
         conn.execute("SELECT pg_advisory_lock(%s, %s)", (BOOT_LOCK_CLASS, BOOT_LOCK_OBJECT))
@@ -985,14 +992,14 @@ def _prepare_database(connect: Callable[[], Any]) -> None:
             store.ensure_core_pack(conn)
         finally:
             conn.execute("SELECT pg_advisory_unlock(%s, %s)", (BOOT_LOCK_CLASS, BOOT_LOCK_OBJECT))
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.error("Experimente: built-in evaluators or the core pack could not be "
-                     "installed at start.", exc_info=True)
+                     "installed at start (%s).", type(exc).__name__)
     finally:
         try:
             conn.close()
-        except Exception:  # noqa: BLE001
-            logger.debug("Experiments boot connection close failed", exc_info=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Experiments boot connection close failed (%s)", type(exc).__name__)
 
 
 def worker_connect() -> Callable[[], Any]:

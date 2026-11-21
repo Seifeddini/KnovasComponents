@@ -198,7 +198,7 @@ def attach_approval_routes(
                            type(exc).__name__)
             return None, f"Freigegeben, aber nicht ausgefuehrt: {exc}"
         except Exception as exc:  # noqa: BLE001 - surfaced, the request stays approved
-            logger.warning("Freigegebene Anfrage %s nicht ausgefuehrt: %s", req.id, exc)
+            logger.warning("Freigegebene Anfrage %s nicht ausgefuehrt: %s", req.id, type(exc).__name__)
             return None, (
                 "Freigegeben, aber die Ausfuehrung ist fehlgeschlagen. Unter "
                 "'Freigegeben, noch nicht ausgefuehrt' kann sie erneut "

@@ -249,20 +249,24 @@ def _where(source: Source) -> str:
 def _read_reports(source: Source, header: Dict[str, Any],
                   github: Optional[Callable[[str], Any]]) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
     """The reports the header names. A missing or broken report is empty and listed; the bundle still serves."""
-    reports, errors = {}, []
+    reports, errors, kinds = {}, [], []
     for name, rel in sorted((header.get("reports") or {}).items()):
         try:
             path = source.report_path(str(rel))
             text = _read_text(source, path, github)
             if text is None:
                 errors.append(f"Bericht {name} fehlt ({rel}).")
+                kinds.append("missing")
                 continue
             data = json.loads(text)
             reports[name] = data if isinstance(data, dict) else {}
         except (BundleError, ValueError) as exc:
             errors.append(f"Bericht {name} nicht lesbar: {exc}")
-    for e in errors:
-        logger.warning("views bundle: %s", e)
+            kinds.append(type(exc).__name__)
+    if errors:
+        # The messages name reports, paths and exception text: they are shown
+        # to the administrator, the log gets their count and kinds.
+        logger.warning("views bundle: %d report(s) not read (%s)", len(errors), ", ".join(kinds))
     return reports, errors
 
 

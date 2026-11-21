@@ -36,6 +36,7 @@ from typing import Any, Mapping, Sequence
 from uuid import UUID
 
 from identity import audit
+from log_safety import pointer_hash
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +200,7 @@ class ApprovalService:
         )
         logger.info(
             "Four-eyes bypassed by administrator %s for %s on %s",
-            getattr(actor, "email", "?"), kind, target_ref,
+            getattr(actor, "id", "?"), kind, pointer_hash(target_ref),
         )
 
     # ── the workflow ───────────────────────────────────────────────────────

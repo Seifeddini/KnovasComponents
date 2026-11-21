@@ -36,7 +36,7 @@ except Exception as exc:  # noqa: BLE001
     logger.warning(
         "Kein deutscher Wortstammer (%s): die Suche vergleicht Zeichen. "
         "'abgerechnet' und 'Abrechnung' gelten dann als verschiedene Woerter. "
-        "snowballstemmer aus requirements.txt installieren.", exc,
+        "snowballstemmer aus requirements.txt installieren.", type(exc).__name__,
     )
 
 #: Ob die Wortformen zusammengefuehrt werden. Fuer scripts/doctor.sh und die

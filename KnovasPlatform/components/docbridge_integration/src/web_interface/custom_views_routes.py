@@ -268,7 +268,7 @@ def create_custom_views_blueprint(*, gate: Any, registry: Registry, settings: Cu
         except PermissionError:
             return _error(401, SIGNED_OUT)
         except ReadFailed as exc:
-            logger.warning("custom_views: brain read failed for %s: %s", view_id, exc)
+            logger.warning("custom_views: brain read failed for %s: HTTP %s", view_id, exc.status)
             return _error(502, BRAIN_DOWN)
         finally:
             running.leave(key)

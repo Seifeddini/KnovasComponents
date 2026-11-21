@@ -269,11 +269,11 @@ def build_handlers(*, settings: Any, index_client: Any,
         _service().on_evaluation_dead(conn, str(evaluation_id))
 
     def unindex_dead(conn: Any, job: Job) -> None:
-        logger.warning("Experiments unindex job %s is dead (%s); the maintenance repeats the "
-                       "deletion later.", job.id, job.last_error)
+        logger.warning("Experiments unindex job %s is dead; the maintenance repeats the "
+                       "deletion later.", job.id)
 
     def log_dead(conn: Any, job: Job) -> None:
-        logger.warning("Experiments %s job %s is dead: %s", job.kind, job.id, job.last_error)
+        logger.warning("Experiments %s job %s is dead; its last error is in its row.", job.kind, job.id)
 
     def maintenance(conn: Any) -> None:
         """Repeat failed deletions, then re-queue experiments whose Knovas
@@ -283,8 +283,9 @@ def build_handlers(*, settings: Any, index_client: Any,
         if index_client is not None:
             try:
                 requeue_failed_deletions(conn)
-            except Exception:  # noqa: BLE001 - the upload half must still run
-                logger.exception("Experiments maintenance: re-queueing deletions failed.")
+            except Exception as exc:  # noqa: BLE001 - the upload half must still run
+                logger.error("Experiments maintenance: re-queueing deletions failed (%s).",
+                             type(exc).__name__)
                 _rollback_failed(conn)
         if not settings.index_enabled or index_client is None:
             return

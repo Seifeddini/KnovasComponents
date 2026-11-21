@@ -48,6 +48,7 @@ from doc_fields_view import (
 from identity import audit
 from identity.approvals import ApprovalService
 from knovas_client import DocFieldsError, DocFieldsUnavailable
+from log_safety import pointer_hash
 from web_interface.admin_doc_fields import (
     OFF_TEXT,
     FormError,
@@ -143,7 +144,7 @@ def execute_corpus_purge(client, payload, *, actor, conn) -> dict:
     )
     logger.warning(
         "Dokumentbestand des Mandanten %s geloescht durch %s.",
-        confirm, getattr(actor, "email", "?"),
+        confirm, getattr(actor, "id", "?"),
     )
     return {"purged": True, "message": str(result.get("message") or "")}
 
@@ -166,7 +167,7 @@ def execute_acl_change(client, payload, *, actor, conn) -> dict:
                 client.set_document_access(pointer, groups)
                 changed += 1
             except Exception as exc:  # noqa: BLE001
-                logger.warning("ACL nicht gesetzt fuer %s: %s", pointer, exc)
+                logger.warning("ACL nicht gesetzt fuer doc %s: %s", pointer_hash(pointer), type(exc).__name__)
                 failed.append(pointer)
         audit.record(
             conn, action="document.acl_changed", actor=actor,
@@ -264,7 +265,7 @@ def attach_document_routes(
         try:
             first = view.page(**filters)
         except Exception as exc:  # noqa: BLE001 - surfaced, not swallowed
-            logger.warning("Dokumentliste nicht abrufbar: %s", exc)
+            logger.warning("Dokumentliste nicht abrufbar: %s", type(exc).__name__)
             # Every key the template reads must be here: the fallback is what
             # renders when the fetch failed, and a missing one turns a handled
             # error into a KeyError 500 on the page meant to report it.
@@ -278,7 +279,7 @@ def attach_document_routes(
         try:
             groups = client_factory().access_groups()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Zugriffsgruppen nicht abrufbar: %s", exc)
+            logger.warning("Zugriffsgruppen nicht abrufbar: %s", type(exc).__name__)
         capability = _doc_fields_capability(client_factory())
         return render_template(
             "admin_documents.html",
@@ -318,7 +319,7 @@ def attach_document_routes(
         try:
             return jsonify(view.page(after=after, **filters))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Seite nicht abrufbar: %s", exc)
+            logger.warning("Seite nicht abrufbar: %s", type(exc).__name__)
             return jsonify({"documents": [], "next_after": None,
                             "total_count": 0, "error": "unavailable"}), 503
 
@@ -347,7 +348,7 @@ def attach_document_routes(
                 ),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Zugriffsaenderung nicht gespeichert: %s", exc)
+            logger.warning("Zugriffsaenderung nicht gespeichert: %s", type(exc).__name__)
             return _documents_page(
                 error="Zugriffsaenderung konnte nicht gespeichert werden.", status=400
             )
@@ -410,7 +411,7 @@ def attach_document_routes(
                 ),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("Bestand nicht geloescht: %s", exc, exc_info=True)
+            logger.error("Bestand nicht geloescht: %s", type(exc).__name__)
             return _documents_page(
                 error=(
                     "Der Bestand wurde NICHT geloescht — die Knovas-API hat den "
@@ -675,12 +676,12 @@ def attach_document_routes(
         try:
             groups = client.access_groups()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Zugriffsgruppen nicht abrufbar: %s", exc)
+            logger.warning("Zugriffsgruppen nicht abrufbar: %s", type(exc).__name__)
             error = error or "Zugriffsgruppen sind derzeit nicht abrufbar."
         try:
             rules = client.folder_rules()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Ordnerregeln nicht abrufbar: %s", exc)
+            logger.warning("Ordnerregeln nicht abrufbar: %s", type(exc).__name__)
         return render_template(
             "admin_access_groups.html",
             active_nav="admin",
@@ -713,7 +714,7 @@ def attach_document_routes(
         try:
             created = client_factory().create_access_group(name, parent=parent)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Gruppe nicht angelegt: %s", exc)
+            logger.warning("Gruppe nicht angelegt: %s", type(exc).__name__)
             return _groups_page(error="Gruppe konnte nicht angelegt werden.",
                                 status=400)
         # None heisst: die API hat mit 404 geantwortet und nichts angelegt. Das
@@ -721,7 +722,7 @@ def attach_document_routes(
         # meldete die Seite den Erfolg, waehrend die Liste darunter die neue
         # Gruppe nicht enthielt. Ein leeres dict (204) ist dagegen ein Erfolg.
         if created is None:
-            logger.error("Gruppe %r wurde von der Knovas-API nicht angelegt (404).", name)
+            logger.error("Eine Gruppe wurde von der Knovas-API nicht angelegt (404).")
             return _groups_page(
                 error=(
                     "Die Knovas-API hat die Gruppe nicht angelegt — sie kennt "
@@ -763,7 +764,7 @@ def attach_document_routes(
                 ),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Ordnerregel nicht gespeichert: %s", exc)
+            logger.warning("Ordnerregel nicht gespeichert: %s", type(exc).__name__)
             return _groups_page(
                 error="Ordnerregel konnte nicht gespeichert werden.", status=400
             )
@@ -794,7 +795,7 @@ def attach_document_routes(
                 ),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Ordnerregel nicht geloescht: %s", exc)
+            logger.warning("Ordnerregel nicht geloescht: %s", type(exc).__name__)
             return _groups_page(error="Regel konnte nicht geloescht werden.", status=400)
         if outcome.queued:
             return _groups_page(notice=_queued_notice(outcome.request))

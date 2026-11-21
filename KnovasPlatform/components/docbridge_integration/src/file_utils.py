@@ -11,6 +11,8 @@ from typing import Optional, Dict, Any, Tuple
 import logging
 from datetime import datetime
 
+from log_safety import pointer_hash
+
 logger = logging.getLogger(__name__)
 
 
@@ -109,11 +111,11 @@ class AutoDocFileHandler:
                     hasher.update(chunk)
             
             hash_value = hasher.hexdigest()
-            logger.debug(f"Calculated {algorithm} hash for {file_path}: {hash_value}")
+            logger.debug("Calculated %s hash for file %s", algorithm, pointer_hash(file_path))
             return hash_value
             
         except Exception as e:
-            logger.error(f"Error calculating hash for {file_path}: {e}")
+            logger.error("Error calculating hash for file %s: %s", pointer_hash(file_path), type(e).__name__)
             raise
     
     def get_file_info(self, file_path: str) -> Dict[str, Any]:
@@ -155,11 +157,12 @@ class AutoDocFileHandler:
                 file_info['hash_sha256'] = self.calculate_file_hash(file_path, 'sha256')
                 file_info['hash_md5'] = self.calculate_file_hash(file_path, 'md5')
             except Exception as e:
-                logger.warning(f"Could not calculate hashes for {file_path}: {e}")
+                logger.warning("Could not calculate hashes for file %s: %s", pointer_hash(file_path),
+                               type(e).__name__)
         else:
             logger.warning(
-                f"File {file_path} exceeds max size ({stat.st_size} > {self.max_file_size}), "
-                "skipping hash calculation"
+                "File %s exceeds max size (%d > %d), skipping hash calculation",
+                pointer_hash(file_path), stat.st_size, self.max_file_size,
             )
         
         return file_info

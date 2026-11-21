@@ -138,14 +138,14 @@ def ensure_admin(
         logger.warning(
             "First boot: created administrator %s. The one-time password is in "
             "%s — sign in, change it, and delete the file.",
-            address, secret_path,
+            created.id, secret_path,
         )
     else:
         # The operator already holds this secret; echoing it to disk would only
         # create a second copy to forget about.
         logger.warning(
             "First boot: created administrator %s with the supplied password. "
-            "It must be changed at first sign-in.", address,
+            "It must be changed at first sign-in.", created.id,
         )
     return True
 

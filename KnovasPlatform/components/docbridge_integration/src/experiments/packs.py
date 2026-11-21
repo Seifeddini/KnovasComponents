@@ -274,8 +274,8 @@ def _params_errors(params_schema: Dict[str, Any], params: Dict[str, Any], path: 
     try:
         validator = Draft202012Validator(params_schema)
         return schema.schema_errors(validator, params, path)
-    except Exception:  # noqa: BLE001 - a broken schema must not escape as a 500
-        logger.warning("Could not apply a params schema while validating a pack", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 - a broken schema must not escape as a 500
+        logger.warning("Could not apply a params schema while validating a pack (%s)", type(exc).__name__)
         return {path: "Die Parameter lassen sich nicht pr\u00fcfen."}
 
 
@@ -606,9 +606,9 @@ def available_packs() -> List[Dict[str, Any]]:
         try:
             data = schema.parse_text(files[name].read_text(encoding="utf-8"),
                                      max_bytes=MAX_PACK_BYTES, what="Das Paket")
-        except (OSError, UnicodeDecodeError, ValidationError):
-            logger.warning("Experiments pack %s.yaml cannot be read; not offered", name,
-                           exc_info=True)
+        except (OSError, UnicodeDecodeError, ValidationError) as exc:
+            logger.warning("Experiments pack %s.yaml cannot be read (%s); not offered", name,
+                           type(exc).__name__)
             continue
         if not isinstance(data, dict):
             continue
@@ -633,8 +633,8 @@ def load_pack(name: str) -> Dict[str, Any]:
         raise NotFound(_NOT_FOUND)
     try:
         text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        logger.error("Experiments pack %s.yaml cannot be read", name, exc_info=True)
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.error("Experiments pack %s.yaml cannot be read (%s)", name, type(exc).__name__)
         raise NotFound(_NOT_FOUND) from None
     pack = parse_pack_text(text)
     if pack["pack"] != name:

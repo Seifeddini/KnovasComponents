@@ -331,7 +331,7 @@ class KnovasConnectorClient:
             try:
                 self._call("POST", "/sync/config", body=previous)
             except Exception as rollback_exc:  # noqa: BLE001
-                logger.error("Rollback der Sync-Konfiguration fehlgeschlagen: %s", rollback_exc)
+                logger.error("Rollback der Sync-Konfiguration fehlgeschlagen: %s", type(rollback_exc).__name__)
             raise
 
         if compiled.sync_config.get("mode") != "continuous":
