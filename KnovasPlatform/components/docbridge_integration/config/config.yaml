@@ -430,6 +430,15 @@ builder:
   assistant:
     model: "${BUILDER_ASSISTANT_MODEL:-claude-opus-5-5}"
 
+# The Knovas Assistent (PMVP-25), editable on the settings page (settings registry assistant.*): the switch (aus by
+# default; an or aus, the environment also takes true or false), the provider of its language model (knovas: the
+# Core's /secured/llm/generate; anthropic: Claude, called by the Platform itself) and, with anthropic, the model. Its
+# API key is a secret of the registry (assistant.anthropic_api_key), never a value here.
+assistant:
+  enabled: "${ASSISTANT_ENABLED:-aus}"
+  provider: "${ASSISTANT_PROVIDER:-knovas}"
+  model: "${ASSISTANT_MODEL:-claude-opus-5-5}"
+
 open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"
   companion_enabled: "${OPEN_COMPANION_ENABLED:-false}"
