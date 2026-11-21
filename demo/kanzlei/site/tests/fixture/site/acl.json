@@ -1,0 +1,19 @@
+[
+  {"path": "", "protect": true,
+   "grants": [{"principal": "GG_Alle", "access": "read"}, {"principal": "Domain Admins", "access": "full"}]},
+  {"path": "Quarzfels/Mandate", "protect": false,
+   "grants": [{"principal": "GG_Anwaelte", "access": "modify"}, {"principal": "GG_Sekretariat", "access": "modify"}]},
+  {"path": "Quarzfels/Scan Eingang", "protect": false,
+   "grants": [{"principal": "svc-scan", "access": "modify"}]},
+  {"path": "Quarzfels/Gemeinsam/Personal", "protect": true,
+   "grants": [{"principal": "GG_Partner", "access": "modify"}, {"principal": "svc-knovas", "access": "read"}]},
+  {"path": "Quarzfels/Gemeinsam/Personal/Zürcher Simon", "protect": true,
+   "grants": [{"principal": "GG_Partner", "access": "modify"}, {"principal": "svc-backup", "access": "read"}]},
+  {"path": "Quarzfels/Partner", "protect": true,
+   "grants": [{"principal": "GG_Partner", "access": "modify"}]},
+  {"path": "Quarzfels/Users/mbaer", "protect": true, "grants": [{"principal": "mbaer", "access": "modify"}]},
+  {"path": "Quarzfels/Users/aroth", "protect": true, "grants": [{"principal": "aroth", "access": "modify"}]},
+  {"path": "Quarzfels/Users/lmueller", "protect": true, "grants": [{"principal": "lmueller", "access": "modify"}]},
+  {"path": "Quarzfels/Users/nkeller", "protect": true, "grants": [{"principal": "nkeller", "access": "modify"}]},
+  {"path": "Quarzfels/Users/szuercher", "protect": true, "grants": [{"principal": "szuercher", "access": "modify"}]}
+]

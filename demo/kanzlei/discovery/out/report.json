@@ -1,0 +1,549 @@
+{
+  "client": {
+    "it_provider": "external",
+    "key": "quarzfels",
+    "lawyers": 10,
+    "people": 13,
+    "sector": "law-firm"
+  },
+  "counts": {
+    "A": 2,
+    "B": 2,
+    "C": 1,
+    "D": 4
+  },
+  "environment": {
+    "api_error": null,
+    "api_host_set": true,
+    "api_reachable": true,
+    "cpus": 8,
+    "disk_free_bytes": 3175165952,
+    "docker": {
+      "present": false,
+      "version": null
+    },
+    "in_container": true,
+    "memory_bytes": 33658912768,
+    "os": "Linux 6.18.58.1-microsoft-standard-WSL2",
+    "proxy_vars": [],
+    "python": "3.13.18"
+  },
+  "named_by_client": [
+    {
+      "category": "practice",
+      "entry": "practice-database",
+      "product": "unknown",
+      "result": "confirmed by the scan"
+    }
+  ],
+  "needs_from_client": [
+    "A service account that can read the folders we may index, and nothing else.",
+    "The share's address as the server sees it (IP address or name), and the SMB version.",
+    "A machine in their network for the Knovas site (Docker), or a virtual machine from their IT provider.",
+    "Which folders are out of scope (personnel, wages, partners), named by the client, in writing.",
+    "A decision: index the scan folder, or only what has been filed to a matter.",
+    "The list of people who get Knovas, and to which groups each belongs for the purpose of access.",
+    "A read-only account for the directory, if groups are to be compared with what is entered.",
+    "What the second part of a file name is: the reference a lawyer says aloud, or an internal number.",
+    "Whether e-mails are saved into the store (as .msg) and by whom.",
+    "A read-only database login, created by the IT provider.",
+    "The vendor's name, the product and its version; the vendor's consent if their contract requires it.",
+    "Someone at the firm who knows what the important fields mean."
+  ],
+  "not_targeted": [
+    "m365"
+  ],
+  "open_questions": [
+    "Which folders must never be indexed?",
+    "Who may see what today: do folder permissions say it, or does everybody see everything?",
+    "How long does post stay in the scan folder before it is filed?",
+    "Who adds and removes people today, the firm or the IT provider?",
+    "Is the directory synchronised to Microsoft 365 (Entra Connect)?",
+    "Since when is the store in use, and where are the files from before?",
+    "Are matters locked for some people in the practice software?",
+    "Which product is it, and who is the vendor's contact?",
+    "Does the vendor offer an export or an interface that is supported across updates?",
+    "Which records matter most: clients and matters, deadlines, time and invoices?",
+    "`kanzlei:Quarzfels/Mail`: is it right that the account sees nothing here, or was the wrong account or folder given?",
+    "`kanzlei:Quarzfels/Users`: is it right that the account sees nothing here, or was the wrong account or folder given?",
+    "The intake names no target for Microsoft 365: does the client have one?"
+  ],
+  "probes_not_ok": [],
+  "review": {
+    "notes": [],
+    "unknown_ids": [],
+    "used": false
+  },
+  "scanned_at": "2026-11-20T19:20:06Z",
+  "sources": [
+    {
+      "category": "documents",
+      "checks": [
+        {
+          "key": "mostly-unread-formats",
+          "text": "Only 7% of the files are in a format the Connector reads. Ask what the rest is before promising search over 'all documents'."
+        },
+        {
+          "key": "folders-refuse-account",
+          "text": "2 folders refuse the account. Confirm with the client that each is meant to be out of scope."
+        },
+        {
+          "key": "lock-files",
+          "text": "1 Office lock files (~$...) have an extension the Connector reads. They are not documents."
+        }
+      ],
+      "class": "A",
+      "class_from": "catalogue",
+      "effort": null,
+      "effort_drivers": [],
+      "entry": "fileshare",
+      "evidence": [
+        {
+          "fact": "files",
+          "measured": 590,
+          "op": ">",
+          "value": 0
+        }
+      ],
+      "id": "fileshare@kanzlei:Quarzfels/Gemeinsam",
+      "knovas": {
+        "component": "Knovas Connector",
+        "how": "The share is mounted read-only on the Connector's machine; the folder is its watch root.",
+        "status": "released"
+      },
+      "name": "File share (common drive)",
+      "needs_from_client": [
+        "A service account that can read the folders we may index, and nothing else.",
+        "The share's address as the server sees it (IP address or name), and the SMB version.",
+        "A machine in their network for the Knovas site (Docker), or a virtual machine from their IT provider.",
+        "Which folders are out of scope (personnel, wages, partners), named by the client, in writing."
+      ],
+      "notes": [],
+      "origin": "scan",
+      "probe": "fileshare",
+      "questions": [
+        "Which folders must never be indexed?",
+        "Who may see what today: do folder permissions say it, or does everybody see everything?"
+      ],
+      "result_key": "kanzlei:Quarzfels/Gemeinsam",
+      "risks": [
+        "Folder permissions do not travel: who may see a document in Knovas is entered in Knovas.",
+        "Old file dates: the Connector must run without a limit on file age."
+      ],
+      "summary": "590 files (3.5 MB) in 162 folders; 40 (6.8%) in formats the Connector reads; newest file 2 days old, oldest 28 years old; 2 folders refuse the account"
+    },
+    {
+      "category": "documents",
+      "checks": [],
+      "class": "A",
+      "class_from": "catalogue",
+      "effort": null,
+      "effort_drivers": [],
+      "entry": "scanner-output",
+      "evidence": [
+        {
+          "fact": "patterns.scanner_files",
+          "measured": 6,
+          "op": ">=",
+          "value": 3
+        }
+      ],
+      "id": "scanner-output@kanzlei:Quarzfels/Gemeinsam",
+      "knovas": {
+        "component": "Knovas Connector (OCR)",
+        "how": "Read like any PDF; image-only pages go through OCR.",
+        "status": "released"
+      },
+      "name": "Scanned post that nobody has filed",
+      "needs_from_client": [
+        "A decision: index the scan folder, or only what has been filed to a matter."
+      ],
+      "notes": [],
+      "origin": "scan",
+      "probe": "fileshare",
+      "questions": [
+        "How long does post stay in the scan folder before it is filed?"
+      ],
+      "result_key": "kanzlei:Quarzfels/Gemeinsam",
+      "risks": [
+        "Unfiled post has no matter and no rights; a confidential letter in the scan folder is visible to everyone who may see the folder."
+      ],
+      "summary": "590 files (3.5 MB) in 162 folders; 40 (6.8%) in formats the Connector reads; newest file 2 days old, oldest 28 years old; 2 folders refuse the account"
+    },
+    {
+      "category": "identity",
+      "checks": [
+        {
+          "key": "nested-groups",
+          "text": "Groups are nested 2 levels deep. Membership has to be resolved through the nesting."
+        },
+        {
+          "key": "disabled-people",
+          "text": "7 disabled accounts: people who left are kept, not deleted."
+        }
+      ],
+      "class": "B",
+      "class_from": "catalogue",
+      "effort": null,
+      "effort_drivers": [],
+      "entry": "active-directory",
+      "evidence": [
+        {
+          "fact": "is_active_directory",
+          "measured": true,
+          "op": "==",
+          "value": true
+        }
+      ],
+      "id": "active-directory@ad",
+      "knovas": {
+        "component": "Platform (Verwaltung)",
+        "how": "People and groups are entered in the Platform by hand today. Reading groups from the directory is not built.",
+        "status": "partly"
+      },
+      "name": "Active Directory",
+      "needs_from_client": [
+        "The list of people who get Knovas, and to which groups each belongs for the purpose of access.",
+        "A read-only account for the directory, if groups are to be compared with what is entered."
+      ],
+      "notes": [],
+      "origin": "scan",
+      "probe": "directory",
+      "questions": [
+        "Who adds and removes people today, the firm or the IT provider?",
+        "Is the directory synchronised to Microsoft 365 (Entra Connect)?"
+      ],
+      "result_key": "ad",
+      "risks": [
+        "Two lists of people to keep: the directory and Knovas. A person who leaves must be removed in both.",
+        "Nested groups: who is in a group is not what the group's member list shows."
+      ],
+      "summary": "Active Directory: 13 people enabled, 7 disabled, 4 service accounts; 7 groups (0 empty), nested 2 deep; 1 computers"
+    },
+    {
+      "category": "documents",
+      "checks": [
+        {
+          "key": "mostly-unread-formats",
+          "text": "Only 2% of the files are in a format the Connector reads. Ask what the rest is before promising search over 'all documents'."
+        },
+        {
+          "key": "many-top-folders",
+          "text": "63 numbered folders: configure the Connector for one folder per cycle (sequential_subfolders) for the first read."
+        },
+        {
+          "key": "lock-files",
+          "text": "20 Office lock files (~$...) have an extension the Connector reads. They are not documents."
+        }
+      ],
+      "class": "B",
+      "class_from": "catalogue",
+      "effort": null,
+      "effort_drivers": [],
+      "entry": "autodoc-store",
+      "evidence": [
+        {
+          "fact": "patterns.autodoc_names_share",
+          "measured": 0.9987,
+          "op": ">=",
+          "value": 0.3
+        }
+      ],
+      "id": "autodoc-store@kanzlei:Quarzfels/Praxis/Autodoc",
+      "knovas": {
+        "component": "Knovas Connector, Brain Builder",
+        "how": "Watch root on the store, one numbered folder per cycle. The matter comes from the file name through a file-pattern mapping in the Builder.",
+        "status": "released"
+      },
+      "name": "Document store of a practice software (AutoDoc)",
+      "needs_from_client": [
+        "A service account that can read the folders we may index, and nothing else.",
+        "The share's address as the server sees it (IP address or name), and the SMB version.",
+        "A machine in their network for the Knovas site (Docker), or a virtual machine from their IT provider.",
+        "What the second part of a file name is: the reference a lawyer says aloud, or an internal number.",
+        "Whether e-mails are saved into the store (as .msg) and by whom."
+      ],
+      "notes": [],
+      "origin": "scan",
+      "probe": "fileshare",
+      "questions": [
+        "Since when is the store in use, and where are the files from before?",
+        "Are matters locked for some people in the practice software?"
+      ],
+      "result_key": "kanzlei:Quarzfels/Praxis/Autodoc",
+      "risks": [
+        "The folders are number ranges: no folder says whose files it holds, and rights cannot be set by folder.",
+        "Client, matter team and matter rights are in the practice software's database, not on the share.",
+        "A large part of an old store is in formats the Connector does not read (.doc, TIFF scans)."
+      ],
+      "summary": "31,175 files (114.8 MB) in 63 folders; 703 (2.3%) in formats the Connector reads; newest file 2 days old, oldest 20 years old; 0 folders refuse the account"
+    },
+    {
+      "category": "records",
+      "checks": [
+        {
+          "key": "no-foreign-keys",
+          "text": "The database declares no relations between its tables. They have to be worked out from column names, with someone who knows the software."
+        },
+        {
+          "key": "rights-in-database",
+          "text": "1 tables look as if they say who may see what. Until Knovas reads them, restrictions set in the software do not hold in Knovas."
+        },
+        {
+          "key": "leftover-tables",
+          "text": "2 tables look like backups or imports. They are not the client's current data and must not be mapped."
+        }
+      ],
+      "class": "C",
+      "class_from": "catalogue",
+      "effort": {
+        "drivers": [
+          {
+            "driver": "record_tables",
+            "label": "Tables that hold the firm's records",
+            "measured": "12 record tables",
+            "points": 12,
+            "rule": "1 each, at most 12"
+          },
+          {
+            "driver": "foreign_keys",
+            "label": "No foreign keys (relations have to be worked out)",
+            "measured": "0 declared",
+            "points": 3,
+            "rule": "none: 3"
+          },
+          {
+            "driver": "change_markers",
+            "label": "Change markers on the record tables",
+            "measured": "7 of 12 record tables have one (some)",
+            "points": 2,
+            "rule": "all 0, some 2, none 5"
+          },
+          {
+            "driver": "removed_rows",
+            "label": "Rows that are removed without a flag",
+            "measured": "9 record tables without a delete flag",
+            "points": 3,
+            "rule": "present: 3"
+          },
+          {
+            "driver": "rights_in_source",
+            "label": "Rights kept in the source",
+            "measured": "1 rights tables",
+            "points": 5,
+            "rule": "present: 5"
+          },
+          {
+            "driver": "custom_fields",
+            "label": "Fields the client defined itself",
+            "measured": "2 custom-field tables",
+            "points": 2,
+            "rule": "present: 2"
+          },
+          {
+            "driver": "unknown_product",
+            "label": "Product not in the catalogue",
+            "measured": "product not recognised",
+            "points": 5,
+            "rule": "present: 5"
+          },
+          {
+            "driver": "volume",
+            "label": "More than a million rows in the record tables",
+            "measured": "73,164 rows in record tables",
+            "points": 0,
+            "rule": "over one million: 2"
+          },
+          {
+            "driver": "authentication",
+            "label": "Only Windows authentication",
+            "measured": "authentication: mixed",
+            "points": 0,
+            "rule": "Windows only: 2"
+          }
+        ],
+        "effort_class": "XL",
+        "mode": "computed",
+        "note": null,
+        "points": 32,
+        "review_points": []
+      },
+      "effort_drivers": [
+        "record_tables",
+        "foreign_keys",
+        "change_markers",
+        "removed_rows",
+        "rights_in_source",
+        "custom_fields",
+        "unknown_product",
+        "volume",
+        "authentication"
+      ],
+      "entry": "practice-database",
+      "evidence": [
+        {
+          "fact": "vocabulary.legal_practice",
+          "measured": 8,
+          "op": ">=",
+          "value": 4
+        }
+      ],
+      "id": "practice-database@praxis:KanzleiDB",
+      "knovas": {
+        "component": "none",
+        "how": "No component reads records from a database yet. Needs a connector of its own kind behind Knovas Link, or a scheduled export the sync component reads.",
+        "status": "none"
+      },
+      "name": "Database of a legal practice software (product not recognised)",
+      "needs_from_client": [
+        "A read-only database login, created by the IT provider.",
+        "The vendor's name, the product and its version; the vendor's consent if their contract requires it.",
+        "Someone at the firm who knows what the important fields mean."
+      ],
+      "notes": [],
+      "origin": "scan",
+      "probe": "mssql",
+      "questions": [
+        "Which product is it, and who is the vendor's contact?",
+        "Does the vendor offer an export or an interface that is supported across updates?",
+        "Which records matter most: clients and matters, deadlines, time and invoices?"
+      ],
+      "result_key": "praxis:KanzleiDB",
+      "risks": [
+        "Vendors do not publish their tables: the mapping is worked out on site and can break with an update.",
+        "Matter rights live here. Until Knovas reads them, a matter locked in the software is open in Knovas.",
+        "Reading a production database needs care: read-only login, off-peak hours, no long transactions."
+      ],
+      "summary": "23 tables, 73,994 rows: 12 records, 5 lookup, 4 software, 2 leftover; 0 foreign keys; SQL Server 2022, Developer Edition (64-bit), mixed authentication"
+    },
+    {
+      "category": "other",
+      "checks": [],
+      "class": "D",
+      "class_from": "catalogue",
+      "effort": null,
+      "effort_drivers": [],
+      "entry": "dictations",
+      "evidence": [
+        {
+          "fact": "patterns.dictation_files",
+          "measured": 30,
+          "op": ">=",
+          "value": 1
+        }
+      ],
+      "id": "dictations@kanzlei:Quarzfels/Gemeinsam",
+      "knovas": {
+        "component": "none",
+        "how": "Not read.",
+        "status": "none"
+      },
+      "name": "Dictation files",
+      "needs_from_client": [],
+      "notes": [],
+      "origin": "scan",
+      "probe": "fileshare",
+      "questions": [],
+      "result_key": "kanzlei:Quarzfels/Gemeinsam",
+      "risks": [],
+      "summary": "590 files (3.5 MB) in 162 folders; 40 (6.8%) in formats the Connector reads; newest file 2 days old, oldest 28 years old; 2 folders refuse the account"
+    },
+    {
+      "category": "other",
+      "checks": [],
+      "class": "D",
+      "class_from": "catalogue",
+      "effort": null,
+      "effort_drivers": [],
+      "entry": "dictations",
+      "evidence": [
+        {
+          "fact": "patterns.dictation_files",
+          "measured": 1215,
+          "op": ">=",
+          "value": 1
+        }
+      ],
+      "id": "dictations@kanzlei:Quarzfels/Praxis/Autodoc",
+      "knovas": {
+        "component": "none",
+        "how": "Not read.",
+        "status": "none"
+      },
+      "name": "Dictation files",
+      "needs_from_client": [],
+      "notes": [],
+      "origin": "scan",
+      "probe": "fileshare",
+      "questions": [],
+      "result_key": "kanzlei:Quarzfels/Praxis/Autodoc",
+      "risks": [],
+      "summary": "31,175 files (114.8 MB) in 63 folders; 703 (2.3%) in formats the Connector reads; newest file 2 days old, oldest 20 years old; 0 folders refuse the account"
+    },
+    {
+      "category": "other",
+      "checks": [
+        {
+          "key": "folders-refuse-account",
+          "text": "1 folders refuse the account. Confirm with the client that each is meant to be out of scope."
+        }
+      ],
+      "class": "D",
+      "class_from": "rule",
+      "effort": null,
+      "effort_drivers": [],
+      "entry": "no-access",
+      "evidence": [],
+      "id": "no-access@kanzlei:Quarzfels/Mail",
+      "knovas": {
+        "component": "none",
+        "how": "The scan saw nothing here with the account it was given.",
+        "status": "none"
+      },
+      "name": "Nothing the account can read",
+      "needs_from_client": [],
+      "notes": [],
+      "origin": "scan",
+      "probe": "fileshare",
+      "questions": [
+        "`kanzlei:Quarzfels/Mail`: is it right that the account sees nothing here, or was the wrong account or folder given?"
+      ],
+      "result_key": "kanzlei:Quarzfels/Mail",
+      "risks": [],
+      "summary": "no file visible to the account; 0 folders seen, 1 refuse the account"
+    },
+    {
+      "category": "other",
+      "checks": [
+        {
+          "key": "folders-refuse-account",
+          "text": "1 folders refuse the account. Confirm with the client that each is meant to be out of scope."
+        }
+      ],
+      "class": "D",
+      "class_from": "rule",
+      "effort": null,
+      "effort_drivers": [],
+      "entry": "no-access",
+      "evidence": [],
+      "id": "no-access@kanzlei:Quarzfels/Users",
+      "knovas": {
+        "component": "none",
+        "how": "The scan saw nothing here with the account it was given.",
+        "status": "none"
+      },
+      "name": "Nothing the account can read",
+      "needs_from_client": [],
+      "notes": [],
+      "origin": "scan",
+      "probe": "fileshare",
+      "questions": [
+        "`kanzlei:Quarzfels/Users`: is it right that the account sees nothing here, or was the wrong account or folder given?"
+      ],
+      "result_key": "kanzlei:Quarzfels/Users",
+      "risks": [],
+      "summary": "no file visible to the account; 0 folders seen, 1 refuse the account"
+    }
+  ],
+  "tool_version": "0.1.0"
+}

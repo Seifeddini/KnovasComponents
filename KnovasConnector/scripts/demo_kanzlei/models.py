@@ -14,6 +14,9 @@ class Staff:
     extension: str
     email: str
     voice: str
+    sam: str = ""
+    team: str = ""
+    joined: str = ""
 
 
 @dataclass(frozen=True)

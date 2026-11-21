@@ -1,0 +1,52 @@
+{
+  "_note": "Shaped like Microsoft Graph v1.0's documented answers (token endpoint, subscribedSkus, users, sites/getAllSites, sites/{id}/drives, users/{id}/drive, groups filtered on Team). Invented tenant.",
+  "token": {"token_type": "Bearer", "expires_in": 3599, "ext_expires_in": 3599, "access_token": "eyJ0eXAiOiJKV1QiLCJub25jZSI6ImZha2UifQ.fake.fake"},
+  "get": {
+    "/subscribedSkus": {"status": 200, "body": {
+      "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#subscribedSkus",
+      "value": [
+        {"capabilityStatus": "Enabled", "consumedUnits": 12, "id": "48a80680-7326-48cd-9935-b556b81d3a4e_cbdc14ab-d96c-4c30-b9f4-6ada7cdc1d46",
+         "prepaidUnits": {"enabled": 15, "suspended": 0, "warning": 0}, "skuId": "cbdc14ab-d96c-4c30-b9f4-6ada7cdc1d46",
+         "skuPartNumber": "SPB", "appliesTo": "User",
+         "servicePlans": [{"servicePlanId": "9aaf7827-d63c-4b61-89c3-182f06f82e5c", "servicePlanName": "EXCHANGE_S_STANDARD", "provisioningStatus": "Success", "appliesTo": "User"}]},
+        {"capabilityStatus": "Enabled", "consumedUnits": 1, "id": "48a80680-7326-48cd-9935-b556b81d3a4e_f30db892-07e9-47e9-837c-80727f46fd3d",
+         "prepaidUnits": {"enabled": 10000, "suspended": 0, "warning": 0}, "skuId": "f30db892-07e9-47e9-837c-80727f46fd3d",
+         "skuPartNumber": "FLOW_FREE", "appliesTo": "User", "servicePlans": []}
+      ]}},
+    "/users?$skiptoken=page2": {"status": 200, "body": {
+      "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users(id,accountEnabled,userType,assignedLicenses,assignedPlans)",
+      "value": [
+        {"id": "33333333-0000-0000-0000-000000000003", "accountEnabled": false, "userType": "Member", "assignedLicenses": [],
+         "assignedPlans": []},
+        {"id": "44444444-0000-0000-0000-000000000004", "accountEnabled": true, "userType": "Guest", "assignedLicenses": [],
+         "assignedPlans": []}
+      ]}},
+    "/users?": {"status": 200, "body": {
+      "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users(id,accountEnabled,userType,assignedLicenses,assignedPlans)",
+      "@odata.nextLink": "https://graph.microsoft.com/v1.0/users?$skiptoken=page2",
+      "value": [
+        {"id": "11111111-0000-0000-0000-000000000001", "accountEnabled": true, "userType": "Member",
+         "assignedLicenses": [{"disabledPlans": [], "skuId": "cbdc14ab-d96c-4c30-b9f4-6ada7cdc1d46"}],
+         "assignedPlans": [{"assignedDateTime": "2024-03-01T08:00:00Z", "capabilityStatus": "Enabled", "service": "exchange", "servicePlanId": "9aaf7827-d63c-4b61-89c3-182f06f82e5c"}]},
+        {"id": "22222222-0000-0000-0000-000000000002", "accountEnabled": true, "userType": "Member",
+         "assignedLicenses": [{"disabledPlans": [], "skuId": "cbdc14ab-d96c-4c30-b9f4-6ada7cdc1d46"}],
+         "assignedPlans": [{"assignedDateTime": "2024-03-01T08:00:00Z", "capabilityStatus": "Deleted", "service": "SharePoint", "servicePlanId": "5dbe027f-2339-4123-9542-606e4d348a72"}]}
+      ]}},
+    "/sites/getAllSites": {"status": 200, "body": {
+      "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#sites",
+      "value": [
+        {"id": "example.sharepoint.com,1111aaaa-0000-0000-0000-000000000001,2222bbbb-0000-0000-0000-000000000001", "webUrl": "https://example.sharepoint.com/sites/SITEMARKER-Akten", "isPersonalSite": false},
+        {"id": "example.sharepoint.com,1111aaaa-0000-0000-0000-000000000002,2222bbbb-0000-0000-0000-000000000002", "webUrl": "https://example.sharepoint.com/sites/Intranet", "isPersonalSite": false},
+        {"id": "example-my.sharepoint.com,1111aaaa-0000-0000-0000-000000000003,2222bbbb-0000-0000-0000-000000000003", "webUrl": "https://example-my.sharepoint.com/personal/someone_example_ch", "isPersonalSite": true}
+      ]}},
+    "/sites/example.sharepoint.com,1111aaaa-0000-0000-0000-000000000001": {"status": 200, "body": {
+      "value": [{"id": "b!aaaa", "driveType": "documentLibrary", "quota": {"deleted": 0, "remaining": 1000, "state": "normal", "total": 2000, "used": 1500}}]}},
+    "/sites/example.sharepoint.com,1111aaaa-0000-0000-0000-000000000002": {"status": 200, "body": {
+      "value": [{"id": "b!bbbb", "driveType": "documentLibrary", "quota": {"deleted": 0, "remaining": 1000, "state": "normal", "total": 2000, "used": 500}}]}},
+    "/users/11111111-0000-0000-0000-000000000001/drive": {"status": 200, "body": {
+      "id": "b!cccc", "driveType": "business", "quota": {"deleted": 0, "remaining": 1000, "state": "normal", "total": 2000, "used": 250}}},
+    "/groups?": {"status": 200, "body": {
+      "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#groups(id)",
+      "value": [{"id": "aaaa0000-0000-0000-0000-000000000001"}, {"id": "aaaa0000-0000-0000-0000-000000000002"}, {"id": "aaaa0000-0000-0000-0000-000000000003"}]}}
+  }
+}

@@ -1,0 +1,459 @@
+# The kinds of source we know. One entry per kind: how to recognise it, what Knovas does with it today, what the
+# client has to provide, what to ask, and what drives the effort.
+#
+# Add an entry whenever a discovery meets something that is not here, and correct an entry whenever a client proves
+# it wrong. `seen` counts the clients we found it at (a number, never a name).
+#
+# class: A standard (a released component connects it with configuration only)
+#        B standard with mapping (a released component connects it; someone models or maps something per client)
+#        C custom (nothing reads it yet: a connector or an export has to be built; effort class from the scan)
+#        D not now (we cannot or should not connect it; the report says why)
+#
+# detect: a list of blocks; one block is enough, and in a block every condition must hold.
+#   on:   which probe result the facts are from: fileshare, directory, mssql, m365, or intake (the client's own
+#         statements: fact `product` and fact `category` of each entry under `software`)
+#   when: conditions on facts, by dotted path. Operators: >=, >, <=, <, ==, !=, contains_any, contains_all.
+# group/priority: of the entries of one group that match the same thing, only the one with the highest priority is
+#   kept (a store of a practice software is also a file share; it is reported as the store).
+#
+# State of Knovas as of 20 November 2026 (KnovasPlatform/docs/connection-layer.md, docs/microsoft-365.md).
+
+version: 1
+entries:
+
+  # ------------------------------------------------------------------ documents
+  - key: fileshare
+    name: File share (common drive)
+    category: documents
+    class: A
+    group: share-kind
+    priority: 1
+    seen: 1
+    knovas:
+      status: released
+      component: Knovas Connector
+      how: "The share is mounted read-only on the Connector's machine; the folder is its watch root."
+    detect:
+      - on: fileshare
+        when: [{fact: files, op: ">", value: 0}]
+    needs_from_client:
+      - "A service account that can read the folders we may index, and nothing else."
+      - "The share's address as the server sees it (IP address or name), and the SMB version."
+      - "A machine in their network for the Knovas site (Docker), or a virtual machine from their IT provider."
+      - "Which folders are out of scope (personnel, wages, partners), named by the client, in writing."
+    risks:
+      - "Folder permissions do not travel: who may see a document in Knovas is entered in Knovas."
+      - "Old file dates: the Connector must run without a limit on file age."
+    questions:
+      - "Which folders must never be indexed?"
+      - "Who may see what today: do folder permissions say it, or does everybody see everything?"
+
+  - key: autodoc-store
+    name: Document store of a practice software (AutoDoc)
+    category: documents
+    class: B
+    group: share-kind
+    priority: 2
+    seen: 1
+    knovas:
+      status: released
+      component: Knovas Connector, Brain Builder
+      how: "Watch root on the store, one numbered folder per cycle. The matter comes from the file name through a file-pattern mapping in the Builder."
+    detect:
+      - on: fileshare
+        when: [{fact: patterns.autodoc_names_share, op: ">=", value: 0.3}]
+    needs_from_client:
+      - "A service account that can read the folders we may index, and nothing else."
+      - "The share's address as the server sees it (IP address or name), and the SMB version."
+      - "A machine in their network for the Knovas site (Docker), or a virtual machine from their IT provider."
+      - "What the second part of a file name is: the reference a lawyer says aloud, or an internal number."
+      - "Whether e-mails are saved into the store (as .msg) and by whom."
+    risks:
+      - "The folders are number ranges: no folder says whose files it holds, and rights cannot be set by folder."
+      - "Client, matter team and matter rights are in the practice software's database, not on the share."
+      - "A large part of an old store is in formats the Connector does not read (.doc, TIFF scans)."
+    questions:
+      - "Since when is the store in use, and where are the files from before?"
+      - "Are matters locked for some people in the practice software?"
+
+  - key: sharepoint-onedrive
+    name: SharePoint or OneDrive (Microsoft 365)
+    category: documents
+    class: A
+    seen: 0
+    knovas:
+      status: released
+      component: Knovas Connector (Microsoft 365 source)
+      how: "An app registration with Sites.Read.All, or Sites.Selected for one site; nothing is copied to the server."
+    detect:
+      - on: m365
+        when: [{fact: sharepoint_sites, op: ">=", value: 1}]
+      - on: intake
+        when: [{fact: product, op: "==", value: sharepoint}]
+    needs_from_client:
+      - "A global administrator for ten minutes: app registration and admin consent."
+      - "The sites or libraries in scope."
+    risks:
+      - "Sites.Read.All reads every site; a client who wants less needs Sites.Selected, set up per site."
+      - "Permissions of SharePoint items do not travel."
+    questions:
+      - "Which sites hold matter files, and which are private or personnel?"
+
+  - key: scanner-output
+    name: Scanned post that nobody has filed
+    category: documents
+    class: A
+    seen: 1
+    knovas:
+      status: released
+      component: Knovas Connector (OCR)
+      how: "Read like any PDF; image-only pages go through OCR."
+    detect:
+      # Three or more: one stray file named like a scan does not make a scan folder.
+      - on: fileshare
+        when: [{fact: patterns.scanner_files, op: ">=", value: 3}]
+    needs_from_client:
+      - "A decision: index the scan folder, or only what has been filed to a matter."
+    risks:
+      - "Unfiled post has no matter and no rights; a confidential letter in the scan folder is visible to everyone who may see the folder."
+    questions:
+      - "How long does post stay in the scan folder before it is filed?"
+
+  - key: outlook-archives
+    name: Outlook archive files (.pst) on the share
+    category: mail
+    class: D
+    seen: 1
+    knovas:
+      status: none
+      component: none
+      how: "Not read. Mail becomes a source through the mail server, not through archive files."
+    detect:
+      - on: fileshare
+        when: [{fact: patterns.outlook_archives, op: ">=", value: 1}]
+    needs_from_client: []
+    risks:
+      - "Mail that exists only in archive files stays invisible to Knovas."
+    questions:
+      - "Is important correspondence only in these archives, or also in the mailboxes?"
+
+  - key: dictations
+    name: Dictation files
+    category: other
+    class: D
+    seen: 1
+    knovas: {status: none, component: none, how: "Not read."}
+    detect:
+      - on: fileshare
+        when: [{fact: patterns.dictation_files, op: ">=", value: 1}]
+    needs_from_client: []
+    risks: []
+    questions: []
+
+  - key: dms
+    name: Document management system (iManage, NetDocuments, M-Files, DocuWare, ELO)
+    category: documents
+    class: C
+    seen: 0
+    knovas: {status: none, component: none, how: "Needs a connector that reads documents with their metadata and rights through the system's own interface."}
+    detect:
+      - on: intake
+        when: [{fact: category, op: "==", value: dms}]
+    needs_from_client:
+      - "The product, its version, and whether it runs at the client or in the vendor's cloud."
+      - "An account for the system's interface (API), read-only."
+    risks:
+      - "Reading the system's file store directly, past the system, loses names, versions and rights."
+    questions:
+      - "Does the vendor offer a documented interface, and is it licensed?"
+    effort_drivers: [manual]
+
+  # ------------------------------------------------------------------ identity
+  - key: active-directory
+    name: Active Directory
+    category: identity
+    class: B
+    seen: 1
+    knovas:
+      status: partly
+      component: Platform (Verwaltung)
+      how: "People and groups are entered in the Platform by hand today. Reading groups from the directory is not built."
+    detect:
+      - on: directory
+        when: [{fact: is_active_directory, op: "==", value: true}]
+    needs_from_client:
+      - "The list of people who get Knovas, and to which groups each belongs for the purpose of access."
+      - "A read-only account for the directory, if groups are to be compared with what is entered."
+    risks:
+      - "Two lists of people to keep: the directory and Knovas. A person who leaves must be removed in both."
+      - "Nested groups: who is in a group is not what the group's member list shows."
+    questions:
+      - "Who adds and removes people today, the firm or the IT provider?"
+      - "Is the directory synchronised to Microsoft 365 (Entra Connect)?"
+
+  - key: entra-id
+    name: Microsoft Entra ID (Microsoft 365 accounts)
+    category: identity
+    class: B
+    seen: 0
+    knovas:
+      status: partly
+      component: Platform (Verwaltung)
+      how: "People are entered in the Platform by hand today. Sign-in with Microsoft and group sync are not built."
+    detect:
+      - on: m365
+        when: [{fact: people, op: ">=", value: 1}]
+    needs_from_client:
+      - "The list of people who get Knovas."
+    risks:
+      - "Two lists of people to keep."
+    questions:
+      - "Are accounts created in Microsoft 365 directly or synchronised from a local directory?"
+
+  # ------------------------------------------------------------------ records
+  - key: practice-database
+    name: Database of a legal practice software (product not recognised)
+    category: records
+    class: C
+    group: database-kind
+    priority: 2
+    seen: 1
+    knovas:
+      status: none
+      component: none
+      how: "No component reads records from a database yet. Needs a connector of its own kind behind Knovas Link, or a scheduled export the sync component reads."
+    detect:
+      - on: mssql
+        when: [{fact: vocabulary.legal_practice, op: ">=", value: 4}]
+    needs_from_client:
+      - "A read-only database login, created by the IT provider."
+      - "The vendor's name, the product and its version; the vendor's consent if their contract requires it."
+      - "Someone at the firm who knows what the important fields mean."
+    risks:
+      - "Vendors do not publish their tables: the mapping is worked out on site and can break with an update."
+      - "Matter rights live here. Until Knovas reads them, a matter locked in the software is open in Knovas."
+      - "Reading a production database needs care: read-only login, off-peak hours, no long transactions."
+    questions:
+      - "Which product is it, and who is the vendor's contact?"
+      - "Does the vendor offer an export or an interface that is supported across updates?"
+      - "Which records matter most: clients and matters, deadlines, time and invoices?"
+    effort_drivers: [record_tables, foreign_keys, change_markers, removed_rows, rights_in_source, custom_fields, unknown_product, volume, authentication]
+
+  - key: database-unknown
+    name: Database of unknown purpose
+    category: records
+    class: C
+    group: database-kind
+    priority: 1
+    seen: 0
+    knovas: {status: none, component: none, how: "Find out what it belongs to before anything is planned."}
+    detect:
+      - on: mssql
+        when: [{fact: tables, op: ">=", value: 1}]
+    needs_from_client:
+      - "Which software this database belongs to."
+    risks: []
+    questions:
+      - "Which software uses this database, and is it still in use?"
+    effort_drivers: [record_tables, foreign_keys, change_markers, removed_rows, rights_in_source, custom_fields, unknown_product, volume, authentication]
+
+  - key: winjur
+    name: WinJur (practice software)
+    category: records
+    class: C
+    seen: 0
+    knovas: {status: none, component: none, how: "Its document store is connected as a file share today. Its records need a connector; its tables are not public."}
+    detect:
+      - on: intake
+        when: [{fact: product, op: "==", value: winjur}]
+    needs_from_client:
+      - "Edition (Enterprise runs on Microsoft SQL Server) and version."
+      - "A read-only database login."
+    risks:
+      - "No table names known to us yet: add them here after the first scan at a client, as `signature`."
+    questions:
+      - "Is the AutoDoc folder on the file server, and are Outlook e-mails saved into it?"
+    effort_drivers: [manual]
+
+  - key: vertec
+    name: Vertec (time recording and invoicing)
+    category: records
+    class: C
+    seen: 0
+    knovas: {status: none, component: none, how: "Needs a connector. Vertec documents its object model and offers an interface; prefer that to its tables."}
+    detect:
+      - on: intake
+        when: [{fact: product, op: "==", value: vertec}]
+    needs_from_client:
+      - "Whether it runs at the client or in Vertec's cloud, and which interface is licensed."
+    risks: []
+    questions: []
+    effort_drivers: [manual]
+
+  - key: abacus
+    name: Abacus (accounting, AbaLaw)
+    category: finance
+    class: C
+    seen: 0
+    knovas: {status: none, component: none, how: "Needs a connector or the exports Abacus writes."}
+    detect:
+      - on: intake
+        when: [{fact: product, op: "==", value: abacus}]
+    needs_from_client:
+      - "Which Abacus programs are in use and who hosts them."
+    risks: []
+    questions:
+      - "Is accounting data wanted in Knovas at all? Usually it is not."
+    effort_drivers: [manual]
+
+  - key: http-json-system
+    name: A system with a documented web interface (HTTP and JSON)
+    category: records
+    class: B
+    seen: 0
+    knovas:
+      status: built
+      component: sync component (behind Knovas Link)
+      how: "One address that returns JSON, a token kept at the site, and a mapping in the Builder. Built, not yet in use at a client."
+    detect:
+      - on: intake
+        when: [{fact: category, op: "==", value: web-api}]
+    needs_from_client:
+      - "The interface's documentation and a read-only token."
+    risks:
+      - "One address per source: an interface that pages through many requests needs a connector."
+    questions: []
+
+  - key: jira
+    name: Jira
+    category: records
+    class: B
+    seen: 1
+    knovas:
+      status: draft
+      component: Jira connector (behind Knovas Link)
+      how: "Issues of a project as records. Draft; in use for Knovas's own work."
+    detect:
+      - on: intake
+        when: [{fact: product, op: "==", value: jira}]
+    needs_from_client:
+      - "An API token of a read-only account and the projects in scope."
+    risks: []
+    questions: []
+
+  - key: github
+    name: GitHub
+    category: records
+    class: A
+    seen: 1
+    knovas:
+      status: built
+      component: sync component (behind Knovas Link)
+      how: "Files of a repository as records and documents, on every new commit."
+    detect:
+      - on: intake
+        when: [{fact: product, op: "==", value: github}]
+    needs_from_client:
+      - "A token that can read the repositories in scope."
+    risks: []
+    questions: []
+
+  # ------------------------------------------------------------------ mail and collaboration
+  - key: exchange-online
+    name: Exchange Online (Microsoft 365 mail)
+    category: mail
+    class: C
+    seen: 0
+    knovas: {status: planned, component: none, how: "A mail connector is planned for 2027. Until then: e-mails saved to a matter as files."}
+    detect:
+      - on: m365
+        when: [{fact: exchange_online, op: "==", value: true}]
+      - on: intake
+        when: [{fact: product, op: "==", value: exchange-online}]
+    needs_from_client: []
+    risks:
+      - "Correspondence that is not saved to a matter is not in Knovas."
+      - "Mailboxes are personal: indexing them needs a rule for who sees whose mail."
+    questions:
+      - "Do people save matter e-mails into the practice software, always or sometimes?"
+    effort_drivers: [manual]
+
+  - key: exchange-server
+    name: Exchange server at the client
+    category: mail
+    class: C
+    seen: 0
+    knovas: {status: none, component: none, how: "Not planned. A client on its own Exchange is usually on the way to Microsoft 365."}
+    detect:
+      - on: intake
+        when: [{fact: product, op: "==", value: exchange-server}]
+    needs_from_client: []
+    risks: []
+    questions:
+      - "Is a move to Microsoft 365 planned, and when?"
+    effort_drivers: [manual]
+
+  - key: teams
+    name: Microsoft Teams
+    category: collaboration
+    class: D
+    seen: 0
+    knovas: {status: none, component: none, how: "Chats are not read. Files of a team are SharePoint files and are covered there."}
+    detect:
+      - on: m365
+        when: [{fact: teams, op: ">=", value: 1}]
+    needs_from_client: []
+    risks: []
+    questions: []
+
+# Things the scan sees that are not sources but change the plan. Each is reported as a risk on the source it was
+# measured on, with the number filled in.
+checks:
+  - key: mostly-unread-formats
+    on: fileshare
+    when: [{fact: connector_readable_share, op: "<", value: 0.5}]
+    text: "Only {connector_readable_share:.0%} of the files are in a format the Connector reads. Ask what the rest is before promising search over 'all documents'."
+  - key: all-files-old
+    on: fileshare
+    when: [{fact: age.newest_days, op: ">", value: 30}]
+    text: "The newest file is {age.newest_days} days old. The Connector's default skips files older than 30 days: run it without a limit on file age."
+  - key: folders-refuse-account
+    on: fileshare
+    when: [{fact: refused_folders, op: ">=", value: 1}]
+    text: "{refused_folders} folders refuse the account. Confirm with the client that each is meant to be out of scope."
+  - key: many-top-folders
+    on: fileshare
+    when: [{fact: patterns.range_folders, op: ">=", value: 20}]
+    text: "{patterns.range_folders} numbered folders: configure the Connector for one folder per cycle (sequential_subfolders) for the first read."
+  - key: lock-files
+    on: fileshare
+    when: [{fact: patterns.office_lock_files, op: ">=", value: 1}]
+    text: "{patterns.office_lock_files} Office lock files (~$...) have an extension the Connector reads. They are not documents."
+  - key: long-paths
+    on: fileshare
+    when: [{fact: patterns.long_paths, op: ">=", value: 1}]
+    text: "{patterns.long_paths} paths are longer than 240 characters."
+  - key: slow-listing
+    on: fileshare
+    when: [{fact: listing.entries_per_second, op: "<", value: 200}]
+    text: "The share lists {listing.entries_per_second:.0f} entries per second. Plan the first read in days, not hours."
+  - key: no-foreign-keys
+    on: mssql
+    when: [{fact: foreign_keys, op: "==", value: 0}, {fact: record_tables, op: ">=", value: 2}]
+    text: "The database declares no relations between its tables. They have to be worked out from column names, with someone who knows the software."
+  - key: rights-in-database
+    on: mssql
+    when: [{fact: rights_tables, op: ">=", value: 1}]
+    text: "{rights_tables} tables look as if they say who may see what. Until Knovas reads them, restrictions set in the software do not hold in Knovas."
+  - key: leftover-tables
+    on: mssql
+    when: [{fact: leftover_tables, op: ">=", value: 1}]
+    text: "{leftover_tables} tables look like backups or imports. They are not the client's current data and must not be mapped."
+  - key: nested-groups
+    on: directory
+    when: [{fact: max_nesting, op: ">=", value: 2}]
+    text: "Groups are nested {max_nesting} levels deep. Membership has to be resolved through the nesting."
+  - key: disabled-people
+    on: directory
+    when: [{fact: people_disabled, op: ">=", value: 1}]
+    text: "{people_disabled} disabled accounts: people who left are kept, not deleted."
