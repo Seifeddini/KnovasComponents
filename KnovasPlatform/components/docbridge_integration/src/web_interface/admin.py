@@ -20,19 +20,22 @@ from __future__ import annotations
 
 import functools
 import logging
+import uuid
 from datetime import datetime
 
 from flask import Blueprint, abort, redirect, render_template, request, url_for
 
 from identity import audit
 from identity.passwords import WeakPasswordError
-from identity.roles import RoleError, RoleStore
-from identity.users import EmailTakenError, UnknownRoleError
+from identity.roles import FUNCTION_WORDS, LastAdministratorError, RoleError, RoleNotFound, RoleStore, check_grantable
+from identity.users import EmailTakenError
 
 logger = logging.getLogger(__name__)
 
 #: experimenter / experiments_manager open the Experimente module (migration
-#: 0003); without one of them a person never sees it.
+#: 0003); without one of them a person never sees it. Since RB-4 the people
+#: page offers roles (identity.roles), not these keys; the tuple stays because
+#: tests name the console's functions through it.
 ASSIGNABLE_ROLES = (
     "admin", "approver", "ingestion_manager", "member",
     "experimenter", "experiments_manager",
@@ -119,10 +122,18 @@ def create_admin_blueprint(
     def _people_page(error=None, notice=None, status=200):
         repo = gate.users()
         knovas_admin_groups = _knovas_admin_groups()
+        # The page offers roles (RB-4): every role of list_roles(), each person's checked. A new installation has
+        # exactly Administration and Mitglied (founder, 2026-11-21); the tenant's own roles follow as created.
+        roles = RoleStore(gate.connection()).list_roles()
+        roles_of = {}
+        for role in roles:
+            for member in role.members:
+                roles_of.setdefault(member, []).append(role)
         people = []
         for person in repo.list_all():
             people.append({
                 "user": person,
+                "roles": roles_of.get(person.id, []),
                 # The person's own grants only: the form saves this list back
                 # (set_groups), and a role's Core group copied into it would
                 # outlive the role (RB-2).
@@ -137,7 +148,8 @@ def create_admin_blueprint(
             active_nav="admin",
             **page_context(),
             people=people,
-            assignable_roles=ASSIGNABLE_ROLES,
+            roles=roles,
+            function_words=FUNCTION_WORDS,
             me=gate.current_user(),
             error=error,
             notice=notice,
@@ -222,7 +234,15 @@ def create_admin_blueprint(
             return _people_page(
                 error="Sie können Ihr eigenes Konto nicht deaktivieren.", status=400
             )
-        gate.users().disable(user_id, by=me.id)
+        try:
+            # Administration's row first, the lock every removal from it takes, then the count: a deactivation
+            # and a removal at once queue, so the two can never leave Administration without an active person
+            # (rule 3; the coordinator's amendment to RB-3/RB-4, F3).
+            with gate.connection().transaction():
+                RoleStore(gate.connection()).check_deactivation(user_id)
+                gate.users().disable(user_id, by=me.id)
+        except LastAdministratorError as exc:
+            return _people_page(error=str(exc), status=400)
         revoked = gate.sessions().revoke_all_for_user(user_id)
         audit.record(
             gate.connection(), action="user.disabled", actor=me,
@@ -247,31 +267,61 @@ def create_admin_blueprint(
     @bp.route("/people/roles", methods=["POST"])
     @require_admin
     def set_roles():
+        """The person's roles become exactly the checked ones (RB-4): the form sends ``role_id`` per checked role.
+
+        The old field ``roles`` (keys) is not read: every function comes from a role the page shows. One
+        transaction for the whole form and its one audit row (``user.roles_changed``, before and after as role
+        ids): a refusal half-way (the last administrator, a 33rd group, an unknown role or person) or a row that
+        cannot be written leaves every role as it was. Every role's row is held first, in id order, before the
+        person's roles are read: two saves queue, never deadlock, and the diff is current. Granting oneself a role
+        needs no second person (founder, 2026-11-21).
+        """
         if not _form_csrf_ok():
             return _people_page(error="Formular ist abgelaufen.", status=400)
-        user_id = str(request.form.get("user_id", "") or "")
-        wanted = [r for r in request.form.getlist("roles") if r in ASSIGNABLE_ROLES]
-        repo = gate.users()
+        me = gate.current_user()
+        conn = gate.connection()
+        store = RoleStore(conn)
+        wanted = {str(value).strip() for value in request.form.getlist("role_id")}
         try:
-            # One transaction for the whole form: a refusal half-way (the last
-            # administrator, a 33rd group; RB-1, RB-2) leaves every role as it
-            # was, and the page shows the refusal's own words. Every role's row
-            # is held first, in id order, before the person's functions are
-            # read: two saves queue, never deadlock, and the diff is current.
-            with gate.connection().transaction():
-                RoleStore(gate.connection()).lock_all()
-                current = repo.roles_of(user_id)
-                for role in (set(current) & set(ASSIGNABLE_ROLES)) - set(wanted):
-                    repo.revoke_role(user_id, role)
-                for role in set(wanted) - set(current):
-                    repo.grant_role(user_id, role, by=gate.current_user().id)
-        except (UnknownRoleError, RoleError) as exc:
+            with conn.transaction():
+                store.lock_all()
+                person = _person_id(request.form.get("user_id"))
+                by_id = {str(role.id): role for role in store.list_roles()}
+                if wanted - set(by_id):
+                    raise RoleNotFound()
+                before = {str(role.id) for role in store.roles_of_user(person)}
+                # Design rule 1: nobody gives a function she does not hold herself (admin holds every one).
+                check_grantable(me.roles, frozenset().union(*(by_id[r].functions for r in wanted - before)))
+                # Leaving first, then joining: a person at the cap may swap one role's group for another's.
+                for role_id in sorted(before - wanted):
+                    store.remove_member(role_id, person, by=me.id)
+                for role_id in sorted(wanted - before):
+                    store.add_member(role_id, person, by=me.id)
+                if before != wanted:
+                    audit.record_or_raise(
+                        conn, action="user.roles_changed", actor=me, target_type="user",
+                        target_id=str(person), detail={"before": sorted(before), "after": sorted(wanted)},
+                    )
+        except RoleError as exc:
+            logger.info("Roles of a person not changed: %s", type(exc).__name__)
             return _people_page(error=str(exc), status=400)
-        audit.record(
-            gate.connection(), action="user.roles_changed", actor=gate.current_user(),
-            target_type="user", target_id=user_id, detail={"roles": sorted(wanted)},
-        )
+        except Exception as exc:  # noqa: BLE001 - the audit row or the database refused: nothing was kept
+            logger.error("Roles of a person not changed, %s", audit._error_code(exc))
+            return _people_page(
+                error="Die Änderung konnte nicht protokolliert werden und wurde deshalb nicht gespeichert.",
+                status=500,
+            )
         return _people_page(notice="Rollen aktualisiert.")
+
+    def _person_id(value):
+        """An account of this installation by its id, or the store's refusal (``RoleError``)."""
+        try:
+            ident = uuid.UUID(str(value or "").strip())
+        except ValueError:
+            raise RoleError("Person nicht gefunden.") from None
+        if gate.users().get(ident) is None:
+            raise RoleError("Person nicht gefunden.")
+        return ident
 
     @bp.route("/people/groups", methods=["POST"])
     @require_admin
@@ -344,11 +394,24 @@ def create_admin_blueprint(
         require_admin=require_admin,
     )
 
-    # Agents (RB-6, RB-7): the agent pages and the agents of a role, behind the same require_admin.
+    from web_interface.admin_roles import attach_role_routes
+
+    role_page = attach_role_routes(
+        bp,
+        gate,
+        csrf_valid=csrf_valid,
+        csrf_token=csrf_token,
+        page_context=page_context,
+        client_factory=client_factory,
+        require_admin=require_admin,
+    )
+
+    # Agents (RB-6, RB-7): the agent pages and the agents of a role, behind the same require_admin; a role's
+    # agent forms answer with the Rollen page.
     from web_interface.admin_agents import attach_agent_routes
 
     attach_agent_routes(bp, gate, csrf_valid=csrf_valid, csrf_token=csrf_token, page_context=page_context,
-                        require_admin=require_admin)
+                        require_admin=require_admin, role_page=role_page)
 
     from web_interface.admin_doc_fields import attach_doc_field_routes
 

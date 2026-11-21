@@ -1,8 +1,8 @@
 """The people page's two forms under roles (RB-1, RB-2; builder's own tests).
 
 ``set_roles`` and ``set_groups`` catch a ``RoleError`` and show its message on the page with status 400, nothing
-changed (work order docs/platform-mvp/work-orders/RB-1-2.md, item 6). RB-4 replaces the roles form; until then it is
-the way an administrator meets the last-administrator rule and the 32-group cap.
+changed (work order docs/platform-mvp/work-orders/RB-1-2.md, item 6). RB-4 replaced the roles form: it sends role ids
+(``role_id``), and the person's roles become exactly the checked ones (docs/platform-mvp/work-orders/RB-3-4.md § 5).
 """
 from __future__ import annotations
 
@@ -42,7 +42,8 @@ def _post(client, path, **fields):
 def test_the_last_administrator_cannot_untick_admin(chef, identity_repo, platform_db):
     person, client = chef
     identity_repo.disable(_first_administrator(platform_db))
-    response = _post(client, "/admin/people/roles", user_id=str(person.id), roles=["member"])
+    mitglied = RoleStore(identity_repo._conn).mitglied()
+    response = _post(client, "/admin/people/roles", user_id=str(person.id), role_id=[str(mitglied.id)])
     assert response.status_code == 400
     assert "Die Administration braucht mindestens eine aktive Person." in response.get_data(as_text=True)
     assert identity_repo.roles_of(person.id) == {"admin"}
@@ -55,28 +56,33 @@ def test_a_refusal_half_way_leaves_every_role_as_it_was(chef, identity_repo):
     identity_repo.set_access_groups(anna.id, _groups(32))
     store = RoleStore(identity_repo._conn)
     store.set_core_group(store.administration().id, "g-admins")
-    response = _post(client, "/admin/people/roles", user_id=str(anna.id), roles=["admin"])
+    response = _post(client, "/admin/people/roles", user_id=str(anna.id), role_id=[str(store.administration().id)])
     assert response.status_code == 400
     assert "32" in response.get_data(as_text=True)
     assert identity_repo.roles_of(anna.id) == {"experimenter"}
 
 
-def test_a_key_from_administration_is_refused_on_the_page(chef, identity_repo):
+def test_a_function_of_administration_comes_and_goes_with_the_role_on_the_page(chef, identity_repo):
+    """RB-4: the page offers roles, so a function of Administration cannot be taken alone (before: refused with 400);
+    keeping the role keeps all its functions."""
     person, client = chef
     store = RoleStore(identity_repo._conn)
     store.set_functions(store.administration().id, {"admin", "approver"})
-    response = _post(client, "/admin/people/roles", user_id=str(person.id), roles=["admin"])
-    assert response.status_code == 400
+    response = _post(client, "/admin/people/roles", user_id=str(person.id), role_id=[str(store.administration().id)])
+    assert response.status_code == 200
     assert identity_repo.roles_of(person.id) == {"admin", "approver"}
 
 
 def test_roles_still_change_through_the_form(chef, identity_repo):
     _, client = chef
     anna = conftest._person(identity_repo, "anna@kanzlei.ch", "Anna", "member")
-    response = _post(client, "/admin/people/roles", user_id=str(anna.id), roles=["member", "approver"])
+    store = RoleStore(identity_repo._conn)
+    freigabe = store.create_role(name="Freigabe", functions={"approver"})
+    response = _post(client, "/admin/people/roles", user_id=str(anna.id),
+                     role_id=[str(store.mitglied().id), str(freigabe.id)])
     assert response.status_code == 200
     assert identity_repo.roles_of(anna.id) == {"member", "approver"}
-    _post(client, "/admin/people/roles", user_id=str(anna.id), roles=["approver"])
+    _post(client, "/admin/people/roles", user_id=str(anna.id), role_id=[str(freigabe.id)])
     assert identity_repo.roles_of(anna.id) == {"approver"}
 
 
