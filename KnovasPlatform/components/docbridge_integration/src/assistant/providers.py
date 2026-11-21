@@ -30,10 +30,15 @@ The answer: the text is the ``text`` blocks joined. ``stop_reason == "refusal"``
 timeout -> ``CoreFailed``. The mapped error is raised outside the SDK's ``except`` block, so it carries neither
 the SDK's exception (whose request holds the key in a header) as its cause nor as its context.
 
-The key comes from the resolved setting, passed to the client per call; it is never read from a file here, never
-logged, never part of an exception or a page. Without a key nothing is built (the SDK would otherwise look for
-``ANTHROPIC_API_KEY`` in the environment) and the call fails with ``CoreFailed``. Log lines carry the model's name,
-the stop reason, token counts, durations and exception class names only (POST-04).
+The key comes from the resolved setting, passed to the client per call. This module never reads it from a file,
+never logs it and never puts it into an exception or a page. Without a key no client is built (the SDK would
+otherwise take credentials from the environment or a profile on disk) and the call fails with ``CoreFailed``. The
+client always talks to ``ANTHROPIC_BASE_URL``, whatever the environment's ``ANTHROPIC_BASE_URL`` says.
+
+This module's log lines carry the model's name, the stop reason, token counts, durations and exception class names
+only (POST-04). The SDK's and the HTTP libraries' own loggers would print a request's body (the instruction, the
+passages, the question) and a transport error's text at DEBUG; the app holds them at INFO or above whatever
+``LOG_LEVEL`` says (``web_interface.app._configure_logging_for_wsgi``, FU-39).
 
 ``connection_test`` is the settings page's "Verbindung testen": one call with an invented passage and question.
 
@@ -75,6 +80,8 @@ ON_VALUES = frozenset({"an", "on", "true", "yes", "ja", "1"})
 # The Anthropic call
 # ---------------------------------------------------------------------------
 
+#: The only address the client talks to: an ANTHROPIC_BASE_URL in the environment is not honoured (FU-39).
+ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 ANTHROPIC_TIMEOUT_SECONDS = 60.0
 #: No retry: the SDK would wait whatever ``retry-after`` a 429 or 529 names, past nginx's 180 seconds.
 ANTHROPIC_MAX_RETRIES = 0
@@ -200,7 +207,7 @@ def _mapped(exc: BaseException, anthropic: Any) -> CoreError:
 def _sdk_client(**kwargs: Any) -> Any:
     import anthropic
 
-    return anthropic.Anthropic(**kwargs)
+    return anthropic.Anthropic(**{**kwargs, "base_url": ANTHROPIC_BASE_URL})
 
 
 def _close(client: Any) -> None:

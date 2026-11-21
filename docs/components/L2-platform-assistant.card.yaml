@@ -164,6 +164,10 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_providers.py
         checks:
         - test_no_customer_text_and_no_key_reach_a_log_line
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_sdk_logs.py
+        checks:
+        - test_at_debug_the_sdk_logs_no_request_and_no_transport_error
     - id: L2-PLATFORM-ASSISTANT/*/P-5
       aliases:
       - POST-05
@@ -219,6 +223,10 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_switch.py
         checks:
         - test_the_builders_key_is_not_the_assistants
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_sdk_logs.py
+        checks:
+        - test_at_debug_the_sdk_logs_no_request_and_no_transport_error
     - id: L2-PLATFORM-ASSISTANT/*/P-8
       statement: 'The provider is the one the customer chose (assistant.provider): knovas is the Core''s
         /secured/llm/generate as before; anthropic is Claude on the saved key and model (assistant.model, claude-opus-5-5

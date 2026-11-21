@@ -27,6 +27,9 @@ from assistant.service import (BUSY_TEXT, DEFAULT_MAX_TOKENS, FAILED_TEXT, SYSTE
 KEY = "sk-ant-test-not-a-key"                     # obviously fake; never a real key in a test
 MODEL = "claude-opus-5-5"
 URL = "https://api.anthropic.com/v1/messages"
+#: The module's own SDK client factory, kept before no_real_anthropic replaces it: the wire tests build the real
+#: client with it (its pinned address included), over an in-process transport.
+REAL_SDK_CLIENT = providers._sdk_client
 
 
 def st(statement, source, quote):
@@ -218,10 +221,12 @@ def test_without_a_key_and_without_a_fake_the_sdk_is_not_asked_either(monkeypatc
 def test_the_default_client_is_the_sdk_with_the_settings_key(monkeypatch):
     monkeypatch.undo()                                   # the real factory, for this test only; it calls nothing
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-from-the-environment")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://elsewhere.example")
     client = providers._sdk_client(api_key=KEY, timeout=60.0, max_retries=0)
     try:
         assert isinstance(client, anthropic.Anthropic)
         assert client.api_key == KEY and client.max_retries == 0 and client.timeout == 60.0
+        assert str(client.base_url).rstrip("/") == providers.ANTHROPIC_BASE_URL == "https://api.anthropic.com"
     finally:
         client.close()
 
@@ -327,7 +332,7 @@ def _sdk_factory(handler, seen):
             seen.append(request)
             return handler(request)
 
-        return anthropic.Anthropic(**kwargs, http_client=httpx2.Client(transport=httpx2.MockTransport(record)))
+        return REAL_SDK_CLIENT(**kwargs, http_client=httpx2.Client(transport=httpx2.MockTransport(record)))
 
     return factory
 
@@ -350,6 +355,15 @@ def test_through_the_real_sdk_the_wire_carries_the_ordered_request():
     assert request.headers["anthropic-beta"] == "server-side-fallback-2026-07-01"
     assert KEY not in request.content.decode("utf-8")              # the key travels in a header only
     assert any(KEY in value for value in request.headers.values())
+
+
+def test_the_api_address_is_pinned_whatever_the_environment_says(monkeypatch):
+    """FU-39: an ANTHROPIC_BASE_URL in the environment would send the passages and the key elsewhere."""
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://elsewhere.example")
+    seen = []
+    assert _call(_generate(_sdk_factory(lambda r: httpx2.Response(200, json=_wire_message(ANSWER)), seen))) == ANSWER
+    (request,) = seen
+    assert str(request.url) == URL
 
 
 @pytest.mark.parametrize("status, mapped, reason", [(429, CoreBusy, "anthropic_busy"), (529, CoreBusy, "anthropic_busy"),

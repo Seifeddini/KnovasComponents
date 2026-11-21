@@ -65,6 +65,23 @@ from unc_path import (
 
 logger = logging.getLogger(__name__)
 
+#: Loggers that print customer text at DEBUG (FU-39): the Anthropic SDK logs every request's options (the
+#: assistant's instruction, passages and question; the views assistant's definitions) and a transport error's text,
+#: and the HTTP libraries their exceptions. Held at INFO or above, whatever LOG_LEVEL says.
+QUIET_LOGGERS = ('anthropic', 'httpx', 'httpx2', 'httpcore', 'httpcore2')
+
+
+def _hold_quiet_loggers(level: int) -> None:
+    """Hold QUIET_LOGGERS at ``level``, but never below INFO."""
+    try:
+        # The SDK sets its loggers' level from ANTHROPIC_LOG when it is first imported: import it first, so the
+        # levels set here are the last word.
+        import anthropic  # noqa: F401
+    except ImportError:
+        pass
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(max(level, logging.INFO))
+
 
 def _configure_logging_for_wsgi(config) -> None:
     """
@@ -83,6 +100,7 @@ def _configure_logging_for_wsgi(config) -> None:
         root.addHandler(h)
     for name in ('web_interface', 'web_interface.app', 'knovas_client'):
         logging.getLogger(name).setLevel(level)
+    _hold_quiet_loggers(level)
 
 
 _search_enrichment_cache: Dict[str, dict] = {}

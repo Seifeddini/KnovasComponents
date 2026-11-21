@@ -97,7 +97,12 @@ client.beta.messages.create(model=..., max_tokens=max(max_tokens, 8000), system=
   outside the SDK's `except` block, so the SDK's exception (its request holds the key in a header) is neither its
   cause nor its context.
 - One log line per call: the model asked for, the model that served, the stop reason, token counts, milliseconds;
-  a failure logs the SDK's exception class and the status. Never a key, a question, a passage or an answer.
+  a failure logs the SDK's exception class and the status. Never a key, a question, a passage or an answer. The
+  SDK's and the HTTP libraries' own loggers (`anthropic`, `httpx`, `httpx2`, `httpcore`, `httpcore2`) would print
+  the request's body and a transport error's text at DEBUG: the app holds them at INFO or above whatever
+  `LOG_LEVEL` says (FU-39; this covers the Brain Builder's views assistant too).
+- The client talks to `https://api.anthropic.com` only (`providers.ANTHROPIC_BASE_URL`): an `ANTHROPIC_BASE_URL` in
+  the environment is not honoured (FU-39).
 
 **The settings page** (`web_interface/settings_routes.py`, `static/js/platform_settings.js`, administrators only,
 like every entry there) shows the four entries and, next to the key, "Verbindung testen":
