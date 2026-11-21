@@ -6,6 +6,8 @@ the way an administrator meets the last-administrator rule and the 32-group cap.
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 import conftest
@@ -94,3 +96,21 @@ def test_32_groups_are_saved_on_the_page(chef, identity_repo):
     response = _post(client, "/admin/people/groups", user_id=str(anna.id), access_groups=",".join(_groups(32)))
     assert response.status_code == 200
     assert len(identity_repo.access_groups_of(anna.id)) == 32
+
+
+def test_the_groups_field_holds_direct_grants_only_so_a_roles_group_does_not_outlive_the_role(chef, identity_repo):
+    """Verification note F1: saving the form unchanged must not copy a role's Core group into the direct grants."""
+    _, client = chef
+    anna = conftest._person(identity_repo, "anna@kanzlei.ch", "Anna", "member")
+    identity_repo.set_access_groups(anna.id, ["g-direkt"])
+    store = RoleStore(identity_repo._conn)
+    role = store.create_role(name="Personal", functions=(), core_group_id="g-role")
+    store.add_member(role.id, anna.id)
+    assert identity_repo.access_groups_of(anna.id) == ("g-direkt", "g-role")
+    page = client.get("/admin/people").get_data(as_text=True)
+    field = re.search(rf'id="groups-{anna.id}"[^>]*value="([^"]*)"', page, re.S)
+    assert field is not None and field.group(1) == "g-direkt"
+    response = _post(client, "/admin/people/groups", user_id=str(anna.id), access_groups=field.group(1))
+    assert response.status_code == 200
+    store.remove_member(role.id, anna.id)
+    assert identity_repo.access_groups_of(anna.id) == ("g-direkt",)

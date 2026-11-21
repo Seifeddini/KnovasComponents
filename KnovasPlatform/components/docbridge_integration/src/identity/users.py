@@ -362,6 +362,9 @@ class UserRepository:
             raise UnknownRoleError(f"No role {role_key!r}. Known roles: {known}.")
         store = roles_mod.RoleStore(self._conn)
         with self._conn.transaction():
+            # Every role's row first, in id order (identity.roles: one lock
+            # order), so two role changes that cross roles queue, never deadlock.
+            store.lock_all()
             target = store.role_for_function(role_key, by=by)
             store.add_member(target.id, user_id, by=by)
 
@@ -382,6 +385,9 @@ class UserRepository:
         """
         store = roles_mod.RoleStore(self._conn)
         with self._conn.transaction():
+            # Every role's row first, in id order, as in grant_role: this may
+            # leave several roles and join others.
+            store.lock_all()
             holding = [r for r in store.roles_of_user(user_id) if role_key in r.functions]
             for role in holding:
                 if (role.kind == roles_mod.ADMINISTRATION and role_key != roles_mod.ADMIN) or (
@@ -406,6 +412,21 @@ class UserRepository:
         person; the principal broker refuses to sign the claim.
         """
         return roles_mod.claim_groups(self._conn, user_id)
+
+    def direct_access_groups_of(self, user_id: UUID | str) -> tuple[str, ...]:
+        """The person's own grants that run today, sorted: without the groups of her roles.
+
+        What the people page shows in its groups field and saves back with
+        ``set_access_groups``. Showing the claim's groups there would copy a
+        role's Core group into the direct grants on an unchanged save, and the
+        copy would outlive the role.
+        """
+        rows = self._conn.execute(
+            "SELECT group_id FROM user_access_groups WHERE user_id = %s "
+            "AND (ends_on IS NULL OR ends_on >= current_date) ORDER BY group_id",
+            (str(user_id),),
+        ).fetchall()
+        return tuple(r[0] for r in rows)
 
     def access_grants_of(self, user_id: UUID | str) -> list[dict]:
         """Every group grant of this user with its end date, ended ones too (the access window shows them)."""

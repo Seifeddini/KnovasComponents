@@ -396,7 +396,9 @@ review:
     grant_role and revoke_role, now in one transaction; POST /admin/people/groups stores the groups as before. Both show
     a refusal of the role store (RoleError: the last active administrator, a 33rd access group, a function that comes
     from Administration or Mitglied) on the page with status 400, nothing changed (tests/test_identity_roles_people_page.py).
-    No gate changed. RB-4 replaces the roles form with roles.'
+    No gate changed. The groups field shows and saves the person''s direct grants only (direct_access_groups_of), so
+    an unchanged save never copies a role''s Core group into them; the roles form holds every role''s row first, in id
+    order, so two saves queue instead of deadlocking. RB-4 replaces the roles form with roles.'
 - at: /source_paths
   why: 'The work order''s scope: the people page and the approvals PMVP-40 to PMVP-42 change. guarded.py is here because
     only console modules use it (admin_documents.py, admin_ingestion.py). admin.css is the stylesheet of every console page,

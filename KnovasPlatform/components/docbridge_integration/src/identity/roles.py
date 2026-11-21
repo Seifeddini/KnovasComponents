@@ -33,6 +33,11 @@ Load-bearing properties:
     One transaction per change (``conn.transaction()``, a savepoint inside a caller's transaction); every statement
     names the role or the person by id. One installation per database, as in the rest of identity/: no tenant column.
 
+    One lock order, so two changes never deadlock: role rows first, then people's rows (in id order). A change of one
+    role holds that role's row; a change that may touch several roles (``grant_role``, ``revoke_role``, the people
+    page's form, ``role_for_function``) first holds every role's row in id order (``lock_all``), before any person's
+    row. Two such changes therefore queue instead of each holding a role the other waits for.
+
 ``by`` is the acting person's id. It is stored as ``created_by`` / ``added_by`` and refuses nothing: granting oneself
 a role needs no second person (founder, 21 November). RB-4 adds the audit rows and the rule that a creator gives only
 functions she holds.
@@ -79,11 +84,6 @@ FUNCTION_WORDS = {
     "builder_reviewer": "Builder prüfen",
     "builder_publisher": "Builder veröffentlichen",
 }
-
-#: An advisory lock (two int4 keys, 'KNOV' 'ROLE') that makes finding-or-creating a single-function role one step at
-#: a time, so two grants of the same function at once never create two such roles.
-_SINGLE_FUNCTION_LOCK = (0x4B4E4F56, 0x524F4C45)
-
 
 class RoleError(Exception):
     """Every refusal of the store. Plain German, safe to show; never a name, a description or an address."""
@@ -295,6 +295,15 @@ class RoleStore:
 
     # -- checks shared by the writes ----------------------------------------------------------------------------------
 
+    def lock_all(self) -> None:
+        """Hold every role's row, in id order, until the transaction ends.
+
+        The first step of a change that may touch several roles (``grant_role``, ``revoke_role``, the people page's
+        form): it takes all its role locks before any other lock, in one order, so two such changes queue and never
+        deadlock. Rows this transaction already holds are taken again without waiting. Use inside a transaction.
+        """
+        self._conn.execute("SELECT id FROM tenant_roles ORDER BY id FOR UPDATE")
+
     def _lock(self, role_id: Any) -> Tuple[UUID, str]:
         """Hold the role's row until the transaction ends; its id and kind. Missing, foreign, malformed: RoleNotFound."""
         ident = _uuid(role_id)
@@ -472,7 +481,9 @@ class RoleStore:
             return self.mitglied()
         with self._conn.transaction():
             self._functions([function], kind=CUSTOM)
-            self._conn.execute("SELECT pg_advisory_xact_lock(%s, %s)", _SINGLE_FUNCTION_LOCK)
+            # Every role's row, so two grants of one function at once queue here: the second one finds the role the
+            # first one created instead of making another.
+            self.lock_all()
             row = self._conn.execute(
                 "SELECT r.id FROM tenant_roles r WHERE r.kind = 'custom' AND r.core_group_id IS NULL "
                 "AND ARRAY(SELECT f.function FROM tenant_role_functions f WHERE f.role_id = r.id) = ARRAY[%s]::text[] "

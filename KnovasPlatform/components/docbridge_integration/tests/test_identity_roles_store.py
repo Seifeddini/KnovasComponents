@@ -517,3 +517,42 @@ def test_the_messages_name_nobody(roles, identity_repo):
                   LastAdministratorError, TooManyGroupsError):
         assert str(error()) == error.default
     assert "32" in str(TooManyGroupsError())
+
+
+def test_two_role_changes_that_cross_roles_queue_instead_of_deadlocking(platform_db, identity_repo):
+    """Verification note F2: A leaves role 1 then joins role 2 while B leaves role 2 then joins role 1.
+
+    Every change of several roles holds every role's row first, in id order (RoleStore.lock_all), so B waits for A
+    as a whole. Without that order, B holds role 2 and waits for role 1 while A holds role 1 and waits for role 2.
+    """
+    anna, ben = _someone(identity_repo, "anna"), _someone(identity_repo, "ben")
+    identity_repo.grant_role(anna.id, "approver")             # role 1: Freigaben bestätigen
+    identity_repo.grant_role(ben.id, "ingestion_manager")     # role 2: Einlesen
+    other = _connect(platform_db)
+    outcome = {}
+
+    def second():
+        try:
+            with other.transaction():
+                repo = UserRepository(other)
+                repo.revoke_role(ben.id, "ingestion_manager")
+                repo.grant_role(ben.id, "approver")
+            outcome["second"] = "done"
+        except Exception as exc:  # noqa: BLE001 - the test reports what went wrong
+            outcome["second"] = type(exc).__name__
+
+    try:
+        with platform_db.transaction():
+            identity_repo.revoke_role(anna.id, "approver")
+            racer = threading.Thread(target=second)
+            racer.start()
+            time.sleep(0.5)
+            assert racer.is_alive(), "the second change did not wait for the first"
+            identity_repo.grant_role(anna.id, "ingestion_manager")
+        racer.join(10)
+    finally:
+        other.close()
+    assert outcome == {"second": "done"}
+    assert identity_repo.roles_of(anna.id) == {"ingestion_manager"}
+    assert identity_repo.roles_of(ben.id) == {"approver"}
+    assert len([r for r in RoleStore(platform_db).list_roles() if r.kind == "custom"]) == 2

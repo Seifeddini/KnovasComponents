@@ -26,7 +26,7 @@ from flask import Blueprint, abort, redirect, render_template, request, url_for
 
 from identity import audit
 from identity.passwords import WeakPasswordError
-from identity.roles import RoleError
+from identity.roles import RoleError, RoleStore
 from identity.users import EmailTakenError, UnknownRoleError
 
 logger = logging.getLogger(__name__)
@@ -121,12 +121,16 @@ def create_admin_blueprint(
         knovas_admin_groups = _knovas_admin_groups()
         people = []
         for person in repo.list_all():
-            groups = repo.access_groups_of(person.id)
             people.append({
                 "user": person,
-                "access_groups": groups,
-                # A hint, not a control: Knovas decides at every write.
-                "knovas_admin": bool(knovas_admin_groups & set(groups)),
+                # The person's own grants only: the form saves this list back
+                # (set_groups), and a role's Core group copied into it would
+                # outlive the role (RB-2).
+                "access_groups": repo.direct_access_groups_of(person.id),
+                # A hint, not a control: Knovas decides at every write. Read
+                # from the claim's groups, which include the roles' groups.
+                "knovas_admin": bool(knovas_admin_groups)
+                and bool(knovas_admin_groups & set(repo.access_groups_of(person.id))),
             })
         return render_template(
             "admin_people.html",
@@ -251,8 +255,11 @@ def create_admin_blueprint(
         try:
             # One transaction for the whole form: a refusal half-way (the last
             # administrator, a 33rd group; RB-1, RB-2) leaves every role as it
-            # was, and the page shows the refusal's own words.
+            # was, and the page shows the refusal's own words. Every role's row
+            # is held first, in id order, before the person's functions are
+            # read: two saves queue, never deadlock, and the diff is current.
             with gate.connection().transaction():
+                RoleStore(gate.connection()).lock_all()
                 current = repo.roles_of(user_id)
                 for role in (set(current) & set(ASSIGNABLE_ROLES)) - set(wanted):
                     repo.revoke_role(user_id, role)
