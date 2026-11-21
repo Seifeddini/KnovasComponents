@@ -47,6 +47,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from experiments import kinds, labels, permissions, schema
 from experiments.errors import Conflict, ValidationError
 from experiments.settings import RUNTIME_DEFAULTS, USER_PREF_SHOW_IN_SEARCH
+from identity.roles import CLAIM_GROUP_ROWS, claim_groups
 
 logger = logging.getLogger(__name__)
 
@@ -252,19 +253,20 @@ def user_can_view_experiments(conn: Any, user_id: Any) -> bool:
 
 
 def user_access_groups(conn: Any, user_id: Any) -> Tuple[str, ...]:
+    """The groups the person's claim carries (``UserRepository.access_groups_of``): the direct grants that still run
+    and the Core groups of her roles (FU-42). The search's "missing group" hint reads them, so a person who holds the
+    index's group through a role is not told she lacks it."""
     ident = canonical_uuid(user_id)
     if ident is None:
         return ()
-    rows = conn.execute(
-        "SELECT group_id FROM user_access_groups WHERE user_id = %s ORDER BY group_id", (ident,)
-    ).fetchall()
-    return tuple(str(r[0]) for r in rows)
+    return tuple(str(g) for g in claim_groups(conn, ident))
 
 
 def viewers_without_groups(conn: Any, groups: Sequence[str], limit: int = 200) -> List[Dict[str, Any]]:
     """Active people with a viewing function (through one of their roles,
     RB-2) who hold none of ``groups``: Knovas will not show them the
-    experiment documents."""
+    experiment documents. A group counts as held the way the person's claim
+    carries it (FU-42): a direct grant that still runs, or a role's Core group."""
     wanted = [str(g) for g in groups if g]
     if not wanted:
         return []
@@ -274,7 +276,7 @@ def viewers_without_groups(conn: Any, groups: Sequence[str], limit: int = 200) -
         "  AND EXISTS (SELECT 1 FROM tenant_role_members m "
         "              JOIN tenant_role_functions f ON f.role_id = m.role_id "
         "              WHERE m.user_id = u.id AND f.function = ANY(%s::text[])) "
-        "  AND NOT EXISTS (SELECT 1 FROM user_access_groups a "
+        f"  AND NOT EXISTS (SELECT 1 FROM ({CLAIM_GROUP_ROWS}) a "
         "                  WHERE a.user_id = u.id AND a.group_id = ANY(%s::text[])) "
         "ORDER BY u.display_name, u.email LIMIT %s",
         (sorted(permissions.VIEW_ROLES), wanted, int(limit)),

@@ -461,9 +461,13 @@ class UserRepository:
         return row is not None
 
     def members_of_groups(self) -> dict[str, list[str]]:
-        """{group id: [user ids]} of the grants that run today."""
+        """{group id: [user ids]} of every person's claim groups, as ``access_groups_of`` reads them for one.
+
+        The direct grants that run today plus the Core groups of the person's roles (FU-42): a person who holds a
+        group through a role is a member of it too. Each list sorted, each person once per group.
+        """
         rows = self._conn.execute(
-            "SELECT group_id, user_id FROM user_access_groups WHERE ends_on IS NULL OR ends_on >= current_date"
+            f"SELECT c.group_id, c.user_id FROM ({roles_mod.CLAIM_GROUP_ROWS}) c ORDER BY c.group_id, c.user_id"
         ).fetchall()
         out: dict[str, list[str]] = {}
         for gid, uid in rows:
