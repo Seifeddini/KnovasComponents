@@ -23,8 +23,10 @@ A reply is whatever the assistant returns: ``.status``, ``.sentences`` (each ``.
 - A passage without a pointer cannot be checked against anything. Where rights are checked (a rights question,
   or a rights table and a person asked as) such a reply is not ok.
 - With a rights table, a rights question whose reply carries a passage the table does not know is not ok
-  (coordinator, D6, 2026-11-21): it cannot be judged, and a rights question must never pass unjudged. The table
-  decides, not the question set: a document that only a question names is unknown to the table and fails it too.
+  (coordinator, D6, 2026-11-21): it cannot be judged, and a rights question must never pass unjudged. "Knows"
+  means a row for that document and the person the question is asked as: a document with rows only for other
+  people is unknown for this person. The table decides, not the question set: a document that only a question
+  names is unknown to the table and fails it too.
 
 Pointers are compared by ``pointers.normalise``, so a leak is counted however the pointer is spelled.
 ``unknown_pointers`` counts the passages whose document neither the rights table nor any question of the set
@@ -171,9 +173,12 @@ def score(question, reply, *, rights=None, pointer_prefix: str = "",
         elif table_applies and rights.may_read(question.asked_as, key) is False:
             leaked.setdefault(key, rights.spelling(key) or key)
     unchecked = (question.kind == "rights" or table_applies) and not all(keys)
-    # A rights question must never pass unjudged: a document the given table does not know may be the forbidden
-    # one in a spelling the key does not fold. Other kinds only count it (a tenant holds more than the truth files).
-    unjudged = question.kind == "rights" and rights is not None and not all(rights.knows(key) for key in keys if key)
+    # A rights question must never pass unjudged: the table has to say, for the person asked as, whether each
+    # passage's document may be read. A document it has no row for, or rows only for other people, may be the
+    # forbidden one in a spelling the key does not fold. Other kinds only count it (a tenant holds more than the
+    # truth files), and ``unknown_pointers`` counts per document, whoever it is known for.
+    unjudged = question.kind == "rights" and rights is not None and any(
+        rights.may_read(question.asked_as, key) is None for key in keys if key)
 
     says_what_it_shows = bool(sentences) == (status == "answered")
     ok = status in TESTED and says_what_it_shows and refs_shown == refs_matching and unreferenced == 0 \

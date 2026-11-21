@@ -78,9 +78,12 @@ A first pass; people judge whether an answer is right. The rules per kind are at
 - **With a rights table, a `rights` question whose reply carries a passage the table does not know is not ok**
   (coordinator, D6, 2026-11-21). Such a passage cannot be judged: it may be the forbidden document in a spelling
   the pointer key does not fold, and a rights question must never pass unjudged. The table decides, not the
-  question set: a document that only a question names is unknown to the table and fails it too. "Knows" means the
-  table has a row for the document; the generator writes one for every person and document. Without a table only
-  the question's own documents are checked, as the frozen rule says.
+  question set: a document that only a question names is unknown to the table and fails it too. "Knows" means a
+  row for **that document and the person the question is asked as**: a document with rows only for other people
+  is unknown for this person, so the question is not ok. The generator writes a row for every person and every
+  visible document, so on its files this matters only when a table is incomplete. (`unknown_pointers` counts per
+  document, whoever the table knows it for.) Without a table only the question's own documents are checked, as
+  the frozen rule says.
 - For the other kinds an unknown passage is only counted (`unknown_pointers`, below) and does not change `ok`: the
   pilot's tenant holds documents the truth files do not list.
 

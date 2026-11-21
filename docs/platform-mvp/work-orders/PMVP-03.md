@@ -307,20 +307,24 @@ question that is asked as somebody be not ok as soon as one of its passages is u
    when the question is asked as somebody: the pilot's tenant holds documents the truth files do not list.
 3. Without a table nothing changes (the frozen rule: only the question's own documents decide).
 
-How it is built: "the table knows a document" means it has a row for it (`Rights.knows`), as the question was put.
-The table decides, not the question set: a document that only a question names fails a rights question too, though
-`unknown_pointers`, which counts the questions' documents as known, does not count it. Said in the README under
+How it is built: for a rights question, "the table knows a document" means it has a row for **that document and
+the person the question is asked as** (`may_read(asked_as, …)` is not None). A document with rows only for other
+people is unknown for this person, so the question is not ok (the coordinator's follow-up of 2026-11-21: the safe
+side; first built as "a row for anybody" in `8eb2e93`). So is a person the table does not list at all. The
+generator writes a row for every person and every visible document, so on its data nothing changes; it matters
+only when a table is incomplete. The table decides, not the question set: a document that only a question names
+fails a rights question too. `unknown_pointers` still counts per document (known to the table for anybody, or to
+a question), so such a passage can fail a rights question without being counted there. Said in the README under
 "The automatic verdict `ok`" and at the top of `scoring.py`. Tests in `test_pmvp_harness_verdict.py`, section D6
-(5 functions, 39 cases): a rights question with an unknown passage, with and without a table, under six spellings
-or documents the table does not know; an empty table; a table that knows every passage; every other kind with and
-without a table; a whole run with and without a table. Frozen file: 29 passed, unchanged (all four lines OK). My
-own `tests/test_pmvp_*.py`: 566, of which 563 pass and 3 walkthrough tests skip (no Playwright for `py -3`). The
-stub run is unchanged (no unknown passage). The whole suite was not run again, on the coordinator's word.
+(7 functions, 42 cases): a rights question with an unknown passage, with and without a table, under six spellings
+or documents the table does not know; a document with rows only for someone else (allowed and forbidden to them),
+and the same once the person asked as has a row; a person the table does not list; an empty table; a table that
+knows every passage for the person; every other kind with and without a table; a whole run with and without a
+table. Frozen file: 29 passed, unchanged (all four lines OK). My own `tests/test_pmvp_*.py`: 569, of which 566
+pass and 3 walkthrough tests skip (no Playwright for `py -3`). The stub run is unchanged (no unknown passage). The
+whole suite was not run again, on the coordinator's word.
 
-Left as they are, for the coordinator to say if one should change:
+Left as it is, for the coordinator to say if it should change:
 
-- A table with a row for the document only for other people counts as knowing it, so for the person asked as such
-  a passage is not judged either. The generator writes a row for every person and document, so on its files the
-  two readings agree; the stricter rule would be "no row for the person asked as".
 - `judging.md` does not mark which passage the table does not know: a judge sees "nicht ok" without a leak, and
   the count of passages the truth files do not know.

@@ -8,7 +8,8 @@ Two wrong verdicts were found, and both are pinned here:
    (``unknown_pointers``), so a wrong pointer prefix cannot make a leak disappear unnoticed.
 
 And the coordinator's decision D6 (2026-11-21): with a rights table, a rights question whose reply carries a passage
-the table does not know is not ok, because it cannot be judged. For the other kinds such a passage is only counted.
+the table does not know for the person the question is asked as is not ok, because it cannot be judged. For the
+other kinds such a passage is only counted.
 
 The frozen acceptance file is unchanged; nothing here contradicts it.
 """
@@ -317,11 +318,34 @@ def test_an_empty_rights_table_judges_nothing_so_a_rights_question_with_passages
     assert score(RIGHTS, reply(status="no_answer"), rights=Rights([])).ok is True    # no passage, nothing to judge
 
 
-def test_a_rights_question_is_ok_when_the_table_knows_every_passage():
-    table = Rights([("lz", MEMO, False), ("lz", VERTRAG, True), ("mb", KLAGE, True)])
+def test_a_rights_question_is_ok_when_the_table_knows_every_passage_for_the_person_asked_as():
+    table = Rights([("lz", MEMO, False), ("lz", VERTRAG, True), ("lz", KLAGE, True), ("mb", KLAGE, True)])
     shown = reply(status="no_answer", passages=[passage(1, VERTRAG.upper()), passage(2, KLAGE + "/")])
-    marks = score(RIGHTS, shown, rights=table)                    # KLAGE: known, though not for this person
+    marks = score(RIGHTS, shown, rights=table)
     assert marks.ok is True and marks.unknown_pointers == 0
+
+
+@pytest.mark.parametrize("allowed", [True, False], ids=["may read", "may not read"])
+def test_a_rights_question_is_not_ok_on_a_document_the_table_knows_only_for_someone_else(allowed):
+    """Rows for other people say nothing about the person asked as: the passage cannot be judged for lz."""
+    table = Rights([("lz", MEMO, False), ("lz", VERTRAG, True), ("mb", KLAGE, allowed), ("sk", KLAGE, allowed)])
+    shown = reply(status="no_answer", passages=[passage(1, VERTRAG), passage(2, KLAGE)])
+    marks = score(RIGHTS, shown, rights=table)
+    assert marks.ok is False and list(marks.leaked_pointers) == []
+    assert marks.unknown_pointers == 0                            # the count is per document, whoever it is known for
+    assert score(RIGHTS, shown).ok is True                        # without a table nobody can know
+    lz_too = Rights([("lz", MEMO, False), ("lz", VERTRAG, True), ("lz", KLAGE, True), ("mb", KLAGE, allowed)])
+    assert score(RIGHTS, shown, rights=lz_too).ok is True         # once lz has a row, it is judged
+    # The other kinds are not judged by it: a question of another kind asked as lz stays ok.
+    answered = reply(sentences=[sentence("Die Frist beträgt drei Monate.", 1)],
+                     passages=[passage(1, VERTRAG), passage(2, KLAGE)])
+    assert score(FACT_AS_LZ, answered, rights=table).ok is True
+
+
+def test_a_rights_question_asked_as_a_person_the_table_does_not_list_is_not_ok_on_any_passage():
+    nobody = Question(id="q-rights-xy", question="?", kind="rights", supporting_pointers=(MEMO,), asked_as="xy")
+    assert score(nobody, reply(status="no_answer", passages=[passage(1, VERTRAG)]), rights=TABLE).ok is False
+    assert score(nobody, reply(status="no_answer"), rights=TABLE).ok is True     # no passage, nothing to judge
 
 
 @pytest.mark.parametrize("name", NOT_IN_THE_TABLE)
