@@ -190,3 +190,18 @@ without it):
   dropped afterwards). The whole suite was not run.
 - The frozen check prints OK for all four files. `py -3 scripts/check_ascii_py.py e565194..HEAD` -> 0 lines.
 - 56 single changes to `check.py` (each rule switched off or loosened) each make an own test fail.
+
+## Verification (coordinator's record)
+
+- **2026-11-21, fresh verifier session, `feat/pmvp-20` @ `e1d92a4`: PASS WITH NOTES.** Frozen check OK (4 files);
+  frozen file 88 passed, the builder's 351 passed; scope clean; the sentence cutter is gone. 148 hand-made attacks
+  and 120,000 fuzzed statements: no statement shown past a check as the frozen header defines it, every reply quote
+  is the passage's own characters, `removed == sum(removed_by)` always. Nothing of the question, statements, quotes,
+  passages or exceptions in 27 DEBUG records. Searching as the person, only retrieved passages, the Core's limits,
+  plain failure replies and the snippet's page all hold. Cost: 10 of 10 realistic answers with exact quotes survive;
+  6 of 10 with typical model slips.
+- Integrated into `feat/platform-mvp` by the coordinator (merge `49d4763`). Class sensitive: Siran approves before
+  `main`.
+- The notes (the number check reads the passage too generously; month names, number words, Roman numerals, signs
+  and look-alike digits are not seen as numbers; five small points) are ordered as `PMVP-20-hardening.md`.
+- Probe with Claude (`claude-opus-5-5`, 2026-11-21): 8 of 8 invented cases right in this form (FU-32).
