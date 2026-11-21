@@ -80,8 +80,8 @@ functions as they were at the move, but changes made after the move are lost.
 
 **The page.** Verwaltung › «Rollen», right after «Personen», for administrators only. It shows the roles as a row of
 tabs (each with its number of people) and one role at a time: its name and description, «Darf tun» (its functions in
-words, never the technical keys), «Darf lesen» (read only for now: "Noch keine Daten. Was eine Rolle lesen darf, wirkt
-mit «Ein»."; adding data comes with RB-5) and «Mitglieder» (the people in it). Under the card: "Eine Rolle gibt nie
+words, never the technical keys), «Darf lesen» (the folders and documents the role reads, as Knovas holds them; see
+«Was eine Rolle lesen darf» below, RB-5) and «Mitglieder» (the people in it). Under the card: "Eine Rolle gibt nie
 mehr, als Sie selbst dürfen. Jede Änderung steht im Protokoll."
 
 **What an administrator can do there.**
@@ -109,7 +109,8 @@ mehr, als Sie selbst dürfen. Jede Änderung steht im Protokoll."
 **The two roles.** Administration and Mitglied keep their names and cannot be deleted. They get their groups at
 Knovas when an administrator presses «Mit Knovas verbinden» (shown while either has none): Administration gets the
 firm's administrator group at Knovas (it must be exactly one; otherwise nothing is linked and the page says so), and
-Mitglied a new group «Mitglied». A second press changes nothing.
+Mitglied a new group «Mitglied». A second press changes nothing. If Knovas already has a group «Mitglied», Mitglied
+adopts it instead («Gruppe übernehmen», RB-5).
 
 **What a Knovas refusal means.** Knovas decides about its groups. When it refuses (it is not reachable, or keeps a
 group that data still name), the Platform keeps what it had and the page names Knovas as the reason; nothing is half
@@ -122,6 +123,82 @@ is the last active one; two administrators who act at the same moment wait for e
 **Everything is in the log.** Every change writes its row in the audit log in the same step as the change: who did
 it, which role or person (by id), and the functions before and after (by their technical keys). Never a role's name,
 description, a person's name or address. If the row cannot be written, the change is not kept and the page says so.
+
+## Was eine Rolle lesen darf (RB-5)
+
+**What the part «Darf lesen» shows.** The folders and sources whose folder rule at Knovas names the role's group, and
+the documents whose own rights name it, each in a row («Ordner» or «Dokument»). The page reads them from Knovas every
+time it is opened: the Platform keeps no copy, so a rule changed at Knovas directly shows as Knovas holds it. Opening
+the page changes nothing anywhere.
+
+**Adding and removing data.** «+ Daten hinzufügen»: choose «Ordner», «Quelle» or «Dokument» and give its path at
+Knovas (a folder or source usually ends with «/»). Each row has «Entfernen …». **Every change starts with a dry run**
+(«Probelauf») that says how many people will see the folder or document afterwards and how many will no longer see
+it, with their names on request; only its button carries the change out, and the change is planned again from what
+Knovas holds at that moment (what the browser shows is never trusted).
+
+- **Adding a walled folder** (it has a rule with a group) adds the role's group to that rule; nobody loses sight.
+- **A folder without a rule of its own** gets a new rule with the groups that govern it today plus the role's group,
+  so again nobody loses sight. If documents are already read in under it, the dry run says that the new rule reaches
+  them only after Knovas has re-applied the rules to them (CR-R3); until then their present rule stays.
+- **Adding an open folder or document** (no group) would wall it off for everyone outside the role once «Ein» is on:
+  the dry run warns and names everyone who would lose sight, and the change needs a tick («Ich habe die Warnung
+  gelesen …»); without it, nothing is sent.
+- **A document** keeps its present groups and gains the role's group; it leaves its folder rule (later changes to the
+  folder's rule no longer reach it), and the dry run says so.
+- **Removing** takes the role's group out of a rule or a document's own rights. When the role's group is the rule's
+  only group, the rule is deleted instead of being emptied, and the rule of the folder above governs again; if nothing
+  above is walled, the folder becomes open for everyone, and the dry run warns and asks for the tick. A rule is never
+  sent to Knovas with no group.
+- **No deny** (founder): a role only grants; a wall is a rule that leaves a role out.
+- Administration has no data (its group is the firm's administrator group, which may change rights but reads nothing
+  walled). A role without a group at Knovas (Mitglied before «Mit Knovas verbinden») gets data once it has one.
+
+**Four eyes.** Adding and removing data are rights changes and take the same path as the «Zugriff» pages
+(`acl_change`): while the installation's setting "administrators act alone" is on (the default since 14 August), an
+administrator's change is made at once and the approvals page records that she acted alone; with the setting off,
+the change waits under «Freigaben» for a second person, and nothing reaches Knovas until then. Nobody confirms her own
+change. **Only an administrator carries a data change out**: an approver who is not an administrator may confirm it,
+and an administrator then presses «Ausführen». When it is carried out, the change is planned again; if a folder has
+become open meanwhile and the request carries no tick, nothing is sent (plan it again). The founder may tighten this
+(four eyes even with the setting on); then a firm with one administrator could not change a role's data at all.
+
+**Before «Ein».** Data changes are written to Knovas at once, but they **hide nothing until enforcement is «Ein»**:
+while a firm's enforcement is off, Knovas stores rules and rights and shows every document to everyone. The part says
+"… wirkt mit «Ein»" until the Platform knows that the firm's Knovas checks the signed claims (`brokered`); today
+Knovas has no way to tell it, so the words always show (the coordinator adds a posture read to CR-R1). What waits is
+the effect, not the write: every data change acts only with CR-R1 and CR-R2; a new folder over documents already read
+in only with CR-R3; and in the short time a firm is switched to `brokered` before CR-R2 is built, Knovas refuses the
+folder-rule changes and the page says so.
+
+**Adopting an existing Knovas group** («Gruppe übernehmen», on Mitglied and the firm's own roles). A role takes over a
+group Knovas already has as its group, with everything that group may read; a dry run first names the members who
+gain it. This is the way out when «Mit Knovas verbinden» cannot create the group «Mitglied» because Knovas already has
+one (FU-45): Mitglied adopts it, and «Mit Knovas verbinden» then links Administration alone. Refused: the
+administrator group, a group another role has (one role, one group), a group Knovas does not list, Administration, a
+role whose present group still has data (remove them first, each with its dry run), and a change that would give a
+person a 33rd group. Knovas creates no group; the role's previous group is deleted at Knovas afterwards (if Knovas
+keeps it, the page says so and the log has it). No second person is needed: adopting only grants sight, like adding a
+member.
+
+**Moving direct group grants into roles** (FU-41). With «Ein» the Knovas Assistent reads only what a person's roles
+give, not the groups she holds directly. While anyone holds a group directly without an end date, the page offers «In
+Rollen übernehmen …». Its dry run shows the new roles, what goes and what stays; the move then makes **one role per
+directly held group** (no functions, named like the group at Knovas, «… (2)» when the name is taken), puts the
+holders into it and removes their direct grants; a direct grant of a group a role of hers already gives goes too.
+**Stay direct:** grants with an end date (an access window; a role membership has none), the administrator group, a
+group Knovas does not list, and the group of a role the person is not in (joining would give her that role's
+functions). Everyone's groups and functions are compared before and after, and any difference undoes the whole move;
+nothing is written to Knovas, so nobody's sight changes today. A second move changes nothing. The people page can still
+grant groups directly; the role page then offers the move again. **Open:** whether the people who keep direct grants
+must be handled before «Ein» (the assistant will not read through those grants) is for the founder or coordinator.
+
+**Everything in the log, by id.** Each data change writes its row after Knovas answers (outcome "error" when Knovas
+refused): the role, its group, the rule's or document's id, the kind and how many people gain or lose sight; never the
+path, a document's name, a role's or group's name or a person. Adopting writes the role and both group ids; the move
+writes the new roles, the people (by id) and how many grants moved and stayed. The approvals' rows name the role
+(`role:<id>`), never the folder; the approvals page shows the folder to the approver (a page, not a log).
+
 ## Agents (the role builder, RB-6 and RB-7)
 
 **What an agent is.** A member of roles that is not a person. Every agent reads what its roles allow; when it acts for a
@@ -178,6 +255,7 @@ functions); the Knovas Core accepts it as it accepts a person's.
 | RB-3, RB-4 | the Rollen page; creating, renaming and deleting roles, their functions and people; the people page offers roles; deactivating waits for removals (the last-administrator race) | verified (with notes); integrated | Siran (sensitive) |
 | RB-6 | one claim for every agent; the Knovas Assistent a member of every role but Administration, answering with its own claim | verified (with notes); not yet integrated | management (critical: a migration, with RB-7) |
 | RB-7 | external agents: the Agenten page, agents on the role page («Mitglieder»), their signed claims handed to the Core behind a switch (off) | verified (with notes); the agent rows on the role page added after RB-3/RB-4 were integrated; not yet integrated | management (critical: a migration, signing and claims) |
+| RB-5 | a role's data («Darf lesen»): adding and removing folders, sources and documents with a dry run and four eyes; adopting an existing Knovas group; moving direct group grants into roles | built (branch `feat/rb-5`); no verification verdict yet; acts with the Core's CR-R1, CR-R2 (and CR-R3 for folders already read in) | Siran (sensitive) |
 
 ## Decisions taken
 
@@ -193,6 +271,7 @@ functions); the Knovas Core accepts it as it accepts a person's.
 | 21 Nov | coordinator (RB-6, RB-7 work order) | A pool of 20 claims a minute per external agent, each at most 300 seconds; Knovas issues the gateway key with the agent's id; the assistant joins every role but Administration and its claim rides on every Core call of an answer; the switch is off by default |
 | 21 Nov | coordinator (RB-1, RB-2 work order) | "Verwaltung" belongs to Administration alone; Administration's and Mitglied's Core groups are linked by an administrator in RB-4, not at start-up; a new account joins no role until the console makes it a member |
 | 21 Nov | coordinator (RB-3, RB-4 work order) | Linking Administration and Mitglied to Knovas is its own button; the two keep their names; a role's description is set when it is created; adopting an existing Knovas group as a role's group moves to RB-5 (it brings data); a group Knovas no longer knows counts as deleted; no second administrator for role changes |
+| 21 Nov | coordinator (RB-5 work order) | A role's data changes follow the existing four-eyes path and its bypass setting (founder told; may tighten it); only an administrator carries one out; adopting a group and moving direct grants need no second person; data are written to Knovas before «Ein» and read back, never kept in the Platform; one role per directly held group; a removal never empties a rule (it deletes it) |
 
 ## Known limits and open points
 
@@ -205,8 +284,14 @@ functions); the Knovas Core accepts it as it accepts a person's.
   a signed-out call to the Builder's data routes is redirected to sign-in instead of refused (FU-24).
 - The settings page's section title "Ansichten und Wissensbasis" now also holds the assistant's entries.
 - **Roles and reading:** a role's group decides what its members may read only once enforcement is on («Ein»,
-  PMVP-42) and data are attached to it (RB-5). Until then roles decide what a person may do; the page says "wirkt mit
-  «Ein»".
+  PMVP-42, with the Core's CR-R1 and CR-R2) and data are attached to it (RB-5). Until then roles decide what a person
+  may do; the part «Darf lesen» says "wirkt mit «Ein»".
+- **A role's data, open points (RB-5):** a new folder rule reaches documents already read in only after Knovas
+  re-applies the rules (CR-R3); a firm with many documents may see a note that not every document with its own rights
+  is listed (the page reads a bounded number of pages from Knovas); the rows show no document counts per folder (one
+  more Knovas call per row); the approvals page names the folder but not the role's name; people who keep direct
+  grants after the move (end dates, the administrator group, unknown groups, groups of roles they are not in) are not
+  handled yet (founder or coordinator).
 - **Three readers of groups** (the Experimente search's "missing group" hint, the Builder's list of who holds a group,
   one check of viewers without groups) still read only a person's direct groups, not her roles' groups (open since
   RB-1/RB-2; not in RB-4's files).
@@ -231,5 +316,5 @@ confirm it.
 
 **Where the detail is:** `docs/platform-mvp/work-orders/PMVP-11.md`, `PMVP-40.md` (branch `feat/pmvp-40`), `PMVP-25.md`
 (branch `feat/pmvp-25`), `RB-1-2.md` (branch `feat/rb-1-2`), `RB-3-4.md` (branch `feat/rb-3-4`), `RB-6-7.md`
-(branch `feat/rb-6-7`); `KnovasPlatform/docs/agents.md`; `docs/platform-mvp/design/role-builder.md`;
+(branch `feat/rb-6-7`), `RB-5.md` (branch `feat/rb-5`); `KnovasPlatform/docs/agents.md`; `docs/platform-mvp/design/role-builder.md`;
 `docs/components/L2-platform-admin.md`; `docs/platform-mvp/follow-ups.md`.

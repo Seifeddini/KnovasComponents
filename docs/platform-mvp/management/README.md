@@ -49,9 +49,10 @@ branch reaches main only through a pull request a person reviews and merges; the
 | Roles: the Rollen page; creating, renaming and deleting roles, their functions and people; the people page offers roles | RB-3, RB-4 | verified (with notes); integrated | sensitive: Siran |
 | Agents: one signed claim for every agent; the Knovas Assistent in every role but Administration, answering with its own claim | RB-6 | verified (with notes); not yet integrated | critical (a migration, with RB-7): management |
 | External agents: the Agenten page, agents on the role page, their claims handed to the Core's gateway behind a switch (off) | RB-7 | verified (with notes); the agent rows on the role page added after RB-3/RB-4 were integrated; not yet integrated; acts with the Core's CR-R1, CR-R5, CR-R6 | critical (a migration, signing and claims): management |
+| A role's data: «Darf lesen» with a dry run and four eyes; adopting an existing Knovas group; moving direct group grants into roles | RB-5 | built (branch `feat/rb-5`); no verification verdict yet; acts with the Core's CR-R1, CR-R2 (CR-R3 for folders already read in) | sensitive: Siran |
 | Cleanup | CLEANUP-1 | in build; nothing pushed | sensitive: Siran |
 | No customer text in logs (pull request #55) | maintenance | verified (second verification, with notes); not on main, not in the build branch | open: no class named |
-| Not started (no work order) | PMVP-02, 04, 22b, 23, 24, 30b, 31–34, 41–43, 60–62; RB-5, RB-9, RB-10 (RB-8 dropped: "Core gateway only") | not started | as the plan and the role builder's design say |
+| Not started (no work order) | PMVP-02, 04, 22b, 23, 24, 30b, 31–34, 41–43, 60–62; RB-9, RB-10 (RB-8 dropped: "Core gateway only") | not started | as the plan and the role builder's design say |
 
 "Management" approves critical items (DEC-0081); who exactly is **open**. Updating the pilot instance (PMVP-62) needs
 both founders.

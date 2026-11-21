@@ -93,7 +93,8 @@ operations:
   ref: KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py#attach_document_routes
 - id: call.web_interface.admin_documents.execute_acl_change
   name: execute_acl_change - carries out a change of a document's access groups or of a folder rule, and records it; the
-    one function the route and the Freigaben page both call
+    one function the route and the Freigaben page both call; a role's data (role_data_add, role_data_remove, RB-5) it
+    hands to L2-PLATFORM-ADMIN's execute_role_data
   entrance: call
   ref: KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py#execute_acl_change
 - id: call.web_interface.admin_documents.execute_corpus_purge
@@ -326,10 +327,12 @@ uses:
 - component: L2-PLATFORM-ADMIN
   operations:
   - call.web_interface.guarded.run_guarded
+  - call.web_interface.admin_role_data.execute_role_data
   expects: []
   method: 'imported: every write that a second person must confirm (a document''s access groups, a folder rule, erasing
     the corpus) goes through run_guarded; the routes are attached to the blueprint and the gate create_admin_blueprint
-    passes in'
+    passes in. execute_acl_change hands the two actions of a role''s data (RB-5) to execute_role_data, imported when it
+    runs'
   protocol: in-process call
 - component: EXT-BRAIN-API
   operations:
