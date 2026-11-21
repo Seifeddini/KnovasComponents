@@ -204,3 +204,18 @@ app.
 - `L2-BRAIN-BUILDER` does not name `EXT-ANTHROPIC-API` (its views assistant calls it); not this item's card.
 - The class is critical: management approves before `main`. The pilot's key goes in on the settings page
   (`PLATFORM_SETTINGS_KEY` must be set), then "Verbindung testen", then `an` and `anthropic`.
+
+## Verification (coordinator's record)
+
+- **2026-11-21, fresh verifier session, `feat/pmvp-25` @ `cb86935`: PASS WITH NOTES.** The fake key showed up only in
+  the encrypted settings row and the outgoing `Authorization` header: not in 31 page, API and JS responses (failed
+  tests included), not in DEBUG logs of every SDK and httpx logger, not in exceptions (`__cause__`/`__context__`
+  None), the audit row says "geändert". Only an administrator with the CSRF token can set or test it; the only host
+  reached is `api.anthropic.com`. The request body is exactly what the order says (POST-02 holds); 429/529 with a
+  long `retry-after` give one request and "busy" in under 5 s. The Builder works on `anthropic` 2.12.0 over the wire.
+  Listed tests 315 passed; card checks clean.
+- Integrated into `feat/platform-mvp` by the coordinator (merge `5ab173f`). Class critical: management approves
+  before `main`.
+- Notes, fixed in a follow-up commit before `main` (FU-39): at `LOG_LEVEL=DEBUG` the SDK's own "Request options" line
+  logs the whole request body (passages, question), not the key; `base_url` is not pinned, so `ANTHROPIC_BASE_URL`
+  from the deployment's environment would be honoured.
