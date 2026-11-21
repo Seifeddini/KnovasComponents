@@ -6,6 +6,7 @@
    unchanged (KnowledgeBase brand/knovas-brand/css/knovas-tokens.css); change
    a value there, never here. An @import has to stay the first rule. */
 @import url('knovas-tokens.css');
+@import url('parts.css'); /* the shared page parts (PMVP-12): after the tokens they take */
 /* The navigation's rules (PMVP-11), in a file of their own; they use the tokens above. */
 @import url('shell.css');
 
