@@ -16,9 +16,9 @@ service takes from ``core.make_generate``, so the service and the check do not c
 official SDK (``client.beta.messages.create``): effort ``medium``, the server-side fallback on a policy decline,
 no temperature (the current models refuse it) and no thinking setting (adaptive is the default and cannot be
 switched off on Opus 5.5). ``max_tokens`` is at least ``ANTHROPIC_MIN_MAX_TOKENS``: thinking counts against it, and
-a cut answer loses statements. The client waits ``ANTHROPIC_TIMEOUT_SECONDS`` and retries once, to stay under
-nginx's 180 seconds (FU-08): a timeout costs at most about 128 seconds. The SDK waits whatever ``retry-after`` a 429
-or 529 names before its retry, so a long one can still outlast nginx (PMVP-25's notes).
+a cut answer loses statements. The client waits ``ANTHROPIC_TIMEOUT_SECONDS`` and never retries (the coordinator,
+2026-11-21): a 429 or 529 is "ausgelastet" at once and the person asks again, so no ``retry-after`` wait can outlast
+nginx's 180 seconds (FU-08).
 
 What the provider receives is what the service composed and nothing else (POST-02): the system instruction and
 the messages, each reduced to its role and its content (the passages the person's search returned, the question
@@ -76,7 +76,8 @@ ON_VALUES = frozenset({"an", "on", "true", "yes", "ja", "1"})
 # ---------------------------------------------------------------------------
 
 ANTHROPIC_TIMEOUT_SECONDS = 60.0
-ANTHROPIC_MAX_RETRIES = 1
+#: No retry: the SDK would wait whatever ``retry-after`` a 429 or 529 names, past nginx's 180 seconds.
+ANTHROPIC_MAX_RETRIES = 0
 #: The least ``max_tokens`` on this path: thinking counts against it (the probe used about 200 tokens per answer,
 #: but a cut answer loses statements). The service asks for less (``service.DEFAULT_MAX_TOKENS``, sized for the
 #: Core's model); here it is raised to this.

@@ -222,7 +222,7 @@ contract:
     - id: L2-PLATFORM-ASSISTANT/*/P-8
       statement: 'The provider is the one the customer chose (assistant.provider): knovas is the Core''s
         /secured/llm/generate as before; anthropic is Claude on the saved key and model (assistant.model, claude-opus-5-5
-        by default), with effort medium, the server-side fallback, at least 8,000 tokens, 60 seconds and one retry.
+        by default), with effort medium, the server-side fallback, at least 8,000 tokens, 60 seconds and no retry.
         Either way the search is the person''s own and the check is the same.'
       risk_class: standard
       evidence:
@@ -237,7 +237,8 @@ contract:
         checks:
         - test_the_request_is_the_ordered_shape_and_nothing_else
         - test_max_tokens_is_at_least_8000
-        - test_the_client_gets_the_settings_key_60_seconds_and_one_retry_and_is_closed
+        - test_the_client_gets_the_settings_key_60_seconds_and_no_retry_and_is_closed
+        - test_the_client_is_built_without_a_retry
         - test_the_service_answers_through_claude_unchanged
     limits:
     - id: L2-PLATFORM-ASSISTANT/*/L-1
@@ -409,7 +410,7 @@ review:
 - at: L2-PLATFORM-ASSISTANT/*/P-5
   why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here.
 - at: L2-PLATFORM-ASSISTANT/*/P-6
-  why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing; Claude's client waits 60 seconds and retries once (about 128 seconds at most after a timeout; a 429 or 529 with a long retry-after can take longer than nginx's 180). FU-08 (a 504 from nginx before the plain message) is PMVP-24's.
+  why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing; Claude's client waits 60 seconds and never retries (a 429 or 529 is busy at once), under nginx's 180. FU-08 (a 504 from nginx before the plain message) is PMVP-24's.
 - at: L2-PLATFORM-ASSISTANT/*/L-1
   why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The limits are the Core's; with anthropic the service keeps them all the same (PMVP-25 changes nothing of the service). FU-06 (a digit-heavy history can overflow the prompt budget) and FU-07 (no history at all when the turns are long) are PMVP-23's.
 - at: L2-PLATFORM-ASSISTANT/R-2

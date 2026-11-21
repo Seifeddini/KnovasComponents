@@ -155,7 +155,7 @@ def test_anthropic_answers_through_claude_on_the_saved_key_and_model(settings, k
     service = make_service(resolver, _core_client(key_dir, monkeypatch, core), split=split, anthropic_client=claude)
     reply = service.answer(QUESTION)
     assert reply.status == "answered" and len(reply.sentences) == 2
-    assert claude.built == [{"api_key": KEY, "timeout": 60.0, "max_retries": 1}]
+    assert claude.built == [{"api_key": KEY, "timeout": 60.0, "max_retries": 0}]
     assert claude.requests[0]["model"] == "claude-sonnet-5-5"
     # POST-02: the person's own search, once, and the Core generates nothing.
     assert len(core.bodies("/secured/query")) == 1 and core.bodies("/secured/llm/generate") == []

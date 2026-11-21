@@ -1,7 +1,7 @@
 """PMVP-25: the Knovas Assistent through Claude, the provider the customer chose (assistant.providers).
 
 The call (one ``client.beta.messages.create`` with effort medium, the server-side fallback, no temperature, no
-thinking setting, at least 8,000 tokens), the client (the setting's key, 60 seconds, one retry, closed after the
+thinking setting, at least 8,000 tokens), the client (the setting's key, 60 seconds, no retry, closed after the
 call), the answer (the text blocks; a refusal fails; a cut answer stays as it is), the error mapping (busy on 429
 and 529, failed on everything else, the SDK's exception never attached), the key (never built without one, never
 in a log line or an exception) and POST-02/POST-04 through the whole service. "Verbindung testen" too.
@@ -147,11 +147,19 @@ def test_max_tokens_is_at_least_8000(asked, sent):
     assert fake.requests[0]["max_tokens"] == sent
 
 
-def test_the_client_gets_the_settings_key_60_seconds_and_one_retry_and_is_closed():
+def test_the_client_gets_the_settings_key_60_seconds_and_no_retry_and_is_closed():
     fake = FakeAnthropic()
     _call(_generate(fake))
-    assert fake.built == [{"api_key": KEY, "timeout": 60.0, "max_retries": 1}]
+    assert fake.built == [{"api_key": KEY, "timeout": 60.0, "max_retries": 0}]
     assert fake.closed == 1
+
+
+def test_the_client_is_built_without_a_retry():
+    """The coordinator, 2026-11-21: a 429 or 529 is busy at once; the SDK would wait any retry-after first."""
+    fake = FakeAnthropic()
+    _call(_generate(fake))
+    assert providers.ANTHROPIC_MAX_RETRIES == 0
+    assert [b["max_retries"] for b in fake.built] == [0]
 
 
 def test_the_client_is_closed_after_a_failure_too():
@@ -210,10 +218,10 @@ def test_without_a_key_and_without_a_fake_the_sdk_is_not_asked_either(monkeypatc
 def test_the_default_client_is_the_sdk_with_the_settings_key(monkeypatch):
     monkeypatch.undo()                                   # the real factory, for this test only; it calls nothing
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-from-the-environment")
-    client = providers._sdk_client(api_key=KEY, timeout=60.0, max_retries=1)
+    client = providers._sdk_client(api_key=KEY, timeout=60.0, max_retries=0)
     try:
         assert isinstance(client, anthropic.Anthropic)
-        assert client.api_key == KEY and client.max_retries == 1 and client.timeout == 60.0
+        assert client.api_key == KEY and client.max_retries == 0 and client.timeout == 60.0
     finally:
         client.close()
 
@@ -352,8 +360,8 @@ def test_through_the_real_sdk_an_http_error_maps_the_same(status, mapped, reason
     seen = []
 
     def handler(request):
-        # x-should-retry: false keeps the SDK's one retry from waiting in a test.
-        return httpx2.Response(status, headers={"x-should-retry": "false"},
+        # A retry-after the SDK would honour, were it to retry: it must not (one request, no wait).
+        return httpx2.Response(status, headers={"retry-after": "600"},
                                json={"type": "error", "error": {"type": "error", "message": "nein"}})
 
     with pytest.raises(mapped) as caught:
@@ -364,15 +372,15 @@ def test_through_the_real_sdk_an_http_error_maps_the_same(status, mapped, reason
 
 @pytest.mark.parametrize("raised, reason", [(httpx2.ConnectError, "anthropic_no_connection"),
                                             (httpx2.ReadTimeout, "anthropic_timeout")])
-def test_through_the_real_sdk_no_connection_and_a_timeout_fail(raised, reason, monkeypatch):
-    monkeypatch.setattr(providers, "ANTHROPIC_MAX_RETRIES", 0)      # no backoff wait in a test
+def test_through_the_real_sdk_no_connection_and_a_timeout_fail(raised, reason):
+    seen = []
 
     def handler(request):
         raise raised("nope", request=request)
 
     with pytest.raises(CoreFailed) as caught:
-        _call(_generate(_sdk_factory(handler, [])))
-    assert caught.value.reason == reason
+        _call(_generate(_sdk_factory(handler, seen)))
+    assert caught.value.reason == reason and len(seen) == 1          # tried once, not again
 
 
 # --- POST-02 and POST-04 through the whole service -----------------------------------------------------
@@ -434,7 +442,7 @@ def test_the_connection_test_says_it_works_and_sends_invented_text_only(caplog):
     assert request["system"] == SYSTEM_INSTRUCTION and request["model"] == "claude-sonnet-5-5"
     (only,) = request["messages"]
     assert providers.TEST_PASSAGE in only["content"] and providers.TEST_QUESTION in only["content"]
-    assert fake.built == [{"api_key": KEY, "timeout": 60.0, "max_retries": 1}]
+    assert fake.built == [{"api_key": KEY, "timeout": 60.0, "max_retries": 0}]
     assert "connection test ok" in caplog.text and KEY not in caplog.text and KEY not in json.dumps(result)
 
 

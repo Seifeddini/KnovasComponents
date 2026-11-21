@@ -103,7 +103,8 @@ was sent to Anthropic: every test uses a fake client or the real SDK over an in-
   `assistant.model` (`claude-opus-5-5` default, `claude-sonnet-5-5`, `claude-haiku-5-5`; the help gives each price per
   million tokens and says Opus is the default), `assistant.anthropic_api_key` (secret, no file, no environment).
 - `src/assistant/providers.py` (new): `make_anthropic_generate` (the service's own `generate` signature; the call
-  exactly as point 2; `max(max_tokens, 8000)`; client `timeout` 60, `max_retries` 1, built per call and closed;
+  exactly as point 2; `max(max_tokens, 8000)`; client `timeout` 60, `max_retries` 0 (decision 1 below), built per
+  call and closed;
   text blocks joined; refusal -> `CoreFailed`; `max_tokens` -> the text as it is; 429/529 -> `CoreBusy`, everything
   else `CoreFailed`), `connection_test`, `settings_problems`, `is_enabled`, `chosen_provider`. ASCII-only like the
   rest of the package; the SDK is imported at call time, so the settings page can import the module.
@@ -159,12 +160,9 @@ was sent to Anthropic: every test uses a fake client or the real SDK over an in-
 11. **Prices in the help text** are Anthropic's list prices as of November 2026 (Opus 4/20, Sonnet 2/10, Haiku
     0,10/0,50 USD per million input/output tokens; Haiku's for prompts up to 100K tokens, ours are far smaller), taken
     from the Claude API reference I had, not re-read on Anthropic's pricing page today.
-12. **Time: the order's "never outlasts 180 s" holds only for a short `retry-after`.** With `timeout` 60 and
-    `max_retries` 1 (as ordered), a timeout costs at most 60 + 8 (the SDK's longest backoff) + 60 = about 128 s. But
-    SDK 2.12.0 waits whatever `retry-after` a 429 or 529 names before its one retry (`_calculate_retry_timeout`, no
-    cap), so a `retry-after` above about 110 s, plus up to 60 s for the retry and the search before it, would outlast
-    nginx's 180 s. I kept the ordered values; **a decision for the coordinator**: `max_retries` 0 (a busy Anthropic
-    answers "ausgelastet" at once), or a deadline around the call.
+12. **Time.** With the ordered `max_retries` 1, SDK 2.12.0 waits whatever `retry-after` a 429 or 529 names before
+    its retry (`_calculate_retry_timeout`, no cap), so a long one would outlast nginx's 180 s. Decided by the
+    coordinator (below): no retry.
 13. **No live check** was written (the order allows one behind a variable; untested code seemed worse than none).
 14. **The card.** `CoreBusy` and `CoreFailed` are PMVP-20's, but on this branch `knovas_client.py` takes them, so
     map-check wanted them listed; they are, with a promise each. The evidence of P-1 … L-1 still names the frozen
@@ -185,6 +183,20 @@ compatible 2 `need_added` on the new operations `make_service` and `connection_t
 (`L2-PLATFORM-ASSISTANT` about 29,000 tokens of 16,000; mostly the check's code); touched without a card:
 `src/platform_settings.py`, `src/knovas_client.py` (PMVP-20's) and `src/web_interface/settings_routes.py`, the web
 app.
+
+**The coordinator's decisions, 2026-11-21** (after the first report):
+
+1. **No retry.** `max_retries` is 0 on the Anthropic client (`providers.ANTHROPIC_MAX_RETRIES`): a 429 or 529 maps
+   straight to `CoreBusy` ("gerade ausgelastet") and the person asks again, so no `retry-after` wait can outlast
+   nginx's 180 s. The timeout stays 60 s. Tests: `test_the_client_is_built_without_a_retry`, and over the real SDK a
+   429 or 529 with `retry-after: 600` is one request and busy at once, a connection error or a timeout one request.
+2. **Accepted as decided above**: the `anthropic` pin moved from 1.17.0 to 2.12.0 (point 1; the Builder's tests stay
+   green), `config/config.yaml` with `ASSISTANT_PROVIDER` and `ASSISTANT_MODEL` (point 2), and no deployment pin for
+   the key (point 3).
+3. `origin/feat/platform-mvp` merged in again (it holds PMVP-11's navigation, merge `af19936`, and the harness);
+   the tests re-run after it: 666 passed, none skipped (the files listed above, `test_assistant_providers.py` now
+   87, and `test_pmvp11_navigation_acceptance.py` 40); frozen check all five OK; `card check` 16 valid,
+   `card render --check` 0 not current.
 
 **Open, for the coordinator.**
 
