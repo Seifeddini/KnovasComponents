@@ -45,7 +45,7 @@
 }
 
 .kx-muted { color: var(--text-secondary); }
-.kx-mono { font-family: var(--font-heading); font-size: 0.85em; }
+.kx-mono { font-family: var(--font-mono); font-size: 0.85em; }
 .kx-nowrap { white-space: nowrap; }
 
 /* ── Kopf ───────────────────────────────────────────────────────────── */
@@ -397,7 +397,7 @@
 }
 
 .kx-code {
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     line-height: 1.5;
     min-height: 260px;
@@ -696,7 +696,7 @@
 
 .kx-table a.kx-key-link,
 .kx-key {
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     font-weight: 600;
     white-space: nowrap;
@@ -804,7 +804,7 @@
     padding: 10px 12px;
     max-height: 420px;
     overflow: auto;
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.78rem;
     line-height: 1.5;
     white-space: pre-wrap;
@@ -826,7 +826,7 @@
     margin: 12px 0 4px;
 }
 .kx-markdown code {
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.85em;
     background: var(--surface-sunken);
     padding: 1px 4px;
@@ -1618,7 +1618,7 @@ span.kx-swatch {
     flex: 1 1 320px;
     min-width: 0;
     padding: 9px 11px;
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.82rem;
     overflow-wrap: anywhere;
     background: var(--surface-sunken);

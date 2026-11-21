@@ -1,5 +1,12 @@
 /* Knovas Document Search */
 
+/* The Knovas brand tokens come first (PMVP-10): every page that loads this
+   stylesheet gets the brand's colours, type, spacing, radii and shadows as
+   --k-... custom properties. knovas-tokens.css is the brand's own file,
+   unchanged (KnowledgeBase brand/knovas-brand/css/knovas-tokens.css); change
+   a value there, never here. An @import has to stay the first rule. */
+@import url('knovas-tokens.css');
+
 /* IBM Plex, selbst gehostet (SIL OFL). Kein CDN: die Anwendung laeuft
    kundengehostet und teils offline. */
 @font-face {
@@ -32,45 +39,72 @@
     font-weight: 600;
     font-display: swap;
 }
+/* The two weights the brand uses and the Platform lacked (PMVP-10): the
+   brand's own files, unchanged. They are its Latin subsets (about 230
+   characters), while the five files above hold about 900 (Latin Extended,
+   Greek, Cyrillic, arrows). unicode-range lists what the two files hold, so a
+   character outside it keeps the face it had before (the 600 or the 400 of
+   the same family) instead of falling to a system font. */
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('../fonts/ibm-plex-sans-latin-700-normal.woff2') format('woff2');
+    font-weight: 700;
+    font-display: swap;
+    unicode-range: U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+        U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+2013-2014, U+2018-201A, U+201C-201E, U+2022, U+2026,
+        U+2032-2033, U+2039-203A, U+2044, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215;
+}
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+    font-weight: 500;
+    font-display: swap;
+    unicode-range: U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+        U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+2013-2014, U+2018-201A, U+201C-201E, U+2022, U+2026,
+        U+2032-2033, U+2039-203A, U+2044, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215;
+}
 
 :root {
-    /* Knovas Branding, Seiten 15-16 */
-    /* Rollenverteilung nach den USE-Angaben des Guides: Royal ist dort
-       "CALLOUT TEXT", Azure ist die Identitaetsfarbe "KNOVAS BLUE".
-       Azure erreicht als Textfarbe nur 3.97:1 und als Buttonflaeche unter
-       Weiss nur 4.04:1 -- beides unter WCAG AA. Royal erreicht 7.59:1
-       bzw. 7.72:1. Azure bleibt deshalb dekorativ. */
-    --primary-color: #1A45C7;     /* Royal Blue -- Text/Links/Buttonflaechen */
-    --primary-hover: #193284;     /* Marine Blue -- Hover-Zustand */
-    --accent: #3B79F2;            /* Azure Blue -- nur dekorativ: Rahmen, Fokusringe, Chip-Highlights. Nie als Textfarbe, nie als Flaeche unter Text. */
-    --accent-rgb: 59, 121, 242;    /* RGB-Tripel von --accent, fuer rgba()-Transparenzen */
-    --success-color: #1a6b4a;
-    --error-color: #c41e1e;
-    --bg-color: #FDFDFD;          /* Off White -- Seitenhintergrund */
-    --card-bg: #FDFDFD;           /* Off White -- Container liegen flach auf der Seite,
-                                     abgegrenzt allein durch --border-color */
-    --surface-sunken: #F4F6FC;    /* Ice Blue -- zurueckgesetzte Flaechen: Treffer-Karten,
-                                     Eingabefelder, Chips */
-    --callout: #6E88DC;           /* Cornflower Blue -- laut Guide "CALLOUT CONTAINER" */
-    --highlight: #D9E0F7;         /* Grayish Blue -- Fundstellen-Markierung, ersetzt das
-                                     markenfremde Gelb */
-    --text-primary: #283647;      /* Slate Blue */
-    --text-primary-rgb: 40, 54, 71; /* RGB-Tripel von --text-primary, fuer rgba()-Transparenzen */
-    --text-secondary: #5A6B80;    /* abgedunkeltes Slate Gray -- Original #73869B erreichte nur 3.68:1 auf Kartenweiss */
-    --text-muted: #5A6B80;        /* abgedunkelt von #A3B0C0 (2.17:1, unter AA) auf 5.36:1 --
-                                     identisch zu --text-secondary, da --text-muted auch auf
-                                     essenziellem Text (Trefferzahl, Score-Chips) verwendet wird */
-    --border-color: #D1D6DF;      /* Light Ice Blue */
-    --radius: 6px;
-    --radius-lg: 8px;
-    /* Abstaende von Sektionen. Ohne Token liefen Suche (20px), Cortex
-       (12px 16px) und Einstellungen (16px 20px) auseinander; --gutter ist
-       der seitliche Rand, an dem alle Inhalte einer Sektion ausgerichtet
-       stehen. */
-    --pad-section: 16px 20px;
-    --gutter: 20px;
-    --font-body: 'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-heading: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    /* The Platform's own names, with the brand's values (PMVP-10).
+       The other stylesheets (admin, views, ontology, experiments,
+       custom_views) use these names, so every name stays; each takes its
+       value from a token of knovas-tokens.css and none names a colour of its
+       own. tests/test_pmvp10_brand_acceptance.py pins ten of them and the
+       contrast of the text colours (4.5:1 or better on the three
+       backgrounds); the others take the token the reference screens
+       (docs/platform-mvp/reference-screens/) use for the same job.
+       /styleguide shows every name with its token and value. */
+    --primary-color: var(--k-color-accent);        /* Knovas Blue: links, primary buttons, text in the action colour */
+    --primary-hover: var(--k-color-accent-hover);
+    --accent: var(--k-color-accent);               /* focus outlines, hover and active borders; the reference draws them in Knovas Blue too */
+    --accent-rgb: 44, 74, 194;                     /* the triple of --accent (#2C4AC2), for rgba(); the brand's soft and ring tints use the same one */
+    --success-color: var(--k-color-success-fg);
+    --error-color: var(--k-color-danger-fg);
+    --bg-color: var(--k-color-page);
+    --card-bg: var(--k-color-surface);
+    --surface-sunken: var(--k-color-surface-sunken);
+    --callout: var(--k-color-accent);              /* the bar at the left of a notice; the reference's cited passage (.peek) has it in Knovas Blue */
+    --highlight: var(--k-color-accent-soft);       /* found passages, the current entry, chips: the reference's tinted fill (.ref, .tag.acc) */
+    --text-primary: var(--k-color-text);
+    --text-primary-rgb: 30, 41, 59;                /* the triple of --text-primary (#1E293B), for rgba() */
+    --text-secondary: var(--k-gray-600);           /* labels, meta lines, navigation entries: the reference's .nav and .tag; 7.6:1 on white */
+    --text-muted: var(--k-color-text-muted);
+    --border-color: var(--k-color-border);
+    --radius: var(--k-radius-md);                  /* 8px: buttons, inputs, navigation entries */
+    --radius-lg: var(--k-radius-lg);               /* 12px: cards, panels */
+    /* --gutter is the side edge every section's content lines up on, and
+       --pad-section a card's padding (without them search, Cortex and the
+       settings had drifted apart). The gutter stays at 20px, written on the
+       brand's 4px grid (16 + 4): the brand has no 20px step, and some rules
+       still write the 20px themselves (.container here, admin.css), so
+       another value would move one page's edge against another's. */
+    --gutter: calc(var(--k-space-md) + var(--k-space-2xs));
+    --pad-section: var(--k-space-md) var(--gutter);
+    --font-body: var(--k-font-sans);
+    /* Headings are set in the brand's sans. Codes, ids, file names and diffs
+       stay in the mono face: their rules ask for --font-mono. */
+    --font-heading: var(--k-font-sans);
+    --font-mono: var(--k-font-mono);
 }
 
 * {
@@ -1404,7 +1438,7 @@ mark.context-snippet-match,
     align-self: center;
 }
 .settings-list dd { color: var(--text-primary); }
-.settings-list dd.mono { font-family: var(--font-heading); font-size: 0.85rem; }
+.settings-list dd.mono { font-family: var(--font-mono); font-size: 0.85rem; }
 
 /* Schmale Fenster: Leiste wird zur Kopfzeile, Korpus-Zahl entfaellt. */
 @media (max-width: 900px) {
