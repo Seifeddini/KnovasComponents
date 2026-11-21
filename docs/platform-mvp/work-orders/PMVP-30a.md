@@ -217,3 +217,19 @@ The fix is one line in the client (log the exception type, not the pointer), wit
 281 passed; `tests/test_platform_settings.py` 55 passed: 847, 0 failed. Frozen check all OK. `card check` 15 valid;
 `card render --check` 0 not current; `map-check --scope touched`, base `origin/feat/platform-mvp`: problems 0;
 in scope `need_added` on the two routes' N-1 (new operations) and `no_contract` on the factory (review entry).
+
+## Verification (coordinator's record)
+
+- **First verification, `55a926f`: FAIL.** The dossier listed and granted experiment pointers, which search and the
+  document-fields listing split off; after the grant `POST /api/document-fields/read` answered 200 for one.
+- **Second verification, 2026-11-21, `d1af8cf2`: PASS WITH NOTES.** The case is closed (not listed, never a source,
+  never granted, 404 on the read). Viewing grants nothing; a click grants only after `document_readable` says yes for
+  that person, and only that document; every malformed position, hidden node or odd Core answer gives 404 with no
+  grant. Opening follows a search hit with PDF preview on and off. 847 tests passed.
+- Integrated into `feat/platform-mvp` by the coordinator (merge `405022da`; the settings registry kept both PMVP-25's
+  and this item's entries).
+- Notes: the experiment filter checks one spelling while the grant stores a normalised one (`experiments\...` with
+  backslashes was listed and granted in a probe; search behaves the same; FU-40). In a tenant that does not enforce,
+  the Core's `document_readable` answers yes for any pointer. Links are by position, so a shared link can open a
+  different document of the same node (still checked). `knovas_client.py` logs the pointer when `document_readable`
+  fails (PR #55).
