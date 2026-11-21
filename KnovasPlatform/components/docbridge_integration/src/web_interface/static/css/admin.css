@@ -1194,6 +1194,8 @@
     margin-top: 34px;
 }
 
+.danger-zone .inline-form-row > label { flex: none; }
+
 .inline-form-row {
     display: flex;
     align-items: end;
@@ -1528,6 +1530,13 @@
 .admin-page .admin-column > div > .admin-toolbar,
 .admin-page .admin-column > div > form {
     margin: 0;
+}
+
+/* The page head and the one main action beside it: the head takes the room, the action keeps its width and goes
+   below the head when there is not room for both (a long lede, a phone). */
+.admin-head-text {
+    flex: 1 1 24rem;
+    min-width: 0;
 }
 
 /* A path or a folder: one line, cut at the end; with no width of its own, so a long path never widens the

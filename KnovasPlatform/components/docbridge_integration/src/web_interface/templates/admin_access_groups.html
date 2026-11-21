@@ -42,7 +42,9 @@
 <main class="admin admin-column">
 {% call parts.page(wide=True) %}
     <div class="k-head">
-        {{ parts.page_head("Zugriffsgruppen", lede="Gruppen entscheiden, wer welche Dokumente sieht. Eine Ordnerregel ordnet einen ganzen Pfad einer Gruppe zu — auch Dokumente, die später dort eingelesen werden, erben sie automatisch.") }}
+        <div class="admin-head-text">
+            {{ parts.page_head("Zugriffsgruppen", lede="Gruppen entscheiden, wer welche Dokumente sieht. Eine Ordnerregel ordnet einen ganzen Pfad einer Gruppe zu — auch Dokumente, die später dort eingelesen werden, erben sie automatisch.") }}
+        </div>
         {# A fixed anchor on this page, not an address: after a POST the page is drawn at the POST's address,
            and a link built with url_for would load the page again and lose the message above. #}
         <a class="admin-primary-action" href="#create-access-group">Gruppe anlegen</a>
@@ -143,7 +145,7 @@
                 </label>
                 {% else %}<span class="k-small k-muted">Keine Gruppen verfügbar.</span>{% endfor %}
             </fieldset>
-            <button type="submit">Regel speichern</button>
+            <button type="submit" class="secondary">Regel speichern</button>
         </form>
         {% endcall %}
     {% endcall %}

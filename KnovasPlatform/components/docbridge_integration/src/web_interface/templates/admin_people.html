@@ -32,7 +32,9 @@
 <main class="admin admin-column">
 {% call parts.page(wide=True) %}
     <div class="k-head">
-        {{ parts.page_head("Personen", lede="Wer sich anmelden darf, was er oder sie darf, und welche Zugriffsgruppen gelten. Zugriffsgruppen entscheiden, welche Dokumente jemand sieht; Rollen entscheiden, was jemand in dieser Plattform tun darf.") }}
+        <div class="admin-head-text">
+            {{ parts.page_head("Personen", lede="Wer sich anmelden darf, was er oder sie darf, und welche Zugriffsgruppen gelten. Zugriffsgruppen entscheiden, welche Dokumente jemand sieht; Rollen entscheiden, was jemand in dieser Plattform tun darf.") }}
+        </div>
         <button type="button" class="admin-primary-action" data-person-create-open>
             Person hinzufügen
         </button>
