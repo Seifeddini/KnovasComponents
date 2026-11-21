@@ -13,45 +13,72 @@
 {% set admin_tab = 'access_groups' %}
 {% include '_sidebar.html' %}
 <div class="app-content">
+{% import "_parts.html" as parts %}
+{# PMVP-40: one column built from the shared page parts. The groups come from Knovas as a flat list in which a
+   child names its parent (parent_id); here they are drawn as the tree they are. A group whose parent is not in
+   the list is drawn at the top, and every group is drawn once, whatever the ids say. #}
+{% macro group_item(nodes, group, seen) -%}
+{%- set gid = (group.get('group_id') or '')|string -%}
+{%- set seen.ids = seen.ids + [gid] -%}
+<li>
+    <span class="group-name">{{ group.get('name') or gid or '—' }}</span>
+    {%- if gid %}{{ group_branch(nodes, gid, seen) }}{% endif %}
+</li>
+{%- endmacro %}
+{% macro group_branch(nodes, parent, seen) -%}
+{%- set kids = [] -%}
+{%- for g in nodes if (g.get('parent_id') or '')|string == parent and (g.get('group_id') or '')|string not in seen.ids -%}
+{%- set _ = kids.append(g) -%}
+{%- endfor -%}
+{%- if kids %}
+<ul class="group-tree">
+    {%- for g in kids if (g.get('group_id') or '')|string not in seen.ids %}
+    {{ group_item(nodes, g, seen) }}
+    {%- endfor %}
+</ul>
+{%- endif %}
+{%- endmacro %}
 
-<main class="admin">
-    <header class="admin-page-header">
-        <div>
-            <h1>Zugriffsgruppen</h1>
-            <p class="hint">
-                Gruppen entscheiden, wer welche Dokumente sieht. Eine Ordnerregel
-                ordnet einen ganzen Pfad einer Gruppe zu — auch Dokumente, die später
-                dort eingelesen werden, erben sie automatisch.
-            </p>
+<main class="admin admin-column">
+{% call parts.page(wide=True) %}
+    <div class="k-head">
+        <div class="admin-head-text">
+            {{ parts.page_head("Zugriffsgruppen", lede="Gruppen entscheiden, wer welche Dokumente sieht. Eine Ordnerregel ordnet einen ganzen Pfad einer Gruppe zu — auch Dokumente, die später dort eingelesen werden, erben sie automatisch.") }}
         </div>
+        {# A fixed anchor on this page, not an address: after a POST the page is drawn at the POST's address,
+           and a link built with url_for would load the page again and lose the message above. #}
         <a class="admin-primary-action" href="#create-access-group">Gruppe anlegen</a>
-    </header>
+    </div>
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
     {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
 
-    <section class="admin-section">
-        <h2 class="section-label">Gruppen</h2>
-        <div class="table-wrap">
-            <table class="groups-table">
-                <thead><tr><th>Name</th><th>Übergeordnet</th></tr></thead>
-                <tbody>
-                {% for g in groups %}
-                    <tr>
-                        <td><strong>{{ g.name }}</strong></td>
-                        <td>{{ g.get('parent_name') or '—' }}</td>
-                    </tr>
-                {% else %}
-                    <tr><td colspan="2" class="empty">Noch keine Gruppen angelegt.</td></tr>
-                {% endfor %}
-                </tbody>
-            </table>
+    {% call parts.section("Gruppen") %}
+        {% call parts.card() %}
+        {% set seen = namespace(ids=[]) %}
+        {% set known = [] %}
+        {% for g in groups %}{% set _ = known.append((g.get('group_id') or '')|string) %}{% endfor %}
+        <div class="group-tree-root">
+        {% if groups %}
+            {{ group_branch(groups, '', seen) }}
+            {# Groups whose parent is not in the list, then whatever a loop in the ids left out. #}
+            {% for g in groups if (g.get('group_id') or '')|string not in seen.ids and (g.get('parent_id') or '')|string not in known %}
+            <ul class="group-tree">{{ group_item(groups, g, seen) }}</ul>
+            {% endfor %}
+            {% for g in groups if (g.get('group_id') or '')|string not in seen.ids %}
+            <ul class="group-tree">{{ group_item(groups, g, seen) }}</ul>
+            {% endfor %}
+        {% else %}
+            <p class="empty">Noch keine Gruppen angelegt.</p>
+        {% endif %}
         </div>
-    </section>
+        {% endcall %}
+    {% endcall %}
 
-    <section class="panel compact-panel" id="create-access-group">
-        <h2>Gruppe anlegen</h2>
-        <form class="inline-form-grid group-create-form" method="post" action="{{ url_for('admin.create_access_group') }}">
+    <div id="create-access-group">
+    {% call parts.section("Gruppe anlegen") %}
+        {% call parts.card() %}
+        <form class="access-form" method="post" action="{{ url_for('admin.create_access_group') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label>Name
                 <input type="text" name="name" placeholder="z. B. personal" required>
@@ -66,52 +93,44 @@
             </label>
             <button type="submit">Gruppe anlegen</button>
         </form>
-    </section>
+        {% endcall %}
+    {% endcall %}
+    </div>
 
-    <section class="admin-section folder-rules-section">
-        <h2 class="section-label">Ordnerregeln</h2>
-        <p class="hint">
+    {% call parts.section("Ordnerregeln") %}
+        <p class="k-small k-muted access-note">
             Eine Ordnerregel wirkt <strong>sofort</strong>: geändert wird ein
             einziger Datensatz, nicht jedes Dokument. Deshalb ist das Ändern
             einer Regel auch bei sehr grossen Beständen unmittelbar fertig.
             Bereits vorhandene Dokumente übernehmen die Regel erst mit einem
             Abgleich.
         </p>
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr><th>Ordner</th><th>Gruppen</th><th>Version</th><th></th></tr>
-                </thead>
-                <tbody>
-                {% for r in rules %}
-                    <tr>
-                        <td class="ptr">{{ r.pointer_prefix }}</td>
-                        <td>
-                            {% if r.access_groups %}
-                                {% for g in r.access_groups %}<span class="access-chip">{{ g }}</span>{% endfor %}
-                            {% else %}<span class="access-chip open">offen</span>{% endif %}
-                        </td>
-                        <td>v{{ r.version }}</td>
-                        <td class="row-action">
-                            <form method="post" class="inline"
-                                  action="{{ url_for('admin.delete_folder_rule') }}">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                                <input type="hidden" name="rule_id" value="{{ r.rule_id }}">
-                                <button type="submit" class="secondary compact">Löschen</button>
-                            </form>
-                        </td>
-                    </tr>
-                {% else %}
-                    <tr><td colspan="4" class="empty">Noch keine Ordnerregeln.</td></tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </section>
+        {% call parts.card() %}
+        {% for r in rules %}
+            {% call parts.rowline() %}
+            <div class="rule-summary">
+                <p class="ptr">{{ r.pointer_prefix }}</p>
+                <p class="k-small">
+                    <span class="k-muted">Zugriffsgruppen:</span>
+                    {% if r.access_groups %}{{ r.access_groups|join(', ') }}{% else %}<span class="k-muted">offen</span>{% endif %}
+                    <span class="k-muted"> · v{{ r.version }}</span>
+                </p>
+            </div>
+            <form method="post" class="inline" action="{{ url_for('admin.delete_folder_rule') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="rule_id" value="{{ r.rule_id }}">
+                <button type="submit" class="secondary compact">Löschen</button>
+            </form>
+            {% endcall %}
+        {% else %}
+            <p class="empty">Noch keine Ordnerregeln.</p>
+        {% endfor %}
+        {% endcall %}
+    {% endcall %}
 
-    <section class="panel compact-panel">
-        <h2>Regel speichern</h2>
-        <form class="inline-form-grid folder-rule-form" method="post" action="{{ url_for('admin.save_folder_rule') }}">
+    {% call parts.section("Regel speichern") %}
+        {% call parts.card() %}
+        <form class="access-form" method="post" action="{{ url_for('admin.save_folder_rule') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label>Ordner
                 <input type="text" name="pointer_prefix"
@@ -124,11 +143,13 @@
                     <input type="checkbox" name="access_group" value="{{ g.group_id }}">
                     <span>{{ g.name }}</span>
                 </label>
-                {% else %}<span class="hint">Keine Gruppen verfügbar.</span>{% endfor %}
+                {% else %}<span class="k-small k-muted">Keine Gruppen verfügbar.</span>{% endfor %}
             </fieldset>
-            <button type="submit">Regel speichern</button>
+            <button type="submit" class="secondary">Regel speichern</button>
         </form>
-    </section>
+        {% endcall %}
+    {% endcall %}
+{% endcall %}
 </main>
 </div>
 </div>
