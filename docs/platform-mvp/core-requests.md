@@ -62,8 +62,10 @@ can switch a tenant to it. Until CR-R1 and CR-R2 land, the pilot runs with enfor
 | CR-R2 | Folder-rule routes take the caller's signed claim under `brokered` (today they build the caller from `acting_as` only, and `brokered` refuses a caller without a claim) | Without it, under "Ein" no folder rule can be set from the Platform |
 | CR-R3 | A new folder rule reaches documents already read in (a backfill for one rule, started by the route) | Without it, a new folder covers only documents read in later |
 | CR-R4 | Probe: evaluate without applying; count per day what would be hidden, no names | A-06's middle position |
-| CR-R5 | Accept a Platform-signed claim whose subject is an agent, and record it as a verified actor (the shape of AGB-01) | Agents enforced like people; the role design may route agents through the Platform instead (see the design's § 5) |
-| CR-R6 | The MCP server attaches the claim and drops the per-call `access_groups` | Only if agents keep calling the Core directly |
+| CR-R5 | **No code** (updated 2026-11-21): external agents go through the Platform (founder: "treat them the same as our own agent"; design § 5), and the Core already accepts any non-empty subject. Needed instead: an amendment of DEC-0077 that allows a Platform-registered agent as a claim's subject | Agents enforced like people and the assistant |
+| CR-R6 | **Not needed** (updated 2026-11-21): agents no longer call the Core directly | — |
 
 Also from the design: **the Core has no deny** (its filter is a disjunction without negation), so A-04's "a denial
 wins" is not "Exist" as the plan says; the founder decided on 2026-11-21: no deny for the pilot.
+
+**Needed for the pilot (15 December):** CR-R1 and CR-R2; CR-R3 for folders over documents already read in. Later: CR-R4.
