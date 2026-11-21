@@ -337,7 +337,7 @@ KnovasPlatform runs on **internal networks only**. Listening ports must not be r
 
 The application port (`5000`) is Docker-internal only. Port `8081` is the sole published application port; in production mode it is bound to loopback.
 
-Knovas API endpoints used (configurable base URL): `/secured/query`, `/secured/health`, `/api/search`, `/secured/init_document_transmission`, `/secured/transmit_document_part`, `/secured/generate_certificate`.
+Knovas API endpoints used (configurable base URL): `/secured/query`, `/secured/health`, `/api/search`, `/secured/init_document_transmission`, `/secured/transmit_document_part`, `/secured/sign_certificate`.
 
 ### 2.4 mTLS & credentials
 

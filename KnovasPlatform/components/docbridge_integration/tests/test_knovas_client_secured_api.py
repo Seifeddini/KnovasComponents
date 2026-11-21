@@ -46,7 +46,6 @@ def test_csr_renewal_installs_certificate(tmp_path, monkeypatch):
         cert_path=str(cert),
         key_path=str(key),
         ca_cert_path=str(ca),
-        cert_renew_method="csr",
     )
     original_session = FakeSession(lambda *a, **k: FakeResponse(200))
     client._session = original_session

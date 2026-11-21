@@ -17,7 +17,6 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID
 from tempfile import NamedTemporaryFile
 from tenacity import (
     RetryError,
@@ -1322,12 +1321,6 @@ class KnovasAPIClient:
         self.cert_auto_renew_enabled = self.config.get_bool('api.cert_auto_renew_enabled', True)
         self.cert_renew_threshold_days = self.config.get_int('api.cert_renew_threshold_days', 30)
         self.cert_check_interval_seconds = self.config.get_int('api.cert_check_interval_seconds', 3600)
-        self.cert_renew_method = (
-            (self.config.get('api.cert_renew_method', '') or '').strip().lower()
-            or (os.getenv('SEMANTIX_CERT_RENEW_METHOD') or 'csr').strip().lower()
-        )
-        if self.cert_renew_method not in ('csr', 'legacy'):
-            self.cert_renew_method = 'csr'
         self._last_cert_check_at = 0.0
         # Serialize the certificate freshness check / renewal / session swap so
         # concurrent request threads can't race on _last_cert_check_at or _session.
@@ -1346,7 +1339,6 @@ class KnovasAPIClient:
             'init_transmission': self.config.get('api.endpoints.init_transmission', '/secured/init_document_transmission'),
             'transmit_part': self.config.get('api.endpoints.transmit_part', '/secured/transmit_document_part'),
             'query': self.config.get('api.endpoints.query', '/secured/query'),
-            'generate_certificate': self.config.get('api.endpoints.generate_certificate', '/secured/generate_certificate'),
             'sign_certificate': self.config.get(
                 'api.endpoints.sign_certificate', '/secured/sign_certificate'
             ),
@@ -1420,18 +1412,6 @@ class KnovasAPIClient:
             logger.warning("Could not parse cert expiry: %s", exc)
             return None
 
-    def _extract_customer_id_from_cert(self) -> Optional[str]:
-        try:
-            with open(self.cert_path, "rb") as f:
-                cert = x509.load_pem_x509_certificate(f.read(), default_backend())
-            for oid in (NameOID.COMMON_NAME, NameOID.ORGANIZATIONAL_UNIT_NAME):
-                attrs = cert.subject.get_attributes_for_oid(oid)
-                if attrs:
-                    return str(attrs[0].value)
-        except Exception:
-            return None
-        return None
-
     def _atomic_write(self, path: str, content: str) -> None:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1482,11 +1462,6 @@ class KnovasAPIClient:
         finally:
             session.close()
 
-    def _attempt_certificate_renewal(self) -> bool:
-        if self.cert_renew_method == 'legacy':
-            return self._attempt_certificate_renewal_legacy()
-        return self._attempt_certificate_renewal_csr()
-
     def _csr_subject_from_current_cert(self) -> x509.Name:
         with open(self.cert_path, "rb") as f:
             cert = x509.load_pem_x509_certificate(f.read(), default_backend())
@@ -1512,7 +1487,8 @@ class KnovasAPIClient:
         ).decode("utf-8")
         return csr_pem, key_pem
 
-    def _attempt_certificate_renewal_csr(self) -> bool:
+    def _attempt_certificate_renewal(self) -> bool:
+        """Renew by CSR: a new key pair here, signed by /secured/sign_certificate."""
         try:
             csr_pem, private_key_pem = self._generate_csr_key_pair()
             payload = self.sign_certificate(csr_pem, validity_days=365)
@@ -1530,41 +1506,6 @@ class KnovasAPIClient:
         return self._install_renewed_certificate_pair(
             str(certificate_pem).strip() + "\n",
             str(private_key_pem).strip() + "\n",
-        )
-
-    def _attempt_certificate_renewal_legacy(self) -> bool:
-        endpoint = self.endpoints.get('generate_certificate', '/secured/generate_certificate')
-        customer_id = self.customer_id or self._extract_customer_id_from_cert()
-        if not customer_id:
-            logger.warning("Auto-renew skipped: customer_id unavailable")
-            return False
-
-        try:
-            response = self._session.request(
-                method='POST',
-                url=f"{self.base_url}{endpoint}",
-                json={'certificate_data': {'customer_id': customer_id}},
-                headers=self._get_headers(),
-                timeout=self.http_read_timeout,
-                allow_redirects=False,
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except Exception as exc:
-            logger.error("Auto-renew request failed: %s", exc)
-            return False
-
-        certificate_pem = payload.get('certificate_pem')
-        private_key = payload.get('private_key') or payload.get('private_key_pem')
-        if not certificate_pem or not private_key:
-            logger.error("Auto-renew response missing certificate/key")
-            return False
-        if "ENCRYPTED PRIVATE KEY" in str(private_key):
-            logger.error("Auto-renew returned encrypted private key; cannot install automatically")
-            return False
-        return self._install_renewed_certificate_pair(
-            str(certificate_pem).strip() + "\n",
-            str(private_key).strip() + "\n",
         )
 
     def _install_renewed_certificate_pair(self, certificate_pem: str, private_key_pem: str) -> bool:

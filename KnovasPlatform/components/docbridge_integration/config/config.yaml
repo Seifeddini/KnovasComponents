@@ -41,7 +41,6 @@ api:
     transmit_part: "${SEMANTIX_TRANSMIT_PART_ENDPOINT:-/secured/transmit_document_part}"
     query: "${SEMANTIX_QUERY_ENDPOINT:-/secured/query}"
     health: "${SEMANTIX_HEALTH_ENDPOINT:-/secured/health}"
-    generate_certificate: "${SEMANTIX_GENERATE_CERTIFICATE_ENDPOINT:-/secured/generate_certificate}"
     sign_certificate: "${SEMANTIX_SIGN_CERTIFICATE_ENDPOINT:-/secured/sign_certificate}"
     delete_information_object: "${SEMANTIX_DELETE_ENDPOINT:-/secured/delete_information_object}"
     # Legacy/mock endpoints (used only when explicitly enabled)
@@ -59,7 +58,6 @@ api:
   cert_auto_renew_enabled: "${SEMANTIX_CERT_AUTO_RENEW_ENABLED:-true}"
   cert_renew_threshold_days: "${SEMANTIX_CERT_RENEW_THRESHOLD_DAYS:-30}"
   cert_check_interval_seconds: "${SEMANTIX_CERT_CHECK_INTERVAL_SECONDS:-3600}"
-  cert_renew_method: "${SEMANTIX_CERT_RENEW_METHOD:-csr}"  # csr | legacy
 
   # API mode
   use_secured_api: "${SEMANTIX_USE_SECURED_API:-true}"

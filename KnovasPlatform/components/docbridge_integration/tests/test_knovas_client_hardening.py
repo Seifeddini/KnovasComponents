@@ -100,7 +100,6 @@ def make_client(
     ca_cert_path="",
     customer_id="",
     cert_auto_renew_enabled=False,
-    cert_renew_method="csr",
 ):
     values = {
         "api.base_url": base_url,
@@ -115,7 +114,6 @@ def make_client(
         "api.cert_auto_renew_enabled": cert_auto_renew_enabled,
         "api.cert_renew_threshold_days": 30,
         "api.cert_check_interval_seconds": 3600,
-        "api.cert_renew_method": cert_renew_method,
         "api.rate_limit.requests_per_second": 0,  # disable rate-limit sleeps
         "api.rate_limit.retry_attempts": 3,
         "api.rate_limit.retry_backoff": 2,
@@ -200,14 +198,17 @@ class TestC4CertRenewalSafety:
             key_path=str(key),
             ca_cert_path=str(ca),
             customer_id="cust-1",
-            cert_renew_method="legacy",
+        )
+        monkeypatch.setattr(
+            client, "_generate_csr_key_pair", lambda: ("CSR", "NEW INVALID KEY"), raising=False
+        )
+        monkeypatch.setattr(
+            client, "sign_certificate",
+            lambda csr, validity_days=None: {"certificate": "NEW INVALID CERT"}, raising=False
         )
 
         def responder(method, url, **kw):
-            return FakeResponse(
-                200,
-                {"certificate_pem": "NEW INVALID CERT", "private_key": "NEW INVALID KEY"},
-            )
+            raise AssertionError("the signing call is stubbed")
 
         original_session = FakeSession(responder)
         client._session = original_session
@@ -237,13 +238,17 @@ class TestC4CertRenewalSafety:
             key_path=str(key),
             ca_cert_path=str(ca),
             customer_id="cust-1",
-            cert_renew_method="legacy",
+        )
+        monkeypatch.setattr(
+            client, "_generate_csr_key_pair", lambda: ("CSR", "NEW KEY"), raising=False
+        )
+        monkeypatch.setattr(
+            client, "sign_certificate",
+            lambda csr, validity_days=None: {"certificate": "NEW CERT"}, raising=False
         )
 
         def responder(method, url, **kw):
-            return FakeResponse(
-                200, {"certificate_pem": "NEW CERT", "private_key": "NEW KEY"}
-            )
+            raise AssertionError("the signing call is stubbed")
 
         original_session = FakeSession(responder)
         client._session = original_session
