@@ -1731,36 +1731,78 @@ def create_app(config_path: Optional[str] = None):
     # Navigationspunkt. Ueber die Umgebung abschaltbar (leer = kein Punkt).
     feedback_url = os.getenv('FEEDBACK_URL', 'https://knovas.atlassian.net/jira/software/form/b05bdd7b-936a-4d3a-b92b-15b89773e6cf?atlOrigin=eyJpIjoiNGJlM2Y4YTMzNTE5NDFmZjg5M2RhMDQ5ZGRhNzM3NTQiLCJwIjoiaiJ9')
 
-    def _console_url():
-        """Link zur Verwaltung -- je nach Rolle, sonst None.
+    #: The Admin pages in the order the menu shows them: the key the page's
+    #: template sets as ``admin_tab``, the name the page has, its route, and
+    #: whether the entry is drawn only while Knovas offers document fields.
+    #: Who may open a page is not listed here: it is read from the route's gate.
+    admin_menu = (
+        ('people', 'Personen', 'admin.people', False),
+        ('documents', 'Dokumente', 'admin.documents', False),
+        ('access_groups', 'Zugriffsgruppen', 'admin.access_groups', False),
+        ('doc_fields', 'Dokumentfelder', 'admin.doc_fields', True),
+        ('ingestion', 'Ingestion', 'admin.ingestion', False),
+        ('system', 'System', 'admin.system', False),
+        ('approvals', 'Freigaben', 'admin.approvals', False),
+    )
 
-        Der Link ist Darstellung; ``require_admin``/``require_approver`` auf
-        der jeweiligen Route bleibt die Kontrolle (REQ-A1/REQ-A2). Ein
-        Administrator landet auf Personen, ein reiner Freigeber (Rolle
-        'approver' ohne 'admin') auf Freigaben -- sonst gibt es keinen Link.
-        Faellt die Identitaetsdatenbank aus, verschwindet der Link, statt dass
-        die Suchseite bricht.
+    def _gate_roles(endpoint: str) -> Optional[frozenset]:
+        """The roles the route's own gate lets in, or None.
+
+        The console's gate (``admin._require_roles``) puts the set it checks
+        on the view it returns, as ``allowed_roles``. Reading it from the
+        registered view keeps one list of roles, the route's. A route that is
+        not registered (Ingestion without Knovas Connector) or a view without
+        that attribute gives None, and then no link is drawn.
+        """
+        allowed = getattr(app.view_functions.get(endpoint), 'allowed_roles', None)
+        return allowed if isinstance(allowed, frozenset) else None
+
+    def _admin_pages() -> List[Dict[str, Any]]:
+        """The Admin pages the signed-in person may open, in the menu's order.
+
+        The one function that decides "may open" for the area Verwaltung: a
+        page is offered when the person holds a role its route's gate lets in
+        (``_gate_roles``), so the menu and the refusal cannot drift apart and
+        no role is named here. Presentation only -- ``require_admin``,
+        ``require_approver`` and ``require_ingestion`` on the routes stay the
+        control (REQ-A1/REQ-A2) -- so a failure empties the menu instead of
+        breaking the page.
         """
         if identity_gate is None:
-            return None
+            return []
         try:
             user = identity_gate.current_user()
         except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
-            logger.warning('Verwaltungslink nicht ermittelbar: %s', exc)
-            return None
+            # The kind of failure, not its text: a log line carries nothing a
+            # database error might quote about a person.
+            logger.warning('Verwaltungslink nicht ermittelbar: %s', type(exc).__name__)
+            return []
         if user is None:
             logger.info('Verwaltungslink: keine angemeldete Person in dieser Anfrage')
-            return None
-        roles = getattr(user, 'roles', None) or ()
-        if 'admin' in roles:
-            return url_for('admin.people')
-        if 'approver' in roles:
-            return url_for('admin.approvals')
-        # Not drawing the link is indistinguishable from a broken menu from the
-        # outside, so say whose roles were read and what they were.
-        logger.info('Verwaltungslink ausgeblendet: %s hat die Rollen %s',
-                    getattr(user, 'email', '?'), sorted(roles) or ['-'])
-        return None
+            return []
+        held = set(getattr(user, 'roles', None) or ())
+        pages = []
+        for key, label, endpoint, if_doc_fields in admin_menu:
+            allowed = _gate_roles(endpoint)
+            if allowed and held & allowed:
+                pages.append({'key': key, 'label': label, 'url': url_for(endpoint),
+                              'if_doc_fields': if_doc_fields})
+        if not pages:
+            # Not drawing the link is indistinguishable from a broken menu from
+            # the outside, so say whose roles were read and what they were --
+            # by id: a log line carries no address and no name.
+            logger.info('Verwaltungslink ausgeblendet: Person %s hat die Rollen %s',
+                        getattr(user, 'id', '?'), sorted(held) or ['-'])
+        return pages
+
+    def _console_url(pages: List[Dict[str, Any]]) -> Optional[str]:
+        """Link zur Verwaltung: the first Admin page the person may open, sonst None.
+
+        An administrator lands on Personen, a pure approver on Freigaben. An
+        entry that depends on what Knovas offers (Dokumentfelder) is never the
+        landing page.
+        """
+        return next((page['url'] for page in pages if not page['if_doc_fields']), None)
 
     def _experiments_nav() -> bool:
         """Whether the sidebar offers Experimente: module on and the signed-in
@@ -1827,11 +1869,20 @@ def create_app(config_path: Optional[str] = None):
             return False
 
     def _sidebar_context() -> Dict[str, Any]:
-        """Gemeinsame Werte der Plattform-Leiste."""
+        """Gemeinsame Werte der Plattform-Leiste.
+
+        The navigation shows one area (PMVP-11): a page under /admin is in
+        'admin' and gets the Admin pages the person may open; every other page
+        is in 'work' and gets the links to Verwaltung and to the Builder, each
+        only for a person who may open a page there.
+        """
+        admin_pages = _admin_pages()
         return {
             'company_name': login_company_name,
             'feedback_url': feedback_url,
-            'console_url': _console_url(),
+            'nav_area': 'admin' if request.blueprint == 'admin' else 'work',
+            'admin_pages': admin_pages,
+            'console_url': _console_url(admin_pages),
             'cortex_enabled': cortex_enabled,
             'experiments_nav': _experiments_nav(),
             'custom_views_nav': _custom_views_nav(),

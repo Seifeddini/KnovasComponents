@@ -6,6 +6,9 @@
    unchanged (KnowledgeBase brand/knovas-brand/css/knovas-tokens.css); change
    a value there, never here. An @import has to stay the first rule. */
 @import url('knovas-tokens.css');
+@import url('parts.css'); /* the shared page parts (PMVP-12): after the tokens they take */
+/* The navigation's rules (PMVP-11), in a file of their own; they use the tokens above. */
+@import url('shell.css');
 
 /* IBM Plex, selbst gehostet (SIL OFL). Kein CDN: die Anwendung laeuft
    kundengehostet und teils offline. */
@@ -1332,87 +1335,16 @@ mark.context-snippet-match,
 .site-nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* --- Plattform-Rahmen: feste Seitenleiste links, Module daneben ---------
-   Eine Konstante fuer alle Bereiche (Suche, Cortex, Einstellungen). Nur
-   bestehende Tokens; keine neuen Farbwerte. */
+/* --- Plattform-Rahmen: Navigation links, Module daneben -----------------
+   Eine Konstante fuer alle Bereiche. Die Regeln der Navigation selbst
+   (.app-sidebar und alles darin) stehen in shell.css. */
 .app-shell {
     display: flex;
     align-items: flex-start;
     min-height: 100vh;
 }
 
-.app-sidebar {
-    flex: 0 0 240px;
-    align-self: stretch;
-    position: sticky;
-    top: 0;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    gap: 28px;
-    padding: 24px 16px 20px;
-    background: var(--surface-sunken);
-    border-right: 1px solid var(--border-color);
-}
-
 .app-content { flex: 1; min-width: 0; }
-
-.app-brand { display: inline-flex; align-items: center; padding: 0 8px; line-height: 0; }
-
-.app-nav { display: flex; flex-direction: column; gap: 2px; }
-
-.app-nav-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 9px 10px;
-    border-radius: var(--radius);
-    color: var(--text-secondary);
-    text-decoration: none;
-    font-size: 0.92rem;
-    font-weight: 500;
-    transition: background-color .15s ease, color .15s ease;
-}
-.app-nav-item:hover { background: rgba(var(--accent-rgb), 0.08); color: var(--text-primary); }
-.app-nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.app-nav-item.active {
-    background: var(--highlight);
-    color: var(--primary-color);
-    font-weight: 600;
-}
-
-/* Fuss: Konto am unteren Rand der Leiste. */
-.app-sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 14px; }
-
-.app-user {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border-radius: var(--radius);
-    text-decoration: none;
-    color: var(--text-primary);
-    transition: background-color .15s ease;
-}
-.app-user:hover { background: rgba(var(--accent-rgb), 0.08); }
-.app-user:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.app-avatar {
-    flex: 0 0 auto;
-    width: 30px; height: 30px;
-    display: grid; place-items: center;
-    border-radius: 50%;
-    background: var(--primary-color);
-    color: var(--bg-color);
-    font-family: var(--font-heading);
-    font-size: 0.82rem;
-    font-weight: 600;
-}
-.app-user-text { display: flex; flex-direction: column; min-width: 0; }
-.app-user-name {
-    font-size: 0.88rem; font-weight: 500;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.app-user-role { font-size: 0.72rem; color: var(--text-secondary); }
 
 /* Einstellungen */
 .settings-layout { display: flex; flex-direction: column; gap: 16px; max-width: 640px; }
@@ -1440,29 +1372,10 @@ mark.context-snippet-match,
 .settings-list dd { color: var(--text-primary); }
 .settings-list dd.mono { font-family: var(--font-mono); font-size: 0.85rem; }
 
-/* Schmale Fenster: Leiste wird zur Kopfzeile, Korpus-Zahl entfaellt. */
+/* Schmale Fenster: die Navigation wird zur Kopfzeile (shell.css), Korpus-Zahl entfaellt. */
 @media (max-width: 900px) {
     .app-shell { flex-direction: column; }
-    .app-sidebar {
-        flex: none;
-        position: static;
-        height: auto;
-        width: 100%;
-        flex-direction: row;
-        align-items: center;
-        gap: 16px;
-        padding: 10px 16px;
-        border-right: 0;
-        border-bottom: 1px solid var(--border-color);
-    }
-    /* Die Navigation scrollt in sich, statt die Seite seitwaerts zu schieben
-       (wie admin.css in der Verwaltung); _sidebar.html rueckt den aktuellen
-       Eintrag ins Bild. */
-    .app-nav { flex-direction: row; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
-    .app-nav-item { flex: 0 0 auto; }
-    .app-sidebar-foot { margin-top: 0; margin-left: auto; flex-direction: row; align-items: center; }
     .corpus-status { display: none; }
-    .app-user-text { display: none; }
 }
 
 /* Einstellungen: Statusanzeige und Rechtliches (aus dem Fuss der Suchseite).
@@ -1489,13 +1402,6 @@ mark.context-snippet-match,
     font-size: 0.8rem;
     color: var(--text-secondary);
 }
-
-/* Verwaltungskonsole: Reiterleiste (templates/_admin_tabs.html) */
-.admin .tabs { display: flex; gap: 18px; border-bottom: 1px solid #e2e8f0; margin-bottom: 18px; }
-.admin .tabs a { padding: 8px 2px; text-decoration: none; color: #475569; border-bottom: 2px solid transparent; }
-.admin .tabs a.active { color: #0f172a; border-bottom-color: #0f172a; font-weight: 600; }
-.admin .tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-
 
 /* Der Hinweis über der Trefferliste und der in der Fundstellenspalte. Beide
    erklären dasselbe: die Suche hat Ähnliches gefunden, nicht das Wort. */

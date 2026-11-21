@@ -139,11 +139,15 @@ class TestTemplatesRender:
         assert "admin.css" not in page
 
     @pytest.mark.parametrize("name", PAGE_TEMPLATES)
-    def test_pages_include_the_sidebar_with_the_item_active(self, name):
+    def test_pages_include_the_sidebar_and_it_shows_the_workspace(self, name):
+        """PMVP-11: the pages still stand in the navigation, which shows the
+        Workspace. Experimente has no entry until a later item places it
+        (founder, 2026-11-20), so no entry is marked as the current page."""
         page = _render(name)
-        item = _nav_item(page)
-        assert item is not None
-        assert "active" in item and 'aria-current="page"' in item
+        sidebar = re.search(r'<aside class="app-sidebar" data-area="work">.*?</aside>', page, re.S)
+        assert sidebar is not None
+        assert _nav_item(page) is None
+        assert 'aria-current="page"' not in sidebar.group(0)
 
     @pytest.mark.parametrize("name", PAGE_TEMPLATES)
     def test_title_names_the_brand_and_module(self, name):
@@ -242,33 +246,24 @@ class TestSidebar:
         page = self._sidebar(experiments_nav=value, active_nav="suche")
         assert _nav_item(page) is None
 
-    def test_item_with_experiments_nav(self):
-        page = self._sidebar(experiments_nav=True, active_nav="suche")
-        item = _nav_item(page)
-        assert item is not None
-        assert 'href="/experiments"' in item
-        assert FLASK_PATH in item
-        assert "active" not in item.split(">")[0].replace("app-nav-item", "")
-        assert "aria-current" not in item
+    @pytest.mark.parametrize("active_nav", ["suche", "experiments"])
+    @pytest.mark.parametrize("cortex_enabled", [True, False])
+    def test_no_item_whatever_experiments_nav_says(self, active_nav, cortex_enabled):
+        """PMVP-11 (founder, 2026-11-20): the Workspace menu shows only the
+        search. Experimente has no entry until a later item places it, on the
+        module's own pages either; nor have Cortex, Einstellungen and Feedback.
+        The web app still hands experiments_nav in, and the module's addresses
+        answer as before (test_experiments_routes.py).
 
-    def test_item_is_active_on_the_module_pages(self):
-        item = _nav_item(self._sidebar(experiments_nav=True, active_nav="experiments"))
-        assert 'class="app-nav-item active"' in item
-        assert 'aria-current="page"' in item
-
-    def test_item_follows_cortex_and_precedes_settings(self):
-        page = self._sidebar(experiments_nav=True, active_nav="suche")
-        assert page.index("Cortex") < page.index("Experimente") < page.index("Einstellungen")
-
-    def test_item_stays_when_cortex_is_off(self):
-        page = self._sidebar(experiments_nav=True, cortex_enabled=False, active_nav="suche")
-        assert "Cortex" not in page
-        assert _nav_item(page) is not None
-
-    def test_icon_is_decorative(self):
-        item = _nav_item(self._sidebar(experiments_nav=True))
-        svg = re.search(r"<svg[^>]*>", item).group(0)
-        assert 'aria-hidden="true"' in svg and 'focusable="false"' in svg
+        Replaces test_item_with_experiments_nav, test_item_is_active_on_the_module_pages,
+        test_item_follows_cortex_and_precedes_settings, test_item_stays_when_cortex_is_off
+        and test_icon_is_decorative, which described the entry."""
+        page = self._sidebar(experiments_nav=True, cortex_enabled=cortex_enabled, active_nav=active_nav,
+                             feedback_url="https://feedback.example.org/form")
+        assert _nav_item(page) is None
+        for word in ("Experimente", "Cortex", "Einstellungen", "Feedback"):
+            assert word not in page
+        assert 'href="/experiments"' not in page and FLASK_PATH not in page
 
     def test_other_pages_still_render_with_and_without_the_item(self):
         """index/ontology/settings include the same partial; the new block
@@ -287,8 +282,9 @@ class TestSidebar:
         settings_ctx = dict(common, login_name="x", identity_enabled=True, build_id="b",
                             settings_admin=False)
         assert _nav_item(env.get_template("settings.html").render(settings_ctx)) is None
+        # PMVP-11: with experiments_nav the page renders too, and still has no item.
         assert _nav_item(env.get_template("index.html").render(
-            dict(index_ctx, experiments_nav=True))) is not None
+            dict(index_ctx, experiments_nav=True))) is None
 
 
 # -- static checks on the scripts ------------------------------------------------
@@ -1677,7 +1673,8 @@ class TestInTheApp:
         resp = experimenter_client.get("/experiments")
         assert resp.status_code == 200
         page = resp.get_data(as_text=True)
-        assert _nav_item(page) is not None
+        # PMVP-11 (founder, 2026-11-20): the page answers; the Workspace menu has no entry for it yet.
+        assert _nav_item(page) is None
         assert 'name="csrf-token"' in page
         assert _page_data(page)["canManage"] is False
 

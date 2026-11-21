@@ -10,6 +10,7 @@
 </head>
 <body class="admin-page">
 <div class="app-shell">
+{% set admin_tab = 'access_groups' %}
 {% include '_sidebar.html' %}
 <div class="app-content">
 
@@ -25,9 +26,6 @@
         </div>
         <a class="admin-primary-action" href="#create-access-group">Gruppe anlegen</a>
     </header>
-
-    {% set admin_tab = 'access_groups' %}
-    {% include '_admin_tabs.html' %}
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
     {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
