@@ -481,9 +481,10 @@ review:
 - at: /responsible_for
   why: 'PMVP-11 removed the row of tabs (templates/_admin_tabs.html): one navigation. Who sees which entry is no longer
     a condition in a console template; the web app reads it from the gates this blueprint puts on its routes (app.py,
-    _admin_pages; the shell''s card). No gate changed. admin.css still holds the rules of the removed tabs (.admin .tabs)
-    and rules that restyle the old navigation on the console''s pages (.admin-page .app-sidebar and below); the shell''s
-    shell.css outranks the second group, and neither was removed, because admin.css was not among PMVP-11''s files.'
+    _admin_pages; the shell''s card): each gate (_require_roles) puts the set of roles it checks on the view it returns,
+    as allowed_roles, and the web app reads that attribute. No gate''s check changed. admin.css still holds the rules of
+    the removed tabs (.admin .tabs) and rules that restyle the old navigation on the console''s pages (.admin-page
+    .app-sidebar and below); the shell''s shell.css outranks the second group, and neither was removed, because admin.css was not among PMVP-11''s files.'
 - at: /source_paths
   why: 'The work order''s scope: the people, groups and access pages PMVP-40 to PMVP-42 change. guarded.py is here because
     only console modules use it (admin_documents.py, admin_ingestion.py). admin.css is the stylesheet of every console page,

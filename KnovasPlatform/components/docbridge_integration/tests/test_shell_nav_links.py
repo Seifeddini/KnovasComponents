@@ -163,11 +163,25 @@ def test_a_signed_out_visitor_is_shown_no_menu_at_all(app, urls):
 
 
 def _gated(allowed):
-    """A view behind a gate of the console's shape: it closes over the roles it lets in."""
+    """A view behind a gate of the console's shape: it carries the roles it lets in as ``allowed_roles``."""
     def wrapped():
-        return "x" if allowed else "y"
+        return "x"
 
+    wrapped.allowed_roles = allowed
     return wrapped
+
+
+def test_every_console_route_carries_the_roles_its_gate_lets_in(app):
+    """The menu reads ``allowed_roles`` (admin._require_roles sets it). A console route without it, or with
+    anything other than a non-empty set of roles a person can be given, would silently drop out of the menu."""
+    from web_interface.admin import ASSIGNABLE_ROLES
+
+    console = {name: view for name, view in app.view_functions.items() if name.startswith("admin.")}
+    assert set(ADMIN_PAGES) <= set(console)
+    for name, view in sorted(console.items()):
+        roles = getattr(view, "allowed_roles", None)
+        assert isinstance(roles, frozenset), f"{name} has no allowed_roles"
+        assert roles and roles <= set(ASSIGNABLE_ROLES), (name, roles)
 
 
 def test_the_menu_follows_a_routes_gate_when_the_gate_changes(app, identity_repo, urls):
@@ -190,7 +204,7 @@ def test_a_gate_that_lets_administrators_out_takes_the_entry_out_of_their_menu(a
     assert urls["admin.people"] not in _hrefs(_nav(_html(client, urls["admin.system"])))
 
 
-@pytest.mark.parametrize("broken", ["missing", "no gate", "not a set of roles"])
+@pytest.mark.parametrize("broken", ["missing", "no gate", "not a set of roles", "roles in a closure only"])
 def test_a_route_that_is_not_there_or_a_gate_that_cannot_be_read_draws_no_link(app, identity_repo, urls, broken):
     """Closed, not open: an approver whose one page cannot be checked gets no link, and the search still opens."""
     client = _client(app, identity_repo, ("approver",))
@@ -199,8 +213,10 @@ def test_a_route_that_is_not_there_or_a_gate_that_cannot_be_read_draws_no_link(a
         del app.view_functions["admin.approvals"]
     elif broken == "no gate":
         app.view_functions["admin.approvals"] = lambda: "x"
+    elif broken == "not a set of roles":
+        app.view_functions["admin.approvals"] = _gated("approver")  # a word, not a set: "a" in "approver" must not pass
     else:
-        allowed = "approver"                                   # a word, not a set: "a" in "approver" must not pass
+        allowed = frozenset({"approver"})                      # the old way of reading a gate is not read any more
         app.view_functions["admin.approvals"] = lambda: allowed
     sidebar = _sidebar(_html(client, urls["index"]))
     assert _into(_hrefs(sidebar), "/admin") == [] and "Verwaltung" not in _text(sidebar)

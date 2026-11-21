@@ -10,7 +10,6 @@ import io
 import os
 import json
 import hmac
-import inspect
 import secrets
 import threading
 import time
@@ -1749,21 +1748,14 @@ def create_app(config_path: Optional[str] = None):
     def _gate_roles(endpoint: str) -> Optional[frozenset]:
         """The roles the route's own gate lets in, or None.
 
-        The console builds its gates inside its blueprint factory
-        (``admin._require_roles``), so they cannot be imported; each closes
-        over the roles it lets in (``allowed``). Reading them from the
+        The console's gate (``admin._require_roles``) puts the set it checks
+        on the view it returns, as ``allowed_roles``. Reading it from the
         registered view keeps one list of roles, the route's. A route that is
-        not registered (Ingestion without Knovas Connector) or a gate that
-        cannot be read gives None, and then no link is drawn.
+        not registered (Ingestion without Knovas Connector) or a view without
+        that attribute gives None, and then no link is drawn.
         """
-        view = app.view_functions.get(endpoint)
-        if view is None:
-            return None
-        try:
-            allowed = inspect.getclosurevars(view).nonlocals.get('allowed')
-        except TypeError:
-            return None
-        return frozenset(allowed) if isinstance(allowed, (set, frozenset)) else None
+        allowed = getattr(app.view_functions.get(endpoint), 'allowed_roles', None)
+        return allowed if isinstance(allowed, frozenset) else None
 
     def _admin_pages() -> List[Dict[str, Any]]:
         """The Admin pages the signed-in person may open, in the menu's order.
