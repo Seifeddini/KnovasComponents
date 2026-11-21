@@ -95,15 +95,15 @@ SS-347 work from this runbook.
   401 that call, so unauthenticated probes can still report `semantix_api:
   false`. A signed-in check attaches an assertion. Do not “fix” this by sending
   unsigned `/secured/query` or other data-plane requests.
-- Cert auto-renew validation (`GET /secured/health` on a candidate pair) and
-  legacy `POST /secured/generate_certificate` are the same control-plane rule:
-  they attach a `principal_assertion` when a user is on the request and omit
-  one when there is not. They do not go through `_make_request`, so they cannot
-  deadlock on `_cert_lock` and cannot send unsigned `/secured/query`. Under
-  `BROKERED`, KnowledgeBase may still reject those unsigned control-plane
-  calls, so a renew triggered by an unauthenticated health probe can fail
-  until a signed-in request renews the cert, or until KB exempts those
-  routes. Do not “fix” that by sending unsigned data-plane traffic.
+- Cert auto-renew validation (`GET /secured/health` on a candidate pair)
+  follows the same control-plane rule: it attaches a `principal_assertion`
+  when a user is on the request and omits one when there is not. It does not
+  go through `_make_request`, so it cannot deadlock on `_cert_lock` and cannot
+  send unsigned `/secured/query`. Under `BROKERED`, KnowledgeBase may still
+  reject that unsigned control-plane call, so a renew triggered by an
+  unauthenticated health probe can fail until a signed-in request renews the
+  cert, or until KB exempts the route. Do not “fix” that by sending unsigned
+  data-plane traffic.
 - Graph GETs send `principal_assertion` in the JSON body. Cutover step 3 must
   include `/secured/graph*` and `/secured/health`, not only POST
   `/secured/query`. A check of search alone will miss topology and health.

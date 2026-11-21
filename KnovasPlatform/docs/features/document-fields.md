@@ -270,8 +270,8 @@ the automated tests.
   routes with a JSON body.
 - **Known limitation (application logs):** application log lines that predate
   document fields still name document paths and pointers — opening,
-  downloading and previewing a document, a failed preview or thumbnail, the
-  legacy search (its query text), and the Knovas Connector's upload-failure,
+  downloading and previewing a document, a failed preview or thumbnail, and
+  the Knovas Connector's upload-failure,
   partial-OCR and removal lines. Folder names are where path-template values
   come from, so these lines can carry field values too. Treat the Platform's
   and the Knovas Connector's container logs as confidential, like the documents.

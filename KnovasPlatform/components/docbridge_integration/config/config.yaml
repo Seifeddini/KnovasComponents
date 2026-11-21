@@ -1,19 +1,5 @@
 # DocBridge-Knovas Integration Configuration
 
-# Database Configuration
-database:
-  driver: "Microsoft Access Driver (*.mdb, *.accdb)"
-  dbq: "\\\\fileserver\\DocBridge\\Database\\docbridge.accdb"
-  # Alternative: Use DSN if configured
-  # dsn: "DocBridge"
-  
-  # Document table name (adjust based on actual schema)
-  doc_table: "Documents"
-  
-  # Query configuration
-  query_timeout: 30  # seconds
-  batch_size: 100    # documents per batch
-
 # AutoDoc Configuration
 autodoc:
   # Mount path for AutoDoc directory
@@ -55,7 +41,8 @@ api:
   cert_renew_threshold_days: "${SEMANTIX_CERT_RENEW_THRESHOLD_DAYS:-30}"
   cert_check_interval_seconds: "${SEMANTIX_CERT_CHECK_INTERVAL_SECONDS:-3600}"
 
-  # Legacy authentication (only relevant in legacy/mock mode)
+  # Header authentication of the retired unsecured API. The secured API
+  # authenticates by the client certificate; leave api_key empty.
   auth_type: "bearer"  # or "api_key"
   api_key: "${SEMANTIX_API_KEY}"
 
