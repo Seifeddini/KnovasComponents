@@ -59,6 +59,7 @@ can switch a tenant to it. Until CR-R1 and CR-R2 land, the pilot runs with enfor
 | No. | What | Why |
 |---|---|---|
 | CR-R1 | The posture route accepts `brokered` once a key is registered and the backfill is complete (DEC-0077 point 5; bet item SA-03) | Under `enforcing` the Platform's claim is ignored, so neither roles' data nor "Ein" act for the Platform |
+| CR-R1a | A **read of the tenant's posture** on the secured API (as the tenant's certificate, no admin key): `disabled` / `enforcing` / `brokered` (added 2026-11-21 from RB-5's draft) | The Platform shows «wirkt mit «Ein»» on every role until it can see that the tenant is `brokered`; without this read it always shows it |
 | CR-R2 | Folder-rule routes take the caller's signed claim under `brokered` (today they build the caller from `acting_as` only, and `brokered` refuses a caller without a claim) | Without it, under "Ein" no folder rule can be set from the Platform |
 | CR-R3 | A new folder rule reaches documents already read in (a backfill for one rule, started by the route) | Without it, a new folder covers only documents read in later |
 | CR-R4 | Probe: evaluate without applying; count per day what would be hidden, no names | A-06's middle position |
