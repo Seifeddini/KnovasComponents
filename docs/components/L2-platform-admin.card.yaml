@@ -387,9 +387,9 @@ review:
     of its own (the role builder, for the pilot). The console''s other roles (approver, ingestion_manager, experimenter,
     experiments_manager) stay in ASSIGNABLE_ROLES, in the data and in every gate; the page shows a person''s other
     roles read only and sends them back as hidden fields, so saving keeps them (test_web_admin_people.py, TestTwoRoles).
-    Not kept: a role outside ASSIGNABLE_ROLES (the Builder''s builder_* roles). POST /admin/people/roles keeps only the
-    sent roles that are in ASSIGNABLE_ROLES and revokes every other role the person holds, as before PMVP-40; keeping
-    them needs that route to revoke only within ASSIGNABLE_ROLES, a change to admin.py this work did not make.'
+    A role outside ASSIGNABLE_ROLES (the Builder''s builder_* roles) is not this route''s to take away: since PMVP-40
+    POST /admin/people/roles revokes only within ASSIGNABLE_ROLES (admin.py, set_roles; before, saving a person''s roles
+    dropped her Builder roles). The coordinator allowed that one line as a data-preservation fix; no gate changed.'
 - at: /source_paths
   why: 'The work order''s scope: the people page and the approvals PMVP-40 to PMVP-42 change. guarded.py is here because
     only console modules use it (admin_documents.py, admin_ingestion.py). admin.css is the stylesheet of every console page,

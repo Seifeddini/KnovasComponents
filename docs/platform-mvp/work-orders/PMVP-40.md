@@ -237,7 +237,7 @@ required"; building roles becomes its own item. `admin_people.html` only - no ro
   matches their words; saving through the page's own form keeps the four other roles, adding and taking away
   `admin` and `member`; a person holding only `approver` sees it read only, with no box for it.
 
-**Stopped on**, for the coordinator:
+**Stopped on**, for the coordinator (both settled below, the coordinator's answer of the same day):
 
 1. **A Builder role is still dropped on save.** `POST /admin/people/roles` keeps only the sent roles that are in
    `ASSIGNABLE_ROLES` and revokes every other role the person holds, so `builder_author` and the other `builder_*`
@@ -249,6 +249,18 @@ required"; building roles becomes its own item. `admin_people.html` only - no ro
 2. **`tests/test_experiments_switch.py::TestConsoleRoles::test_an_administrator_grants_the_role_in_the_console`** asserts
    that the people page offers `value="experimenter"` and `value="experiments_manager"`. The founder's answer takes
    them off the page, so that assertion fails; the file is not this order's to change.
+
+**Settled** (the coordinator allowed both):
+
+1. **`admin.py`, one line** (`set_roles`): it revokes only `(current & ASSIGNABLE_ROLES) - wanted`, so saving a
+   person's roles never takes a role this route cannot give (`builder_*`). A data-preservation fix, not a gate change:
+   no route, decorator or role check changed. Test: `TestTwoRoles::test_saving_keeps_a_builder_role_and_a_hidden_console_role`
+   (a person with `builder_author` and `approver` keeps both after saves through the page's two boxes; a bare POST of
+   `member` keeps `builder_author` and takes `approver`, a role the route may give).
+2. **`test_experiments_switch.py::TestConsoleRoles::test_an_administrator_grants_the_role_in_the_console`**: its first
+   assertion (the page offers the boxes `experimenter` and `experiments_manager`) now says the page offers no such box,
+   because the founder took them off the people page; one assertion added after the grant: the page sends the held
+   `experimenter` back as a hidden field, so a save from the page keeps it. The rest of the test is unchanged.
 
 ## Verification (coordinator's record)
 

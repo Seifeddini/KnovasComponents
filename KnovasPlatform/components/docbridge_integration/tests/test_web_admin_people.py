@@ -287,3 +287,20 @@ class TestTwoRoles:
         row = html[html.index(f'data-person-id="{approver.id}"'):]
         row = row[:row.index("Verwalten")]
         assert re.search(r"Rollen:</span>\s*—", row)
+
+    def test_saving_keeps_a_builder_role_and_a_hidden_console_role(self, as_admin, member, identity_repo):
+        """A role outside ASSIGNABLE_ROLES (the Builder's) is never this route's to take away: saving through the page's
+        two boxes keeps it, and so it does for the console's approver, which the page sends back."""
+        identity_repo.grant_role(member.id, "approver")
+        identity_repo.grant_role(member.id, "builder_author")
+        form = _roles_form(as_admin.get("/admin/people").data.decode("utf-8"), member.id)
+        _post(as_admin, "/admin/people/roles", user_id=str(member.id),
+              roles=_as_the_browser_sends_it(form) + ["admin"])
+        assert identity_repo.roles_of(member.id) == {"admin", "member", "approver", "builder_author"}
+        form = _roles_form(as_admin.get("/admin/people").data.decode("utf-8"), member.id)
+        _post(as_admin, "/admin/people/roles", user_id=str(member.id),
+              roles=_as_the_browser_sends_it(form, uncheck=("admin",)))
+        assert identity_repo.roles_of(member.id) == {"member", "approver", "builder_author"}
+        # The route alone, sent nothing but member: the Builder role stays; approver, one it may give, goes.
+        _post(as_admin, "/admin/people/roles", user_id=str(member.id), roles=["member"])
+        assert identity_repo.roles_of(member.id) == {"member", "builder_author"}
