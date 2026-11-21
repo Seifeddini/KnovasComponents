@@ -176,21 +176,31 @@ components:
     card: L2-platform-admin.card.yaml
     paths:
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin.py
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_approvals.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/guarded.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_people.html
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access_groups.html
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_documents.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_approvals.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_people.js
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_documents.js
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/admin.css
     why: >-
-      The console's blueprint with its role gates (admin.py), the people, documents, access-group and folder-rule
-      pages and the approvals that PMVP-40 to PMVP-42 change, and guarded.py, which only console modules call. The
-      other console modules mounted on the same blueprint (admin_ingestion.py, admin_doc_fields.py, admin_system.py)
-      and their pages are not changed by the plan and stay with the web app for now; admin.css styles them too.
+      The console's blueprint with its role gates (admin.py), the people page and the approvals that PMVP-40 to
+      PMVP-42 change, and guarded.py, which only console modules call. The other console modules mounted on the same
+      blueprint (admin_ingestion.py, admin_doc_fields.py, admin_system.py) and their pages are not changed by the plan
+      and stay with the web app for now; admin.css styles them too. The access groups, folder rules and documents
+      (admin_documents.py and their pages) are L2-PLATFORM-ACCESS since PMVP-40 split the card: together the two were
+      over the context budget, the code alone (16,724 tokens) over 16,000.
+  L2-PLATFORM-ACCESS:
+    card: L2-platform-access.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access_groups.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_documents.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_documents.js
+    why: >-
+      Who may read what (A-03, A-04): the access groups as a tree, the folder rules and a document's access groups,
+      written through the Brain's access routes; the Dokumente page with its fields drawer and the erasing of the
+      corpus. Split from L2-PLATFORM-ADMIN by PMVP-40 (context budget); its routes hang on that card's blueprint and
+      gate, and its guarded writes go through that card's run_guarded.
   EXT-BRAIN-API:
     card: EXT-brain-api.card.yaml
     paths: []
