@@ -21,7 +21,7 @@ whole graphs. The MVP builds what a pilot needs to ask, search, read what the Br
 | Area | For | Holds |
 |---|---|---|
 | **Workspace** | every employee | search, the Knovas Assistent, the document view, the Brain views |
-| **Verwaltung** (Admin) | administrators, approvers | people and roles, access groups and folder rules, approvals, ingestion, system |
+| **Verwaltung** (Admin) | administrators, approvers | people and roles (a role bundles what its members may do and, from RB-4, read), access groups and folder rules, approvals, ingestion, system |
 | **Builder** | the customer's administrators, Knovas consultants | sources, the Brain's model, health (its MVP items PMVP-50 to 54 are on the Builder's bet) |
 
 ## Where each part stands
@@ -45,9 +45,10 @@ branch reaches main only through a pull request a person reviews and merges; the
 | Switch and provider choice | PMVP-25 | built; no verification verdict yet | critical: management |
 | Dossier | PMVP-30a | built; no verification verdict yet | routine: Jannik or Siran |
 | Admin in the new look | PMVP-40 | in build (pushed; builder's notes not written) | routine: Jannik or Siran |
+| Roles: tables, the two roles, the move of an existing installation; functions and groups read from roles | RB-1, RB-2 | built; no verification verdict yet | critical (a migration): management |
 | Cleanup | CLEANUP-1 | in build; nothing pushed | sensitive: Siran |
 | No customer text in logs (pull request #55) | maintenance | verified (second verification, with notes); not on main, not in the build branch | open: no class named |
-| Not started (no work order) | PMVP-02, 04, 22b, 23, 24, 30b, 31–34, 41–43, 60–62 | not started | as the plan says |
+| Not started (no work order) | PMVP-02, 04, 22b, 23, 24, 30b, 31–34, 41–43, 60–62; RB-3 to RB-10 | not started | as the plan and the role builder's design say |
 
 "Management" approves critical items (DEC-0081); who exactly is **open**. Updating the pilot instance (PMVP-62) needs
 both founders.

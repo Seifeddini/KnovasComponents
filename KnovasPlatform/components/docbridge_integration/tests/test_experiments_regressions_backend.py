@@ -145,7 +145,9 @@ def test_the_owner_must_be_able_to_see_the_module(w):
     with pytest.raises(ValidationError):
         owner(w.ina.id)
     # Repeating the current owner keeps working after that person lost access.
-    w.conn.execute("DELETE FROM user_roles WHERE user_id = %s", (str(w.chef.id),))
+    # Functions come from roles since RB-2 (user_roles is no longer read): leave every role.
+    w.conn.execute("DELETE FROM tenant_role_members WHERE user_id = %s", (str(w.chef.id),))
+    assert not store.user_can_view_experiments(w.conn, w.chef.id)
     assert owner(w.chef.id)["owner"]["display_name"] == "Chef"
 
 
