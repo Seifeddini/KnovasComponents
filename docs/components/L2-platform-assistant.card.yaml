@@ -53,6 +53,11 @@ operations:
   name: 'POST /fragen - the ask page: one question from the box, the reply with its references, quotes and passages'
   entrance: http
   ref: POST /fragen
+- id: call.web_interface.assistant_routes.install_assistant
+  name: install_assistant(app, client, identity_gate, split, csrf_valid, grant, page_context, pdf_preview) - registers
+    the ask page and the factory of its service; app.py calls it once, when accounts are on
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/assistant_routes.py#install_assistant
 - id: call.assistant.core.make_service
   name: 'make_service(settings, api_client, split, user_key) - the assistant as the settings say now: OFF while it is
     switched off, else the service with the provider the customer chose (the assistant''s routes, PMVP-22a, build it per
@@ -393,6 +398,19 @@ contract:
         - test_no_removed_line_when_nothing_was_removed
         - test_no_customer_text_reaches_a_log_line
         - test_a_refused_token_logs_no_text
+  call.web_interface.assistant_routes.install_assistant:
+    promises:
+    - id: L2-PLATFORM-ASSISTANT/call.web_interface.assistant_routes.install_assistant/P-1
+      statement: Registers POST /fragen and builds the page's service on every request through make_service on the
+        installation's settings Resolver, so the switch and the provider apply without a restart and every call is
+        signed for the person who asks.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_page_routes.py
+        checks:
+        - test_the_real_service_is_wired_and_fails_closed_without_the_secured_api
+        - test_the_settings_page_switches_it_on
   call.assistant.core.make_service:
     needs:
     - id: L2-PLATFORM-ASSISTANT/call.assistant.core.make_service/N-1
