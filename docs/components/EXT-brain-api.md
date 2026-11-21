@@ -200,7 +200,8 @@ None stated.
 | Component | Operations | Expects |
 |---|---|---|
 | `L2-BRAIN-BUILDER` | `source-writes`; `source-write-accept`; `source-write-reject`; `change-sets`; `change-set`; `change-set-approve`; `change-set-reject`; `connector-job-stats`; `sign-certificate`; `graph-routes`; `access-routes` | `EXT-BRAIN-API/*/A-1`; `EXT-BRAIN-API/source-writes/P-1`; `EXT-BRAIN-API/source-write-accept/P-1`; `EXT-BRAIN-API/source-write-reject/P-1`; `EXT-BRAIN-API/change-sets/P-1`; `EXT-BRAIN-API/change-set/P-1`; `EXT-BRAIN-API/change-set-approve/P-1`; `EXT-BRAIN-API/change-set-reject/P-1`; `EXT-BRAIN-API/connector-job-stats/P-1`; `EXT-BRAIN-API/sign-certificate/P-1`; `EXT-BRAIN-API/graph-routes/P-1`; `EXT-BRAIN-API/access-routes/P-1` |
-| `L2-PLATFORM-ADMIN` | `access-routes`; `graph-routes` | `EXT-BRAIN-API/access-routes/P-1` |
+| `L2-PLATFORM-ACCESS` | `access-routes`; `graph-routes` | `EXT-BRAIN-API/access-routes/P-1` |
+| `L2-PLATFORM-ADMIN` | `access-routes` | `EXT-BRAIN-API/access-routes/P-1` |
 | `L2-PLATFORM-ASSISTANT` |  |  |
 | `L2-PLATFORM-BRAIN-VIEWS` | `graph-routes` |  |
 | `L3-KNOVAS-LINK` | `connector-jobs-claim`; `connector-job-part`; `connector-job-result`; `connector-probe`; `graph-routes`; `ingest-routes` | `EXT-BRAIN-API/*/A-1`; `EXT-BRAIN-API/connector-jobs-claim/P-1`; `EXT-BRAIN-API/connector-job-part/P-1`; `EXT-BRAIN-API/connector-job-result/P-1`; `EXT-BRAIN-API/connector-probe/P-1`; `EXT-BRAIN-API/graph-routes/P-1`; `EXT-BRAIN-API/ingest-routes/P-1` |

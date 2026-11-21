@@ -26,80 +26,75 @@
   var clearSelection = document.getElementById('document-clear-selection');
   var table = document.getElementById('doc-table');
 
-  function cell(className) {
-    var td = document.createElement('td');
-    if (className) { td.className = className; }
-    return td;
+  // One row of the list, as the template draws it (admin_documents.html, PMVP-40): the parts' row line
+  // (k-rowline) with the box, title and path, the access groups in words and a mark (k-tag) only when the
+  // state is not "active"; at the end the fields button where the page offers the drawer.
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) { node.className = className; }
+    if (text != null) { node.textContent = String(text); }
+    return node;
   }
 
-  function textCell(text, className) {
-    var td = cell(className);
-    td.textContent = (text == null || text === '') ? '—' : String(text);
-    return td;
+  // A document's state in words, as admin_documents.html has them (state_words); an unknown one by its key.
+  var STATE_WORDS = { deleted: 'gelöscht', archived: 'archiviert', quarantined: 'zurückgehalten' };
+
+  function stateWord(state) {
+    var key = String(state);
+    return Object.prototype.hasOwnProperty.call(STATE_WORDS, key) ? STATE_WORDS[key] : key;
   }
 
-  function badge(text, open) {
-    var span = document.createElement('span');
-    span.className = open ? 'access-chip open' : 'access-chip';
-    span.textContent = text;
-    return span;
-  }
-
-  function groupsCell(groups) {
-    var td = cell();
-    if (!groups || !groups.length) {
-      td.appendChild(badge('offen', true));
-      return td;
-    }
-    groups.forEach(function (g) { td.appendChild(badge(String(g), false)); });
-    return td;
-  }
-
-  function checkboxCell(pointer, label) {
-    var td = cell('select-column');
+  function checkbox(pointer, label) {
     var box = document.createElement('input');
     box.type = 'checkbox';
     box.name = 'pointer';
     box.value = String(pointer == null ? '' : pointer);
     box.setAttribute('aria-label', String(label || pointer || 'Dokument') + ' auswählen');
-    td.appendChild(box);
-    return td;
+    return box;
+  }
+
+  function groupsLine(groups) {
+    var line = el('p', 'k-small');
+    line.appendChild(el('span', 'k-muted', 'Zugriffsgruppen:'));
+    line.appendChild(document.createTextNode(' '));
+    if (!groups || !groups.length) {
+      line.appendChild(el('span', 'k-muted', 'offen'));
+    } else {
+      line.appendChild(document.createTextNode(groups.map(String).join(', ')));
+    }
+    return line;
   }
 
   function renderRow(doc) {
-    var tr = document.createElement('tr');
-    tr.appendChild(checkboxCell(doc.pointer, doc.title));
-    var titleCell = cell();
-    var title = document.createElement('strong');
-    title.textContent = (doc.title == null || doc.title === '') ? '—' : String(doc.title);
-    titleCell.appendChild(title);
-    tr.appendChild(titleCell);
-    tr.appendChild(textCell(doc.pointer, 'ptr'));
-    tr.appendChild(groupsCell(doc.access_groups));
-    var statusCell = cell();
-    var statusBadge = document.createElement('span');
-    statusBadge.className = 'document-status';
-    statusBadge.textContent = (doc.status == null || doc.status === '') ? '—' : String(doc.status);
-    statusCell.appendChild(statusBadge);
-    tr.appendChild(statusCell);
-    if (table && table.getAttribute('data-doc-fields') === '1') {
-      tr.appendChild(fieldsCell(doc));
+    var row = el('div', 'k-rowline');
+    var line = el('div', 'document-line');
+    line.appendChild(checkbox(doc.pointer, doc.title));
+    var text = el('div', 'document-text');
+    var title = el('p', 'document-title');
+    title.appendChild(el('span', null, (doc.title == null || doc.title === '') ? '—' : doc.title));
+    if (doc.status != null && doc.status !== '' && doc.status !== 'active') {
+      title.appendChild(document.createTextNode(' '));
+      title.appendChild(el('span', 'k-tag k-tag--warn', stateWord(doc.status)));
     }
-    return tr;
+    text.appendChild(title);
+    text.appendChild(el('p', 'ptr', doc.pointer == null ? '' : doc.pointer));
+    text.appendChild(groupsLine(doc.access_groups));
+    line.appendChild(text);
+    row.appendChild(line);
+    if (table && table.getAttribute('data-doc-fields') === '1') {
+      row.appendChild(fieldsButton(doc));
+    }
+    return row;
   }
 
-  function fieldsCell(doc) {
-    var td = cell('row-action');
-    var open = document.createElement('button');
+  function fieldsButton(doc) {
+    var open = el('button', 'secondary compact', 'Felder');
     open.type = 'button';
-    open.className = 'secondary compact';
     open.setAttribute('data-df-open', '');
     open.setAttribute('data-pointer', String(doc.pointer == null ? '' : doc.pointer));
     var pointers = (doc.pointers && doc.pointers.length) ? doc.pointers : [doc.pointer];
     open.setAttribute('data-pointers', JSON.stringify(pointers.map(String)));
-    open.textContent = 'Felder';
-    td.appendChild(open);
-    return td;
+    return open;
   }
 
   function pointerBoxes() {

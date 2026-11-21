@@ -191,6 +191,11 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
             "Textstellen aus den Dokumenten des Mandanten. Wird nur geschrieben, nie angezeigt. „Verbindung testen“ "
             "schickt eine erfundene Frage, nie einen Text des Mandanten.",
             "secret", "installation"),
+    # Brain views (PMVP-30a): the members' dossier. Off by default; "an" or BRAIN_VIEWS_ENABLED=true switches it on.
+    Setting("brain_views.enabled", "Brain-Ansichten (Dossier)",
+            "Zeigt Mitgliedern unter /dossier/<id> die Angaben und Dokumente zu einem Eintrag des Brain, gelesen "
+            "mit ihren eigenen Rechten. Aus: die Adresse antwortet 404.",
+            "choice", "installation", env=("BRAIN_VIEWS_ENABLED",), choices=("aus", "an"), fallback="aus"),
 )}
 
 

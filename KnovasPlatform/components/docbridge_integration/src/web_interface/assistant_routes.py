@@ -31,9 +31,8 @@ This file is ASCII-only (scripts/check_ascii_py.py): umlauts are ``\\u`` escapes
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from flask import Blueprint, Flask, abort, current_app, redirect, render_template, request, url_for
 
@@ -79,17 +78,22 @@ def removed_line(count: int) -> str:
     return f"{count} Aussagen ohne Beleg ausgelassen"
 
 
-# The last word of a statement and the stop after it. The reference stands between them, and the three are kept on
-# one line (FU-35): a whitespace-free run at the end, and the closing stops of that run.
-_TAIL = re.compile(r"(\S+?)([.!?:;\u2026]*)\s*$")
+#: The stops that close a statement. The reference stands before them and is kept on their line (FU-35); the words
+#: before it wrap as any text does.
+_STOPS = frozenset(".!?:;\u2026")
 
 
-def split_tail(text: str) -> tuple:
-    """``(lead, word, stop)`` of a statement: the reference goes between ``word`` and ``stop``."""
-    match = _TAIL.search(text)
-    if match is None:
-        return text, "", ""
-    return text[:match.start()], match.group(1), match.group(2)
+def split_tail(text: str) -> Tuple[str, str]:
+    """``(head, stop)`` of a statement: the reference goes between them.
+
+    ``stop`` is the run of closing stops at the end (trailing white space dropped). A plain scan from the end, so
+    its time grows with the length of that run and nothing else.
+    """
+    end = len(text.rstrip())
+    start = end
+    while start > 0 and text[start - 1] in _STOPS:
+        start -= 1
+    return text[:start], text[start:end]
 
 
 @dataclass(frozen=True)
@@ -106,8 +110,7 @@ class ShownPassage:
 class ShownStatement:
     """A statement as the page shows it, its reference, the id of its quote and the passage the quote is from."""
 
-    lead: str
-    word: str
+    head: str
     stop: str
     number: int
     quote: str
@@ -142,8 +145,8 @@ def shown_reply(reply: Reply, pdf_preview: bool) -> Dict[str, Any]:
     statements: List[ShownStatement] = []
     for index, sentence in enumerate(reply.sentences, start=1):
         number = sentence.refs[0] if sentence.refs else 0
-        lead, word, stop = split_tail(sentence.text)
-        statements.append(ShownStatement(lead=lead, word=word, stop=stop, number=number, quote=sentence.quote,
+        head, stop = split_tail(sentence.text)
+        statements.append(ShownStatement(head=head, stop=stop, number=number, quote=sentence.quote,
                                          quote_id=f"zitat-{index}", passage=by_number.get(number)))
     return {"statements": statements, "passages": passages, "removed": removed_line(reply.removed)}
 
