@@ -16,8 +16,9 @@ service takes from ``core.make_generate``, so the service and the check do not c
 official SDK (``client.beta.messages.create``): effort ``medium``, the server-side fallback on a policy decline,
 no temperature (the current models refuse it) and no thinking setting (adaptive is the default and cannot be
 switched off on Opus 5.5). ``max_tokens`` is at least ``ANTHROPIC_MIN_MAX_TOKENS``: thinking counts against it, and
-a cut answer loses statements. The client waits ``ANTHROPIC_TIMEOUT_SECONDS`` and retries once, so a question
-never outlasts nginx's 180 seconds (FU-08).
+a cut answer loses statements. The client waits ``ANTHROPIC_TIMEOUT_SECONDS`` and retries once, to stay under
+nginx's 180 seconds (FU-08): a timeout costs at most about 128 seconds. The SDK waits whatever ``retry-after`` a 429
+or 529 names before its retry, so a long one can still outlast nginx (PMVP-25's notes).
 
 What the provider receives is what the service composed and nothing else (POST-02): the system instruction and
 the messages, each reduced to its role and its content (the passages the person's search returned, the question

@@ -86,8 +86,9 @@ client.beta.messages.create(model=..., max_tokens=max(max_tokens, 8000), system=
   has no server-side fallback): a decline stays a decline.
 - The provider receives the system instruction and the messages, each reduced to its role and its content: the
   passages the person's search returned, the question and its history. Nothing else (POST-02).
-- The client: the key of the resolved setting, `timeout` 60 seconds, `max_retries` 1 (so a question never outlasts
-  nginx's 180 seconds, FU-08), built per call and closed after it. Without a key no client is built (the SDK would
+- The client: the key of the resolved setting, `timeout` 60 seconds, `max_retries` 1 (to stay under nginx's 180
+  seconds, FU-08: a timeout costs at most about 128 seconds; the SDK waits whatever `retry-after` a 429 or 529 names
+  before its retry, so a long one can still outlast nginx), built per call and closed after it. Without a key no client is built (the SDK would
   otherwise take `ANTHROPIC_API_KEY` from the environment, which pins the Brain Builder's own key); the answer fails.
 - The answer is the `text` blocks joined (thinking and fallback blocks are not text). `stop_reason` `refusal` ->
   `CoreFailed`; `max_tokens` -> the text as it is (the check drops a cut last line).
@@ -230,7 +231,7 @@ when the prompt held a shortened copy.
 | temperature | `core.DEFAULT_TEMPERATURE` | 0.2 | low, so the model copies; the Core's model only (`knovas`): Claude refuses a temperature |
 | Claude's least `max_tokens` | `providers.ANTHROPIC_MIN_MAX_TOKENS` | 8,000 | thinking counts against it |
 | Claude's effort | `providers.ANTHROPIC_EFFORT` | `medium` | |
-| Claude's timeout and retries | `providers.ANTHROPIC_TIMEOUT_SECONDS`, `ANTHROPIC_MAX_RETRIES` | 60 s, 1 | under nginx's 180 s (FU-08) |
+| Claude's timeout and retries | `providers.ANTHROPIC_TIMEOUT_SECONDS`, `ANTHROPIC_MAX_RETRIES` | 60 s, 1 | for nginx's 180 s (FU-08); a long `retry-after` on 429/529 can still exceed it |
 | passages asked for | `service.DEFAULT_PASSAGE_LIMIT` | 10 | |
 | prompt budget | `service.DEFAULT_PROMPT_BUDGET_BYTES` | 14,000 | system instruction (2,361 bytes) plus all messages |
 
