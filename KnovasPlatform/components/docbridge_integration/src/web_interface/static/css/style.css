@@ -166,32 +166,6 @@ h2 {
     border-bottom: 1px solid var(--border-color);
 }
 
-/* Markenzeile und Abmelden in einer Reihe, Begruessung darunter. */
-.site-header-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 22px;
-}
-
-.site-brand {
-    display: inline-flex;
-    align-items: center;
-    line-height: 0;
-}
-
-.site-brand img {
-    height: 18px;
-    width: auto;
-}
-
-.site-brand:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 4px;
-    border-radius: var(--radius);
-}
-
 .site-greeting {
     font-family: var(--font-heading);
     font-size: 1.6rem;
@@ -231,26 +205,6 @@ h2 {
 .feedback-link:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-}
-
-.feedback-link--footer {
-    font-size: inherit;
-    font-weight: 500;
-    padding: 0.15rem 0.5rem;
-    border-radius: 6px;
-}
-
-.logout-form {
-    flex: 0 0 auto;
-}
-
-.logout-button {
-    font-size: 0.85rem;
-    padding: 7px 14px;
-}
-
-.logout-button:hover {
-    color: var(--primary-color);
 }
 
 /* Main */
@@ -632,35 +586,6 @@ mark.context-snippet-match,
     font-weight: 600;
 }
 
-/* Footer */
-.site-footer {
-    text-align: center;
-    padding: 28px 0 8px;
-    margin-top: 32px;
-    border-top: 1px solid var(--border-color);
-    color: var(--text-muted);
-    font-size: 0.875rem;
-}
-
-.footer-links {
-    margin-top: 10px;
-}
-
-.footer-links a {
-    color: var(--primary-color);
-    text-decoration: none;
-}
-
-.footer-links a:hover {
-    text-decoration: underline;
-}
-
-.footer-sep {
-    margin: 0 0.35rem;
-    color: var(--border-color);
-    user-select: none;
-}
-
 /* Badges */
 .badge {
     display: inline-block;
@@ -729,12 +654,6 @@ mark.context-snippet-match,
     text-transform: uppercase;
     color: var(--text-secondary);
     margin-bottom: 20px;
-}
-
-.login-brand {
-    color: var(--primary-color);
-    font-weight: 600;
-    margin-bottom: 12px;
 }
 
 .login-card h1 {
@@ -812,10 +731,6 @@ mark.context-snippet-match,
 
 .hidden {
     display: none !important;
-}
-
-.mt-20 {
-    margin-top: 16px;
 }
 
 
@@ -1221,12 +1136,6 @@ mark.context-snippet-match,
     .preview-skeleton span { animation: none; }
 }
 
-@media (max-width: 900px) {
-            body.preview-open {
-        overflow: hidden;
-    }
-}
-
 /* --- Toasts -------------------------------------------------------------- */
 
 .toast-container {
@@ -1317,22 +1226,6 @@ mark.context-snippet-match,
     .toast { animation: none; }
 }
 
-/* Hauptnavigation (Suche | Cortex) */
-.site-nav { display: flex; gap: 16px; margin-inline: auto; }
-.site-nav a {
-    color: var(--text-secondary);
-    text-decoration: none;
-    font-family: var(--font-heading);
-    font-size: 0.9rem;
-    padding: 4px 2px;
-    border-bottom: 2px solid transparent;
-}
-.site-nav a:hover { color: var(--primary-color); }
-.site-nav a[aria-current="page"] {
-    color: var(--primary-color);
-    border-bottom-color: var(--accent);
-}
-.site-nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* --- Plattform-Rahmen: Navigation links, Module daneben -----------------
@@ -1372,10 +1265,9 @@ mark.context-snippet-match,
 .settings-list dd { color: var(--text-primary); }
 .settings-list dd.mono { font-family: var(--font-mono); font-size: 0.85rem; }
 
-/* Schmale Fenster: die Navigation wird zur Kopfzeile (shell.css), Korpus-Zahl entfaellt. */
+/* Schmale Fenster: die Navigation wird zur Kopfzeile (shell.css). */
 @media (max-width: 900px) {
     .app-shell { flex-direction: column; }
-    .corpus-status { display: none; }
 }
 
 /* Einstellungen: Statusanzeige und Rechtliches (aus dem Fuss der Suchseite).

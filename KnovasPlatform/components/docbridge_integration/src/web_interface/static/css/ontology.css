@@ -23,16 +23,8 @@
     inset: 0;
 }
 
-/* "Typ anlegen", the empty-graph note and the handle for connecting two
-   nodes lie over the canvas. ontology_connect.js sets the handle's size and
-   position itself. */
-.graph-add-type {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 1;
-}
-
+/* The empty-graph note and the handle for connecting two nodes lie over the
+   canvas. ontology_connect.js sets the handle's size and position itself. */
 #graphEmpty {
     position: absolute;
     bottom: 0;
@@ -638,8 +630,7 @@ body.galaxy-searching .galaxy-heatmap {
 .cortex-brand,
 .cortex-account,
 .cortex-dock-link,
-.graph-toolbar,
-.graph-add-type {
+.graph-toolbar {
     position: absolute;
     z-index: 5;
     border: 1px solid rgba(140, 151, 177, 0.35);
@@ -902,7 +893,6 @@ button.cortex-dock-link {
 .cortex-account,
 .cortex-dock-link,
 .btn,
-.graph-add-type,
 .entity-card,
 .relation-card,
 .evidence-item,
@@ -914,8 +904,7 @@ button.cortex-dock-link {
 
 .cortex-brand:hover,
 .cortex-account:hover,
-.cortex-dock-link:hover,
-.graph-add-type:hover {
+.cortex-dock-link:hover {
     color: var(--primary-color);
     border-color: rgba(40, 89, 205, 0.38);
     box-shadow: 0 14px 34px rgba(35, 47, 80, 0.13),
@@ -927,7 +916,6 @@ button.cortex-dock-link {
 .cortex-account:focus-visible,
 .cortex-dock-link:focus-visible,
 .btn:focus-visible,
-.graph-add-type:focus-visible,
 .entity-card:focus-visible,
 .relation-card:focus-visible,
 .evidence-item:focus-visible,
@@ -992,36 +980,6 @@ input:focus-visible {
 .btn-danger:hover {
     color: #8c1e30;
     background: #ffe2e7;
-}
-
-.graph-add-type {
-    top: 92px;
-    left: 22px;
-    display: flex;
-    height: 48px;
-    align-items: center;
-    gap: 10px;
-    padding: 5px 15px 5px 5px;
-    color: var(--text-secondary);
-    border-radius: 16px;
-    cursor: pointer;
-}
-
-.graph-add-type-circle {
-    display: grid;
-    width: 36px;
-    height: 36px;
-    place-items: center;
-    color: var(--primary-color);
-    border: 1.5px dashed var(--accent);
-    border-radius: 12px;
-    font-size: 1.15rem;
-    line-height: 1;
-}
-
-.graph-add-type-label {
-    font-size: 0.84rem;
-    font-weight: 600;
 }
 
 #graphEmpty {
@@ -1304,10 +1262,6 @@ input[type="text"]::placeholder {
 
 .galaxy-entity-panel .galaxy-hide {
     color: var(--text-secondary);
-}
-
-.galaxy-entity-panel .galaxy-danger {
-    color: #9b2c2c;
 }
 
 .galaxy-action-form {
@@ -1826,11 +1780,6 @@ body.galaxy-results-active .galaxy-heatmap {
         min-height: 36px;
         padding: 0 8px;
         font-size: 0.78rem;
-    }
-
-    .graph-add-type {
-        top: 74px;
-        left: 14px;
     }
 
     .galaxy-breadcrumb {
