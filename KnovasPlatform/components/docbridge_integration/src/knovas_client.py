@@ -346,44 +346,138 @@ def _ingested_summary_from_hit(item: Dict[str, Any]) -> Optional[str]:
 
 
 def _snippet_from_hit(item: Dict[str, Any]) -> Optional[str]:
-    """The Core's verbatim passage text of one /secured/query hit, or None.
+    """The passage text of one /secured/query hit, or None (``_snippet_with_location``).
 
-    Knovas attaches it (``QUERY_RETURN_CHUNK_SNIPPETS``, on by default since
-    2026-10-02; KnowledgeBase ``query_two_stage.attach_chunk_snippets``) as
-    ``snippet`` on each served ``top_chunks`` entry, and the first of those as
-    the hit's own ``snippet``: a window of at most 240 characters cut from the
-    chunk's ``original_text`` (whole rows for a table chunk, none for an auto
-    summary). Only that key is read -- not ``text``, ``content`` or the other
-    chunk keys a hit may carry: GI-QUERY-04 promises that served
-    text is ``original_text``, and the BM25 ``text`` field has its digits
+    Knovas attaches its verbatim text (``QUERY_RETURN_CHUNK_SNIPPETS``, on by
+    default since 2026-10-02; KnowledgeBase ``query_two_stage.attach_chunk_snippets``)
+    as ``snippet`` on each of the first three served ``top_chunks`` entries,
+    and the first of those as the hit's own ``snippet``: a window of at most
+    240 characters cut from the chunk's ``original_text`` (whole rows for a
+    table chunk, none for an auto summary). Only ``original_text`` and
+    ``snippet`` are read -- not ``text``, ``content`` or other chunk keys
+    a hit may carry: GI-QUERY-04 promises that served text
+    is ``original_text``, and the BM25 ``text`` field has its digits
     stripped.
     """
     found = _snippet_with_location(item)
     return found[0] if found else None
 
 
-def _snippet_with_location(item: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any]]]:
-    """``(snippet, location of the chunk it was cut from)`` of one hit, or None.
+#: The most characters of the passage one hit gives the Knovas Assistent
+#: (PMVP-20 passages). The setting ``ASSISTANT_PASSAGE_CHARS`` replaces it: a
+#: whole number of at least ``MIN_PASSAGE_CHARS``; anything else is the
+#: default, with one warning per search.
+DEFAULT_PASSAGE_CHARS = 1_200
+MIN_PASSAGE_CHARS = 100
+#: The least words of a passage: the reference check's least quote
+#: (``assistant.check.MIN_QUOTE_WORDS``; a test keeps the two equal).
+MIN_PASSAGE_WORDS = 3
+#: Between two snippets of one chunk; and the mark of a passage that was cut
+#: (the reference check reads it as a closing mark).
+_PASSAGE_JOIN = " \u2026 "
+_PASSAGE_CUT = "\u2026"
 
-    The text and its page must come from the same chunk (PMVP-20 rework 1):
-    the row's ``page_number`` is ``top_chunks[0]``'s, but the first chunk may
-    carry no snippet (an auto summary), so a reference would open the wrong
-    page. The chunks are read first, in order -- the Core's row-level
-    ``snippet`` is the first of theirs; a row-level snippet without any
-    chunk's is kept with an unknown location (``{}``), never another chunk's.
+
+def _passage_chars() -> int:
+    """``ASSISTANT_PASSAGE_CHARS``, read per search (inside ``keeping_snippets()`` only)."""
+    raw = (os.environ.get("ASSISTANT_PASSAGE_CHARS") or "").strip()
+    if not raw:
+        return DEFAULT_PASSAGE_CHARS
+    if raw.isascii() and raw.isdigit() and int(raw) >= MIN_PASSAGE_CHARS:
+        return int(raw)
+    logger.warning("Invalid ASSISTANT_PASSAGE_CHARS=%r (a whole number of at least %d); using %d",
+                   raw[:20], MIN_PASSAGE_CHARS, DEFAULT_PASSAGE_CHARS)
+    return DEFAULT_PASSAGE_CHARS
+
+
+def _passage_words(text: str) -> int:
+    """Words as the reference check counts them: runs between white space
+    with a letter or a digit in them."""
+    return sum(1 for word in text.split() if any(char.isalnum() for char in word))
+
+
+def _cut_passage(text: str, limit: int) -> str:
+    """``text`` cut to at most ``limit`` characters at the end of a word,
+    with ``_PASSAGE_CUT``; inside a word only when the first word is longer."""
+    if len(text) <= limit:
+        return text
+    room = max(1, limit - len(_PASSAGE_CUT))
+    end = room
+    while end > 0 and not text[end].isspace():
+        end -= 1
+    head = text[:end].rstrip() if end > 0 else text[:room]
+    return head + _PASSAGE_CUT
+
+
+def _chunk_text(entries: List[Dict[str, Any]]) -> Optional[str]:
+    """The longest text the answer carries for one chunk: its
+    ``original_text`` when Knovas sends it, else its snippets in order,
+    joined with ``_PASSAGE_JOIN``."""
+    for entry in entries:
+        full = entry.get("original_text")
+        if isinstance(full, str) and full.strip():
+            return full.strip()
+    snippets: List[str] = []
+    for entry in entries:
+        value = entry.get("snippet")
+        if isinstance(value, str) and value.strip() and value.strip() not in snippets:
+            snippets.append(value.strip())
+    return _PASSAGE_JOIN.join(snippets) or None
+
+
+def _chunk_rank(entries: List[Tuple[int, Dict[str, Any]]]) -> Tuple[int, float]:
+    """Best first: the reranker's score where Knovas has one, then the rest
+    in the order it sent them -- its own citation order (``query_two_stage``).
+    Not the stage-1 cosine: the reranker disagrees with it on purpose."""
+    ranks: List[Tuple[int, float]] = []
+    for index, entry in entries:
+        score = entry.get("rerank_score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            ranks.append((0, -float(score)))
+        else:
+            ranks.append((1, float(index)))
+    return min(ranks)
+
+
+def _snippet_with_location(
+    item: Dict[str, Any], limit: int = DEFAULT_PASSAGE_CHARS,
+) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """``(passage, location of the chunk it is from)`` of one hit, or None.
+
+    PMVP-20 passages: the passage is the longest text the answer carries for
+    ONE chunk (``_chunk_text``; entries with the same ``chunk_uuid`` are one
+    chunk), cut at a word to ``limit`` characters. Of the hit's chunks the
+    best ranked (``_chunk_rank``) whose passage has at least
+    ``MIN_PASSAGE_WORDS`` words is taken -- the reference check needs that
+    many for a quote. Text and location come from the same chunk, never
+    from two (rework 1, item 5: the row's ``page_number`` is
+    ``top_chunks[0]``'s, which may carry no text). A row-level ``snippet`` is
+    the last resort, with an unknown location (``{}``). A hit with nothing
+    of that many words has no passage.
     """
     chunks = item.get("top_chunks")
     if not isinstance(chunks, list):
         chunks = item.get("topChunks")
-    for chunk in chunks if isinstance(chunks, list) else ():
-        if not isinstance(chunk, dict):
-            continue
-        value = chunk.get("snippet")
-        if isinstance(value, str) and value.strip():
-            return value.strip(), _location_from_mapping(_coalesce_secured_query_keys(chunk))
+    by_chunk: Dict[str, List[Tuple[int, Dict[str, Any]]]] = {}
+    for index, chunk in enumerate(chunks if isinstance(chunks, list) else ()):
+        if isinstance(chunk, dict):
+            cid = chunk.get("chunk_uuid") or chunk.get("uuid")
+            by_chunk.setdefault(str(cid) if cid else f"#{index}", []).append((index, chunk))
+    candidates: List[Tuple[Tuple[int, float], str, Dict[str, Any]]] = []
+    for entries in by_chunk.values():
+        text = _chunk_text([entry for _, entry in entries])
+        if text is not None:
+            candidates.append((_chunk_rank(entries), text, entries[0][1]))
+    candidates.sort(key=lambda candidate: candidate[0])
+    for _rank, text, chunk in candidates:
+        passage = _cut_passage(text, limit)
+        if _passage_words(passage) >= MIN_PASSAGE_WORDS:
+            return passage, _location_from_mapping(_coalesce_secured_query_keys(chunk))
     value = item.get("snippet")
     if isinstance(value, str) and value.strip():
-        return value.strip(), {}
+        passage = _cut_passage(value.strip(), limit)
+        if _passage_words(passage) >= MIN_PASSAGE_WORDS:
+            return passage, {}
     return None
 
 
@@ -1603,7 +1697,9 @@ class KnovasAPIClient:
         For the Knovas Assistent (PMVP-20), which cites only what it can show
         and searches through the search page's own path (``run_search``). The
         request Knovas receives is the same; only the row keeps ``snippet``
-        and the location of the chunk it was cut from, ``snippet_page_number``
+        -- the longest text the answer carries for one chunk, at most
+        ``ASSISTANT_PASSAGE_CHARS`` (default 1,200) characters, at least three
+        words -- and the location of that chunk, ``snippet_page_number``
         and ``snippet_sentence_number`` (``_snippet_with_location``). Outside
         the block rows have none of them:
         the search page reads that key when it matches words
@@ -3199,14 +3295,15 @@ class KnovasAPIClient:
         raw_hits = (result.get("results") or [])[:limit]
 
         normalized_results = []
+        passage_chars = _passage_chars() if snippets else DEFAULT_PASSAGE_CHARS
         for raw in raw_hits:
             if not isinstance(raw, dict):
                 continue
             row = _secured_query_hit_to_row(raw)
             if snippets:
-                found = _snippet_with_location(raw)
+                found = _snippet_with_location(raw, passage_chars)
                 if found:
-                    # The snippet's own page and sentence, from its chunk (None
+                    # The passage's own page and sentence, from its chunk (None
                     # when unknown); page_number stays the row's (top_chunks[0]).
                     row["snippet"] = found[0]
                     row["snippet_page_number"] = found[1].get("page_number")

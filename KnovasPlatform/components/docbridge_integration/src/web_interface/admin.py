@@ -249,7 +249,7 @@ def create_admin_blueprint(
         repo = gate.users()
         current = repo.roles_of(user_id)
         try:
-            for role in set(current) - set(wanted):
+            for role in (set(current) & set(ASSIGNABLE_ROLES)) - set(wanted):
                 repo.revoke_role(user_id, role)
             for role in set(wanted) - set(current):
                 repo.grant_role(user_id, role, by=gate.current_user().id)

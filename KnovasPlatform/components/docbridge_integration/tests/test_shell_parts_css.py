@@ -216,7 +216,7 @@ def test_parts_css_has_no_block_inside_a_block_and_no_important():
 def test_the_base_stylesheet_loads_the_parts_right_after_the_tokens():
     style = re.sub(r"/\*.*?\*/", "", _text(CSS / "style.css"), flags=re.S)
     imports = re.findall(r"@import\s+url\(\s*['\"]?([^'\")]+)['\"]?\s*\)\s*;", style)
-    assert imports == ["knovas-tokens.css", "parts.css"]
+    assert imports == ["knovas-tokens.css", "parts.css", "shell.css"]  # shell.css: PMVP-11, merged beside this item
     # an @import counts only before every other rule
     first_rule = re.search(r"@font-face|[^{};@]+\{", style)
     assert style.index("parts.css") < first_rule.start()

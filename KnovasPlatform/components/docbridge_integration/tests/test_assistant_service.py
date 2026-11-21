@@ -171,6 +171,53 @@ def test_eight_statements_with_quotes_fit_the_answer_budget():
 # --- composition (the Core's limits, the prompt budget) --------------------------------------------
 
 
+def _assert_within_the_core(system, messages):
+    assert _size(system) <= svc.CORE_MAX_SYSTEM_BYTES
+    assert 1 <= len(messages) <= svc.CORE_MAX_MESSAGES
+    assert all(_size(m["content"]) <= svc.CORE_MAX_MESSAGE_BYTES for m in messages)
+
+
+@pytest.mark.parametrize("title", ["T" * 6_000, "\u00e4" * 3_000, "[1] " * 1_500, "\U0001f600" * 1_500])
+@pytest.mark.parametrize("budget", [svc.DEFAULT_PROMPT_BUDGET_BYTES, svc.CORE_MAX_MESSAGE_BYTES])
+def test_ten_titles_of_6000_bytes_still_fit_the_core(title, budget):
+    """The verifier's input: ten 6,000-byte titles made a last message of more than 50,000 bytes."""
+    assert _size(title) == 6_000
+    passages = passages_from_rows([_row(n, "Wort " * 2_000, title=title) for n in range(1, 11)])
+    history = [Turn("user", "Frage?"), Turn("assistant", "Antwort " * 500)]
+    system, messages = compose("F" * svc.MAX_QUESTION_BYTES, passages, history, budget_bytes=budget)
+    _assert_within_the_core(system, messages)
+    final = messages[-1]["content"]
+    for n in range(1, 11):
+        assert f"[{n}] " in final
+    assert final.count("\u2026") >= 10                       # every title is cut, with an ellipsis
+    assert "[1] [1]" not in final                            # brackets in a title stay no passage number
+
+
+def test_a_title_is_cut_to_a_fixed_length_and_a_short_one_stays_whole():
+    long_one, short_one = passages_from_rows([_row(1, "x", title="Vertrag " * 1_000), _row(2, "y")])
+    final = compose("Frist?", [long_one, short_one])[1][-1]["content"]
+    head = final.split("\n")[2]
+    assert head.startswith("[1] Vertrag Vertrag") and head.endswith("\u2026, page 1")
+    assert _size(head) <= len("[1] ") + svc.MAX_TITLE_BYTES + len(", page 1")
+    assert "[2] Dokument 2, page 2" in final
+
+
+def test_the_most_passages_with_the_longest_heads_fit_the_core():
+    rows = [_row(n, "Wort " * 50, title="\u00e4" * 3_000, page_number=-(10 ** svc.MAX_PAGE_DIGITS - 1))
+            for n in range(1, svc.MAX_PASSAGES_COMPOSED + 1)]
+    passages = passages_from_rows(rows)
+    system, messages = compose("\u00e4" * (svc.MAX_QUESTION_BYTES // 2), passages,
+                               budget_bytes=svc.CORE_MAX_MESSAGE_BYTES)
+    _assert_within_the_core(system, messages)
+    assert f"[{svc.MAX_PASSAGES_COMPOSED}] " in messages[-1]["content"]
+
+
+def test_a_page_number_too_long_to_be_one_is_left_out_of_the_head():
+    (passage,) = passages_from_rows([_row(1, "x", page_number=int("9" * 4_000))])
+    final = compose("Frist?", [passage])[1][-1]["content"]
+    assert "[1] Dokument 1\nx" in final and "999999999" not in final
+
+
 def test_the_passages_the_question_and_the_reminder_are_the_last_user_message():
     passages = passages_from_rows([_row(1, "eins"), _row(2, "zwei", page_number=None)])
     system, messages = compose("Welche Frist?", passages)

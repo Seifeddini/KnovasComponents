@@ -62,5 +62,6 @@ snowballstemmer>=3.0,<4
 # brain-runner's own dependencies (Sync von GitHub, KC-0.2; the package itself is installed --no-deps in the Dockerfile)
 jmespath==1.1.0
 defusedxml==0.7.1
-# Brain Builder: the views assistant (Claude API; key in the settings registry)
-anthropic==1.17.0
+# Claude API: the Brain Builder's views assistant and the Knovas Assistent when the customer chooses anthropic
+# (PMVP-25; keys in the settings registry). 2.12.0: the version PMVP-25 names, its calls written against it.
+anthropic==2.12.0

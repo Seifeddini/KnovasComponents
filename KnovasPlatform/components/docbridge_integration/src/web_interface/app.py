@@ -61,6 +61,23 @@ from unc_path import (
 
 logger = logging.getLogger(__name__)
 
+#: Loggers that print customer text at DEBUG (FU-39): the Anthropic SDK logs every request's options (the
+#: assistant's instruction, passages and question; the views assistant's definitions) and a transport error's text,
+#: and the HTTP libraries their exceptions. Held at INFO or above, whatever LOG_LEVEL says.
+QUIET_LOGGERS = ('anthropic', 'httpx', 'httpx2', 'httpcore', 'httpcore2')
+
+
+def _hold_quiet_loggers(level: int) -> None:
+    """Hold QUIET_LOGGERS at ``level``, but never below INFO."""
+    try:
+        # The SDK sets its loggers' level from ANTHROPIC_LOG when it is first imported: import it first, so the
+        # levels set here are the last word.
+        import anthropic  # noqa: F401
+    except ImportError:
+        pass
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(max(level, logging.INFO))
+
 
 def _configure_logging_for_wsgi(config) -> None:
     """
@@ -79,6 +96,7 @@ def _configure_logging_for_wsgi(config) -> None:
         root.addHandler(h)
     for name in ('web_interface', 'web_interface.app', 'knovas_client'):
         logging.getLogger(name).setLevel(level)
+    _hold_quiet_loggers(level)
 
 
 _search_enrichment_cache: Dict[str, dict] = {}
@@ -915,6 +933,8 @@ def create_app(config_path: Optional[str] = None):
         # validates it in the handler, exactly as login/logout do. Leaving it
         # in the header gate would reject the form before it was read.
         'account_password',
+        # The ask page's form (PMVP-22a, assistant_routes.py): the same, a hidden csrf_token checked in the handler.
+        'assistant.ask',
     })
 
     @app.before_request
@@ -924,8 +944,8 @@ def create_app(config_path: Optional[str] = None):
         valid X-CSRF-Token header matching the session token. Registered after the login
         gate so unauthenticated callers still get 401 first. Safe methods (GET/HEAD/
         OPTIONS), unknown routes, and the exempt endpoints above are not gated — the
-        exempt endpoints perform their own token validation (login/logout/mint) or use a
-        separate auth scheme (redeem).
+        exempt endpoints perform their own token validation (login/logout and the
+        form posts that carry a hidden csrf_token).
         """
         if request.method in ('GET', 'HEAD', 'OPTIONS'):
             return None
@@ -1519,6 +1539,15 @@ def create_app(config_path: Optional[str] = None):
         app.register_blueprint(create_shell_blueprint(identity_gate, page_context=lambda: {
             **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
             'asset_version': _static_asset_version()}))
+
+        # The ask page of the Knovas Assistent: POST /fragen, off unless switched on (PMVP-22a).
+        from web_interface.assistant_routes import install_assistant
+
+        install_assistant(app, client=api_client, identity_gate=identity_gate, split=experiments_search.split,
+                          csrf_valid=_csrf_token_is_valid, grant=_grant_for_current_user,
+                          pdf_preview=lambda: pdf_inline_in_browser, page_context=lambda: {
+                              **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+                              'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version()})
 
         from builder.publisher import BrainRunnerEngine
         from builder.store import WorkspaceStore
@@ -2790,6 +2819,15 @@ def create_app(config_path: Optional[str] = None):
             },
             csrf_valid=_csrf_token_is_valid,
         ))
+
+    # Brain views (PMVP-30a): the dossier of one thing, read as the person signed in; off unless brain_views.enabled.
+    from web_interface.brain_views_routes import create_brain_views_blueprint
+    app.register_blueprint(create_brain_views_blueprint(
+        identity_gate, client=lambda: api_client, settings=lambda: settings_resolver, grant=_grant_for_current_user,
+        split=experiments_search.split, enhance=_enhance_listing_rows, pdf_inline=pdf_inline_in_browser,
+        download_allowed=_download_open_enabled,
+        page_context=lambda: {**_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+                              'asset_version': _static_asset_version()}))
 
     @app.route('/api/ontology/summary', methods=['GET'])
     def ontology_summary():

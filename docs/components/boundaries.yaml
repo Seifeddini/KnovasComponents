@@ -136,22 +136,33 @@ components:
       - KnovasPlatform/components/docbridge_integration/src/assistant
       - KnovasPlatform/components/docbridge_integration/src/identity/chats.py
       - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0026_assistant_chats.sql
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/assistant_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ask.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/ask.css
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/ask.js
     why: >-
-      The Knovas Assistent: its service package (src/assistant/, on feat/pmvp-20 and not yet on this branch, so the
-      path holds nothing today) and its chat storage. chats.py and migration 0026 sit in identity/ because the
+      The Knovas Assistent: its service package (src/assistant/: the service, the check, the switch and, since
+      PMVP-25, the provider module that calls Claude when the customer chose it) and its chat storage. chats.py and migration 0026 sit in identity/ because the
       Platform's migrations run from there, but they exist only for the assistant's past chats (PMVP-21) and nothing
-      else reads them; the rest of identity/ is sign-in, roles and audit. The assistant's page routes (PMVP-22a) join
-      when they exist. knovas_client.py, which the service calls and which imports its error types, stays with the
-      web app.
+      else reads them; the rest of identity/ is sign-in, roles and audit. The ask page (PMVP-22a: assistant_routes.py, ask.html,
+      ask.css, ask.js) is here, though in web_interface/, because it exists only for the assistant; the search page
+      it is reached from (index.html) and the wiring in app.py stay with the web app. knovas_client.py, which the service calls and which imports its error types, stays with the
+      web app, and so does the settings page (settings_routes.py), which shows the assistant's four entries and calls
+      its connection test.
   L2-PLATFORM-BRAIN-VIEWS:
     card: L2-platform-brain-views.card.yaml
     paths:
       - KnovasPlatform/components/docbridge_integration/src/brain_views
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/brain_views_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/dossier.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/brain_views.css
     why: >-
       The members' views (dossier, evidence trail, process line) are a new module (plan § 5.2), written by PMVP-30a
-      to PMVP-34; the path holds nothing yet. The modellers' views (graph_views/, views_routes.py, ontology_graph.py,
-      custom_views/) are not part of it: they read the tenant's whole edge list and have no 25-node limit, which this
-      card's promises forbid.
+      to PMVP-34: the reading in brain_views/, the pages in their own route file, templates and stylesheet under
+      web_interface/. PMVP-30a added the dossier. The web app registers the blueprint (one call in app.py) and keeps
+      the switch's registry entry (platform_settings.py); both stay with it. The modellers' views (graph_views/,
+      views_routes.py, ontology_graph.py, custom_views/) are not part of it: they read the tenant's whole edge list
+      and have no 25-node limit, which this card's promises forbid.
   L2-PLATFORM-SHELL:
     card: L2-platform-shell.card.yaml
     paths:
@@ -176,21 +187,31 @@ components:
     card: L2-platform-admin.card.yaml
     paths:
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin.py
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_approvals.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/guarded.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_people.html
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access_groups.html
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_documents.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_approvals.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_people.js
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_documents.js
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/admin.css
     why: >-
-      The console's blueprint with its role gates (admin.py), the people, documents, access-group and folder-rule
-      pages and the approvals that PMVP-40 to PMVP-42 change, and guarded.py, which only console modules call. The
-      other console modules mounted on the same blueprint (admin_ingestion.py, admin_doc_fields.py, admin_system.py)
-      and their pages are not changed by the plan and stay with the web app for now; admin.css styles them too.
+      The console's blueprint with its role gates (admin.py), the people page and the approvals that PMVP-40 to
+      PMVP-42 change, and guarded.py, which only console modules call. The other console modules mounted on the same
+      blueprint (admin_ingestion.py, admin_doc_fields.py, admin_system.py) and their pages are not changed by the plan
+      and stay with the web app for now; admin.css styles them too. The access groups, folder rules and documents
+      (admin_documents.py and their pages) are L2-PLATFORM-ACCESS since PMVP-40 split the card: together the two were
+      over the context budget, the code alone (16,724 tokens) over 16,000.
+  L2-PLATFORM-ACCESS:
+    card: L2-platform-access.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access_groups.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_documents.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_documents.js
+    why: >-
+      Who may read what (A-03, A-04): the access groups as a tree, the folder rules and a document's access groups,
+      written through the Brain's access routes; the Dokumente page with its fields drawer and the erasing of the
+      corpus. Split from L2-PLATFORM-ADMIN by PMVP-40 (context budget); its routes hang on that card's blueprint and
+      gate, and its guarded writes go through that card's run_guarded.
   EXT-BRAIN-API:
     card: EXT-brain-api.card.yaml
     paths: []
@@ -205,6 +226,11 @@ components:
     card: EXT-github-api.card.yaml
     paths: []
     why: External - GitHub's REST API, read and written with a source's own credential.
+  EXT-ANTHROPIC-API:
+    card: EXT-anthropic-api.card.yaml
+    paths: []
+    why: External - Anthropic's Messages API, called through the official SDK with the key the customer saved in the
+      Platform's settings (PMVP-25).
   EXT-JIRA-API:
     card: EXT-jira-api.card.yaml
     paths: []

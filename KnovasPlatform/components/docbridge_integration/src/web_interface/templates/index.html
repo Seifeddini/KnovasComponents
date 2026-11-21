@@ -6,6 +6,8 @@
     <title>{{ brand }} Suche</title>
     <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    {% set ask_on = assistant_box_on() if assistant_box_on is defined else false %}
+    {% if ask_on %}<link rel="stylesheet" href="{{ url_for('static', filename='css/ask.css') }}?v={{ asset_version }}">{% endif %}
 </head>
 <body>
     <div class="app-shell">
@@ -22,14 +24,31 @@
 
         <main>
             <section class="search-section">
+                {# The Knovas Assistent (PMVP-22a): with it on, the box is a form that posts a question to
+                   /fragen, and a switch above it chooses between asking and searching (static/js/ask.js shows the
+                   switch; without JavaScript the box asks, as searching needs app.js anyway). With it off the box
+                   is exactly the search box. #}
+                {% if ask_on %}
+                <form class="ask-box" id="askForm" method="post" action="{{ url_for('assistant.ask') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <fieldset class="ask-switch" id="askSwitch" hidden>
+                        <legend class="ask-sr">Fragen oder suchen</legend>
+                        <input class="ask-switch-input" type="radio" name="mode" value="fragen" id="askModeAsk" checked>
+                        <label class="ask-switch-label" for="askModeAsk">Fragen</label>
+                        <input class="ask-switch-input" type="radio" name="mode" value="suchen" id="askModeSearch">
+                        <label class="ask-switch-label" for="askModeSearch">Suchen</label>
+                    </fieldset>
+                {% endif %}
                 <div class="search-box">
-                    <input 
-                        type="text" 
-                        id="searchInput" 
-                        placeholder="Durchsucht den Inhalt aller Dokumente" 
+                    <input
+                        type="text"
+                        id="searchInput"
+                        {% if ask_on %}name="question" aria-label="Frage oder Suchbegriffe"
+                        placeholder="Fragen Sie, oder geben Sie Suchbegriffe ein"
+                        {% else %}placeholder="Durchsucht den Inhalt aller Dokumente"{% endif %}
                         autofocus
                     >
-                    <button id="searchButton" class="btn btn-primary">
+                    <button id="searchButton" class="btn btn-primary"{% if ask_on %} type="button" hidden{% endif %}>
                         <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none"
                              stroke="currentColor" stroke-width="2" stroke-linecap="round"
                              stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -37,7 +56,13 @@
                         </svg>
                         Suchen
                     </button>
+                    {% if ask_on %}
+                    <button id="askButton" type="submit" class="btn btn-primary">Fragen</button>
+                    {% endif %}
                 </div>
+                {% if ask_on %}
+                </form>
+                {% endif %}
                 <!-- Dokumentfelder: nur sichtbar, wenn Knovas die Liste oder
                      die Filter fuer diesen Mandanten anbietet (doc_fields.js).
                      Alles darin wird per textContent gefuellt. -->
@@ -189,6 +214,7 @@
     <script src="{{ url_for('static', filename='js/markdown.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='js/doc_fields.js') }}?v={{ asset_version }}"></script>
+    {% if ask_on %}<script src="{{ url_for('static', filename='js/ask.js') }}?v={{ asset_version }}"></script>{% endif %}
     <div class="toast-container" id="toastContainer" role="status" aria-live="polite" aria-atomic="false"></div>
 </body>
 </html>

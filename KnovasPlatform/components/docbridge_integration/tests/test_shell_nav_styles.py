@@ -86,7 +86,7 @@ def _navigation(name: str) -> list[tuple[str, str, dict[str, str]]]:
 
 def test_style_css_loads_the_tokens_first_and_then_the_navigation():
     imports = re.findall(r"@import\s+url\(\s*['\"]?([^'\")]+)['\"]?\s*\)\s*;", _css("style.css"))
-    assert imports == ["knovas-tokens.css", "shell.css"]
+    assert imports == ["knovas-tokens.css", "parts.css", "shell.css"]  # parts.css: PMVP-12, merged beside this item
     # an @import counts only before every other rule
     before = _css("style.css")[:_css("style.css").index("shell.css")]
     assert "{" not in before

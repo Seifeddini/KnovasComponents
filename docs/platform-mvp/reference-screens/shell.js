@@ -13,6 +13,9 @@
     h += '<div class="foot"><span class="nav">Verwaltung</span><span class="nav">Builder</span>';
   } else {
     var t = area === "admin" ? ["Verwaltung", ["Personen", "Gruppen", "Zugriff", "Protokoll"]] : ["Builder", ["Quellen", "Modell", "Freigaben"]];
+    // A screen may name its own entries (data-nav="A,B,C"), e.g. for a proposed page; the six screens do not.
+    var nav = b.getAttribute("data-nav");
+    if (nav) t[1] = nav.split(",");
     h += '<span class="nav">← Arbeitsbereich</span><div class="grp">' + t[0] + "</div>" + t[1].map(item).join("") + '<div class="foot">';
   }
   h += '<div class="who"><span class="av">LB</span><span>Lea Brunner</span></div></div>';

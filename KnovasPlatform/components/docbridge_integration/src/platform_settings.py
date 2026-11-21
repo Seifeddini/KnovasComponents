@@ -168,6 +168,34 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
             "Liest das Definitionsbündel und öffnet Änderungsanträge. Rechte: Contents und Pull requests auf "
             "dem Repository der Wissensbasis, sonst nichts. Wird nur geschrieben, nie angezeigt.",
             "secret", "tenant", env=("KB_GITHUB_TOKEN",), file_key="views.change_requests.github_token_file"),
+    # The Knovas Assistent (PMVP-25): the switch and the language model the customer chooses. Read through the
+    # Resolver per request (src/assistant/core.py make_service), so a change applies without a restart.
+    Setting("assistant.enabled", "Knovas Assistent",
+            "an oder aus (Standard: aus). Aus: Der Knovas Assistent beantwortet nichts, und seine Seiten weisen "
+            "Fragen ab.",
+            "choice", "installation", env=("ASSISTANT_ENABLED",), choices=("aus", "an"), fallback="aus"),
+    Setting("assistant.provider", "Sprachmodell des Knovas Assistenten",
+            "Wer die Antworten schreibt. knovas (Standard): das Sprachmodell der Knovas-Instanz. anthropic: Claude von "
+            "Anthropic, mit dem Schlüssel unten; dann gehen die Frage, der bisherige Chat und die Textstellen, die "
+            "die Suche der fragenden Person geliefert hat, an Anthropic, sonst nichts.",
+            "choice", "installation", env=("ASSISTANT_PROVIDER",), choices=("knovas", "anthropic"),
+            fallback="knovas"),
+    Setting("assistant.model", "Claude-Modell des Knovas Assistenten",
+            "Nur mit anthropic. Preise von Anthropic je Million Tokens (Eingabe / Ausgabe, US-Dollar, Stand November "
+            "2026): claude-opus-5-5 4 / 20, der Standard und am genauesten; claude-sonnet-5-5 2 / 10; "
+            "claude-haiku-5-5 0,10 / 0,50, am günstigsten.",
+            "choice", "installation", env=("ASSISTANT_MODEL",),
+            choices=("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"), fallback="claude-opus-5-5"),
+    Setting("assistant.anthropic_api_key", "Schlüssel für die Claude API (Knovas Assistent)",
+            "Nur mit anthropic. Ein eigener Schlüssel, nicht der des Ansichten-Assistenten: Dieser hier bekommt "
+            "Textstellen aus den Dokumenten des Mandanten. Wird nur geschrieben, nie angezeigt. „Verbindung testen“ "
+            "schickt eine erfundene Frage, nie einen Text des Mandanten.",
+            "secret", "installation"),
+    # Brain views (PMVP-30a): the members' dossier. Off by default; "an" or BRAIN_VIEWS_ENABLED=true switches it on.
+    Setting("brain_views.enabled", "Brain-Ansichten (Dossier)",
+            "Zeigt Mitgliedern unter /dossier/<id> die Angaben und Dokumente zu einem Eintrag des Brain, gelesen "
+            "mit ihren eigenen Rechten. Aus: die Adresse antwortet 404.",
+            "choice", "installation", env=("BRAIN_VIEWS_ENABLED",), choices=("aus", "an"), fallback="aus"),
 )}
 
 

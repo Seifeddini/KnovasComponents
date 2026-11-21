@@ -13,18 +13,18 @@
 {% set admin_tab = 'documents' %}
 {% include '_sidebar.html' %}
 <div class="app-content">
+{% import "_parts.html" as parts %}
+{# PMVP-40: one column built from the shared page parts. A document is one row of the list: its box, title and
+   path, its access groups in words, and a mark only when its state is not "active" (marks only for
+   exceptions). admin_documents.js draws the rows it loads in the same way.
 
-<main class="admin">
-    <header class="admin-page-header">
-        <div>
-            <h1>Dokumente</h1>
-            <p class="hint">
-                Alle Dokumente dieses Mandanten, soweit Sie sie sehen dürfen.
-                Abschirmungen gelten auch für die Verwaltung: was für Sie gesperrt
-                ist, erscheint hier nicht.
-            </p>
-        </div>
-    </header>
+   The states the Brain's document list knows (active, deleted, archived) and a held document (quarantined), in
+   words; a state not in this table is shown by its key. admin_documents.js holds the same table (STATE_WORDS). #}
+{% set state_words = {'deleted': 'gelöscht', 'archived': 'archiviert', 'quarantined': 'zurückgehalten'} %}
+
+<main class="admin admin-column">
+{% call parts.page(wide=True) %}
+    {{ parts.page_head("Dokumente", lede="Alle Dokumente dieses Mandanten, soweit Sie sie sehen dürfen. Abschirmungen gelten auch für die Verwaltung: was für Sie gesperrt ist, erscheint hier nicht.") }}
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
     {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
@@ -137,60 +137,52 @@
             </button>
         </div>
 
-        <div class="table-wrap document-table-wrap">
-            <table id="doc-table" {% if df_on %}data-doc-fields="1"{% endif %}>
-                <thead>
-                    <tr>
-                        <th class="select-column">
-                            <input type="checkbox" id="document-select-all" aria-label="Alle sichtbaren Dokumente auswählen">
-                        </th>
-                        <th>Titel</th>
-                        <th>Pfad</th>
-                        <th>Gruppen</th>
-                        <th>Status</th>
-                        {% if df_on %}<th><span class="visually-hidden">Felder</span></th>{% endif %}
-                    </tr>
-                </thead>
-                <tbody id="doc-rows">
-                    {% for d in documents %}
-                    <tr>
-                        <td class="select-column"><input type="checkbox" name="pointer" value="{{ d.pointer }}" aria-label="{{ d.title or d.pointer }} auswählen"></td>
-                        <td><strong>{{ d.title or '—' }}</strong></td>
-                        <td class="ptr">{{ d.pointer }}</td>
-                        <td>
-                            {% if d.access_groups %}
-                                {% for g in d.access_groups %}<span class="access-chip">{{ g }}</span>{% endfor %}
-                            {% else %}
-                                <span class="access-chip open">offen</span>
-                            {% endif %}
-                        </td>
-                        <td><span class="document-status">{{ d.status or '—' }}</span></td>
-                        {% if df_on %}
-                        <td class="row-action">
-                            <button type="button" class="secondary compact" data-df-open
-                                    data-pointer="{{ d.pointer }}"
-                                    data-pointers="{{ (d.pointers if d.pointers is defined and d.pointers else [d.pointer])|tojson|forceescape }}">Felder</button>
-                        </td>
-                        {% endif %}
-                    </tr>
-                    {% else %}
-                    {% if unavailable %}
-                    <tr><td colspan="{{ 6 if df_on else 5 }}" class="empty">
-                        <strong>Die Knovas-API kennt diese Auflistung nicht.</strong><br>
-                        <span class="hint">
-                            <code>GET /secured/documents</code> antwortet mit 404 — das ist etwas
-                            anderes als „keine Dokumente“. Der Bestand kann hier erst angezeigt
-                            werden, wenn Knovas den Endpunkt für diesen Mandanten freischaltet.
-                            Suche und Cortex sind davon nicht betroffen.
-                        </span>
-                    </td></tr>
-                    {% else %}
-                    <tr><td colspan="{{ 6 if df_on else 5 }}" class="empty">Keine Dokumente für diesen Filter.</td></tr>
-                    {% endif %}
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="document-select-all">
+            <label class="admin-check">
+                <input type="checkbox" id="document-select-all">
+                <span>Alle sichtbaren auswählen</span>
+            </label>
         </div>
+
+        {% call parts.card() %}
+        <div id="doc-table" class="document-list" {% if df_on %}data-doc-fields="1"{% endif %}>
+            <div id="doc-rows">
+                {% for d in documents %}
+                {% call parts.rowline() %}
+                <div class="document-line">
+                    <input type="checkbox" name="pointer" value="{{ d.pointer }}" aria-label="{{ d.title or d.pointer }} auswählen">
+                    <div class="document-text">
+                        <p class="document-title"><span>{{ d.title or '—' }}</span>
+                            {%- if d.status and d.status != 'active' %} {{ parts.tag(state_words.get(d.status, d.status), 'warn') }}{% endif %}</p>
+                        <p class="ptr">{{ d.pointer }}</p>
+                        <p class="k-small"><span class="k-muted">Zugriffsgruppen:</span>
+                            {% if d.access_groups %}{{ d.access_groups|join(', ') }}{% else %}<span class="k-muted">offen</span>{% endif %}</p>
+                    </div>
+                </div>
+                {% if df_on %}
+                <button type="button" class="secondary compact" data-df-open
+                        data-pointer="{{ d.pointer }}"
+                        data-pointers="{{ (d.pointers if d.pointers is defined and d.pointers else [d.pointer])|tojson|forceescape }}">Felder</button>
+                {% endif %}
+                {% endcall %}
+                {% else %}
+                {% if unavailable %}
+                <div class="empty">
+                    <strong>Die Knovas-API kennt diese Auflistung nicht.</strong><br>
+                    <span class="hint">
+                        <code>GET /secured/documents</code> antwortet mit 404 — das ist etwas
+                        anderes als „keine Dokumente“. Der Bestand kann hier erst angezeigt
+                        werden, wenn Knovas den Endpunkt für diesen Mandanten freischaltet.
+                        Suche und Cortex sind davon nicht betroffen.
+                    </span>
+                </div>
+                {% else %}
+                <p class="empty">Keine Dokumente für diesen Filter.</p>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endcall %}
 
         <div class="more">
             {# Keyset-Cursor: der Server liefert next_after, wir reichen ihn zurück. #}
@@ -250,6 +242,7 @@
             </div>
         </form>
     </section>
+{% endcall %}
 </main>
 
 <script src="{{ url_for('static', filename='js/admin_documents.js') }}" defer></script>
