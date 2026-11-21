@@ -107,6 +107,17 @@ MAX_HISTORY_TURN_BYTES = 4_000
 #: With history present, the passages may use this share of what is left
 #: after the system instruction and the question; the rest is for history.
 PASSAGE_SHARE = 0.6
+#: A passage's title in the prompt is cut to this, whatever the document is
+#: called, so the heads of the passages alone can never fill a message.
+MAX_TITLE_BYTES = 200
+#: A page number with more digits than this is left out of the head.
+MAX_PAGE_DIGITS = 9
+#: The most passages for which ``compose`` keeps the last message within the
+#: Core's 50,000 bytes even when their texts must go: a passage takes at most
+#: 226 bytes without its text ("[n] " 6, title 200, ", page n" 17, breaks 3),
+#: the question 4,000 and the frame 93, so 200 passages take 49,293 bytes.
+#: ``passage_limit`` allows 50.
+MAX_PASSAGES_COMPOSED = 200
 
 ELLIPSIS = "\u2026"
 
@@ -431,11 +442,16 @@ def compose(
 ) -> Tuple[str, List[dict]]:
     """``(system_instruction, messages)`` for one generate call.
 
-    The last message is the user's: the numbered passages, then the question.
-    Passages are cut to fit; history turns are dropped oldest first. The
-    result always satisfies the Core's limits as long as the question is at
-    most ``MAX_QUESTION_BYTES`` and ``budget_bytes`` at most
-    ``CORE_MAX_MESSAGE_BYTES``.
+    The last message is the user's: the numbered passages, each under a
+    head with its number, its title cut to ``MAX_TITLE_BYTES`` and its page,
+    then the question. Passage texts are cut to fit the budget, down to
+    nothing when the heads and the question fill it; history turns are
+    dropped oldest first. The result satisfies the Core's limits whatever
+    the titles, texts and turns, as long as the question is at most
+    ``MAX_QUESTION_BYTES``, ``budget_bytes`` at most
+    ``CORE_MAX_MESSAGE_BYTES`` and there are at most
+    ``MAX_PASSAGES_COMPOSED`` passages. Within those it also keeps
+    ``budget_bytes`` unless the heads and the question alone exceed it.
     """
     budget = min(int(budget_bytes), CORE_MAX_MESSAGE_BYTES)
     heads = [_passage_head(p) for p in passages]
@@ -457,8 +473,8 @@ def compose(
 def _passage_head(p: Passage) -> str:
     # Brackets in a title must not read as a passage number.
     title = " ".join(p.title.split()).replace("[", "(").replace("]", ")")
-    head = f"[{p.number}] {title}"
-    if p.page is not None:
+    head = f"[{p.number}] {cut_to_bytes(title, MAX_TITLE_BYTES)}"
+    if p.page is not None and abs(p.page) < 10 ** MAX_PAGE_DIGITS:
         head += f", page {p.page}"
     return head
 

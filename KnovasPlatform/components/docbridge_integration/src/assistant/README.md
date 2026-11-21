@@ -3,12 +3,13 @@
 Item PMVP-20 (Jira SS-732), plan `FEAT-2026-11-19-platform-mvp` § 5.2, § 7, § 9, bet `BET-2026-11-platform-mvp`.
 Requirements W-03, W-05; contract L2-PLATFORM-ASSISTANT POST-01, POST-02, POST-04, POST-05, POST-06.
 Frozen acceptance tests: `tests/test_pmvp20_statements_acceptance.py`. Work orders: `PMVP-20.md` (searching as the
-person, the Core's limits, the failure replies, the logs) and `PMVP-20-rework-2.md` (the check described here).
+person, the Core's limits, the failure replies, the logs), `PMVP-20-rework-2.md` (the check described here) and
+`PMVP-20-hardening.md` (numbers against the quote, more kinds of numbers, the small points of the verification).
 
 The service behind the one company assistant. Given a signed-in person's question and the chat so far, it answers
 from the passages that person's own search returns. The model answers in statements, each with one source and a
-word-for-word quote, and the service shows only the statements whose source, quote and numbers it could check.
-No routes, no pages (PMVP-22a, 22b), no chat storage (PMVP-21, PMVP-23).
+word-for-word quote, and the service shows only the statements whose source and quote it could check and whose
+numbers all stand in their quote. No routes, no pages (PMVP-22a, 22b), no chat storage (PMVP-21, PMVP-23).
 
 | File | What it holds |
 |---|---|
@@ -72,7 +73,7 @@ or `{"no_answer": true}` when the passages do not answer the question.
 | 1 | `check_form` | the line is a JSON object with a text `statement` (Latin letters), a whole number `source` (a digit string is read) and a text `quote`; further keys are ignored | `not_a_statement` |
 | 2 | `check_source` | `source` is the number of a passage the person's search returned | `unknown_source` |
 | 3 | `check_quote` | `quote` stands word for word and in one piece in that passage, three words or more | `quote_not_found` |
-| 4 | `check_numbers` | every number in the statement stands in that passage, as written | `number_not_found` |
+| 4 | `check_numbers` | **every number in the statement stands in its quote**, as written | `number_not_found` |
 | 5 | `check_length` | the statement, as shown, has at most 500 characters | `too_long` |
 
 A statement is counted under the first check it fails. A later check (a judge model, FU-27) is one more function
@@ -82,28 +83,37 @@ and one more line in `check_answer`.
 for what it surely holds. Where a passage can be read two ways, it supports neither.
 
 **Reading the answer.** Only a line feed ends a line. A line is one JSON object, or it is not a statement: prose,
-a broken object, an object with prose before or after it on the same line, a JSON text or number. Not counted
-and not shown: blank lines, code fence lines, a bracket or comma of an array on its own, and the no-answer line
-(the object, or the plain sentence). Not part of a line: a list mark before the object (`- `, `2. `) and the
-bracket and comma an array puts around it. An answer that is one JSON array, or one object spread over several
-lines, is read as a whole. An answer cut off in the middle loses only its last line. `{"no_answer": true}` beside
-statements does not take them away, and an object that says `"no_answer": true` is never a statement.
+a broken object, an object with prose before or after it on the same line, an object after a code fence on its
+line (`` ```json {...} ``), a JSON text or number. Not counted and not shown: blank lines, lines that only open or
+close a code fence (three backticks or more and perhaps a language name), a bracket or comma of an array on its
+own, and the no-answer line (the object, or the plain sentence). Not part of a line: a list mark before the object
+(`- `, `2. `) and the bracket and comma an array puts around it. An answer that is one JSON array, or one object
+spread over several lines, is read as a whole. An answer cut off in the middle loses only its last line.
+`{"no_answer": true}` beside statements does not take them away, and an object that says `"no_answer": true` is
+never a statement.
 
-**The shown text and the form.** Number marks (`[1]`, `[1, 3]`, `【2】`) and what is not seen (soft hyphens,
-zero-width spaces, direction marks, variation selectors, controls) are taken out of the statement and white space
-is made single. The later checks read exactly this text, so nothing they did not see is shown. A statement holds a
-letter, and all its letters are Latin: a letter of another alphabet can look like a Latin letter or like a digit
-("ЗО"), and the checks could not tell. The no-answer sentence is never a statement: as it stands, in a wrapper, or
-with up to three of its 31 letters changed or left out.
+**The shown text and the form.** What is not seen (soft hyphens, zero-width spaces, direction marks, variation
+selectors, controls) is taken out of the statement and white space is made single. Number marks (`[1]`,
+`[1, 3]`, `【2】`) are taken out only when every number in them is a passage of this reply; any other bracket
+(`[7]` in a reply with four passages, `[2024]`) stays text, and its number is checked. The later checks read
+exactly this text, so nothing they did not see is shown. A statement holds a letter, and all its letters are
+Latin, or one of `º`, `ª`, `ʼ` and `µ` (they stand in real documents): a letter of another alphabet can look like
+a Latin letter or like a digit ("ЗО"), and the checks could not tell. The no-answer sentence is never a
+statement: as it stands, in a wrapper, or with up to three of its 31 letters changed or left out. Nor is another
+wording of it: `check.NO_ANSWER_WORDINGS`, a closed list of 19 ("finde ich nichts", "ich finde keine", "habe ich
+nichts gefunden", "I cannot find", …), matched whatever the case, white space and marks, with up to six words
+between two of its words ("Dazu finde ich nichts in Ihren Unterlagen", "In Ihren Quellen finde ich dazu
+nichts"). A statement says what the passages hold; one that says nothing was found is not one.
 
 **The quote.** Both sides are brought to one form and the quote must then be a piece of the passage:
 
 - not compared: upper and lower case; the amount and kind of white space (line breaks, no-break spaces); the kind
   of quotation mark, apostrophe or dash; what is not seen (soft hyphens; white space after a soft hyphen belongs
-  to the hyphenation); composed and decomposed accents; quotation marks around the whole quote;
+  to the hyphenation); composed and decomposed accents; quotation marks around the whole quote; **a full stop the
+  quote adds after its last word** where the passage has none (it is then not part of the cut);
 - compared: every letter, digit and other punctuation mark. `ae` is not `ä`, `ss` is not `ß`, a hard hyphen at
-  a line break stays a hyphen, dots for left-out words are not in the passage, and a full stop the model adds
-  after the last word is not there either;
+  a line break stays a hyphen, dots for left-out words are not in the passage, and two stops, `!` or `…` after
+  the last word are not passed over;
 - **whole words.** A word is what stands between two white spaces. Of the first word only opening marks
   (quotation marks, `(`, `[`, `{`) may be left out, of the last word only closing marks and stops
   (quotation marks, `)`, `]`, `}`, `. , ; : ! ? …`). So a quote can start neither inside `Kündigungsfrist`, nor
@@ -111,55 +121,111 @@ with up to three of its 31 letters changed or left out.
   of space do not end a word: the one inside a number (`3 000`, `1' 500`, also over a line break) and the one
   after a hyphen that ends a word (`un-` + line break + `zulässig`, and so also `Miet- und Pachtvertrag`);
 - three words: white-space separated pieces that hold a letter or a digit;
-- of several places where the quote stands, the first one that covers whole words counts.
+- of several places where the quote stands, the first one that covers whole words counts; a form with the
+  passage's own full stop before one without.
 
 `Sentence.quote` is that piece of `Passage.text`, in the passage's own characters (its case, its line breaks,
 its soft hyphens), never the model's wording. The quote is looked for in the passage as search returned it, also
 when the prompt held a shortened copy.
 
-**The numbers.** `claimed_numbers(statement)` must all be found in `offered_numbers(passage)`.
+**The numbers: every number in the statement stands in its quote.** The quote is the piece of the passage that
+check 3 found; a number elsewhere in the passage does not count. Statement and passage are read into tokens the
+same way; `claimed_numbers(statement)` gives each number of the statement as the tokens that support it, and
+`offered_numbers(passage, span)` the tokens that stand **wholly** inside the quote (the passage is read as a
+whole, so a token the quote cuts, like `266 a` with the quote ending at `266`, or a date it cuts, is not
+offered). On top, every character of the statement that has a numeric value but is no digit 0 to 9 (`½`, `³`,
+`③`, `Ⅷ`, `٣`, `３`) or looks like a digit (`Ƽ` 5, `ƻ` 2, `ʒ` 3, `ꝯ` 9, `|`, …: `check._DIGIT_LOOKALIKES`) must
+stand in the quote itself.
 
-- A number is a run of digits with what belongs to it: thousands set off by an apostrophe of any kind or a space
-  (`1'500`, `1 500`); what a full stop or a comma between digits ties on (`1.500`, `3,5`, `31.12.2025` are one
-  number each); a sign right before it (`-500`); letters, accents and raised digits right after it (`266a`,
-  `12bis`, `10³`); one letter standing alone after it (`266 a`, `266-a`). Letters before it do not belong to it
-  (`A4` is `4`). Raised digits, fractions and number signs on their own (`²`, `½`, `①`) are numbers too.
-- Numbers are compared as written, never by value: `266` is not `266a`, `1500.00` is not `1500`, `3.5` is not
-  `3,5`, `2024` is not `01.03.2024`, `1 500` is not `1500`, a digit of another script is not its Latin digit.
-  One and the same are only `1'500` and `1500`, upper and lower case, and the German words for 2 to 12 (`drei`
-  and `3`, either side). 1 is always a digit: `ein`, `eine`, `eins` are the article or another word far more
-  often.
-- Two numbers with only marks between them are one claim, as they stand: `2/3` is not a 2 and a 3, and neither
-  is `2 / 3`, `14:30` or `1_500`. Told apart are numbers with a word between them, or with nothing but white
-  space, the marks of a list or a sentence, brackets or a dash (`5, 6`, `5-7`, `2023–2024`).
-- A statement that holds a character written from right to left and a number is removed: such a character can
-  show two numbers in another order than they are read.
-- What a passage offers besides: each number of a run on its own (`2023` out of `2023-2024`, `3` out of `2/3`);
-  `271a` and the mark for `271a¹` (a raised digit is mostly a footnote mark); `266` for `266 a`. Not offered: a
-  piece of one number (`500` out of `1 500` or `1.500`); either reading of two numbers with a line break or a tab
-  between them when the second has three digits (`Absatz 2` + line break + `500 Franken` is 2 and 500 or 2 500,
-  so neither); an 8 for `acht` after `ausser` or beside `geben`, `nehmen`, `lassen` (the noun).
+What counts as a number, on both sides:
+
+- **Digits**, with what belongs to them: thousands set off by an apostrophe of any kind or a space (`1'500`,
+  `1 500`); what a full stop or a comma between digits ties on (`1.500`, `3,5`, `31.12.2025` are one number
+  each); a sign right before them (`-500`, `−500`) or the word `minus` (`minus 500` is `-500`); letters, accents and
+  raised digits right after them (`266a`, `12bis`, `10³`, `10⁶`); one letter standing alone after them (`266 a`,
+  `266-a`); a per cent, per mille or per ten thousand sign or word after them (`5%`, `5 %`, `5 Prozent` are
+  `5%`; `5‰`, `5 Promille` are `5‰`); a scale after them (`2 Mio.`, `2 Millionen`; `3 Mrd.`; `5 Tausend`,
+  `5 Tsd.`). Letters before them do not belong to them (`A4` is `4`). Raised digits, fractions and number signs on
+  their own (`²`, `½`, `①`) are numbers too. Two numbers with only marks between them are one (`2/3`, `2 / 3`,
+  `14:30`, `1_500`); told apart are numbers with a word between them, or with nothing but white space, the marks
+  of a list or a sentence, brackets or a dash (`5, 6`, `5-7`, `2023–2024`, `5% - 7%`).
+- **Number words**: German from 0 to 999,999, also written in several words (`drei`, `dreizehn`, `zwanzig`,
+  `einundzwanzig`, `hundert`, `zwei hundert`, `drei und zwanzig`, `zweitausendvierundzwanzig`, `null`), and
+  English ones (`zero` to `twenty`, the tens, `hundred`, `thousand`). A number word is the same as its digits:
+  `drei` is `3`, either side. Words are read through accents, umlaut spellings and letters that look like plain
+  ones (`dréi`, `funf`, `dreı`, `ᴅʀᴇɪ`).
+- **`ein`** and its forms (`eine`, `einen`, `einem`, `einer`, `eines`, `eins`, `one`): the article or the
+  number 1. A statement's `ein` is supported by a form of `ein` in the quote or by the digit `1`; a quote's `ein`
+  supports only a form of `ein` (it may be the article, so not the digit `1`).
+- **Words that begin with a number word** and go on: `dreimonatige`, `zweijährig`, `Zehnjahresfrist`, `zweite`,
+  `Drittel`, `Zweidrittelmehrheit`, `zweieinhalb`, `Hälfte`, `einjährig`, `einmal`. Each is its own token, the
+  word without its ending (`dreimonatigen` is `dreimonatig`); when it counts a unit (months, years, weeks, days,
+  hours, times, rooms, `-fach`, …) it also is its number (`dreimonatige` is supported by `drei Monate`, and
+  supports `3 Monate`). A number word inside a word before such a unit or a fraction counts the same way
+  (`Mindestdreimonatsfrist`; not `acht`: `Pachtjahr`, `Nachtmal`). `ein` begins a number only before a unit or a
+  fraction (`einjährig`, `eineinhalb`; not `einfach`, `Eintrag`, `Einsprache`). Not numbers: `Zweifel`,
+  `Zweigniederlassung`, `Achtung`, `Elfenbein`, `dreist` and the like (`check._NOT_NUMBERS`).
+- **Months and dates**: `Januar` … `Dezember`, `Jänner`, `Feber`, `März`/`Maerz`, and their abbreviations
+  (`Jan.`, `Feb.`, `Mrz.`, `Mär.`, `Sept.`, …). A month with a day before it or a year after it is one date:
+  `1. März 2024` is not supported by `1. April 2024`, nor by `01.03.2024` (the safe side), and the date
+  supports neither its day, its month nor its year alone. `Jan` (and the other abbreviations) and `August` can be
+  names: outside a date the statement's claims the month or the same word, and the quote's offers only the word.
+- **Roman numerals and the letters of an enumeration**: after `Ziffer`, `Ziff.`, `Art.`, `Kapitel`, `Anhang`,
+  `Abschnitt`, `lit.`, `Teil`, `Titel`, `Abs.`, `Nr.`, `Band`, `Buch`, `Anlage`, `Beilage` and the like, a Roman
+  numeral or a single letter (`Ziffer IV`, `lit. c`, `Anhang B`), and the letters listed with it (`lit. a, b und
+  d`); anywhere, a Roman numeral of two letters or more in capitals (`IV`). `IV` is not `II` and not `4`.
+- `null und nichtig` is a phrase of its own, not a 0.
+
+Numbers are compared as written, never by value: `266` is not `266a`, `1500.00` is not `1500`, `3.5` is not
+`3,5`, `2024` is not `01.03.2024`, `1 500` is not `1500`, `31. Dezember 2025` is not `31.12.2025`, a digit of
+another script is not its Latin digit. One and the same are only `1'500` and `1500`, upper and lower case, a
+number word and its digits, a counting compound and its number, and the spellings of a month.
+
+What a passage does not offer, because it can be read two ways or is only a piece: a number of a run (`3` out of
+`2/3`, `30` out of `14:30`), a piece of a number (`500` out of `1 500` or `1.500`, `10` out of `10⁶`, `271a`
+out of `271a¹`, `266` out of `266 a`, `2024` out of `1. März 2024`), the digit `1` for `ein`; either reading of
+two numbers with a line break or a tab between them when the second has three digits (`Absatz 2` + line break +
+`500 Franken` is 2 and 500 or 2 500, so neither); either reading of words that a hyphen and a line break join or
+part (`drei-` + line break + `zehn`); an 8 for `acht` after `ausser` or beside `geben`, `nehmen`, `lassen` (the
+noun); the month for `Jan` or `August` outside a date. A statement that holds a character written from right to
+left and a number is removed: such a character can show two numbers in another order than they are read.
 
 ## What the check cannot see
 
 - **A statement that says more in words than its quote supports.** The check is mechanical: form, source, quote,
   numbers. It does not read meaning. A statement can add a condition, drop a "nicht" that stands just before
-  the quoted words, change a unit or a name, write a number as a word above twelve or as "ein", use Roman
-  numerals, or use letters and signs that only look like digits ("lO", an emoji), and still pass. This is why
-  the reply carries the quote and the page shows it under the statement (PMVP-22b): the reader sees the
-  evidence. A judge model for each statement is the later step with the Core (FU-27).
+  the quoted words, write `keine` where the quote has `eine`, change a unit (`drei Monate` for `drei Jahre`,
+  `CHF` for `EUR`, `dreimonatig` for `dreijährig`) or a name, use a number of the quote in another role, and still
+  pass. This is why the reply carries the quote and the page shows it under the statement (PMVP-22b): the reader
+  sees the evidence. A judge model for each statement is the later step with the Core (FU-27).
+- **Numbers the reading does not see**: ordinal words that do not begin with a number word (`erste`; the frozen
+  file's "in der ersten Stelle" must pass), French and Italian number words (`trois mois`, `tre mesi`) and month
+  names in other languages, number words split into letters (`d r e i`), a number word inside a word before
+  anything but a counted unit or a fraction (`Monatsdrittel`), `beide`, `Dutzend`, `Paar`, and letters that look
+  like digits where they are ordinary letters (`lO`, `I`, an emoji). French and Italian answers need their own
+  number words before the assistant answers in those languages (a follow-up).
 - **What a passage writes in a way that can be read two ways** and stands on one line: `Absatz 2 500 Franken`
   offers `2 500`, and `Art. 266 a contrario` offers `266 a`, to a statement that writes the same characters.
   A passage that has "nimmt sich in acht" still offers an 8.
 - **A model that cannot quote exactly loses statements** and answers "Dazu finde ich nichts in Ihren Quellen"
-  more often. What costs a statement although it may be true: a full stop or dots added to the quote; a
-  corrected spelling; a number written another way than the passage writes it (`1'500` for `1'500.00` or for
-  `1 500`, the year out of a full date, `1 Jahr` for `ein Jahr`, `Art. 266a` for `Art. 266 a`); a number that
-  stands right after a line break in the passage when a short number ends the line before; a quote that starts
-  after an elision (`l'article`) or after `Miet-` in `Miet- und Pachtvertrag`; a word broken with a hard hyphen
-  at a line end; a letter that is not Latin (`µg`, a Greek or Cyrillic name); JSON with single quotation marks;
-  a pretty-printed array that is cut off. `removed_by` shows which check the model fails most; the harness
-  (PMVP-03) reports it.
+  more often. What costs a statement although it may be true:
+  - **since the hardening** (the safe side, on purpose): a number that stands in the passage but not in the piece
+    the model quoted; `ein`, `eine`, `einen` … in the statement with no form of `ein` and no `1` in the quote
+    ("Der Mieter muss eine Kaution leisten" with the quote "Mieter muss Sicherheit leisten"); a piece of a whole
+    token (the year, the month or the day of a date: `2024` or `im März 2024` for `1. März 2024`; `271a` for
+    `271a¹`; `2` for `2 Mio.`); a word that begins with a number word but names none, or a name that does
+    (`Zehnder`), when the quote lacks it; `1 Jahr` for `ein Jahr`, `2/3` for `zwei Drittel`, `31.12.2025` for
+    `31. Dezember 2025`, `IV` for `4`, `5%` for `5 Prozentpunkte`; `achten` (to respect) and `ausser Acht` in a
+    statement (a statement's `acht` is always 8); an abbreviated month alone in the quote (`Jan.`) for a month
+    written out in the statement; a date or a number word broken with a hard hyphen at a line end;
+  - as before: dots added to the quote; a corrected spelling; a number written another way than the passage
+    writes it (`1'500` for `1'500.00` or for `1 500`, `Art. 266a` for `Art. 266 a`); a number that stands right
+    after a line break in the passage when a short number ends the line before; a quote that starts after an
+    elision (`l'article`) or after `Miet-` in `Miet- und Pachtvertrag`; a word broken with a hard hyphen at a line
+    end; a letter that is not Latin (a Greek or Cyrillic name); JSON with single quotation marks; a
+    pretty-printed array that is cut off.
+
+  `removed_by` shows which check the model fails most; the harness (PMVP-03) reports it.
 - Not enforced by the check: the most statements and the most words of a quote (the model is told both; each
   statement is checked on its own). A statement the model repeats is shown twice.
 
@@ -169,6 +235,9 @@ when the prompt held a shortened copy.
 |---|---|---|---|
 | least words of a quote | `check.MIN_QUOTE_WORDS` | 3 | enforced by check 3; also in the instruction |
 | most characters of a statement | `check.MAX_STATEMENT_CHARS` | 500 | enforced by check 5 |
+| other wordings of the no-answer sentence | `check.NO_ANSWER_WORDINGS` | 19 | a statement holding one is not a statement (check 1) |
+| letters that look like digits | `check._DIGIT_LOOKALIKES` | 53 | must stand in the quote (check 4) |
+| longest title in the prompt | `service.MAX_TITLE_BYTES` | 200 | keeps the last message within the Core's 50,000 bytes |
 | most statements | `service.MAX_STATEMENTS` | 8 | told to the model; sizes the answer budget |
 | most words of a quote | `service.MAX_QUOTE_WORDS` | 25 | told to the model |
 | the answer's token cap | `service.DEFAULT_MAX_TOKENS` | 1,536 | eight lines of 543 bytes (300-byte statement, 200-byte quote) are about 1,450 tokens at 3 bytes a token |
@@ -207,7 +276,11 @@ when the prompt held a shortened copy.
    the system instruction and the question); history turns are dropped oldest first. History is cleaned before it
    is sent: two turns of one role in a row reduced to the later one, a trailing unanswered user turn dropped, the
    window starting with a user turn, one turn at most 4,000 bytes. A question over 4,000 bytes is refused before
-   the search.
+   the search. Each passage's title is cut to 200 bytes (`MAX_TITLE_BYTES`) and a page number of more than nine
+   digits is left out, so a passage takes at most 226 bytes besides its text: up to 200 passages
+   (`MAX_PASSAGES_COMPOSED`; `passage_limit` allows 50) and a question of 4,000 bytes always fit the Core's
+   50,000 bytes, whatever the titles. When the heads and the question alone fill the prompt budget, the passage
+   texts are cut to nothing.
 5. **Failures** (POST-06): `CoreBusy` from search or generation -> `busy` ("ausgelastet"); anything else ->
    `failed`. Never a partial answer, never an exception out of `answer()`. `llm_generate` maps HTTP 429/503 to
    `CoreBusy` and timeouts, connection errors, other HTTP errors and malformed envelopes to `CoreFailed`; it is one
