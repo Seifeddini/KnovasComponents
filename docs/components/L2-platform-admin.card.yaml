@@ -997,6 +997,27 @@ contract:
         checks:
         - test_a_move_that_would_change_a_persons_sight_is_undone
         - test_a_group_named_like_a_role_becomes_a_role_with_another_name
+  call.web_interface.admin_role_data.execute_role_data:
+    promises:
+    - id: L2-PLATFORM-ADMIN/call.web_interface.admin_role_data.execute_role_data/P-1
+      statement: 'Carries a role-data acl_change out only for an administrator (an approver''s confirmation leaves the
+        request approved and sends nothing); plans it again from what the Core holds now and raises, sending nothing,
+        when the role''s Core group is no longer the payload''s or the plan now warns without the payload''s confirm;
+        then one Core call and its audit row by the person who carried it out. Its answer holds ids and counts only;
+        its exceptions carry fixed words.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb5_role_data_acceptance.py
+        checks:
+        - test_a_second_administrator_confirms_and_the_change_reaches_the_core_once
+        - test_an_approver_who_is_not_an_administrator_cannot_carry_it_out
+        - test_the_change_is_planned_again_when_it_is_carried_out
+        - test_the_requester_cannot_confirm_her_own_change
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_role_data_rules.py
+        checks:
+        - test_the_executor_refuses_when_the_roles_group_changed_after_the_request
   http.GET.admin.system:
     needs:
     - id: L2-PLATFORM-ADMIN/http.GET.admin.system/N-1
@@ -1231,6 +1252,12 @@ uses:
     write (create, update or delete a folder rule, set a document''s access) and a role''s previous group deleted after
     an adopt; never with acting_as'
   protocol: HTTPS with mTLS
+- component: L2-BRAIN-BUILDER
+  operations: []
+  expects: []
+  method: 'imported by admin_role_data.py (RB-5): builder.access.Tree, the tenant''s group tree as the Brain returns it, for
+    the dry runs'' "a group above it reads it too" (the Core''s reader closure); read only, for the page'
+  protocol: in-process call
 - component: EXT-MCP-GATEWAY
   operations:
   - agent-claims-put
