@@ -1410,6 +1410,8 @@ def create_app(config_path: Optional[str] = None):
         # validates it in the handler, exactly as login/logout do. Leaving it
         # in the header gate would reject the form before it was read.
         'account_password',
+        # The ask page's form (PMVP-22a, assistant_routes.py): the same, a hidden csrf_token checked in the handler.
+        'assistant.ask',
         'open_token_mint',
         'open_token_redeem',
     })
@@ -2017,6 +2019,15 @@ def create_app(config_path: Optional[str] = None):
         app.register_blueprint(create_shell_blueprint(identity_gate, page_context=lambda: {
             **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
             'asset_version': _static_asset_version()}))
+
+        # The ask page of the Knovas Assistent: POST /fragen, off unless switched on (PMVP-22a).
+        from web_interface.assistant_routes import install_assistant
+
+        install_assistant(app, client=api_client, identity_gate=identity_gate, split=experiments_search.split,
+                          csrf_valid=_csrf_token_is_valid, grant=_grant_for_current_user,
+                          pdf_preview=lambda: pdf_inline_in_browser, page_context=lambda: {
+                              **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+                              'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version()})
 
         from builder.publisher import BrainRunnerEngine
         from builder.store import WorkspaceStore

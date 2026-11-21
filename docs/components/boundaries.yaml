@@ -136,12 +136,17 @@ components:
       - KnovasPlatform/components/docbridge_integration/src/assistant
       - KnovasPlatform/components/docbridge_integration/src/identity/chats.py
       - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0026_assistant_chats.sql
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/assistant_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ask.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/ask.css
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/ask.js
     why: >-
       The Knovas Assistent: its service package (src/assistant/: the service, the check, the switch and, since
       PMVP-25, the provider module that calls Claude when the customer chose it) and its chat storage. chats.py and migration 0026 sit in identity/ because the
       Platform's migrations run from there, but they exist only for the assistant's past chats (PMVP-21) and nothing
-      else reads them; the rest of identity/ is sign-in, roles and audit. The assistant's page routes (PMVP-22a) join
-      when they exist. knovas_client.py, which the service calls and which imports its error types, stays with the
+      else reads them; the rest of identity/ is sign-in, roles and audit. The ask page (PMVP-22a: assistant_routes.py, ask.html,
+      ask.css, ask.js) is here, though in web_interface/, because it exists only for the assistant; the search page
+      it is reached from (index.html) and the wiring in app.py stay with the web app. knovas_client.py, which the service calls and which imports its error types, stays with the
       web app, and so does the settings page (settings_routes.py), which shows the assistant's four entries and calls
       its connection test.
   L2-PLATFORM-BRAIN-VIEWS:
