@@ -1278,6 +1278,7 @@ def create_app(config_path: Optional[str] = None):
     #: Who may open a page is not listed here: it is read from the route's gate.
     admin_menu = (
         ('people', 'Personen', 'admin.people', False),
+        ('roles', 'Rollen', 'admin.roles', False),
         ('documents', 'Dokumente', 'admin.documents', False),
         ('access_groups', 'Zugriffsgruppen', 'admin.access_groups', False),
         ('doc_fields', 'Dokumentfelder', 'admin.doc_fields', True),

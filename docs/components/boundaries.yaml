@@ -188,14 +188,17 @@ components:
     paths:
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_approvals.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_roles.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/guarded.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_people.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_approvals.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_roles.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_people.js
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/admin.css
     why: >-
-      The console's blueprint with its role gates (admin.py), the people page and the approvals that PMVP-40 to
-      PMVP-42 change, and guarded.py, which only console modules call. The other console modules mounted on the same
+      The console's blueprint with its role gates (admin.py), the people page, the role builder's Rollen page
+      (admin_roles.py and its page, RB-3 and RB-4: it hangs on the same blueprint and gate) and the approvals that
+      PMVP-40 to PMVP-42 change, and guarded.py, which only console modules call. The other console modules mounted on the same
       blueprint (admin_ingestion.py, admin_doc_fields.py, admin_system.py) and their pages are not changed by the plan
       and stay with the web app for now; admin.css styles them too. The access groups, folder rules and documents
       (admin_documents.py and their pages) are L2-PLATFORM-ACCESS since PMVP-40 split the card: together the two were

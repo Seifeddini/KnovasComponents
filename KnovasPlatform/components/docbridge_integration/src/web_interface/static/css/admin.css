@@ -1966,3 +1966,197 @@
 
     .admin .folder-fields textarea { min-width: 0; }
 }
+
+/* ── Rollen (RB-3, RB-4; mock-up docs/platform-mvp/reference-screens/07-rollen.html) ──────────────────────
+   One column of the parts: the head with «+ Rolle anlegen», the row of roles (tabs), the card of the shown role
+   with its three parts, the closing sentence. Every form opens on request in a <details> (no script): the
+   summary is the link of the mock-up («Umbenennen», «Ändern», «+ Mitglied hinzufügen»), placed at the top right of
+   its part, and the form opens in the part's flow. Values from the brand tokens; no rule names a class of the
+   parts. Nothing here is wider than the column, so nothing scrolls sideways at 390 px. */
+
+/* The main action: the summary is the button. Open, its form takes the whole row below the head. */
+.role-create { flex: 0 0 auto; max-width: 100%; }
+.role-create[open] { flex: 1 1 100%; }
+.role-create[open] > summary { display: flex; width: fit-content; margin-left: auto; }
+.role-create > summary,
+.role-edit > summary,
+.role-people > summary,
+.role-delete > summary { list-style: none; cursor: pointer; }
+.role-create > summary::-webkit-details-marker,
+.role-edit > summary::-webkit-details-marker,
+.role-people > summary::-webkit-details-marker,
+.role-delete > summary::-webkit-details-marker { display: none; }
+
+/* A form of the page: a panel in the create case, the part's own flow otherwise. */
+.role-form {
+    display: grid;
+    gap: var(--k-space-xs);
+    min-width: 0;
+    margin-top: var(--k-space-sm);
+}
+.role-create > .role-form {
+    padding: var(--k-space-md);
+    border: 1px solid var(--k-color-border);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-color-surface);
+}
+.admin-page .admin .role-form > label { margin: 0; }
+.admin-page .admin .role-form > input[type=text],
+.admin-page .admin .role-form > select { margin-top: 0; }
+.role-form > p { margin: 0; }
+.role-form > button { justify-self: start; }
+.admin-page .admin .role-choices {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: var(--k-space-xs) var(--k-space-md);
+    margin: var(--k-space-2xs) 0 0;
+    padding: 0;
+}
+.admin-page .admin .role-choices > legend { grid-column: 1 / -1; }
+
+/* While Administration or Mitglied has no group at Knovas: one line and its button. */
+.role-connect {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-space-xs) var(--k-space-md);
+    padding: var(--k-space-sm) var(--k-space-md);
+    border: 1px solid var(--k-color-border);
+    border-radius: var(--k-radius-md);
+    background: var(--k-color-surface-sunken);
+}
+.role-connect > p { flex: 1 1 16rem; min-width: 0; margin: 0; color: var(--k-color-text); }
+.role-connect > form { flex: none; }
+
+/* The card: its head (name, description, «Umbenennen»), then the parts. The link of a head or part sits at its
+   top right; the heading leaves it the room. */
+.role-card { min-width: 0; }
+.role-card-head,
+.role-part { position: relative; min-width: 0; }
+.role-card-head {
+    padding: 0 7.5rem var(--k-space-sm) 0;
+    border-bottom: 1px solid var(--k-color-border);
+}
+.role-name {
+    margin: 0;
+    font-size: var(--k-text-lg);
+    font-weight: var(--k-weight-semibold);
+    line-height: var(--k-leading-snug);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+.role-description { margin: var(--k-space-2xs) 0 0; overflow-wrap: anywhere; }
+.role-part { padding-top: var(--k-space-md); }
+.role-part > h3 { padding-right: 11rem; }
+.role-edit > summary {
+    position: absolute;
+    top: var(--k-space-md);
+    right: 0;
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    line-height: var(--k-leading-snug);
+    color: var(--k-color-accent);
+}
+.role-card-head .role-edit > summary { top: 0; }
+.role-edit > summary:hover { color: var(--k-color-accent-hover); text-decoration: underline; }
+.role-edit > summary:focus-visible,
+.role-people > summary:focus-visible,
+.role-delete > summary:focus-visible {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: 2px;
+    border-radius: var(--k-radius-xs);
+}
+
+/* Darf tun: the functions in words, one line that wraps. */
+.role-functions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--k-space-2xs) var(--k-space-xs);
+    margin: 0;
+    color: var(--k-color-text);
+    overflow-wrap: anywhere;
+}
+.role-sep { color: var(--k-color-text-muted); }
+
+/* Mitglieder: one row per kind of member (people now; the assistant and external agents with RB-6, RB-7). The
+   people's row opens the full list, each person with «Entfernen». */
+.role-members > * + * { border-top: 1px solid var(--k-gray-100); }
+.role-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--k-space-2xs) var(--k-space-sm);
+    padding: var(--k-space-xs) 0;
+}
+.role-row-text { flex: 1 1 12rem; min-width: 0; color: var(--k-color-text); overflow-wrap: anywhere; }
+.role-row-end { flex: none; margin-left: auto; }
+.role-people > summary .role-row-end::after {
+    content: "";
+    display: inline-block;
+    width: 0.4em;
+    height: 0.4em;
+    margin-left: var(--k-space-xs);
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: translateY(-0.15em) rotate(45deg);
+}
+.role-people[open] > summary .role-row-end::after { transform: translateY(0.1em) rotate(-135deg); }
+.role-faces { display: flex; flex: none; }
+.role-face {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin-left: calc(var(--k-space-2xs) * -1);
+    border: 2px solid var(--k-color-surface);
+    border-radius: var(--k-radius-full);
+    background: var(--k-navy);
+    color: var(--k-white);
+    font-size: var(--k-text-2xs);
+    font-weight: var(--k-weight-semibold);
+    line-height: 1;
+}
+.role-face:first-child { margin-left: 0; }
+.role-people-list { margin: 0; padding: 0; list-style: none; }
+.role-person {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-space-xs) var(--k-space-md);
+    padding: var(--k-space-xs) 0;
+    border-top: 1px solid var(--k-gray-100);
+}
+.role-person-text {
+    display: flex;
+    flex: 1 1 12rem;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--k-space-3xs) var(--k-space-xs);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.role-person-name { font-weight: var(--k-weight-semibold); color: var(--k-color-text-strong); }
+.role-person > form { flex: none; }
+
+/* Deleting: the order in words and the button, behind one more click. */
+.role-delete {
+    margin-top: var(--k-space-md);
+    padding-top: var(--k-space-sm);
+    border-top: 1px solid var(--k-gray-100);
+}
+.role-delete > summary {
+    width: fit-content;
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-danger-fg);
+}
+.role-delete > p { margin: var(--k-space-xs) 0; color: var(--k-color-text); }
+
+@media (max-width: 480px) {
+    .role-card-head { padding-right: 0; }
+    .role-card-head .role-edit > summary { position: static; display: inline-block; margin-top: var(--k-space-xs); }
+    .role-part > h3 { padding-right: 0; }
+    .role-part > .role-edit > summary { position: static; display: inline-block; margin-top: var(--k-space-2xs); }
+}

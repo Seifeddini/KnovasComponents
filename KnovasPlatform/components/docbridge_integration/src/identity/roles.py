@@ -497,3 +497,86 @@ class RoleStore:
                 number += 1
                 name = f"{base} ({number})"
             return self.create_role(name=name, functions={function}, by=by)
+
+    # -- asked before a change, by the Rollen page and the console (RB-3, RB-4) -----------------------------------
+    #
+    # The page asks the Core first and the store second (rule 5: a new role's group, a rename's group). So that the
+    # Core is never asked for a change the store would then refuse, the page asks these first: each one runs the
+    # store's own checks and writes nothing.
+
+    def hold(self, role_id: Any) -> Role:
+        """Hold the role's row until the transaction ends, and read the role. Use inside a transaction.
+
+        Missing, foreign or malformed: ``RoleNotFound``. A change that writes an audit row with ``before`` reads it
+        here, so no other change of the role can slip in between the reading and the writing.
+        """
+        ident, _ = self._lock(role_id)
+        return self.get_role(ident)
+
+    def check_new(self, *, name: Any, functions: Iterable[str] = (),
+                  description: Any = "") -> Tuple[str, frozenset, str]:
+        """What ``create_role`` would refuse, refused without writing: the name as it would be stored, the functions
+        and the description. Raises the store's own errors (the name's rule, ``RoleNameTaken``,
+        ``UnknownFunction``, ``ProtectedRoleError`` for ``admin``)."""
+        clean = clean_name(name)
+        text = _description(description)
+        wanted = self._functions(functions, kind=CUSTOM)
+        self._name_free(clean)
+        return clean, wanted, text
+
+    def check_name(self, role_id: Any, name: Any) -> str:
+        """What ``rename_role`` would refuse, refused without writing: the new name as it would be stored."""
+        clean = clean_name(name)
+        self._name_free(clean, self.get_role(role_id).id)
+        return clean
+
+    def check_functions(self, role_id: Any, functions: Iterable[str]) -> frozenset:
+        """What ``set_functions`` would refuse, refused without writing: the functions as they would be stored."""
+        return self._functions(functions, kind=self.get_role(role_id).kind)
+
+    def check_deactivation(self, user_id: Any) -> None:
+        """Hold Administration's row, and refuse deactivating the last active person in it (rule 3).
+
+        Use inside the deactivation's transaction, before the account is changed. The lock is the one every removal
+        from Administration takes (``remove_member``; ``lock_all`` holds it too), so a deactivation and a removal at
+        once queue, and the second one counts after the first (coordinator's amendment to RB-3/RB-4, F3). Raises
+        ``LastAdministratorError`` when the person is an active member of Administration and no other active member
+        remains; anyone else passes, a malformed id too (it changes no administrator).
+        """
+        ident = _uuid(user_id)
+        administration = self.administration()
+        self._lock(administration.id)
+        if ident is None:
+            return
+        others = self._conn.execute(
+            "SELECT count(*) FILTER (WHERE m.user_id <> %s), bool_or(m.user_id = %s) "
+            "FROM tenant_role_members m JOIN users u ON u.id = m.user_id "
+            "WHERE m.role_id = %s AND u.status = 'active'", (ident, ident, administration.id)).fetchone()
+        if others[1] and others[0] == 0:
+            logger.info("Refused: deactivating user %s would leave Administration without an active person", ident)
+            raise LastAdministratorError()
+
+
+def grantable(functions_held: Iterable[str]) -> frozenset:
+    """The functions a person holding ``functions_held`` may give to a role or, through a role, to a person.
+
+    Design rule 1: a role never grants more than its creator holds. ``admin`` counts as holding every function (it
+    passes the console's, the Builder's and the Experimente module's gates; RB-3/RB-4 decision 4), so for an
+    administrator this refuses nothing until RB-10 splits ``admin``, which narrows it here, in one place.
+    """
+    held = frozenset(functions_held or ())
+    if ADMIN in held:
+        return frozenset(FUNCTION_WORDS)
+    return held
+
+
+class NotGrantableError(RoleError):
+    """A function the acting person does not hold herself (design rule 1)."""
+
+    default = "Eine Rolle gibt nie mehr, als Sie selbst dürfen: diese Funktion haben Sie selbst nicht."
+
+
+def check_grantable(functions_held: Iterable[str], functions: Iterable[str]) -> None:
+    """Refuse (``NotGrantableError``) when ``functions`` holds one that ``functions_held`` may not give."""
+    if frozenset(functions or ()) - grantable(functions_held):
+        raise NotGrantableError()

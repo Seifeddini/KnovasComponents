@@ -450,20 +450,24 @@ class TestConsoleRoles:
     @needs_db
     def test_an_administrator_grants_the_role_in_the_console(self, workbench_app, admin_client,
                                                               member, identity_repo):
+        from identity.roles import RoleStore
+
         page = admin_client.get("/admin/people").get_data(as_text=True)
-        # PMVP-40 (the founder, 2026-11-21): the people page offers Administration and Mitglied only. The
-        # experiment roles are no box there; granted through the route (below), they are kept on a save from the page.
-        assert 'type="checkbox" name="roles" value="experimenter"' not in page
-        assert 'type="checkbox" name="roles" value="experiments_manager"' not in page
+        # RB-4: the people page offers roles, never a key; the experiment functions come from a role holding them.
+        assert 'value="experimenter"' not in page and 'value="experiments_manager"' not in page
+        store = RoleStore(identity_repo._conn)
+        experimente = store.create_role(name="Experimente", functions={"experimenter"})
+        page = admin_client.get("/admin/people").get_data(as_text=True)
+        assert f'type="checkbox" name="role_id" value="{experimente.id}"' in page
         with admin_client._client.session_transaction() as sess:
             token = sess["csrf_token"]
         r = admin_client._client.post("/admin/people/roles", data={
             "csrf_token": token, "user_id": str(member.id),
-            "roles": ["member", "experimenter"]})
+            "role_id": [str(store.mitglied().id), str(experimente.id)]})
         assert r.status_code == 200
         assert set(identity_repo.roles_of(member.id)) == {"member", "experimenter"}
         page = admin_client.get("/admin/people").get_data(as_text=True)
-        assert '<input type="hidden" name="roles" value="experimenter">' in page   # sent back on a save: kept
+        assert f'name="role_id" value="{experimente.id}" checked' in page   # drawn checked: a save keeps it
 
 
 class TestConfigYaml:
