@@ -198,6 +198,22 @@ app.
    87, and `test_pmvp11_navigation_acceptance.py` 40); frozen check all five OK; `card check` 16 valid,
    `card render --check` 0 not current.
 
+**FU-39, after verification** (the coordinator's fixes before `main`, `origin/feat/platform-mvp` merged in first):
+
+1. `web_interface/app.py` holds the loggers `anthropic`, `httpx`, `httpx2`, `httpcore` and `httpcore2` at INFO, or
+   at `LOG_LEVEL` when it is higher, whatever `LOG_LEVEL` says (`QUIET_LOGGERS`, `_hold_quiet_loggers`, called by
+   `_configure_logging_for_wsgi`). It imports `anthropic` first, because the SDK sets its own loggers' level from
+   `ANTHROPIC_LOG` when it is first imported. This covers the Builder's views assistant too. Test
+   `tests/test_assistant_sdk_logs.py`: a control shows the SDK logging the request body and a transport error's text
+   at DEBUG without the hold; with `LOG_LEVEL=DEBUG` and the app's setup, a call through the real SDK over a mock
+   transport (answered, then no connection) leaves no question, passage, key or transport text in any record.
+2. `providers._sdk_client` pins `base_url` to `ANTHROPIC_BASE_URL` (`https://api.anthropic.com`); the wire tests now
+   build the client with it, and `test_the_api_address_is_pinned_whatever_the_environment_says` sets
+   `ANTHROPIC_BASE_URL` and sees the request go to `api.anthropic.com`.
+3. The module docstring of `providers.py` says what holds: this module never logs the key; the SDK's loggers are
+   held by the app; without a key no client is built (the SDK would take credentials from the environment or a
+   profile).
+
 **Open, for the coordinator.**
 
 - PMVP-22a wires `make_service` into the routes and refuses while it returns `OFF`.
