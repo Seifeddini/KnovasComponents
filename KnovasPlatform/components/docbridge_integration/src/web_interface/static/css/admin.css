@@ -137,47 +137,6 @@
     margin-top: 2px;
 }
 
-/* ── Zustaende ─────────────────────────────────────────────────────────── */
-
-.admin .state-active,
-.admin .state-disabled,
-.admin .state-locked {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    padding: 3px 9px;
-    border-radius: 999px;
-    white-space: nowrap;
-}
-
-.admin .state-active::before,
-.admin .state-disabled::before,
-.admin .state-locked::before {
-    content: "";
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-}
-
-.admin .state-active   { color: var(--success-color); background: rgba(26, 107, 74, 0.10); }
-.admin .state-disabled { color: var(--error-color);   background: rgba(196, 30, 30, 0.09); }
-.admin .state-locked   { color: var(--admin-warn);    background: rgba(var(--admin-warn-rgb), 0.10); }
-
-/* Rollen als Chips: eine Zeile mit vier Rollen liest sich sonst als Fliesstext. */
-.admin .role-chip {
-    display: inline-block;
-    padding: 2px 8px;
-    margin: 0 4px 4px 0;
-    border-radius: 999px;
-    font-size: 0.76rem;
-    font-weight: 500;
-    color: var(--primary-color);
-    background: var(--highlight);
-    white-space: nowrap;
-}
-
 /* ── Panels und Formulare ──────────────────────────────────────────────── */
 
 .admin .panel {
@@ -281,15 +240,14 @@
     border: 1px solid transparent;
 }
 
+/* The brand's own tints (FU-28): the text keeps 4.5 to 1 on them (danger 5.9, success 4.8). */
 .admin .msg.error {
-    background: rgba(196, 30, 30, 0.07);
-    border-color: rgba(196, 30, 30, 0.28);
+    background: var(--k-danger-bg);
     color: var(--error-color);
 }
 
 .admin .msg.ok {
-    background: rgba(26, 107, 74, 0.08);
-    border-color: rgba(26, 107, 74, 0.28);
+    background: var(--k-success-bg);
     color: var(--success-color);
 }
 
@@ -390,9 +348,10 @@
     white-space: nowrap;
     flex: none;
 }
-.admin .check-ok   .check-state { color: var(--success-color); background: rgba(26, 107, 74, 0.10); }
+/* The brand's own tints (FU-28): success 4.8 to 1, danger 5.9 to 1. */
+.admin .check-ok   .check-state { color: var(--success-color); background: var(--k-success-bg); }
 .admin .check-warn .check-state { color: var(--admin-warn);    background: rgba(var(--admin-warn-rgb), 0.10); }
-.admin .check-fail .check-state { color: var(--error-color);   background: rgba(196, 30, 30, 0.09); }
+.admin .check-fail .check-state { color: var(--error-color);   background: var(--k-danger-bg); }
 .admin .check-skip .check-state { color: var(--text-secondary); background: var(--surface-sunken); }
 
 .admin .admin-pre {
@@ -413,7 +372,7 @@
    Knopfes sagen dasselbe. */
 .admin .danger-zone {
     border-color: rgba(196, 30, 30, 0.35);
-    background: rgba(196, 30, 30, 0.03);
+    background: var(--k-danger-bg);
     margin-top: 48px;
 }
 
@@ -799,16 +758,8 @@
     transition: background-color .12s ease;
 }
 
-.admin-page .admin tbody tr.is-selected {
-    background: #DDE4FA;
-}
-
 .admin-page .admin tbody tr:hover {
     background: rgba(var(--accent-rgb), 0.055);
-}
-
-.admin-page .admin tbody tr.is-selected:hover {
-    background: #D8E0F8;
 }
 
 .admin-page .admin td .sub,
@@ -912,6 +863,9 @@
     flex: 0 0 auto;
 }
 
+/* .role-chip and .document-status are drawn by no page since PMVP-40 (roles in words, a state as a tag); they
+   stay in this list only because tests/test_shell_tokens.py (MONO_RULES) names both. Drop them with those two
+   lines there. */
 .admin-page .admin .role-chip,
 .admin-page .admin .access-chip,
 .admin-page .admin .document-status {
@@ -928,11 +882,6 @@
     white-space: nowrap;
 }
 
-.admin-page .admin .role-chip {
-    color: var(--primary-color);
-    background: #E7EBFA;
-}
-
 .admin-page .admin .access-chip {
     color: #1946A8;
     background: #EDF1FC;
@@ -945,13 +894,7 @@
     border-color: var(--border-color);
 }
 
-.admin-page .admin .document-status {
-    color: var(--success-color);
-    background: #E7F5EE;
-}
-
-.admin-page .admin .row-action,
-.admin-page .admin .people-row-action {
+.admin-page .admin .row-action {
     text-align: right;
     white-space: nowrap;
 }
@@ -962,10 +905,9 @@
     gap: 9px;
     min-height: 48px;
     margin: 0 0 16px;
-    padding: 8px 10px;
-    border: 1px solid #D8DEE9;
-    border-radius: 7px;
-    background: #F4F6FC;
+    padding: var(--k-space-xs) var(--k-space-sm);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-gray-50);
 }
 
 .admin-page .admin .admin-toolbar label {
@@ -1013,35 +955,12 @@
     white-space: nowrap;
 }
 
-.admin-page .admin .state-active,
-.admin-page .admin .state-disabled,
-.admin-page .admin .state-locked {
-    padding: 3px 8px;
-    font-size: 0.66rem;
-}
-
 /* Personen */
-.people-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(270px, 310px);
-    gap: 16px;
-    align-items: start;
-}
-
-.people-table-wrap {
-    margin: 0;
-}
-
-.admin-page .admin .people-table-wrap table {
-    min-width: 500px;
-}
-
 .person-detail-panel {
-    min-height: 360px;
-    padding: 18px;
-    border: 1px solid #D8DEE9;
-    border-radius: 7px;
-    background: var(--card-bg);
+    padding: var(--k-space-md) calc(var(--k-space-md) + var(--k-space-3xs));
+    border: 1px solid var(--k-color-border);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-color-surface);
 }
 
 .person-detail-header {
@@ -1058,7 +977,7 @@
     display: grid;
     place-items: center;
     border-radius: 50%;
-    background: var(--primary-color);
+    background: var(--k-navy);
     color: #fff;
     font-family: var(--font-heading);
     font-size: 0.78rem;
@@ -1079,12 +998,12 @@
 
 .person-detail-form {
     padding: 13px 0;
-    border-top: 1px solid #E3E7EE;
+    border-top: 1px solid var(--k-gray-100);
 }
 
 .person-detail-form fieldset {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 8px;
     margin-bottom: 11px;
 }
@@ -1105,7 +1024,7 @@
     display: grid;
     gap: 8px;
     padding-top: 13px;
-    border-top: 1px solid #E3E7EE;
+    border-top: 1px solid var(--k-gray-100);
 }
 
 .person-account-actions h3 {
@@ -1206,9 +1125,9 @@
     gap: 8px;
     margin-bottom: 12px;
     padding: 10px 12px;
-    border: 1px solid #95AFE9;
-    border-radius: 7px;
-    background: #E9EEFB;
+    border: 1px solid var(--k-color-accent-ring);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-color-accent-soft);
     color: var(--text-primary);
     font-size: 0.72rem;
 }
@@ -1255,18 +1174,13 @@
 
 .choice-chip input:checked + span {
     border-color: var(--accent);
-    background: #E3EAFB;
+    background: var(--k-color-accent-soft);
     color: var(--primary-color);
 }
 
 .choice-chip input:focus-visible + span {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
-}
-
-.select-column {
-    width: 36px;
-    text-align: center !important;
 }
 
 .admin-page .admin .more {
@@ -1307,18 +1221,6 @@
 .admin-page .admin .inline-form-grid select {
     width: 100%;
     max-width: none;
-}
-
-.folder-rules-section {
-    margin-top: 28px !important;
-}
-
-.folder-rules-section > .hint {
-    margin-bottom: 10px;
-}
-
-.folder-rule-form {
-    grid-template-columns: minmax(240px, 1.3fr) minmax(260px, 1fr) auto;
 }
 
 .chip-fieldset {
@@ -1460,16 +1362,6 @@
 }
 
 @media (max-width: 900px) {
-    .people-layout {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .person-detail-panel {
-        min-height: 0;
-    }
-}
-
-@media (max-width: 900px) {
     .admin-page .app-sidebar {
         width: 100%;
         height: auto;
@@ -1506,12 +1398,10 @@
         padding: 24px 20px 52px;
     }
 
-    .folder-rule-form,
     .inline-form-grid {
         grid-template-columns: 1fr 1fr;
     }
 
-    .folder-rule-form > button,
     .inline-form-grid > button {
         justify-self: start;
     }
@@ -1570,7 +1460,6 @@
 
     .profile-meta-grid,
     .profile-options,
-    .folder-rule-form,
     .inline-form-grid {
         grid-template-columns: 1fr;
     }
@@ -1626,6 +1515,145 @@
     }
 }
 
+/* ── Personen, Zugriffsgruppen, Dokumente in the shared parts (PMVP-40) ──
+   The three pages are one column of the parts (_parts.html, parts.css): page, page head, section, card, row
+   line, tag. What follows is only what the parts do not draw: the spacing the console's own rules would add
+   to the column, a list whose rows carry the script's data (people), the group tree and the lines of a row.
+   Values from the brand tokens. Marks are for exceptions only; an active person or document carries none. */
+
+/* The three pages' <main> is .admin-column. Its one child is the parts' column, which spaces what it holds
+   (its gap); the console's own margins would add to it. No rule here names a class of the parts (k-...). */
+.admin-page .admin-column > div > .msg,
+.admin-page .admin-column > div > .panel,
+.admin-page .admin-column > div > .admin-toolbar,
+.admin-page .admin-column > div > form {
+    margin: 0;
+}
+
+/* A path or a folder: one line, cut at the end; with no width of its own, so a long path never widens the
+   page on a narrow window (below 900 px the shell sizes its content by what is in it). */
+.admin-page .admin .rule-summary .ptr,
+.admin-page .admin .document-text .ptr {
+    display: block;
+    width: 0;
+    min-width: 100%;
+    max-width: none;
+    font-size: var(--k-text-xs);
+    color: var(--k-color-text-muted);
+}
+
+/* Personen: each row is a person-row around the parts' row line. The row carries the data the script
+   filters on (admin_people.js), so the hairline between rows hangs on it. */
+.people-list .person-row { padding: var(--k-space-sm) 0; }
+.people-list .person-row:first-child { padding-top: 0; }
+.people-list .person-row:last-child { padding-bottom: 0; }
+.people-list .person-row + .person-row { border-top: 1px solid var(--k-gray-100); }
+
+.person-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--k-space-2xs) var(--k-space-xs);
+    font-weight: var(--k-weight-semibold);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+.person-access { margin-top: var(--k-space-3xs); }
+.knovas-admin-badge { cursor: help; }   /* the hint's wrapper; the tag inside draws it */
+
+/* The person whose details are open below: the name and the button in the accent. */
+.people-list .person-row.is-selected .person-name > span:first-child { color: var(--k-color-accent); }
+.admin-page .admin .people-list .person-row.is-selected [data-person-select] {
+    border-color: var(--k-color-accent);
+    background: var(--k-color-accent-soft);
+    color: var(--k-color-accent);
+}
+
+.person-state {
+    display: grid;
+    gap: var(--k-space-2xs);
+    margin: 0 0 var(--k-space-sm);
+    padding: 0;
+    list-style: none;
+    font-size: var(--k-text-sm);
+    color: var(--k-color-text);
+}
+
+.admin-page .admin .role-choice { align-items: flex-start; }
+.admin-page .admin .role-choice input { margin-top: var(--k-space-3xs); }
+.role-choice-name {
+    font-weight: var(--k-weight-semibold);
+    color: var(--k-color-text-strong);
+}
+.role-choice-text {
+    display: block;
+    font-size: var(--k-text-xs);
+}
+
+/* Zugriffsgruppen: the tree, one level per indent, with a line to show what hangs under what. */
+.group-tree {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.group-tree .group-tree {
+    margin-left: var(--k-space-xs);
+    padding-left: var(--k-space-md);
+    border-left: 1px solid var(--k-color-border);
+}
+.group-tree li { padding-top: var(--k-space-2xs); }
+.group-tree-root > .group-tree:first-child > li:first-child { padding-top: 0; }
+.group-name {
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+
+.access-note { margin-bottom: var(--k-space-xs); }
+
+.access-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: var(--k-space-sm);
+    align-items: end;
+}
+.admin-page .admin .access-form > label { margin: 0; }
+.admin-page .admin .access-form input[type=text],
+.admin-page .admin .access-form select {
+    width: 100%;
+    max-width: none;
+}
+.access-form > .chip-fieldset { grid-column: 1 / -1; }
+.access-form > button { justify-self: start; }
+
+/* Dokumente: the box, then title, path and groups; the end of the row is the fields button. */
+.document-selection-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--k-space-sm);
+}
+.admin-page .admin .document-selection-form > .document-bulk-bar,
+.admin-page .admin .document-selection-form > .more {
+    margin: 0;
+}
+.document-line {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--k-space-sm);
+    min-width: 0;
+}
+.document-line > input { flex: none; margin-top: var(--k-space-2xs); }
+.document-text { flex: 1 1 auto; min-width: 0; }
+.document-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--k-space-2xs) var(--k-space-xs);
+    font-weight: var(--k-weight-semibold);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+
 /* ── Dokumentfelder (Reiter, Schublade, Feldfilter) ─────────────────────── */
 
 .admin .msg.warn {
@@ -1647,8 +1675,7 @@
 
 .admin .warn-text { color: var(--admin-warn); }
 
-.admin .field-badge,
-.admin .knovas-admin-badge {
+.admin .field-badge {
     display: inline-block;
     margin: 2px 4px 2px 0;
     padding: 1px 7px;
@@ -1664,13 +1691,6 @@
 .admin .field-badge.in-use { border-color: var(--accent); color: var(--primary-color); }
 .admin .field-badge.special { border-color: rgba(var(--admin-warn-rgb), 0.45); color: var(--admin-warn); }
 .admin .field-badge.layer-manual { border-color: var(--accent); color: var(--primary-color); }
-
-.admin .knovas-admin-badge {
-    border-color: var(--accent);
-    background: #E9EEFB;
-    color: var(--primary-color);
-    cursor: help;
-}
 
 .admin .field-status { font-size: 0.8rem; }
 .admin .field-status.status-deprecated { color: var(--text-secondary); }
