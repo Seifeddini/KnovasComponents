@@ -2,17 +2,19 @@
 
 Admins only, as the admin console: anyone else gets 403 here and does not see the section. Every
 POST passes the app's X-CSRF-Token gate. A secret never appears in a response: the page shows
-whether it is set, and a Test proves it works.
+whether it is set, and a Test proves it works. The Knovas Assistent's key has "Verbindung testen"
+(PMVP-25): one call to Claude with an invented passage and question, never a customer's text.
 """
 from __future__ import annotations
 
 import functools
 import logging
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
 import platform_settings as ps
+from assistant import providers as assistant_providers
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,8 @@ def create_settings_blueprint(resolver: ps.Resolver, *, gate: Any,
                               profiles: Callable[[], List[Dict[str, Any]]],
                               bundle_github: Callable[[str], Any],
                               repository: Callable[[], str],
-                              make_repo: Callable[[str, str], Any]) -> Blueprint:
+                              make_repo: Callable[[str, str], Any],
+                              anthropic_client: Optional[Callable[..., Any]] = None) -> Blueprint:
     """Build the blueprint.
 
     Args:
@@ -38,6 +41,7 @@ def create_settings_blueprint(resolver: ps.Resolver, *, gate: Any,
         bundle_github: repository name -> GitHub client, for testing a github: bundle source.
         repository: the knowledge-base repository the token is for.
         make_repo: (repository, token) -> GitHub client, for testing a token.
+        anthropic_client: the Claude client factory for "Verbindung testen" (tests); None: the SDK's.
     """
     bp = Blueprint("platform_settings", __name__)
 
@@ -74,7 +78,8 @@ def create_settings_blueprint(resolver: ps.Resolver, *, gate: Any,
             # A refused bundle names its reason (no customer data); anything else only its type.
             found, profiles_error = [], str(exc) if isinstance(exc, (ps.SettingError, BundleError)) else type(exc).__name__
         return {"success": True, "settings": resolver.entries(), "can_edit": gate is not None and is_admin(),
-                "roles": list(roles()), "profiles": found, "profiles_error": profiles_error}
+                "roles": list(roles()), "profiles": found, "profiles_error": profiles_error,
+                "problems": assistant_providers.settings_problems(resolver)}
 
     @bp.route("/api/settings/platform", methods=["GET"])
     @admin_only
@@ -107,6 +112,11 @@ def create_settings_blueprint(resolver: ps.Resolver, *, gate: Any,
         if key == TOKEN_KEY:
             token = str(value).strip() if value not in (None, "") else resolver.secret(TOKEN_KEY)
             return jsonify(ps.test_repository_access(repository(), token, make_repo))
+        if key == assistant_providers.SETTING_API_KEY:
+            # A key typed but not yet saved is tested as typed; else the saved one. Never echoed.
+            api_key = str(value).strip() if value not in (None, "") else resolver.secret(key)
+            return jsonify(assistant_providers.connection_test(
+                api_key, resolver.value(assistant_providers.SETTING_MODEL), client_factory=anthropic_client))
         return jsonify({"ok": False, "error": f"Für {key} gibt es keinen Test."}), 404
 
     return bp
