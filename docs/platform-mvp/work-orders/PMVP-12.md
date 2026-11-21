@@ -209,3 +209,13 @@ Builder session of 2026-11-20 (AGENT-claude-code). `feat/pmvp-12` from `origin/f
 - The styleguide page now has several `h1` (each `page_head` example draws one, as on a real page).
 - The chip's accessible name is its number alone ("2"). A word before it ("Quelle 2") would need an argument the
   table does not have; PMVP-22b's call.
+
+## Verification (coordinator's record)
+
+- **2026-11-21, fresh verifier session, `feat/pmvp-12` @ `d90c31e`: PASS WITH NOTES.** All ten macros have the
+  table's names and arguments; 20 of 20 injection cases (both payloads in every field) come out as text, no `|safe`;
+  `tabs` marks exactly one current item; `ref_chip` is a link with `href`, otherwise a `<button type="button">`
+  with `aria-controls`/`aria-expanded`; 30 classes, all `k-`, no literal colour, nothing from outside; lowest text
+  contrast 4.76; a focus ring on 29 of 29 controls; nothing scrolls sideways at 390 px; styleguide gate unchanged;
+  `test_shell_*` and the brand file 321 passed; card checks clean. Scope: 12 files, all allowed.
+- Integrated into `feat/platform-mvp` by the coordinator. Notes carried forward: FU-34, FU-35.
