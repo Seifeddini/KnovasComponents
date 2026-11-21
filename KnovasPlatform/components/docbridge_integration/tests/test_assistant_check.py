@@ -240,8 +240,8 @@ def test_the_no_answer_sentence_is_never_a_statement(statement):
 ])
 def test_a_statement_that_only_shares_words_with_the_no_answer_sentence_is_one(statement):
     # "eine" is a number too (hardening): the quote holds it
-    shown, removed_by = _one(statement, "Es gilt eine K\u00fcndigungsfrist von drei Monaten.",
-                             "eine K\u00fcndigungsfrist von drei Monaten")
+    passage = "Es gilt eine Frist von drei Monaten, also eine K\u00fcndigungsfrist von drei Monaten."
+    shown, removed_by = _one(statement, passage)
     assert [s[0] for s in shown] == [statement] and removed_by == _counts()
 
 
@@ -264,9 +264,11 @@ def test_another_wording_of_the_no_answer_sentence_is_not_a_statement(statement)
 
 
 def test_the_other_wordings_are_a_short_closed_list():
-    assert len(NO_ANSWER_WORDINGS) <= 25
-    # a statement that only uses some of their words is one
-    for statement in ("Dazu finde ich die Frist im Vertrag.", "Im Vertrag steht nichts zur Kaution, finde ich."):
+    assert len(NO_ANSWER_WORDINGS) <= 30
+    # a statement that only uses some of their words is one, also one that says a document lacks something
+    for statement in ("Dazu finde ich die Frist im Vertrag.", "Im Vertrag steht nichts zur Kaution.",
+                      "Der Vertrag enth\u00e4lt keine Regelung zur Kaution.",
+                      "Die Unterlagen m\u00fcssen nicht beglaubigt sein."):
         assert says_no_answer(statement) is False
 
 
@@ -541,8 +543,10 @@ def _claimed(statement):
     return {"|".join(sorted(_shown_token(token) for token in claim)) for claim in claimed_numbers(statement)}
 
 
-def _offered(passage, span=None):
-    return {_shown_token(token) for token in offered_numbers(passage, span)}
+def _offered(passage, span=None, words=False):
+    """The tokens offered; without ``words`` those for a statement's "ein" (n#, o#) left out."""
+    return {_shown_token(token) for token in offered_numbers(passage, span)
+            if words or not token.startswith(("n" + chr(0), "o" + chr(0)))}
 
 
 @pytest.mark.parametrize("text, claims", [
@@ -603,7 +607,8 @@ def _offered(passage, span=None):
     # number words
     ("drei Monate", {"3"}),
     ("Zw\u00f6lf Monate, zwoelf Tage, F\u00dcNF Jahre", {"12", "5"}),
-    ("in Acht Tagen, ausser Acht gelassen", {"8"}),      # a statement is read strictly
+    # changed by the hardening (red team): the noun "Acht" claims the noun or 8, the number 8
+    ("in Acht Tagen, ausser Acht gelassen", {"8", "8|w#acht"}),
     ("keine Zahl", set()),
 ])
 def test_what_a_statement_claims(text, claims):
@@ -612,17 +617,19 @@ def test_what_a_statement_claims(text, claims):
 
 @pytest.mark.parametrize("text, claims", [
     # number words 0 to 999,999 and their compounds; "ein" is the article or 1
-    ("eins, eine Woche, ein Jahr, einem Monat", {"1|w#ein"}),
+    ("eins, eine Woche, ein Jahr, einem Monat",
+     {"w#eins", "n#woch|o#woch|w#ein:woch", "n#jahr|o#jahr|w#ein:jahr", "n#monat|o#monat|w#ein:monat"}),
     ("dreimonatig, Dreizehn, zwanzig", {"3|w#dreimonatig", "13", "20"}),
     ("einundzwanzig, hundert, zweitausendvierundzwanzig, null, achtzehnhundert",
      {"21", "100", "2024", "0", "1800"}),
     ("die zweite Rate, eine Zweidrittelmehrheit, ein Drittel, zweieinhalb Jahre",
-     {"w#zweit", "1|w#ein", "w#zweidrittelmehrheit", "w#drittel", "w#zweieinhalb"}),
-    ("einj\u00e4hrig, einmal, einfach, Einsprache, Eintrag, Einsicht", {"1|w#einjaehrig", "1|w#einmal"}),
+     {"w#zweit", "n#zweidrittelmehrheit|o#zweidrittelmehrheit|w#ein:zweidrittelmehrheit",
+      "w#zweidrittelmehrheit", "n#drittel|o#drittel|w#ein:drittel", "w#drittel", "w#zweieinhalb"}),
+    ("einj\u00e4hrig, einmal, einfach, Einsprache, Eintrag, Einsicht", {"w#einjaehrig", "w#einmal"}),
     ("sechsmonatigen, Zehnjahresfrist, zweij\u00e4hrige",
      {"6|w#sechsmonatig", "10|w#zehnjahresfrist", "2|w#zweijaehrig"}),
     ("Achtung, im Zweifel, die Zweigniederlassung, Elfenbein, dreist", set()),
-    ("six months, twenty days, one year", {"6", "20", "1|w#ein"}),
+    ("six months, twenty days, one year", {"6", "20", "n#year|o#year|w#ein:year"}),
     ("null und nichtig", {"w#null und nichtig"}),
     # months and dates
     ("M\u00e4rz, Maerz, im Mai, Juni 2025, am 1. M\u00e4rz, 31. Dezember 2025",
@@ -632,11 +639,12 @@ def test_what_a_statement_claims(text, claims):
     # Roman numerals and the letters of an enumeration
     ("Ziffer IV, Teil II, lit. c, Anhang B, AHV/IV, Kapitel vi", {"R#iv", "R#ii", "R#c", "R#b", "R#vi"}),
     ("lit. a, b und d", {"R#a", "R#b", "R#d"}),
-    ("Der Mieter hat einen Teil der Miete bezahlt.", {"1|w#ein"}),
+    ("Der Mieter hat einen Teil der Miete bezahlt.", {"n#teil|o#teil|w#ein:teil"}),
+    ("Es gilt eine dreimonatige Frist.", {"n#frist|o#frist|w#ein:frist", "3|w#dreimonatig"}),
     # signs, per cent and scales are part of the number
     ("minus 500, -500, minus drei", {"-500", "-3"}),
     ("5%, 5 %, 5 Prozent, 5\u2030, 5 Promille, f\u00fcnf Prozent", {"5%", "5\u2030"}),
-    ("CHF 2 Mio., 2 Millionen, 3 Mrd., eine Million", {"2#6", "3#9", "1#6|w#ein#6"}),
+    ("CHF 2 Mio., 2 Millionen, 3 Mrd., eine Million", {"2#e6", "3#e9", "1#e6|w#ein#e6"}),
 ])
 def test_what_counts_as_a_number_since_the_hardening(text, claims):
     assert _claimed(text) == claims
@@ -664,7 +672,8 @@ def test_what_counts_as_a_number_since_the_hardening(text, claims):
     ("nach Absatz 2\n500 Franken Busse", [], ["2", "500", "2 500", "2500"]),
     ("CHF 12\t500 pro Jahr", [], ["12", "500", "12 500", "12500"]),
     ("Absatz 2\nDie Busse betr\u00e4gt 500 Franken", ["2", "500"], ["2 500"]),
-    ("am 1. M\u00e4rz\n2024", ["D#1.3.", "2024"], ["D#1.3.2024"]),
+    # changed by the hardening (red team): a line break does not part a date (joined, it offers less)
+    ("am 1. M\u00e4rz\n2024", ["D#1.3.2024"], ["D#1.3.", "2024"]),
     # words
     ("drei Monate, in acht Tagen", ["3", "8"], ["1"]),
     ("nicht ausser Acht lassen", [], ["8"]),
@@ -723,6 +732,8 @@ def test_only_what_stands_wholly_inside_the_quote_is_offered():
     ("Die Frist betr\u00e4gt 3 Monate.", "Es gilt eine dreimonatige Frist."),
     ("Die Frist betr\u00e4gt einundzwanzig Tage.", "Die Frist betr\u00e4gt 21 Tage."),
     ("Die Frist betr\u00e4gt ein Jahr.", "Die Frist betr\u00e4gt 1 Jahr."),
+    ("Es gilt eine dreimonatige Frist.", "Die Frist betr\u00e4gt drei Monate."),
+    ("Der Mieter muss eine Kaution leisten.", "Der Mieter muss Kaution leisten."),
     ("Die Frist betr\u00e4gt ein Jahr.", "Die Frist betr\u00e4gt ein Jahr."),
     ("Massgebend ist Ziffer IV.", "Massgebend ist Ziffer IV des Vertrags."),
     ("Der Saldo betr\u00e4gt minus 500 Franken.", "Der Saldo betr\u00e4gt -500 Franken."),
@@ -964,3 +975,166 @@ def test_the_length_is_measured_on_the_shown_text():
     shown, removed_by = _check(st(longest + " [1]", 1, FRIST_SHOWN[2]))
     assert [s[0] for s in shown] == [longest] and removed_by == _counts()
     assert _check(st(longest + "x", 1, FRIST_SHOWN[2])) == ([], _counts(**{TOO_LONG: 1}))
+
+
+# --- the hardening: a second agent's attack on this check ---------------------------------------------
+#
+# Inputs of an attack by another agent on the hardened check, before it was pushed (it had the code and
+# the rules, not the builder's reasoning). Each was shown, or removed though true, before the fix.
+
+_MIETE_5 = "Die Miete wird nach 5 Jahren angepasst."
+_SALDO = "Der Saldo betr\u00e4gt 500 Franken und ist innert 5 Tagen zu zahlen."
+_FRIST_5 = "Die Frist betr\u00e4gt 5 Tage ab Zustellung."
+
+
+@pytest.mark.parametrize("statement, passage, quote", [
+    # "ein" was supported by any article of the quote, and by a list number
+    ("Ein Arbeitnehmer kann mit einer Frist von einem Monat k\u00fcndigen.",
+     "Ein Arbeitnehmer kann das Arbeitsverh\u00e4ltnis mit einer Frist von drei Monaten k\u00fcndigen.",
+     "Ein Arbeitnehmer kann das Arbeitsverh\u00e4ltnis mit einer Frist"),
+    ("Die K\u00fcndigungsfrist betr\u00e4gt einen Monat.", "1. Die K\u00fcndigungsfrist betr\u00e4gt drei Monate.",
+     "1. Die K\u00fcndigungsfrist betr\u00e4gt"),
+    ("Das Grundst\u00fcck ist mit einem Einfamilienhaus bebaut.",
+     "Das Grundst\u00fcck ist mit einem Zweifamilienhaus bebaut.", None),
+    ("Die Aufbewahrungspflicht dauert ein Jahrzehnt.", "Die Aufbewahrungspflicht dauert ein Jahr.", None),
+    ("Die Lieferung umfasst ein Dutzend Ger\u00e4te.", "Die Lieferung umfasst ein Ger\u00e4t.", None),
+    ("Es gilt eine Mindesteinjahresfrist.", "Es gilt eine Mindestzweijahresfrist.", None),
+    ("Der Saldo betr\u00e4gt minus eins.", "Der Saldo betr\u00e4gt 1 Franken.", None),
+    ("Der Saldo betr\u00e4gt minus einen Franken.", "Der Saldo betr\u00e4gt 1 Franken.", None),
+    # words for numbers that were not read
+    ("Der Vermieter kann die doppelte Kaution verlangen.", "Der Vermieter kann die dreifache Kaution verlangen.",
+     "Der Vermieter kann die"),
+    ("Die Frist endet im Febr.", "Die Frist endet im M\u00e4rz.", "Die Frist endet"),
+    ("Die Frist endet im J\u00e4n.", "Die Frist endet im M\u00e4rz.", "Die Frist endet"),
+    ("The term ends on 31 March 2025.", "The term ends on 31 May 2025.", None),
+    ("The tenant must give notice within the third month.",
+     "The tenant must give notice within the second month.", "The tenant must give notice"),
+    ("The deposit is paid twice a year.", "The deposit is paid once a year.", "The deposit is paid"),
+    ("F\u00fcr die Zone gilt die Empfindlichkeitsstufe I.", "F\u00fcr die Zone gilt die Empfindlichkeitsstufe III.",
+     "F\u00fcr die Zone gilt"),
+    ("Der Lohn richtet sich nach Lohnklasse V.", "Der Lohn richtet sich nach Lohnklasse II.",
+     "Der Lohn richtet sich"),
+    ("Der F\u00fchrerausweis der Kategorie C berechtigt dazu.",
+     "Der F\u00fchrerausweis der Kategorie B berechtigt dazu.", "Der F\u00fchrerausweis der"),
+    ("Es gilt Phase \u026a\u1d20.", "Es gilt Phase 2 der Planung.", None),
+    # a number of the passage read in pieces
+    ("Der Beschluss bedarf der Zustimmung von zwei Gesellschaftern.",
+     "Der Beschluss bedarf der Zustimmung von zwei Dritteln der Gesellschafter.", None),
+    ("Der Beschluss bedarf drei Stimmen.", "Der Beschluss bedarf drei Viertel der Stimmen.", None),
+    ("Die Probezeit dauert 1 Jahr.", "Die Probezeit dauert 1 1/2 Jahre.", None),
+    ("Die Probezeit dauert ein Jahr.", "Die Probezeit dauert 1 \u00bd Jahre.", None),
+    ("Die Zahlungsfrist betr\u00e4gt 15 Tage.", "Der Vertrag vom 2024-01-15 regelt die Zahlungsfrist.", None),
+    ("Die Zahlungsfrist betr\u00e4gt 12 Monate.", "Der Vertrag endet am 31. 12. 2025 ohne K\u00fcndigung.",
+     "Der Vertrag endet am 31. 12. 2025"),
+    ("Der Zins betr\u00e4gt 5 Franken.", "Der Zins betr\u00e4gt 5\n% pro Jahr.", "Der Zins betr\u00e4gt 5 % pro Jahr."),
+    ("Die Frist betr\u00e4gt 31 Tage.", "Die Frist endet am 31.\nDezember 2025.",
+     "Die Frist endet am 31. Dezember 2025."),
+    ("Die K\u00fcndigung richtet sich nach Art. 266 OR.", "Die K\u00fcndigung richtet sich nach Art. 266\na OR.",
+     "Die K\u00fcndigung richtet sich nach Art. 266 a OR."),
+    ("Der Zins betr\u00e4gt 5 Prozent.", "Der Zins betr\u00e4gt -\n5 Prozent.", "Der Zins betr\u00e4gt - 5 Prozent."),
+    ("Die Frist betr\u00e4gt drei Tage.", "Die Frist betr\u00e4gt drei- zehn Tage.", None),
+    # a word that holds "ein" offered the digit 1; one that counts sides offered its number
+    ("Die K\u00fcndigungsfrist betr\u00e4gt 1 Monat.",
+     "Die K\u00fcndigung ist eine einseitige Willenserkl\u00e4rung; die K\u00fcndigungsfrist betr\u00e4gt drei Monate.",
+     "Die K\u00fcndigung ist eine einseitige Willenserkl\u00e4rung"),
+    ("Der Mieter hat 1 Monatsmiete bezahlt.",
+     "Der Mieter hat nicht einmal die Miete bezahlt, obwohl drei Monate vergangen waren.",
+     "Der Mieter hat nicht einmal die Miete bezahlt"),
+    ("Die Frist betr\u00e4gt 2 Monate.", "Es gilt ein zweiseitiger Vertrag mit Frist.", None),
+    # per cent, scale and sign
+    ("Die Miete wird 5-prozentig erh\u00f6ht.", _MIETE_5, None),
+    ("Die Miete wird f\u00fcnfprozentig erh\u00f6ht.", _MIETE_5, None),
+    ("F\u00fcr die Miete gilt die 5-Prozent-Regel.", _MIETE_5, None),
+    ("Die Miete steigt um 5 Prozentpunkte.", _MIETE_5, None),
+    ("Die Miete steigt um 5 pct.", _MIETE_5, None),
+    ("Der Zins betr\u00e4gt 5 Perzent.", _MIETE_5, None),
+    ("Der Zins betr\u00e4gt 5\uff05.", _MIETE_5, None),
+    ("Der Saldo betr\u00e4gt 500 Mia. Franken.", _SALDO, None),
+    ("Der Saldo betr\u00e4gt 500 Bio. Franken.", _SALDO, None),
+    ("Der Saldo betr\u00e4gt 500 Mill. Franken.", _SALDO, None),
+    ("Der Saldo betr\u00e4gt 500 Billiarden Franken.", _SALDO, None),
+    ("Der Saldo betr\u00e4gt \ufe63500 Franken.", _SALDO, None),
+    ("Der Saldo betr\u00e4gt \uff0d500 Franken.", _SALDO, None),
+    ("Der Saldo betr\u00e4gt \u207b500 Franken.", _SALDO, None),
+    ("Der Saldo betr\u00e4gt - 500 Franken.", _SALDO, None),
+    # number words written oddly
+    ("Die Frist betr\u00e4gt zwei-hundert Tage.", "Nach 2 Mahnungen gilt eine Frist von 100 Tagen.", None),
+    ("Die Frist betr\u00e4gt drei-zehn Tage.", "Nach 3 Mahnungen gilt eine Frist von 10 Tagen.", None),
+    ("Die Frist betr\u00e4gt einund zwanzig Tage.", "Die Frist betr\u00e4gt 20 Tage.", None),
+    ("Die Frist betr\u00e4gt ein-und-zwanzig Tage.", "Die Frist betr\u00e4gt ein Mal 20 Tage.", None),
+    ("The fee is five hundred francs for 5 hours.", "The fee is CHF 100 per hour for 5 hours.", None),
+    ("The fee is twenty-five francs.", "The fee is 20 francs and 5 francs.", None),
+    # letters that look like plain letters, or like digits
+    ("Die Frist betr\u00e4gt d\u027eei Tage.", _FRIST_5, "Die Frist betr\u00e4gt"),
+    ("Die Frist betr\u00e4gt \u028bier Tage.", _FRIST_5, "Die Frist betr\u00e4gt"),
+    ("Die Frist betr\u00e4gt dr\u025bi Tage.", _FRIST_5, "Die Frist betr\u00e4gt"),
+    ("Die Frist betr\u00e4gt \ua723O Tage.", _FRIST_5, "Die Frist betr\u00e4gt"),
+    ("Die Frist betr\u00e4gt lO Tage.", _FRIST_5, "Die Frist betr\u00e4gt"),
+    ("Die Frist betr\u00e4gt \ua75b5 Tage.", _FRIST_5, "Die Frist betr\u00e4gt"),
+    ("Die Frist betr\u00e4gt \u204a5 Tage.", _FRIST_5, "Die Frist betr\u00e4gt"),
+    ("Die Frist betr\u00e4gt l5 Tage.", _FRIST_5, "Die Frist betr\u00e4gt"),
+    ("Die Frist betr\u00e4gt O,5 Tage.", _FRIST_5, "Die Frist betr\u00e4gt"),
+])
+def test_the_second_attack_is_removed(statement, passage, quote):
+    assert _one(statement, passage, quote) == ([], _counts(**{NUMBER_NOT_FOUND: 1}))
+
+
+@pytest.mark.parametrize("statement", [
+    "Ich habe dazu keine Informationen gefunden.",
+    "Ich konnte dazu keine Angaben finden.",
+    "Ich fand dazu nichts in Ihren Quellen.",
+    "Ihre Quellen enthalten dazu keine Angaben.",
+    "In Ihren Quellen steht dazu nichts.",
+    "Dazu wurde in Ihren Quellen nichts gefunden.",
+    "Dazu liegen mir keine Informationen vor.",
+    "Dar\u00fcber geben Ihre Unterlagen keine Auskunft.",
+    "Nichts gefunden.",
+    "Die Quellen beantworten diese Frage nicht.",
+    "Zu dieser Frage enthalten die Dokumente keine Aussage.",
+    "Ich finde zu dieser spezifischen Frage in den von Ihnen bereitgestellten Quellen leider nichts.",
+    "I couldn't find anything about this in your sources.",
+    "Your sources do not contain this information.",
+    "There is nothing about this in your sources.",
+    "Je ne trouve rien dans vos sources.",
+    "Dazu \ua730\u026a\u0274\u1d05\u1d07 \u026a\u1d04\u029c \u0274\u026a\u1d04\u029c\u1d1b\ua731 in Ihren Quellen.",
+])
+def test_the_second_attacks_no_answer_wordings_are_not_statements(statement):
+    passage = "Der Mietvertrag kann unter Einhaltung der gesetzlichen Fristen gek\u00fcndigt werden."
+    assert _one(statement, passage, "Der Mietvertrag kann unter Einhaltung") == ([], _counts(**{NOT_A_STATEMENT: 1}))
+
+
+@pytest.mark.parametrize("statement, passage, quote", [
+    ("Eine Mietzinserh\u00f6hung muss dem Mieter auf dem amtlichen Formular mitgeteilt werden.",
+     "Mietzinserh\u00f6hungen sind dem Mieter auf dem amtlichen Formular mitzuteilen.", None),
+    ("Dieser Umstand bleibt bei der Berechnung der Frist ausser Acht.",
+     "Dieser Umstand bleibt bei der Berechnung der Frist ausser Acht.", None),
+    ("Der Verzugszins betr\u00e4gt f\u00fcnf Prozent pro Jahr.",
+     "Der Schuldner hat Verzugszinse zu f\u00fcnf vom Hundert f\u00fcr das Jahr zu bezahlen.", None),
+    ("Der Grenzabstand f\u00fcr Hauptbauten betr\u00e4gt 10 Meter.",
+     "Der Grenzabstand f\u00fcr Hauptbauten betr\u00e4gt 10 m.", None),
+    ("Im Gesetz findet sich keine Regelung zur Untermiete von Parkpl\u00e4tzen.",
+     "Im Gesetz findet sich keine Regelung zur Untermiete von Parkpl\u00e4tzen.", None),
+    ("Die Frist endet am 31. Dezember 2025.", "Die Frist endet am 31.\nDezember 2025.", None),
+    ("Der Zins betr\u00e4gt 5 %.", "Der Zins betr\u00e4gt 5\n% pro Jahr.", "Der Zins betr\u00e4gt 5 % pro Jahr."),
+    ("Es gilt eine dreimonatige K\u00fcndigungsfrist.", "Die K\u00fcndigungsfrist betr\u00e4gt drei Monate.", None),
+    ("Die Probezeit dauert 1 1/2 Jahre.", "Die Probezeit dauert 1 1/2 Jahre.", None),
+    ("Der Beschluss bedarf der Zustimmung von zwei Dritteln der Gesellschafter.",
+     "Der Beschluss bedarf der Zustimmung von zwei Dritteln der Gesellschafter.", None),
+    ("Die Vereinbarung gilt seit dem 2024-01-15.", "Die Vereinbarung gilt seit dem 2024-01-15 unbefristet.", None),
+])
+def test_what_the_second_attack_found_too_costly_is_shown(statement, passage, quote):
+    shown, removed_by = _one(statement, passage, quote)
+    assert [s[0] for s in shown] == [statement] and removed_by == _counts()
+
+
+def test_a_long_passage_is_read_once_per_answer():
+    import time
+
+    passage = ("Die Frist betr\u00e4gt 30 Tage ab Zustellung am 1. M\u00e4rz 2024, also CHF 1500 pro Monat. "
+               * 1_800)[:150_000]
+    answer = "\n".join(st("Die Frist betr\u00e4gt %d Tage." % n, 1, "Die Frist betr\u00e4gt 30 Tage")
+                       for n in range(50))
+    started = time.monotonic()
+    shown, removed_by = check_answer(answer, {1: passage})
+    assert len(shown) == 1 and removed_by[NUMBER_NOT_FOUND] == 49
+    assert time.monotonic() - started < 3.0
