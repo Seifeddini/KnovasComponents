@@ -300,3 +300,17 @@ frozen check: five lines, all OK. `card check` on both cards valid (0 errors, 0 
 current after re-rendering two pages; `map-check --scope touched`, base `origin/feat/platform-mvp` (`937677a`): problems
 0; inside the scope `over_budget` on L2-PLATFORM-ADMIN (24,547 tokens), `no_contract` on the same three calls, `app.py`
 touched without a card; `need_added` is gone (the base now has PMVP-10).
+
+## Verification (coordinator's record)
+
+- **2026-11-21, fresh verifier session, `feat/pmvp-11` @ `4b7791b`: PASS WITH NOTES.** No gate changed: 9 role sets
+  with document fields on and off (288 answers) give the same status codes on base and branch, and in every case the
+  menu's entries are exactly the pages that answer 200. `allowed_roles` is the gate's own frozenset for all 45 Admin
+  routes; `_gate_roles` is fail-closed. Hidden entries answer as before; the settings stay reachable from the person
+  block. The 24 changed tests only flip menu and tab-row assertions (three template-level checks moved to
+  `test_shell_nav_links.py` and the frozen file). Frozen 40 passed; shell nav 113, Admin 438, brand 33. Cards clean.
+- Integrated into `feat/platform-mvp` by the coordinator (merge `af19936`; `style.css`, the shell card and
+  `boundaries.yaml` merged with PMVP-12's additions, pages re-rendered). Class sensitive: Siran approves before `main`.
+- Notes: an approver who is also an ingestion manager lands on Ingestion (the menu's order); `set(user.roles)` outside
+  the try in `_admin_pages` gives a 500 on malformed roles (as on the base); the Admin pages still scroll sideways at
+  390 px because of their content (FU-23, PMVP-40).
