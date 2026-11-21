@@ -36,6 +36,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import quote
 
+from knovas_client import KnowledgeGraphDisabled
+
 # A node id as it may go into an address: the Core's are uuids; a few test and core ids are shorter words.
 _NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 # What a fact may say about its passage and still count as sourced (None: the store records no status).
@@ -97,9 +99,9 @@ def read_dossier(client: Any, node_id: str) -> Dossier:
         raise NotFound()
     try:
         payload = client.graph_node(node_id)
-    except Exception as exc:  # noqa: BLE001 - every failure is one plain message on the page
-        if type(exc).__name__ == "KnowledgeGraphDisabled":
-            raise NotFound() from None
+    except KnowledgeGraphDisabled:
+        raise NotFound() from None
+    except Exception as exc:  # noqa: BLE001 - every other failure is one plain message on the page
         raise Unavailable(type(exc).__name__) from None
     if payload is None:
         raise NotFound()
