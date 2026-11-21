@@ -278,3 +278,25 @@ needed no change). A file I did not think of would show in the whole suite.
 - **The content column in a narrow window** is as wide as its content, not as the window (the search page's is
   324 of 390 pixels; `style.css`, `.app-shell { align-items: flex-start }`). It was so before; it is the page's
   layout, not the menu's.
+
+### Finishing session of 2026-11-21 (AGENT-claude-code): decision 1, by the coordinator
+
+The coordinator settled decision 1 and allowed `admin.py` for this one thing. The console's gate
+(`admin._require_roles`) now puts the set it checks on the view it returns (`wrapped.allowed_roles = allowed`, the
+same frozenset; no check, route or role changed), and `_gate_roles` in `app.py` reads that attribute: a view without
+it, or with anything but a frozenset, gives no link; `inspect` is gone from `app.py`. In `test_shell_nav_links.py`,
+`_gated` sets the attribute instead of closing over the roles, the new
+`test_every_console_route_carries_the_roles_its_gate_lets_in` fails when any `admin.*` route of the real app lacks a
+non-empty frozenset of assignable roles, and the closed-not-open test gains the case "roles in a closure only" (the
+old shape draws no link now). The two cards' review entries say so; their pages are re-rendered. Decision 2 stands
+as it was. **The styleguide's gate stays a copy:** using the console's gate takes more than two lines (`admin.py`
+would hand its gate out, `app.py` pass it to `create_shell_blueprint`, `shell_routes.py` take it in place of its
+copy), so I left it; the shell card says so. Commits `af98cc3` (the change) and `f9cfec6` (merge of
+`origin/feat/platform-mvp` at `937677a`; `e759f9a` had already merged `cf6bd58` locally), and the one that carries
+this paragraph. Run on `f9cfec6`, one
+process at a time, database `knovas_platform_test_pmvp11b` (dropped): the frozen file 40 passed; `test_shell_nav_*.py`
+113 (111 + the two new); `test_web_admin_*.py` 438; `test_pmvp10_brand_acceptance.py` 33; none failed or skipped. The
+frozen check: five lines, all OK. `card check` on both cards valid (0 errors, 0 warnings); `card render --check` 0 not
+current after re-rendering two pages; `map-check --scope touched`, base `origin/feat/platform-mvp` (`937677a`): problems
+0; inside the scope `over_budget` on L2-PLATFORM-ADMIN (24,547 tokens), `no_contract` on the same three calls, `app.py`
+touched without a card; `need_added` is gone (the base now has PMVP-10).
