@@ -1,11 +1,12 @@
 """The dossier's page (PMVP-30a, plan B-02; L2-PLATFORM-BRAIN-VIEWS PRE-01, POST-03): who gets it, and what it reads.
 
-1. Signed out: sent to sign-in. Switched off: 404, and the Core is not asked. Without accounts: 404.
+1. Signed out: sent to sign-in. Switched off: 404, and the Core is not asked. Without accounts: 404. The same for
+   the address that opens one of the node's documents.
 2. A member opens one node: its name, its kind, the tabs. A node the person may not see answers exactly as a node
-   that does not exist.
+   that does not exist, on both addresses.
 3. One starting point: one node id in the address, nothing else; a malformed id is not sent to the Core.
 4. Every read is a per-thing read made on the person's request through the web app's one client (whose broker signs
-   it as that person); a whole-tenant read fails the test.
+   it as that person); a whole-tenant read fails the test. A type id that is not a uuid goes into no address.
 5. A failed read is one plain message; a graph switched off in the Core is a 404.
 
 The Core is the shared FakeGraphApi with the per-thing answers the dossier reads put on it here (`brain`); the
@@ -81,8 +82,11 @@ class Brain:
                 "assignments": [], "sections": [], "facts": [],
             },
         }
+        # documents the Core says the person may not read (a stale assignment, a document deleted since)
+        self.unreadable: set[str] = set()
         monkeypatch.setattr(fake, "graph_node", self.graph_node, raising=False)
         monkeypatch.setattr(fake, "graph_get_many", self.graph_get_many, raising=False)
+        monkeypatch.setattr(fake, "document_readable", self.document_readable, raising=False)
         for name in WHOLE_TENANT:
             monkeypatch.setattr(fake, name, self._refused(name), raising=False)
 
@@ -110,6 +114,10 @@ class Brain:
             else:
                 answers.append((404, {"status": "error"}))
         return answers
+
+    def document_readable(self, pointer):
+        self.calls.append(("document_readable", pointer, self.person()))
+        return pointer not in self.unreadable
 
     def _refused(self, name):
         def refuse(*args, **kwargs):
@@ -172,9 +180,20 @@ def test_without_per_user_accounts_nothing_answers():
     asked = []
     app.register_blueprint(create_brain_views_blueprint(
         None, client=lambda: asked.append("client"), settings=lambda: asked.append("settings"),
-        grant=lambda rows: asked.append("grant"), page_context=dict))
+        grant=lambda rows: asked.append("grant"), split=lambda r: asked.append("split"),
+        enhance=lambda r: asked.append("enhance"), pdf_inline=True, download_allowed=lambda: asked.append("dl"),
+        page_context=dict))
     assert app.test_client().get(f"/dossier/{NODE}").status_code == 404
+    assert app.test_client().get(f"/dossier/{NODE}/dokument/1").status_code == 404
     assert asked == []
+
+
+def test_the_address_that_opens_a_document_has_the_same_gate(brain, anon_client, member_client, monkeypatch):
+    response = anon_client.get(f"/dossier/{NODE}/dokument/1")
+    assert response.status_code == 302 and "/login" in response.headers["Location"]
+    monkeypatch.delenv("BRAIN_VIEWS_ENABLED")
+    assert member_client.get(f"/dossier/{NODE}/dokument/1").status_code == 404
+    assert brain.calls == []
 
 
 # --- 2: a member opens one node ---------------------------------------------------------------------------------
@@ -209,6 +228,14 @@ def test_a_node_the_person_may_not_see_answers_as_a_node_that_does_not_exist(bra
     assert hidden.headers.get("Content-Type") == missing.headers.get("Content-Type")
 
 
+def test_a_document_of_a_node_the_person_may_not_see_answers_as_one_of_a_missing_node(brain, member_client):
+    brain.nodes[HIDDEN]["assignments"] = [{"id": "h1", "node_id": HIDDEN, "pointer": MIETVERTRAG, "status": "active"}]
+    hidden = member_client.get(f"/dossier/{HIDDEN}/dokument/1")
+    missing = member_client.get(f"/dossier/{MISSING}/dokument/1")
+    assert hidden.status_code == missing.status_code == 404
+    assert hidden.get_data() == missing.get_data()
+
+
 def test_the_same_node_is_shown_to_the_person_the_core_shows_it_to(brain, admin_client):
     response, html = _page(admin_client, HIDDEN)
     assert response.status_code == 200 and "Vergleich Hardturm" in html
@@ -241,6 +268,15 @@ def test_every_read_is_a_per_thing_read_made_as_the_person_signed_in(brain, memb
         ("graph_get_many", f"/node-types/{TYPE}", member.email),
         ("graph_get_many", f"/node-types/{TYPE}/schema", member.email),
     ]
+
+
+@pytest.mark.parametrize("type_id", ["../node-types", "euo:Person", "7a2b0000/0000", "x" * 36])
+def test_a_type_id_that_is_not_a_uuid_goes_into_no_address(brain, member_client, type_id):
+    brain.nodes[NODE]["node"]["node_type_id"] = type_id
+    response, html = _page(member_client)
+    assert response.status_code == 200
+    assert [c[0] for c in brain.calls] == ["graph_node"]
+    assert 'class="k-eyebrow"' not in html
 
 
 def test_no_whole_tenant_read_even_without_a_kind(brain, member_client):

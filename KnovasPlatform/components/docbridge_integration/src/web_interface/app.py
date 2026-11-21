@@ -3523,6 +3523,8 @@ def create_app(config_path: Optional[str] = None):
     from web_interface.brain_views_routes import create_brain_views_blueprint
     app.register_blueprint(create_brain_views_blueprint(
         identity_gate, client=lambda: api_client, settings=lambda: settings_resolver, grant=_grant_for_current_user,
+        split=experiments_search.split, enhance=_enhance_listing_rows, pdf_inline=pdf_inline_in_browser,
+        download_allowed=_download_open_enabled,
         page_context=lambda: {**_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
                               'asset_version': _static_asset_version()}))
 

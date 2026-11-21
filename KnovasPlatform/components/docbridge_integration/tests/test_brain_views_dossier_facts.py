@@ -1,12 +1,13 @@
 """The dossier's facts and documents (PMVP-30a, plan B-04; L2-PLATFORM-BRAIN-VIEWS POST-02).
 
 1. A fact whose source passage lies in one of the node's documents (as the Core listed them for the person) opens
-   on click: the document, and an address built with url_for that the Platform's file routes then serve to that
-   person. The fact's source is read from provenance_pointer, provenance_chunk_id and provenance_status.
+   on click: its source document, and the dossier's own address that opens that document (its place in the list;
+   test_brain_views_dossier_open.py follows it). Not the passage: no Core route reads one (FU-38, CR-2). The fact's
+   source is read from provenance_pointer, provenance_chunk_id and provenance_status.
 2. Every other fact carries the mark «ohne Beleg» and nothing that looks like a source: no source at all, a passage
    the Core reports missing, or a document the person was not handed (its name is not shown, and it is not opened).
 3. Rejected facts are left out; the facts follow the order and the names of the type's fields.
-4. The Dokumente tab: each document once, by name, with its folder and an address that opens it.
+4. The Dokumente tab: each document once, by name, with its folder and the address that opens it.
 5. A name, a value, a label or a pointer holding mark-up comes out as text; no log line carries any of them.
 
 The Core's answers are the fixture `brain` of test_brain_views_dossier_page.py.
@@ -47,11 +48,16 @@ def _plain(html: str, fact_id: str) -> str:
 
 
 def _href(app, endpoint: str, pointer: str) -> str:
-    """The address the Platform builds for a document (url_for, as the page does)."""
+    """The address a file route has for a document (url_for, as the Platform builds it)."""
     with app.test_request_context():
         from flask import url_for
 
         return url_for(endpoint, doc_id=pointer, path=pointer)
+
+
+def _opens(position: int) -> str:
+    """The dossier's address that opens the document at this place of the list (1: the first, by name)."""
+    return f"/dossier/{NODE}/dokument/{position}"
 
 
 def _hrefs(html: str) -> list[str]:
@@ -61,7 +67,7 @@ def _hrefs(html: str) -> list[str]:
 # --- 1: a fact with its source -----------------------------------------------------------------------------------
 
 
-def test_a_fact_with_a_source_passage_opens_its_document(brain, member_client, workbench_app):
+def test_a_fact_with_a_source_passage_opens_its_document(brain, member_client):
     response, html = _page(member_client)
     assert response.status_code == 200
     opened = _details(html, "f-branche")
@@ -69,24 +75,15 @@ def test_a_fact_with_a_source_passage_opens_its_document(brain, member_client, w
     assert "Quelle" in opened and "Mietvertrag Seefeldstrasse 48.pdf" in opened
     assert "corpus/Mandanten/Limmat" in opened                     # the folder it is in
     assert "ohne Beleg" not in opened
-    assert _href(workbench_app, "preview_document", MIETVERTRAG) in _hrefs(opened)
+    # the Mietvertrag is the second of the node's documents by name (after the Memo)
+    assert _hrefs(opened) == [_opens(2)]
 
 
-def test_the_address_of_the_source_is_served_to_the_person(brain, member_client, workbench_app):
-    href = _href(workbench_app, "preview_document", MIETVERTRAG)
-    before = member_client.get(href)
-    assert before.status_code == 404 and before.get_json() == GATE_REFUSAL   # nothing handed over yet
-    _, html = _page(member_client)
-    assert href in _hrefs(_details(html, "f-branche"))
-    after = member_client.get(href)
-    # past the document gate: what answers now is the file route itself (the test file does not exist)
-    assert after.get_json() != GATE_REFUSAL
-
-
-def test_the_dossier_hands_over_nothing_to_another_person(brain, member_client, bob_client, workbench_app):
-    href = _href(workbench_app, "preview_document", MIETVERTRAG)
+def test_showing_the_dossier_hands_over_no_document(brain, member_client, workbench_app):
     _page(member_client)
-    assert bob_client.get(href).get_json() == GATE_REFUSAL
+    _page(member_client, tab="dokumente")
+    for pointer in (MIETVERTRAG, MEMO):
+        assert member_client.get(_href(workbench_app, "preview_document", pointer)).get_json() == GATE_REFUSAL
 
 
 # --- 2: every other fact is marked -------------------------------------------------------------------------------
@@ -105,7 +102,10 @@ def test_a_fact_whose_source_the_person_was_not_handed_is_marked_and_its_documen
     _, html = _page(member_client)
     line = _plain(html, "f-vertrag")
     assert '<span class="k-tag k-tag--warn">ohne Beleg</span>' in line
+    assert "href" not in line
     assert "Vergleich Hardturm" not in html and "Mandanten/Wand" not in html
+    for position in (1, 2, 3):
+        member_client.get(_opens(position))
     href = _href(workbench_app, "preview_document", FOREIGN)
     assert member_client.get(href).get_json() == GATE_REFUSAL
 
@@ -171,14 +171,13 @@ def test_a_value_is_one_line_of_text(value, shown):
 # --- 4: the documents --------------------------------------------------------------------------------------------
 
 
-def test_the_documents_tab_lists_each_document_once_with_its_address(brain, member_client, workbench_app):
+def test_the_documents_tab_lists_each_document_once_with_its_address(brain, member_client):
     response, html = _page(member_client, tab="dokumente")
     assert response.status_code == 200
     names = re.findall(r'<span class="bv-doc-name">([^<]*)</span>', html)
     assert names == ["Memo Kuendigung.docx", "Mietvertrag Seefeldstrasse 48.pdf"]
     hrefs = _hrefs(html)
-    assert _href(workbench_app, "preview_document", MIETVERTRAG) in hrefs
-    assert _href(workbench_app, "download_document", MEMO) in hrefs
+    assert _opens(1) in hrefs and _opens(2) in hrefs and _opens(3) not in hrefs
     assert '<span class="k-tab-count">2</span>' in html
     # the facts are on the other tab
     assert "Immobilienverwaltung" not in html
@@ -234,6 +233,8 @@ def test_no_log_line_carries_a_name_a_value_or_a_pointer(brain, member_client, c
     _page(member_client)
     _page(member_client, tab="dokumente")
     _page(member_client, "6f1c2c1e-0000-4000-8000-000000000003")
+    for position in (1, 2, 3):
+        member_client.get(f"/dossier/{NODE}/dokument/{position}")
 
     from knovas_client import GraphError
 

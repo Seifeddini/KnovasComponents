@@ -10,7 +10,12 @@ _RequestScopedBroker), the client the search page uses:
    see both answer 404 there; the client gives None for both, and this module raises the same NotFound for both.
 2. ``GET /secured/graph/node-types/<type>`` and ``…/<type>/schema`` (``graph_get_many``, one round of two calls,
    each signed as the person): the kind of the thing (the page's eyebrow) and the names of its fields (the labels of
-   the facts). Either may fail; the page then has no eyebrow, and a fact falls back to its own label.
+   the facts). Only for a type id that is a uuid. Either may fail; the page then has no eyebrow, and a fact falls
+   back to its own label.
+
+The node's documents leave out what the caller's ``listable`` refuses: the web app hands in the test search uses to
+take experiment documents (``experiments/<domain>/<KEY>``) out of every answer. A left-out document is neither listed
+nor a fact's source. ``node_documents`` reads the documents alone, for the route that opens one of them.
 
 Never ``graph_export``, ``graph_edges``, ``graph_node_types`` or ``graph_nodes``.
 
@@ -24,7 +29,7 @@ route gives a passage's text or its page.
 documents as the Core returned them for this person, because only those are known to be readable by them. A
 visible fact does not prove its provenance document readable: the Core shows a fact when ANY of its evidence
 chunks is readable (graph_access.visible_fact_ids), so the pointer of a visible fact can name a document the person
-may not open. Such a fact is marked as one without a source, and its pointer is neither shown nor handed on.
+may not open. Such a fact is marked as one without a source, and its pointer is neither shown nor opened.
 
 Nothing here logs: a node's name, a fact's value and a pointer are the firm's text (GI-DATA-04).
 """
@@ -32,8 +37,9 @@ from __future__ import annotations
 
 import math
 import re
+import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import quote
 
 from knovas_client import KnowledgeGraphDisabled
@@ -85,16 +91,29 @@ class Dossier:
     documents: Tuple[Document, ...]
 
 
+Listable = Callable[[str], bool]
+
+
+def _every(pointer: str) -> bool:
+    return True
+
+
 def valid_node_id(node_id: Any) -> bool:
     return isinstance(node_id, str) and bool(_NODE_ID.match(node_id))
 
 
-def read_dossier(client: Any, node_id: str) -> Dossier:
-    """The dossier of one node, as the person the client signs for may see it.
+def valid_type_id(type_id: Any) -> bool:
+    """A node type id that may go into an address: a uuid, as the Core's tenant types are."""
+    if not isinstance(type_id, str) or len(type_id) != 36:
+        return False
+    try:
+        return str(uuid.UUID(type_id)) == type_id.lower()
+    except ValueError:
+        return False
 
-    Raises NotFound for an id that is malformed, unknown, not visible to the person, or when the graph is switched
-    off; Unavailable when the node read itself fails. The kind and the field names are optional.
-    """
+
+def _node_payload(client: Any, node_id: str) -> Tuple[Mapping[str, Any], Mapping[str, Any]]:
+    """``GET /nodes/<id>`` as the person: (the answer, its node). NotFound or Unavailable as read_dossier says."""
     if not valid_node_id(node_id):
         raise NotFound()
     try:
@@ -108,9 +127,24 @@ def read_dossier(client: Any, node_id: str) -> Dossier:
     node = payload.get("node") if isinstance(payload, Mapping) else None
     if not isinstance(node, Mapping):
         raise Unavailable("no node in the answer")
+    return payload, node
 
+
+def node_documents(client: Any, node_id: str, *, listable: Listable = _every) -> Tuple[Document, ...]:
+    """The node's documents as the dossier lists them (same read, same order, same leaving out), nothing else."""
+    payload, _ = _node_payload(client, node_id)
+    return documents_of(payload.get("assignments"), listable)
+
+
+def read_dossier(client: Any, node_id: str, *, listable: Listable = _every) -> Dossier:
+    """The dossier of one node, as the person the client signs for may see it.
+
+    Raises NotFound for an id that is malformed, unknown, not visible to the person, or when the graph is switched
+    off; Unavailable when the node read itself fails. The kind and the field names are optional.
+    """
+    payload, node = _node_payload(client, node_id)
     kind, fields = _kind_and_fields(client, node.get("node_type_id"))
-    documents = documents_of(payload.get("assignments"))
+    documents = documents_of(payload.get("assignments"), listable)
     readable = {d.pointer: d for d in documents}
     facts = facts_of(payload.get("facts"), fields, readable)
     return Dossier(
@@ -134,9 +168,9 @@ class _Field:
 
 
 def _kind_and_fields(client: Any, type_id: Any) -> Tuple[Optional[str], Dict[str, _Field]]:
-    if not isinstance(type_id, str) or not type_id.strip():
+    if not valid_type_id(type_id):
         return None, {}
-    path = f"/node-types/{quote(type_id.strip(), safe='')}"
+    path = f"/node-types/{quote(type_id, safe='')}"
     try:
         answers = client.graph_get_many([(path, None), (f"{path}/schema", None)], workers=2)
     except Exception:  # noqa: BLE001 - optional: the page goes without
@@ -176,14 +210,14 @@ def document_of(pointer: str) -> Document:
     return Document(pointer=pointer, name=name or path or pointer, folder=folder)
 
 
-def documents_of(assignments: Any) -> Tuple[Document, ...]:
-    """The node's documents: each pointer once, active assignments only, by name."""
+def documents_of(assignments: Any, listable: Listable = _every) -> Tuple[Document, ...]:
+    """The node's documents: each pointer once, active assignments only, none ``listable`` refuses, by name."""
     found: Dict[str, Document] = {}
     for row in assignments if isinstance(assignments, list) else []:
         if not isinstance(row, Mapping) or row.get("status") not in (None, "active"):
             continue
         pointer = row.get("pointer")
-        if isinstance(pointer, str) and pointer.strip() and pointer not in found:
+        if isinstance(pointer, str) and pointer.strip() and pointer not in found and listable(pointer):
             found[pointer] = document_of(pointer)
     return tuple(sorted(found.values(), key=lambda d: (d.name.casefold(), d.pointer)))
 

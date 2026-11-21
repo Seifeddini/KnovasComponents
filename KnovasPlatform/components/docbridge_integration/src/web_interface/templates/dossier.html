@@ -2,14 +2,15 @@
 <html lang="de">
 {# The dossier (PMVP-30a, plan B-02, B-04): what the Brain knows about one thing, for a member of the Workspace.
    brain_views_routes.py hands in `dossier` (brain_views.dossier.Dossier), the tabs, and every address, built there
-   with url_for: open_href (a document, by its pointer) and ref_href (another thing's dossier, by its id). Nothing
+   with url_for: open_href (by a document's pointer: the route that opens it by its place in the list) and ref_href
+   (another thing's dossier, by its id). Without a dossier the page is one message (message_title, message). Nothing
    here makes an address out of what the Brain or a document says, and nothing is marked safe: names, values and
    pointers reach the page as text. Built from the page parts (_parts.html); brain_views.css holds the little the
    parts do not (the fact line, the fact that opens its source), with tokens only. #}
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% if dossier %}{{ dossier.name }}{% else %}Akte{% endif %} · {{ brand }}</title>
+    <title>{% if dossier %}{{ dossier.name }}{% else %}{{ message_title or "Akte" }}{% endif %} · {{ brand }}</title>
     <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/brain_views.css') }}?v={{ asset_version }}">
@@ -23,7 +24,7 @@
         <main class="bv-main">
         {% call parts.page() %}
             {% if not dossier %}
-            {{ parts.page_head("Akte nicht geladen", lede="Der Brain hat gerade nicht geantwortet. Bitte versuchen Sie es in einem Moment noch einmal.") }}
+            {{ parts.page_head(message_title or "Akte nicht geladen", lede=message or "Der Brain hat gerade nicht geantwortet. Bitte versuchen Sie es in einem Moment noch einmal.") }}
             {% else %}
             {{ parts.page_head(dossier.name, eyebrow=dossier.kind, lede=dossier.description) }}
             {{ parts.tabs(tabs, tab) }}
