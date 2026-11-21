@@ -488,7 +488,11 @@ class TestTemplate:
             assert f'value="{preset}"' in html
 
     def test_the_strip_knows_the_tab(self):
-        assert "admin.ingestion" in (TEMPLATES / "_admin_tabs.html").read_text(encoding="utf-8")
+        """PMVP-11: the row of tabs is gone; the console's menu is the
+        navigation's area Verwaltung, named in app.py's admin_menu."""
+        app_py = (TEMPLATES.parent / "app.py").read_text(encoding="utf-8")
+        menu = app_py[app_py.index("admin_menu = ("):app_py.index("def _gate_roles(")]
+        assert "'admin.ingestion'" in menu and "'Ingestion'" in menu
 
     def test_it_renders_with_stub_data(self):
         import jinja2
@@ -549,7 +553,13 @@ class TestTemplate:
 
 class TestTabStripVisibility:
     """Fix round 1, item 3: an ingestion_manager without 'admin' must see the
-    Ingestion tab (it was wrongly nested inside the admin-only block)."""
+    Ingestion tab (it was wrongly nested inside the admin-only block).
+
+    PMVP-11: the tab is an entry of the navigation's area Verwaltung, and the
+    web app decides which entries a person gets from each route's gate
+    (require_ingestion lets an ingestion_manager in, require_admin does not).
+    test_shell_nav_links.py shows that against the real app; here, the menu
+    draws the one entry such a person is handed."""
 
     def test_ingestion_manager_without_admin_sees_ingestion_not_people(self):
         import types
@@ -560,7 +570,10 @@ class TestTabStripVisibility:
                                  autoescape=True, undefined=jinja2.StrictUndefined)
         env.globals["url_for"] = lambda endpoint, **kw: "/" + endpoint.replace(".", "/")
         me = types.SimpleNamespace(roles={"ingestion_manager"})
-        html = env.get_template("_admin_tabs.html").render(
+        html = env.get_template("_sidebar.html").render(
+            app_title="Knovas", company_name="Kanzlei", nav_area="admin",
+            admin_pages=[{"key": "ingestion", "label": "Ingestion", "url": "/admin/ingestion",
+                          "if_doc_fields": False}],
             admin_tab="ingestion", me=me, ingestion_enabled=True)
         assert "/admin/ingestion" in html
         assert "/admin/people" not in html

@@ -205,7 +205,11 @@ def test_the_page_sends_its_headers_and_marks_the_sidebar(make_app, folder, memb
         assert "no-store" in response.headers["Cache-Control"]
         html = response.data.decode("utf-8")
         assert NAV_LABEL in html
-        assert re.search(r'<a href="/custom-views" class="app-nav-item active"\s+aria-current="page">', html)
+        # PMVP-11 (founder, 2026-11-20): Eigene Ansichten has no entry until a later item places it; the page
+        # stands in the Workspace menu, which marks nothing as current here.
+        assert '<aside class="app-sidebar" data-area="work">' in html
+        assert '<a href="/custom-views" class="app-nav-item' not in html
+        assert 'class="app-nav-item active"' not in html
         assert 'name="csrf-token"' in html
         assert 'href="/custom-views/uebersicht"' in html
 

@@ -39,6 +39,7 @@
 </td>
 {%- endmacro %}
 <div class="app-shell">
+{% set admin_tab = 'ingestion' %}
 {% include '_sidebar.html' %}
 <div class="app-content">
 
@@ -53,9 +54,6 @@
         </div>
         <a class="admin-primary-action" href="#folder-tree">Ordner hinzufügen</a>
     </header>
-
-    {% set admin_tab = 'ingestion' %}
-    {% include '_admin_tabs.html' %}
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
     {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}

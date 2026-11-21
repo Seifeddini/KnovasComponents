@@ -231,7 +231,10 @@ class TestPages:
 
     def test_the_search_page_sidebar_offers_it_to_viewers_only(
             self, experimenter_client, exp_member_client):
-        assert 'href="/experiments"' in experimenter_client.get("/").get_data(as_text=True)
+        """PMVP-11 (founder, 2026-11-20): the Workspace menu shows only the
+        search; Experimente has no entry until a later item places it, for a
+        viewer either. The pages above answer for a viewer as before."""
+        assert 'href="/experiments"' not in experimenter_client.get("/").get_data(as_text=True)
         assert 'href="/experiments"' not in exp_member_client.get("/").get_data(as_text=True)
 
     def test_anonymous_callers_are_sent_to_sign_in(self, experiments_app):
