@@ -16,8 +16,12 @@
     color: var(--k-color-text);
     overflow-wrap: anywhere;
 }
-/* The last word, the reference and the full stop: one line (FU-35). */
+/* The reference and the full stop after it: one line (FU-35). Only these two: the words before them wrap, a long
+   one anywhere (overflow-wrap above), so no statement is wider than the column. */
 .ask-tail { white-space: nowrap; }
+/* A title or a quote is a run of its own direction (dir="auto" in ask.html): a right-to-left mark inside it ends
+   with it and cannot reorder the line around it. */
+.ask-main [dir="auto"] { unicode-bidi: isolate; }
 
 /* The quote under its statement: the card of the parts, marked on its left edge as the reference marks it. */
 .ask-quote { margin: 0 0 var(--k-space-md); min-width: 0; }

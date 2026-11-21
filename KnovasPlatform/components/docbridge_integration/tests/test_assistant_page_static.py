@@ -71,10 +71,36 @@ def test_the_stylesheet_writes_out_only_own_sizes():
     assert lengths <= {("1", "px"), ("2", "px"), ("3", "px"), ("18", "px")}, sorted(lengths)
 
 
-def test_the_last_word_its_reference_and_the_stop_do_not_break_apart():
+def test_the_reference_and_the_stop_do_not_break_apart():
     css = _css_without_comments()
     rule = re.search(r"\.ask-tail\s*\{([^}]*)\}", css)
     assert rule and "white-space: nowrap" in rule.group(1)
+    # The tail holds the chip and the stop only: no text of the statement is kept from wrapping.
+    tail = re.search(r'<span class="ask-tail">(.*?)</span></p>', _read(TEMPLATE))
+    assert tail and tail.group(1) == ("{{ parts.ref_chip(s.number, active=True, controls=s.quote_id) }}"
+                                      "{{ s.stop }}")
+
+
+@pytest.mark.parametrize("selector", [".ask-statement", ".ask-quote-text", ".ask-quote-doc", ".ask-source-name"])
+def test_long_words_wrap_anywhere(selector):
+    css = _css_without_comments()
+    rule = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css)
+    assert rule and "overflow-wrap: anywhere" in rule.group(1), selector
+
+
+def test_nothing_but_the_tail_is_kept_from_wrapping():
+    css = _css_without_comments()
+    held = [m.group(1).strip() for m in re.finditer(r"([^{}]+)\{[^}]*white-space:\s*nowrap", css)]
+    # .ask-sr is the screen readers' text, clipped to one pixel: it never takes room.
+    assert sorted(held) == [".ask-sr", ".ask-tail"]
+
+
+def test_titles_and_quotes_are_isolated():
+    text = _read(TEMPLATE)
+    assert '<span class="ask-quote-doc" dir="auto">{{ s.passage.title }}</span>' in text
+    assert '\u00ab<span dir="auto">{{ s.quote }}</span>\u00bb' in text
+    assert re.search(r'<a class="k-link" href="\{\{ p\.href \}\}"[^>]*\bdir="auto"[^>]*>\{\{ p\.title \}\}</a>', text)
+    assert re.search(r'\.ask-main \[dir="auto"\]\s*\{\s*unicode-bidi: isolate;\s*\}', _css_without_comments())
 
 
 def test_the_script_writes_no_markup_from_text():

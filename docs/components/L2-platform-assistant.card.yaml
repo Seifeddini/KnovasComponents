@@ -378,13 +378,15 @@ contract:
         - test_the_real_service_is_wired_and_fails_closed_without_the_secured_api
     - id: L2-PLATFORM-ASSISTANT/http.POST.fragen/P-4
       statement: 'Question, statement, quote and title reach the page as plain text, escaped: no Markdown, no HTML, no
-        link from the model (FU-11). Every address on the page is built with url_for, none taken from the reply
+        link from the model (FU-11); a title or a quote is a run of its own direction, so a right-to-left mark in it
+        cannot reorder the line around it. Every address on the page is built with url_for, none taken from the reply
         (FU-34); a passage shown may be opened through the file routes as a search hit may.'
       risk_class: standard
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_page_routes.py
         checks:
+        - test_titles_and_quotes_are_isolated_runs
         - test_statement_quote_and_title_come_out_as_their_characters
         - test_every_address_on_the_page_is_built_by_the_app
         - test_the_link_opens_the_pdf_as_a_search_hit_opens_it
