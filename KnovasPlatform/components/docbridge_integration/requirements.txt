@@ -1,11 +1,5 @@
 # DocBridge-Knovas Integration Dependencies
 
-# Database connectivity
-pyodbc==5.1.0
-
-# File system watching
-watchdog==4.0.0
-
 # HTTP requests
 requests==2.32.0
 
@@ -20,19 +14,12 @@ gunicorn==22.0.0
 # Hashing and security
 cryptography==42.0.0
 
-# Per-user identity (Pflichtenheft B1/B2/B5): password verifiers, TOTP,
-# the local account database, and schema validation for compiled
-# Knovas Connector documents.
+# Per-user identity (Pflichtenheft B1/B2/B5): password verifiers, the local
+# account database, and schema validation for compiled Knovas Connector
+# documents.
 argon2-cffi==25.1.0
-pyotp==2.10.0
 psycopg[binary]==3.3.4
 jsonschema==4.26.0
-
-# Logging
-python-json-logger==2.0.7
-
-# Date/time handling
-python-dateutil==2.8.2
 
 # Retry logic
 tenacity==8.2.3
@@ -52,9 +39,6 @@ selectolax>=0.3.21,<1
 
 # PDF-Textextraktion für die Cortex-Filter (Passagen-Matching)
 pymupdf==1.28.0
-
-# Environment variables
-python-dotenv==1.0.0
 
 # Testing
 pytest==7.4.3
