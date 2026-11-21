@@ -22,10 +22,15 @@ A reply is whatever the assistant returns: ``.status``, ``.sentences`` (each ``.
   message says which part is wrong and never what it held.
 - A passage without a pointer cannot be checked against anything. Where rights are checked (a rights question,
   or a rights table and a person asked as) such a reply is not ok.
+- With a rights table, a rights question whose reply carries a passage the table does not know is not ok
+  (coordinator, D6, 2026-11-21): it cannot be judged, and a rights question must never pass unjudged. The table
+  decides, not the question set: a document that only a question names is unknown to the table and fails it too.
 
 Pointers are compared by ``pointers.normalise``, so a leak is counted however the pointer is spelled.
 ``unknown_pointers`` counts the passages whose document neither the rights table nor any question of the set
-names: when that is every passage of a run, the pointer prefix is probably wrong and no leak could be seen.
+names: when that is every passage of a run, the pointer prefix is probably wrong and no leak could be seen. For
+the kinds other than rights an unknown passage is counted and does not change ``ok``: the pilot's tenant holds
+documents the truth files do not list.
 
 ``points_found`` is a hint for the judges and never part of the verdict.
 """
@@ -166,10 +171,13 @@ def score(question, reply, *, rights=None, pointer_prefix: str = "",
         elif table_applies and rights.may_read(question.asked_as, key) is False:
             leaked.setdefault(key, rights.spelling(key) or key)
     unchecked = (question.kind == "rights" or table_applies) and not all(keys)
+    # A rights question must never pass unjudged: a document the given table does not know may be the forbidden
+    # one in a spelling the key does not fold. Other kinds only count it (a tenant holds more than the truth files).
+    unjudged = question.kind == "rights" and rights is not None and not all(rights.knows(key) for key in keys if key)
 
     says_what_it_shows = bool(sentences) == (status == "answered")
     ok = status in TESTED and says_what_it_shows and refs_shown == refs_matching and unreferenced == 0 \
-        and not leaked and not unchecked
+        and not leaked and not unchecked and not unjudged
     if question.kind in ANSWERING_KINDS:
         ok = ok and status == "answered" and source_hit is True
     elif question.kind == "negative":

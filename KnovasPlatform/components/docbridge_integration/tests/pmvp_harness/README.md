@@ -26,7 +26,7 @@ py -3 -m pmvp_harness score --questions fixtures/pmvp/questions.stub.jsonl \
 | Option | Meaning |
 |---|---|
 | `--replies` | JSON lines, one record per question id: `id`, `status`, `sentences` (`text`, `refs`), `passages` (`number`, `pointer`, optional `page`), `removed`, `message`, optional `raw_answer`. `pmvp_harness.reply_record(id, reply)` writes one |
-| `--rights` | optional, and better given: with it a passage the table forbids to `asked_as` counts as a leak on any question, and the table says which documents exist |
+| `--rights` | optional, and better given: with it a passage the table forbids to `asked_as` counts as a leak on any question, and the table says which documents exist (a `rights` question with a passage the table does not know is not ok) |
 | `--pointer-prefix` | what the instance puts before the truth files' pointers (a mount or source name). Cut off only where it ends at a folder |
 | `--mvp-set` | only the questions with `in_mvp_set` (the 30 the plan measures on) |
 | `--out` | gets `report.json` and `judging.md` |
@@ -75,6 +75,14 @@ A first pass; people judge whether an answer is right. The rules per kind are at
   `TypeError`) for these; its message names the part and never what it held.
 - A passage without a pointer cannot be checked. Where rights are checked (a `rights` question, or a rights table
   and a question with `asked_as`) such a reply is not ok.
+- **With a rights table, a `rights` question whose reply carries a passage the table does not know is not ok**
+  (coordinator, D6, 2026-11-21). Such a passage cannot be judged: it may be the forbidden document in a spelling
+  the pointer key does not fold, and a rights question must never pass unjudged. The table decides, not the
+  question set: a document that only a question names is unknown to the table and fails it too. "Knows" means the
+  table has a row for the document; the generator writes one for every person and document. Without a table only
+  the question's own documents are checked, as the frozen rule says.
+- For the other kinds an unknown passage is only counted (`unknown_pointers`, below) and does not change `ok`: the
+  pilot's tenant holds documents the truth files do not list.
 
 **A leak is counted however the pointer is spelled.** The questions' supporting pointers, the rights table and
 the passages are compared by one key (`pmvp_harness.pointers.normalise`): either slash, doubled slashes, a leading
@@ -84,8 +92,9 @@ space inside a name. Such a passage is not recognised, and it is counted:
 
 - `unknown_pointers` (per row and in the summary, beside `passages`): passages whose document neither the rights
   table nor any question of the set names. With `--rights` this should be 0 on a real run, because the table lists
-  every document Knovas could show. A few unknown passages mean a spelling the key does not fold; all of them mean
-  a wrong prefix (exit code 2 above).
+  every document Knovas could show. A few unknown passages mean a spelling the key does not fold, or a document the
+  truth files do not list; all of them mean a wrong prefix (exit code 2 above). On a `rights` question with a
+  table, one is enough to make it not ok (above).
 
 Other things worth knowing when reading a number:
 

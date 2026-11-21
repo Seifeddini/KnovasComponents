@@ -7,6 +7,9 @@ Two wrong verdicts were found, and both are pinned here:
 2. A leak is counted however the pointer is spelled, and the passages the truth files do not know are counted
    (``unknown_pointers``), so a wrong pointer prefix cannot make a leak disappear unnoticed.
 
+And the coordinator's decision D6 (2026-11-21): with a rights table, a rights question whose reply carries a passage
+the table does not know is not ok, because it cannot be judged. For the other kinds such a passage is only counted.
+
 The frozen acceptance file is unchanged; nothing here contradicts it.
 """
 from __future__ import annotations
@@ -280,6 +283,80 @@ def test_a_forgotten_prefix_shows_as_every_passage_unknown():
     assert (forgotten["leaked"], forgotten["unknown_pointers"], forgotten["passages"]) == (0, 4, 4)
     given = run([RIGHTS, FACT], lambda question: shown, rights=TABLE, pointer_prefix="kanzlei-share/").summary()
     assert (given["leaked"], given["unknown_pointers"], given["passages"]) == (1, 0, 4)
+
+
+# --- D6: with a rights table, a rights question never passes on a passage the table does not know -------
+
+NOT_IN_THE_TABLE = {
+    "a document the truth files do not list": "Mandate/2024-055/Kopie von Memo.docx",
+    "the forbidden one behind a detour": "Mandate/x/../2024-055/Memo.docx",
+    "the forbidden one percent-encoded": "Mandate/2024-055/Memo%2Edocx",
+    "the forbidden one with a fragment": MEMO + "#page=3",
+    "the forbidden one under a prefix nobody gave": "kanzlei-share/" + MEMO,
+    "another questions document the table has no row for": KLAGE,
+}
+
+
+@pytest.mark.parametrize("name", NOT_IN_THE_TABLE)
+def test_a_rights_question_is_not_ok_on_a_passage_the_rights_table_does_not_know(name):
+    """It cannot be judged: the passage may be the forbidden document in a spelling the key does not fold."""
+    shown = NOT_IN_THE_TABLE[name]
+    for candidate in (reply(status="no_answer", passages=[passage(1, VERTRAG), passage(2, shown)]),
+                      reply(sentences=[sentence("Dazu steht etwas im Vertrag.", 1)],
+                            passages=[passage(1, VERTRAG), passage(2, shown)])):
+        marks = score(RIGHTS, candidate, rights=TABLE, known=[KLAGE])
+        assert marks.ok is False and list(marks.leaked_pointers) == []
+        # The table decides, not the question set: KLAGE is named by a question and so not counted as unknown.
+        assert marks.unknown_pointers == (0 if shown == KLAGE else 1)
+        assert score(RIGHTS, candidate).ok is True                # without a table nobody can know
+
+
+def test_an_empty_rights_table_judges_nothing_so_a_rights_question_with_passages_is_not_ok():
+    shown = reply(status="no_answer", passages=[passage(1, VERTRAG)])
+    assert score(RIGHTS, shown, rights=Rights([])).ok is False
+    assert score(RIGHTS, reply(status="no_answer"), rights=Rights([])).ok is True    # no passage, nothing to judge
+
+
+def test_a_rights_question_is_ok_when_the_table_knows_every_passage():
+    table = Rights([("lz", MEMO, False), ("lz", VERTRAG, True), ("mb", KLAGE, True)])
+    shown = reply(status="no_answer", passages=[passage(1, VERTRAG.upper()), passage(2, KLAGE + "/")])
+    marks = score(RIGHTS, shown, rights=table)                    # KLAGE: known, though not for this person
+    assert marks.ok is True and marks.unknown_pointers == 0
+
+
+@pytest.mark.parametrize("name", NOT_IN_THE_TABLE)
+@pytest.mark.parametrize("question", [FACT, FACT_AS_LZ, DOCUMENT, PROCESS, NEGATIVE], ids=lambda question: question.id)
+def test_for_the_other_kinds_an_unknown_passage_is_counted_and_changes_nothing(question, name):
+    """The pilot's tenant holds documents the truth files do not list."""
+    shown = NOT_IN_THE_TABLE[name]
+    if question.kind == "negative":
+        candidate = reply(status="no_answer", passages=[passage(1, VERTRAG), passage(2, shown)])
+    else:
+        candidate = reply(sentences=[sentence("Die Antwort.", 1)],
+                          passages=[passage(1, question.supporting_pointers[0]), passage(2, shown)])
+    with_table = score(question, candidate, rights=TABLE)
+    assert with_table.ok is True and list(with_table.leaked_pointers) == []
+    assert with_table.unknown_pointers == int(shown not in question.supporting_pointers)  # DOCUMENT's own KLAGE
+    assert score(question, candidate).ok is True                  # and without a table
+
+
+def test_in_a_run_with_a_table_only_the_rights_question_fails_on_the_unknown_passage():
+    unknown = "Mandate/2024-017/Notiz.docx"
+    replies = {
+        FACT_AS_LZ.id: reply(sentences=[sentence("Die Frist beträgt drei Monate.", 1)],
+                             passages=[passage(1, VERTRAG), passage(2, unknown)]),
+        NEGATIVE.id: reply(status="no_answer", passages=[passage(1, unknown)]),
+        RIGHTS.id: reply(status="no_answer", passages=[passage(1, VERTRAG), passage(2, unknown)]),
+    }
+    report = run([FACT_AS_LZ, NEGATIVE, RIGHTS], lambda question: replies[question.id], rights=TABLE)
+    assert [row.ok for row in report.rows] == [True, True, False]
+    summary = report.summary()
+    assert (summary["ok"], summary["leaked"], summary["unknown_pointers"], summary["passages"]) == (2, 0, 3, 5)
+    assert summary["by_kind"]["rights"] == {"questions": 1, "ok": 0}
+
+    without_table = run([FACT_AS_LZ, NEGATIVE, RIGHTS], lambda question: replies[question.id])
+    assert [row.ok for row in without_table.rows] == [True, True, True]
+    assert without_table.summary()["unknown_pointers"] == 3
 
 
 # --- 4. passages without a pointer ------------------------------------------------------------------------

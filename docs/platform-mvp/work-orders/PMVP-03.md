@@ -294,7 +294,33 @@ run of this section's table is of `7369a21`. The walkthrough ran again with a br
 a `#fragment`, a `file://` address, a `..` detour, white space inside a name (a no-break space for a space), a
 UNC path without `--pointer-prefix`. A person id (`asked_as`, the table's `person`) is compared as written.
 
-**Decision wanted (D6).** With a rights table, a real run should have no unknown passage at all, because the
-table lists every document Knovas could show. Today one unknown passage among known ones is only counted: if it
-is the forbidden document in a spelling the key does not fold, the rights question is still ok. Should a question
-that is asked as somebody be not ok as soon as one of its passages is unknown to a given rights table?
+**D6, asked after the rework.** With a rights table, a real run should have no unknown passage at all, because the
+table lists every document Knovas could show. Until now one unknown passage among known ones was only counted: if
+it was the forbidden document in a spelling the key does not fold, the rights question was still ok. Should a
+question that is asked as somebody be not ok as soon as one of its passages is unknown to a given rights table?
+
+**Coordinator's decision D6 (2026-11-21), built in the commit after `978c224`.**
+
+1. With a rights table, a question of kind `rights` whose reply carries a passage the table does not know is
+   **not ok**: it cannot be judged, and a rights question must never pass unjudged (`unjudged` in `scoring.py`).
+2. For the other kinds an unknown passage is only counted (`unknown_pointers`) and does not change `ok`, also
+   when the question is asked as somebody: the pilot's tenant holds documents the truth files do not list.
+3. Without a table nothing changes (the frozen rule: only the question's own documents decide).
+
+How it is built: "the table knows a document" means it has a row for it (`Rights.knows`), as the question was put.
+The table decides, not the question set: a document that only a question names fails a rights question too, though
+`unknown_pointers`, which counts the questions' documents as known, does not count it. Said in the README under
+"The automatic verdict `ok`" and at the top of `scoring.py`. Tests in `test_pmvp_harness_verdict.py`, section D6
+(5 functions, 39 cases): a rights question with an unknown passage, with and without a table, under six spellings
+or documents the table does not know; an empty table; a table that knows every passage; every other kind with and
+without a table; a whole run with and without a table. Frozen file: 29 passed, unchanged (all four lines OK). My
+own `tests/test_pmvp_*.py`: 566, of which 563 pass and 3 walkthrough tests skip (no Playwright for `py -3`). The
+stub run is unchanged (no unknown passage). The whole suite was not run again, on the coordinator's word.
+
+Left as they are, for the coordinator to say if one should change:
+
+- A table with a row for the document only for other people counts as knowing it, so for the person asked as such
+  a passage is not judged either. The generator writes a row for every person and document, so on its files the
+  two readings agree; the stricter rule would be "no row for the person asked as".
+- `judging.md` does not mark which passage the table does not know: a judge sees "nicht ok" without a leak, and
+  the count of passages the truth files do not know.
