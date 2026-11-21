@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="de">
+{# The ask page (PMVP-22a): the question as the page head, then the reply of the Knovas Assistent
+   (web_interface/assistant_routes.py, POST /fragen).
+
+   answered:  each statement with its numbered reference; the reference opens the statement's quote right under it
+              (a card: the document's title and page, the quote, a link that opens the document); then the passages.
+   no_answer: the service's sentence and the closest passages.
+   busy, failed: the plain message and nothing else (POST-06).
+
+   Statement, quote and title are text: autoescape is on and nothing here is marked safe (FU-11). Every href comes
+   from the route, built with url_for (FU-34). Without JavaScript every quote stands open under its statement and
+   each reference says so (aria-expanded="true"); static/js/ask.js closes them and makes each reference open its
+   own. The last word of a statement, its reference and its full stop stay on one line (ask-tail, FU-35). #}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fragen · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ask.css') }}?v={{ asset_version }}">
+</head>
+<body>
+{% import "_parts.html" as parts %}
+{% macro sources(items) %}
+<ol class="ask-sources">
+    {% for p in items %}
+    <li class="ask-source">
+        <span class="ask-num">{{ p.number }}</span>
+        <a class="k-link" href="{{ p.href }}" target="_blank" rel="noopener">{{ p.title }}</a>
+        {%- if p.page %}<span class="k-muted">, S.&nbsp;{{ p.page }}</span>{% endif %}
+    </li>
+    {% endfor %}
+</ol>
+{% endmacro %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+
+    <div class="app-content">
+        <div class="container">
+            <main class="ask-main" data-status="{{ status }}">
+            {% call parts.page() %}
+                {% if question %}{{ parts.page_head(question) }}{% endif %}
+
+                {% if status == 'answered' %}
+                <div class="ask-answer">
+                    {% for s in statements %}
+                    <p class="ask-statement">{{ s.lead }}<span class="ask-tail">{{ s.word }}{{ parts.ref_chip(s.number, active=True, controls=s.quote_id) }}{{ s.stop }}</span></p>
+                    <div class="ask-quote" id="{{ s.quote_id }}">
+                        {% call parts.card() %}
+                        {% if s.passage %}
+                        <div class="ask-quote-head">
+                            <span class="ask-quote-doc">{{ s.passage.title }}</span>
+                            {%- if s.passage.page %}<span class="k-muted">Seite {{ s.passage.page }}</span>{% endif %}
+                        </div>
+                        {% endif %}
+                        <p class="ask-quote-text">«{{ s.quote }}»</p>
+                        {% if s.passage %}
+                        <a class="k-link k-small" href="{{ s.passage.href }}" target="_blank" rel="noopener">Im Dokument zeigen <span aria-hidden="true">→</span></a>
+                        {% endif %}
+                        {% endcall %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% if removed %}<p class="ask-removed k-muted k-small">{{ removed }}</p>{% endif %}
+                {% if passages %}
+                {% call parts.section('Quellen') %}{{ sources(passages) }}{% endcall %}
+                {% endif %}
+
+                {% elif status == 'no_answer' %}
+                <p class="ask-message">{{ message }}</p>
+                {% if removed %}<p class="ask-removed k-muted k-small">{{ removed }}</p>{% endif %}
+                {% if passages %}
+                {% call parts.section('Die nächsten Stellen') %}{{ sources(passages) }}{% endcall %}
+                {% endif %}
+
+                {% else %}
+                <p class="ask-message" role="status">{{ message }}</p>
+                {% endif %}
+
+                <form class="ask-again" method="post" action="{{ url_for('assistant.ask') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label class="ask-sr" for="askAgain">Neue Frage</label>
+                    <input class="ask-again-input" id="askAgain" name="question" type="text" autocomplete="off"
+                           placeholder="Etwas Neues fragen …" required>
+                    <button type="submit" class="btn btn-primary">Fragen</button>
+                </form>
+            {% endcall %}
+            </main>
+        </div>
+    </div>
+</div>
+<script src="{{ url_for('static', filename='js/ask.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>
