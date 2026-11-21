@@ -375,6 +375,8 @@ def test_the_passages_follow_with_number_title_and_page(member_client, switch_on
     items = re.findall(r'<li class="ask-source">(.*?)</li>', section.group(1), flags=re.S)
     assert [_text(i) for i in items] == ["1 Mietvertrag_Seefeldstrasse_48.docx , S. 4",
                                          "2 Nachtrag_2_2023-03-14.pdf , S. 1"]
+    # the page follows the title with no gap between them
+    assert all('</a><span class="k-muted">, S.&nbsp;' in item for item in items)
 
 
 def test_every_address_on_the_page_is_built_by_the_app(workbench_app, member_client, switch_on, ask_url):

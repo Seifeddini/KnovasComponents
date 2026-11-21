@@ -27,8 +27,8 @@
     {% for p in items %}
     <li class="ask-source">
         <span class="ask-num">{{ p.number }}</span>
-        <a class="k-link" href="{{ p.href }}" target="_blank" rel="noopener">{{ p.title }}</a>
-        {%- if p.page %}<span class="k-muted">, S.&nbsp;{{ p.page }}</span>{% endif %}
+        <span class="ask-source-name"><a class="k-link" href="{{ p.href }}" target="_blank" rel="noopener">{{ p.title }}</a>
+        {%- if p.page %}<span class="k-muted">, S.&nbsp;{{ p.page }}</span>{% endif %}</span>
     </li>
     {% endfor %}
 </ol>

@@ -68,7 +68,7 @@
     font-size: var(--k-text-sm);
 }
 .ask-source { display: flex; align-items: baseline; gap: var(--k-space-xs); min-width: 0; }
-.ask-source .k-link { min-width: 0; }
+.ask-source-name { min-width: 0; overflow-wrap: anywhere; }
 .ask-num {
     box-sizing: border-box;
     display: inline-grid;
