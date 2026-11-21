@@ -10,6 +10,7 @@
 </head>
 <body class="admin-page">
 <div class="app-shell">
+{% set admin_tab = 'documents' %}
 {% include '_sidebar.html' %}
 <div class="app-content">
 
@@ -24,9 +25,6 @@
             </p>
         </div>
     </header>
-
-    {% set admin_tab = 'documents' %}
-    {% include '_admin_tabs.html' %}
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
     {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}

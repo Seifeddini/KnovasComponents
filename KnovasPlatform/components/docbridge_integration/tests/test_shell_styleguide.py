@@ -32,8 +32,9 @@ FEEDBACK = "https://feedback.example.org/form"
 
 @pytest.fixture(autouse=True)
 def _feedback_entry_on(monkeypatch):
-    """The sidebar's Feedback entry points outside, as in a default installation, whatever this machine's
-    environment says. Autouse, so it is set before the app is built."""
+    """The installation names a Feedback address that points outside, as a default installation does, whatever
+    this machine's environment says (until PMVP-11 the sidebar drew an entry for it). Autouse, so it is set before
+    the app is built."""
     monkeypatch.setenv("FEEDBACK_URL", FEEDBACK)
 
 
@@ -127,14 +128,16 @@ def test_the_page_loads_the_base_styles_and_names_no_colour_of_its_own(admin_cli
 
 
 def test_the_navigation_is_the_one_every_page_has(admin_client):
-    """The sidebar partial, with the same entries as on the search page, the Feedback entry among them."""
+    """The sidebar partial, with the same entries as on the search page. PMVP-11: that is the Workspace's one
+    entry, the search; Feedback has no entry until a later item places it (founder, 2026-11-20), although the
+    installation names a Feedback address."""
     def entries(html: str) -> list[str]:
         nav = re.search(r'<nav class="app-nav"[^>]*>(.*?)</nav>', html, re.S).group(1)
         return re.findall(r'<a href="([^"]+)" class="app-nav-item', nav)
 
     page, search_page = _page(admin_client), admin_client.get("/").data.decode("utf-8")
-    assert entries(page) == entries(search_page)
-    assert FEEDBACK in entries(page)
+    assert entries(page) == entries(search_page) == ["/"]
+    assert FEEDBACK not in page and FEEDBACK not in search_page
 
 
 def test_the_page_loads_nothing_from_outside_the_installation(admin_client):

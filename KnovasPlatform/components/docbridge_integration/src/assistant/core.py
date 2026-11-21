@@ -36,6 +36,18 @@ answer text only, so the model's name never reaches the service.
 
 HTTP 429 and 503 become ``CoreBusy``, any other HTTP error ``CoreFailed``;
 whatever else is raised reaches the service, which answers ``failed``.
+
+**make_service** (PMVP-25) is the switch and the provider the customer chose:
+``OFF`` while ``assistant.enabled`` is off, else the service with ``make_search``
+and the generate of ``assistant.provider`` (``knovas``: ``make_generate``;
+``anthropic``: ``assistant.providers.make_anthropic_generate``), all read
+through the settings' Resolver::
+
+    service = make_service(app.extensions["platform_settings"], api_client,
+                           split=app.extensions["experiments"]["search"].split,
+                           user_key=lambda: doc_fields_routes.user_key_for(identity_gate))
+    if service is OFF:
+        ...  # the route refuses
 """
 
 from __future__ import annotations
@@ -119,6 +131,41 @@ def make_generate(client: Any, *, temperature: float = DEFAULT_TEMPERATURE,
         return result["content"]
 
     return generate
+
+
+#: What ``make_service`` returns while the assistant is switched off (``assistant.enabled``): its routes refuse.
+OFF = "off"
+
+
+def make_service(settings: Any, client: Any, *, split: SplitFn, user_key: UserKey = None,
+                 anthropic_client: Optional[Callable[..., Any]] = None) -> Any:
+    """The assistant as the settings say now (PMVP-25): ``OFF``, or an ``AssistantService``.
+
+    ``settings`` is the installation's ``platform_settings.Resolver`` (``app.extensions["platform_settings"]``);
+    build the service per request, so a change on the settings page applies without a restart. Off
+    (``assistant.enabled``), nothing is built and nothing is searched. On, the search is ``make_search`` whatever
+    the provider (POST-02), and ``assistant.provider`` chooses the generate: ``knovas`` is ``make_generate``, the
+    Core's call exactly as before; ``anthropic`` is ``providers.make_anthropic_generate`` on the key and the model
+    of the settings, read on every call. A provider that is not offered fails every answer (``failed``).
+    ``anthropic_client`` replaces the SDK's client factory (tests).
+    """
+    from assistant import providers
+    from assistant.service import AssistantService
+
+    if not providers.is_enabled(settings.value(providers.SETTING_ENABLED)):
+        return OFF
+    provider = providers.chosen_provider(settings.value(providers.SETTING_PROVIDER))
+    if provider == providers.PROVIDER_KNOVAS:
+        generate = make_generate(client)
+    elif provider == providers.PROVIDER_ANTHROPIC:
+        generate = providers.make_anthropic_generate(
+            api_key=lambda: settings.secret(providers.SETTING_API_KEY),
+            model=lambda: settings.value(providers.SETTING_MODEL),
+            client_factory=anthropic_client,
+        )
+    else:
+        generate = providers.unavailable_generate("provider_unknown")
+    return AssistantService(search=make_search(client, split=split, user_key=user_key), generate=generate)
 
 
 def _secured(client: Any) -> bool:

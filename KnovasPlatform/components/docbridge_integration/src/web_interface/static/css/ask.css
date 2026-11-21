@@ -1,0 +1,161 @@
+/* Knovas Platform: the ask page and the switch in the search page's box
+   (PMVP-22a; reference screen docs/platform-mvp/reference-screens/01-assistent.html).
+
+   Values come from the brand tokens (knovas-tokens.css) only; no colour is named here. A length that is written
+   out is the own size of a thing: a line of 1 or 3 pixels, the number box of a passage (18 px, as the reference
+   chip of parts.css). The page itself is built from the shared parts (_parts.html, parts.css); these rules place
+   them and draw what the parts do not have: a statement, its quote, the list of passages, the box. */
+
+/* --- the answer ------------------------------------------------------------ */
+.ask-main { padding-top: var(--k-space-lg); }
+.ask-answer { display: flex; flex-direction: column; min-width: 0; }
+.ask-statement {
+    margin: 0 0 var(--k-space-sm);
+    font-size: var(--k-text-base);
+    line-height: var(--k-leading-relaxed);
+    color: var(--k-color-text);
+    overflow-wrap: anywhere;
+}
+/* The last word, the reference and the full stop: one line (FU-35). */
+.ask-tail { white-space: nowrap; }
+
+/* The quote under its statement: the card of the parts, marked on its left edge as the reference marks it. */
+.ask-quote { margin: 0 0 var(--k-space-md); min-width: 0; }
+.ask-quote .k-card {
+    border-left: 3px solid var(--k-color-accent);
+    border-radius: 0 var(--k-radius-md) var(--k-radius-md) 0;
+    background: var(--k-color-surface-sunken);
+}
+.ask-quote-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--k-space-3xs) var(--k-space-md);
+    font-size: var(--k-text-sm);
+}
+.ask-quote-doc {
+    min-width: 0;
+    font-family: var(--k-font-mono);
+    color: var(--k-color-text);
+    overflow-wrap: anywhere;
+}
+.ask-quote-text {
+    margin: var(--k-space-xs) 0 var(--k-space-sm);
+    font-size: var(--k-text-sm);
+    line-height: var(--k-leading-normal);
+    color: var(--k-gray-700);
+    overflow-wrap: anywhere;
+}
+
+.ask-removed { margin: 0; }
+
+/* The plain message: no answer, busy, failed. */
+.ask-message {
+    margin: 0;
+    font-size: var(--k-text-base);
+    line-height: var(--k-leading-normal);
+    color: var(--k-color-text);
+}
+
+/* --- the passages: number, title, page -------------------------------------- */
+.ask-sources {
+    display: flex;
+    flex-direction: column;
+    gap: var(--k-space-xs);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--k-text-sm);
+}
+.ask-source { display: flex; align-items: baseline; gap: var(--k-space-xs); min-width: 0; }
+.ask-source-name { min-width: 0; overflow-wrap: anywhere; }
+.ask-num {
+    box-sizing: border-box;
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 var(--k-space-2xs);
+    border-radius: var(--k-radius-xs);
+    background: var(--k-color-accent-soft);
+    font-size: var(--k-text-2xs);
+    font-weight: var(--k-weight-bold);
+    line-height: 1;
+    color: var(--k-color-accent);
+}
+
+/* --- the box under the answer ---------------------------------------------- */
+.ask-again {
+    display: flex;
+    gap: var(--k-space-xs);
+    align-items: center;
+    margin-top: var(--k-space-md);
+    padding: var(--k-space-xs) var(--k-space-xs) var(--k-space-xs) var(--k-space-md);
+    border: 1px solid var(--k-color-border-strong);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-color-surface);
+    box-shadow: var(--k-shadow-sm);
+}
+.ask-again:focus-within { border-color: var(--k-color-accent); }
+.ask-again-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: var(--k-space-xs) 0;
+    border: 0;
+    background: transparent;
+    font-size: var(--k-text-base);
+    color: var(--k-color-text);
+}
+.ask-again-input:focus { outline: none; }
+
+/* --- the switch in the search page's box: Fragen / Suchen ------------------ */
+/* Its own row above the box, so the box keeps the shape it has without the assistant. Each choice is a radio
+   input followed by its label; the input is out of sight but takes the focus and the keys. */
+.ask-box { margin: 0; }
+.ask-switch {
+    display: inline-flex;
+    min-width: 0;
+    margin: 0 0 var(--k-space-xs);
+    padding: var(--k-space-3xs);
+    border: 1px solid var(--k-color-border);
+    border-radius: var(--k-radius-full);
+    background: var(--k-color-surface-sunken);
+}
+.ask-switch-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    opacity: 0;
+}
+.ask-switch-label {
+    padding: var(--k-space-3xs) var(--k-space-sm);
+    border-radius: var(--k-radius-full);
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    line-height: var(--k-leading-snug);
+    color: var(--k-gray-600);
+    cursor: pointer;
+}
+.ask-switch-label:hover { color: var(--k-color-text-strong); }
+.ask-switch-input:checked + .ask-switch-label {
+    background: var(--k-color-surface);
+    box-shadow: var(--k-shadow-xs);
+    font-weight: var(--k-weight-semibold);
+    color: var(--k-color-text-strong);
+}
+.ask-switch-input:focus-visible + .ask-switch-label {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: 1px;
+}
+
+/* For screen readers only. */
+.ask-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}

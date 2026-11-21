@@ -59,9 +59,12 @@ class TestCortexOff:
 
 
 class TestCortexOn:
-    def test_it_is_in_the_navigation_by_default(self, tmp_path, monkeypatch):
+    def test_it_has_no_entry_in_the_navigation_until_a_later_item_places_it(self, tmp_path, monkeypatch):
+        """PMVP-11 (founder, 2026-11-20): the Workspace menu shows only the
+        search. Switched on, Cortex answers at its address (next test) and has
+        no entry. Was test_it_is_in_the_navigation_by_default."""
         client = _app(tmp_path, monkeypatch, cortex="true")
-        assert "Cortex" in client.get("/").data.decode("utf-8")
+        assert "Cortex" not in client.get("/").data.decode("utf-8")
 
     def test_the_page_answers(self, tmp_path, monkeypatch):
         client = _app(tmp_path, monkeypatch, cortex="true")

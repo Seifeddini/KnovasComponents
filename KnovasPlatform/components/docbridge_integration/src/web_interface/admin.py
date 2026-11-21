@@ -52,7 +52,13 @@ def create_admin_blueprint(
     bp = Blueprint("admin", __name__, url_prefix="/admin")
 
     def _require_roles(allowed: frozenset[str]):
-        """A route gate: signed in, and holding at least one of ``allowed``."""
+        """A route gate: signed in, and holding at least one of ``allowed``.
+
+        The view it returns carries ``allowed`` as ``allowed_roles``: the very
+        set the gate checks, so the web app's menu asks the route which roles
+        it lets in instead of keeping a second list (PMVP-11). The attribute
+        is read, never used to decide; the check below stays the control.
+        """
 
         def decorator(view):
             @functools.wraps(view)
@@ -69,6 +75,7 @@ def create_admin_blueprint(
                     abort(403)
                 return view(*args, **kwargs)
 
+            wrapped.allowed_roles = allowed
             return wrapped
 
         return decorator

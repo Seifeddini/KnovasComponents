@@ -135,25 +135,40 @@ class TestTemplate:
         assert "syncSelection" in script
 
 
-class TestConsoleShell:
-    """SS-387: one tab strip, shared by every console page; a way in."""
+#: PMVP-11: the Admin pages as the web app hands them to the navigation
+#: (app.py, _admin_pages) for an administrator: key, name, address, and whether
+#: the entry waits for Knovas to offer document fields. The addresses are the
+#: ones the stub url_for of these render tests gives.
+ADMIN_MENU = [
+    {"key": key, "label": label, "url": "/admin/" + key, "if_doc_fields": key == "doc_fields"}
+    for key, label in (("people", "Personen"), ("documents", "Dokumente"),
+                       ("access_groups", "Zugriffsgruppen"), ("doc_fields", "Dokumentfelder"),
+                       ("ingestion", "Ingestion"), ("system", "System"), ("approvals", "Freigaben"))
+]
 
-    def test_tab_strip_is_one_partial_included_by_every_console_page(self):
-        partial = TEMPLATES / "_admin_tabs.html"
-        assert partial.is_file(), "the tab strip must be a shared partial"
+
+class TestConsoleShell:
+    """SS-387: a way in. PMVP-11: the tab strip is gone; the console's pages
+    are the entries of the one navigation's area Verwaltung (_sidebar.html)."""
+
+    def test_the_tab_strip_is_gone_and_every_console_page_names_itself_to_the_navigation(self):
+        assert not (TEMPLATES / "_admin_tabs.html").exists(), "one navigation: no tab strip"
         for page in ("admin_people.html", "admin_documents.html"):
             html = (TEMPLATES / page).read_text(encoding="utf-8")
-            assert "_admin_tabs.html" in html, f"{page} must include the strip"
+            assert "_admin_tabs.html" not in html, f"{page} must not include the strip"
+            assert html.index("{% set admin_tab") < html.index("{% include '_sidebar.html' %}"), page
 
-    def test_tab_strip_names_every_tab_that_exists(self):
-        html = (TEMPLATES / "_admin_tabs.html").read_text(encoding="utf-8")
+    def test_the_console_menu_names_every_page_that_exists(self):
+        """The entries are named once, in app.py's admin_menu."""
+        app_py = (TEMPLATES.parent / "app.py").read_text(encoding="utf-8")
+        menu = app_py[app_py.index("admin_menu = ("):app_py.index("def _gate_roles(")]
         for endpoint in ("admin.people", "admin.documents", "admin.access_groups",
                          "admin.approvals", "admin.ingestion", "admin.doc_fields"):
-            assert endpoint in html
+            assert f"'{endpoint}'" in menu
 
-    def test_the_doc_fields_tab_is_drawn_only_while_knovas_offers_them(self):
-        """H6: no tab for a feature the server does not have. The capability
-        reaches the strip through the blueprint's context processor."""
+    def test_the_doc_fields_entry_is_drawn_only_while_knovas_offers_them(self):
+        """H6: no entry for a feature the server does not have. The capability
+        reaches the navigation through the blueprint's context processor."""
         import jinja2
 
         env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(TEMPLATES)),
@@ -164,26 +179,27 @@ class TestConsoleShell:
             def __init__(self, on):
                 self.shows_values = on
 
-        strip = env.get_template("_admin_tabs.html")
-        assert "Dokumentfelder" not in strip.render(admin_tab="people")
-        assert "Dokumentfelder" not in strip.render(admin_tab="people",
-                                                    doc_fields_capability=Cap(False))
-        shown = strip.render(admin_tab="doc_fields", doc_fields_capability=Cap(True))
+        menu = env.get_template("_sidebar.html")
+        base = dict(app_title="Knovas", company_name="Kanzlei", nav_area="admin",
+                    admin_pages=ADMIN_MENU)
+        assert "Dokumentfelder" not in menu.render(base, admin_tab="people")
+        assert "Dokumentfelder" not in menu.render(base, admin_tab="people",
+                                                   doc_fields_capability=Cap(False))
+        shown = menu.render(base, admin_tab="doc_fields", doc_fields_capability=Cap(True))
         assert "/admin/doc_fields" in shown and shown.count('aria-current="page"') == 1
 
-        class Approver:
-            roles = ("approver",)
-
         def explode():
-            raise AssertionError("an approver's strip must not ask for the capability")
+            raise AssertionError("an approver's menu must not ask for the capability")
 
         class Boom:
             @property
             def shows_values(self):
                 explode()
 
-        assert "Dokumentfelder" not in strip.render(admin_tab="approvals", me=Approver(),
-                                                    doc_fields_capability=Boom())
+        # An approver's menu holds Freigaben alone (app.py reads the routes' gates).
+        approver = dict(base, admin_pages=[p for p in ADMIN_MENU if p["key"] == "approvals"])
+        assert "Dokumentfelder" not in menu.render(approver, admin_tab="approvals",
+                                                   doc_fields_capability=Boom())
 
     def test_sidebar_offers_the_console_only_when_told_to(self):
         html = (TEMPLATES / "_sidebar.html").read_text(encoding="utf-8")
@@ -201,7 +217,7 @@ class TestConsoleShell:
         for page in pages:
             html = (TEMPLATES / page).read_text(encoding="utf-8")
             assert '<body class="admin-page">' in html, page
-            assert html.index("<h1>") < html.index("_admin_tabs.html"), page
+            assert "_admin_tabs.html" not in html, page
 
     def test_people_page_has_one_master_detail_view(self):
         html = (TEMPLATES / "admin_people.html").read_text(encoding="utf-8")
@@ -256,11 +272,17 @@ class TestAppWiring:
         assert "client_factory" in app_py[idx:idx + 600]
 
     def test_sidebar_link_is_gated_on_the_admin_role(self):
+        """PMVP-11: the link follows the gate of the page it leads to
+        (require_admin on Personen); app.py reads that gate and names no role
+        of its own. An administrator lands on Personen, the menu's first page."""
         app_py = (TEMPLATES.parent / "app.py").read_text(encoding="utf-8")
-        idx = app_py.index("def _console_url(")
-        body = app_py[idx:idx + 1200]
-        assert "'admin'" in body
-        assert "url_for('admin.people')" in body
+        body = app_py[app_py.index("def _admin_pages("):app_py.index("def _experiments_nav(")]
+        assert "_gate_roles(endpoint)" in body
+        assert "'admin'" not in body
+        menu = app_py[app_py.index("admin_menu = ("):app_py.index("def _gate_roles(")]
+        assert menu.index("'admin.people'") == min(menu.index(f"'{e}'") for e in (
+            "admin.people", "admin.documents", "admin.access_groups", "admin.doc_fields",
+            "admin.ingestion", "admin.system", "admin.approvals"))
 
 
 class TestTemplatesRender:
@@ -295,11 +317,11 @@ class TestTemplatesRender:
         base.update(extra)
         return base
 
-    def test_tab_strip_renders_and_marks_exactly_one_active_tab(self):
-        html = self._env().get_template("_admin_tabs.html").render(
-            self._context(admin_tab="documents"))
+    def test_the_console_menu_renders_and_marks_exactly_one_current_page(self):
+        html = self._env().get_template("_sidebar.html").render(
+            self._context(admin_tab="documents", nav_area="admin", admin_pages=ADMIN_MENU))
         assert html.count('aria-current="page"') == 1
-        assert html.count('class="active"') == 1
+        assert html.count('class="app-nav-item active"') == 1
 
     def test_documents_page_renders(self):
         html = self._env().get_template("admin_documents.html").render(
@@ -338,10 +360,14 @@ class TestTemplatesRender:
         assert "Backoffice" in html
         assert "Rechtsanwalt" in html
 
-    def test_people_page_still_renders_with_the_strip(self):
+    def test_people_page_still_renders_with_the_console_menu(self):
+        """PMVP-11: the entries are the navigation's, handed in by the web app
+        (was test_people_page_still_renders_with_the_strip)."""
         html = self._env().get_template("admin_people.html").render(
-            self._context(people=[], assignable_roles=["admin", "member"]))
+            self._context(people=[], assignable_roles=["admin", "member"],
+                          admin_pages=ADMIN_MENU))
         assert "Zugriffsgruppen</a>" in html
+        assert html.count('aria-current="page">Personen</a>') == 1
 
 
 from conftest import DummyKnovasClient, platform_db_reachable

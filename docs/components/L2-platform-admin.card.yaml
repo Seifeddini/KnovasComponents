@@ -10,7 +10,6 @@ source_paths:
 - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py
 - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_approvals.py
 - KnovasPlatform/components/docbridge_integration/src/web_interface/guarded.py
-- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_admin_tabs.html
 - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_people.html
 - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access_groups.html
 - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_documents.html
@@ -45,11 +44,11 @@ responsible_for:
   - KnovasPlatform/components/docbridge_integration/src/web_interface/guarded.py
   - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_approvals.html
 - id: L2-PLATFORM-ADMIN/R-4
-  statement: The console's one blueprint, its role gates and its tab strip, on which the other console pages (Ingestion,
-    Dokumentfelder, System's checks) are mounted.
+  statement: The console's one blueprint and its role gates, on which the other console pages (Ingestion, Dokumentfelder,
+    System's checks) are mounted, and the console's stylesheet. The console draws no menu of its own - its pages are
+    the entries of the navigation's area Verwaltung, which the shell draws; each page names itself to the navigation.
   code:
   - KnovasPlatform/components/docbridge_integration/src/web_interface/admin.py
-  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_admin_tabs.html
   - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/admin.css
 not_responsible_for:
 - Accounts, roles, sessions, the audit log and the approval queue's storage; the Platform's identity package (src/identity)
@@ -479,6 +478,13 @@ review:
     K4).
 - at: /status
   why: Live or planned is not read from the code; the console is on main and runs where the Platform runs.
+- at: /responsible_for
+  why: 'PMVP-11 removed the row of tabs (templates/_admin_tabs.html): one navigation. Who sees which entry is no longer
+    a condition in a console template; the web app reads it from the gates this blueprint puts on its routes (app.py,
+    _admin_pages; the shell''s card): each gate (_require_roles) puts the set of roles it checks on the view it returns,
+    as allowed_roles, and the web app reads that attribute. No gate''s check changed. admin.css still holds the rules of
+    the removed tabs (.admin .tabs) and rules that restyle the old navigation on the console''s pages (.admin-page
+    .app-sidebar and below); the shell''s shell.css outranks the second group, and neither was removed, because admin.css was not among PMVP-11''s files.'
 - at: /source_paths
   why: 'The work order''s scope: the people, groups and access pages PMVP-40 to PMVP-42 change. guarded.py is here because
     only console modules use it (admin_documents.py, admin_ingestion.py). admin.css is the stylesheet of every console page,
