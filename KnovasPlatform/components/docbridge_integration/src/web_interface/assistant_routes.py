@@ -14,8 +14,10 @@ What the page shows of the reply (statement, quote, title) reaches it as text: a
 in the template is marked safe, so ``<script>``, ``**bold**`` or ``[x](http://...)`` come out as those characters
 (FU-11). Every address on the page is built with ``url_for`` (FU-34); none is taken from the reply.
 
-The switch: with the assistant off, ``/fragen`` answers 404 and the search page's box offers only searching
-(``assistant_enabled``, the one place the switch is read).
+The switch: the installation setting ``assistant.enabled`` (PMVP-25; ``ASSISTANT_ENABLED`` in the environment pins
+it), read through the settings' Resolver on every request by ``assistant_enabled``, the one place the page reads
+it. Off, ``/fragen`` answers 404 and the search page's box offers only searching. The service comes from PMVP-25's
+factory (``assistant.core.make_service``), which reads the same setting and the provider the customer chose.
 
 The form: the box posts a hidden ``csrf_token`` field and this route checks it, as the other form posts of the app
 do (login, account password, the console); app.py exempts the endpoint from its header gate for that reason, as it
@@ -29,7 +31,6 @@ This file is ASCII-only (scripts/check_ascii_py.py): umlauts are ``\\u`` escapes
 from __future__ import annotations
 
 import logging
-import os
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
@@ -40,24 +41,33 @@ from assistant.service import MAX_QUESTION_BYTES, QUESTION_TOO_LONG_TEXT, STATUS
 
 logger = logging.getLogger(__name__)
 
-#: The environment variable that switches the assistant on until the installation setting ``assistant.enabled``
-#: (PMVP-25) is on this branch; that setting pins to the same variable.
+#: The environment variable that pins the setting ``assistant.enabled`` (platform_settings.REGISTRY).
 SWITCH_ENV = "ASSISTANT_ENABLED"
-_ON_VALUES = frozenset({"1", "true", "yes", "on"})
 
-#: The key of ``app.extensions`` that holds the page's wiring (``service``: builds the service for this request).
+#: The key of ``app.extensions`` that holds the page's wiring (``service``: the service for this request, or
+#: ``assistant.core.OFF``).
 EXTENSION = "assistant"
 
 EXPIRED_TEXT = "Formular ist abgelaufen. Bitte erneut versuchen."
 
 
-def assistant_enabled() -> bool:
-    """The switch, read on every request: on only when ``ASSISTANT_ENABLED`` says so.
+def assistant_enabled(settings: Any = None) -> bool:
+    """The switch, read on every request: the setting ``assistant.enabled`` through the settings' Resolver.
 
-    The one place the page reads it. PMVP-25 brings the installation setting ``assistant.enabled`` (read through the
-    settings' Resolver, pinned by the same variable); this function then reads that instead.
+    ``settings`` defaults to the app's Resolver (``app.extensions["platform_settings"]``): the deployment's
+    ``ASSISTANT_ENABLED`` pins it, else the settings page's value, else off. Whatever cannot be read counts as off.
     """
-    return os.environ.get(SWITCH_ENV, "").strip().lower() in _ON_VALUES
+    from assistant import providers
+
+    if settings is None:
+        settings = current_app.extensions.get("platform_settings")
+    if settings is None:
+        return False
+    try:
+        return providers.is_enabled(settings.value(providers.SETTING_ENABLED))
+    except Exception as exc:  # noqa: BLE001 - a switch that cannot be read is off
+        logger.warning("Fragen: the switch is not readable (%s)", type(exc).__name__)
+        return False
 
 
 def removed_line(count: int) -> str:
@@ -177,7 +187,11 @@ def create_assistant_blueprint(*, csrf_valid: Callable[[str], bool], grant: Call
             reply = _plain("failed", QUESTION_TOO_LONG_TEXT)
             question = ""
         else:
+            from assistant.core import OFF
+
             service = current_app.extensions[EXTENSION]["service"]()
+            if service is OFF:  # switched off since the check above
+                abort(404)
             reply = service.answer(question)
         if reply.status not in STATUSES:  # pragma: no cover - the service gives one of the four
             reply = _plain("failed", "")
@@ -208,20 +222,17 @@ def install_assistant(app: Flask, *, client: Any, identity_gate: Any, split: Cal
                       page_context: Callable[[], Mapping[str, Any]], pdf_preview: Callable[[], bool]) -> None:
     """Register the ask page and the factory of its service (one line in app.py).
 
-    The service is built per request, inside it, so the client signs every call for the signed-in person
+    The service is built per request, inside it, by PMVP-25's ``make_service`` on the settings' Resolver: so the
+    switch and the provider apply without a restart, and the client signs every call for the signed-in person
     (``assistant/README.md``, "Wiring"). A test replaces ``app.extensions["assistant"]["service"]``.
     """
 
     def build_service():
-        from assistant.core import make_generate, make_search
-        from assistant.service import AssistantService
+        from assistant.core import make_service
         from web_interface import doc_fields_routes
 
-        return AssistantService(
-            search=make_search(client, split=split,
-                               user_key=lambda: doc_fields_routes.user_key_for(identity_gate)),
-            generate=make_generate(client),
-        )
+        return make_service(app.extensions["platform_settings"], client, split=split,
+                            user_key=lambda: doc_fields_routes.user_key_for(identity_gate))
 
     app.extensions[EXTENSION] = {"service": build_service}
     app.register_blueprint(create_assistant_blueprint(

@@ -164,21 +164,76 @@ def test_switched_off_the_page_answers_404(member_client, switch_off, service, a
     assert service.questions == []
 
 
-@pytest.mark.parametrize("value", ["", "false", "0", "no", "off", "aus", "tru"])
-def test_the_switch_is_off_unless_the_environment_says_on(monkeypatch, value):
-    monkeypatch.setenv(assistant_routes.SWITCH_ENV, value)
-    assert assistant_routes.assistant_enabled() is False
+class _Setting:
+    """The settings' Resolver as the switch reads it: value(key)."""
+
+    def __init__(self, value):
+        self._value = value
+        self.keys = []
+
+    def value(self, key):
+        self.keys.append(key)
+        if isinstance(self._value, Exception):
+            raise self._value
+        return self._value
 
 
-@pytest.mark.parametrize("value", ["true", "TRUE", " yes ", "1", "on"])
-def test_the_switch_reads_on(monkeypatch, value):
-    monkeypatch.setenv(assistant_routes.SWITCH_ENV, value)
-    assert assistant_routes.assistant_enabled() is True
+@pytest.mark.parametrize("value", [None, "", "aus", "false", "0", "no", "off", "tru", 0, False])
+def test_the_switch_is_off_unless_the_setting_says_on(value):
+    setting = _Setting(value)
+    assert assistant_routes.assistant_enabled(setting) is False
+    assert setting.keys == ["assistant.enabled"]
 
 
-def test_the_switch_is_off_without_the_variable(monkeypatch):
-    monkeypatch.delenv(assistant_routes.SWITCH_ENV, raising=False)
-    assert assistant_routes.assistant_enabled() is False
+@pytest.mark.parametrize("value", ["an", "true", "TRUE", " yes ", "ja", "1", "on", True])
+def test_the_switch_reads_on(value):
+    assert assistant_routes.assistant_enabled(_Setting(value)) is True
+
+
+def test_a_setting_that_cannot_be_read_is_off():
+    assert assistant_routes.assistant_enabled(_Setting(RuntimeError("database gone"))) is False
+
+
+def test_an_app_without_settings_is_off():
+    from flask import Flask
+
+    with Flask("bare").app_context():
+        assert assistant_routes.assistant_enabled() is False
+
+
+def test_the_deployment_pins_the_switch(workbench_app, monkeypatch):
+    with workbench_app.app_context():
+        monkeypatch.delenv(assistant_routes.SWITCH_ENV, raising=False)
+        assert assistant_routes.assistant_enabled() is False  # the default: off
+        monkeypatch.setenv(assistant_routes.SWITCH_ENV, "true")
+        assert assistant_routes.assistant_enabled() is True
+
+
+def test_the_settings_page_switches_it_on(workbench_app, platform_admin, member_client, switch_off, service,
+                                          ask_url):
+    assert _ask(member_client, ask_url).status_code == 404
+    workbench_app.extensions["platform_settings"].save(platform_admin, {"assistant.enabled": "an"},
+                                                        roles=("admin", "member"))
+    assert _ask(member_client, ask_url).status_code == 200
+    assert len(service.questions) == 1
+
+
+def test_a_service_factory_that_says_off_is_a_404(workbench_app, member_client, switch_on, ask_url):
+    from assistant.core import OFF
+
+    workbench_app.extensions[assistant_routes.EXTENSION]["service"] = lambda: OFF
+    assert _ask(member_client, ask_url).status_code == 404
+
+
+def test_the_real_service_is_wired_and_fails_closed_without_the_secured_api(member_client, switch_on, ask_url,
+                                                                            caplog):
+    """No fake: PMVP-25's factory builds the service on the app's client. The test client is not in secured mode,
+    so the person's search refuses (CoreFailed) and the page shows the plain failure; no model is called."""
+    with caplog.at_level(logging.INFO):
+        response = _ask(member_client, ask_url)
+    assert response.status_code == 200
+    assert html_lib.escape(FAILED_TEXT) in _main(response.data.decode("utf-8"))
+    assert any("status=failed" in r.getMessage() for r in caplog.records)
 
 
 def test_the_switch_is_read_on_every_request(member_client, monkeypatch, service, ask_url):
