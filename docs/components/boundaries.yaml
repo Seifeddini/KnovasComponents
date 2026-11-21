@@ -137,12 +137,13 @@ components:
       - KnovasPlatform/components/docbridge_integration/src/identity/chats.py
       - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0026_assistant_chats.sql
     why: >-
-      The Knovas Assistent: its service package (src/assistant/, on feat/pmvp-20 and not yet on this branch, so the
-      path holds nothing today) and its chat storage. chats.py and migration 0026 sit in identity/ because the
+      The Knovas Assistent: its service package (src/assistant/: the service, the check, the switch and, since
+      PMVP-25, the provider module that calls Claude when the customer chose it) and its chat storage. chats.py and migration 0026 sit in identity/ because the
       Platform's migrations run from there, but they exist only for the assistant's past chats (PMVP-21) and nothing
       else reads them; the rest of identity/ is sign-in, roles and audit. The assistant's page routes (PMVP-22a) join
       when they exist. knovas_client.py, which the service calls and which imports its error types, stays with the
-      web app.
+      web app, and so does the settings page (settings_routes.py), which shows the assistant's four entries and calls
+      its connection test.
   L2-PLATFORM-BRAIN-VIEWS:
     card: L2-platform-brain-views.card.yaml
     paths:
@@ -202,6 +203,11 @@ components:
     card: EXT-github-api.card.yaml
     paths: []
     why: External - GitHub's REST API, read and written with a source's own credential.
+  EXT-ANTHROPIC-API:
+    card: EXT-anthropic-api.card.yaml
+    paths: []
+    why: External - Anthropic's Messages API, called through the official SDK with the key the customer saved in the
+      Platform's settings (PMVP-25).
   EXT-JIRA-API:
     card: EXT-jira-api.card.yaml
     paths: []

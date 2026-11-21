@@ -1,0 +1,74 @@
+# Component card (format 2) of EXT-ANTHROPIC-API; written for PMVP-25 of FEAT-2026-11-19-platform-mvp (Jira SS-738):
+# the founder decided on 2026-11-21 that the Platform calls the language model itself and that the customer chooses
+# the provider. What the Knovas Assistent (L2-PLATFORM-ASSISTANT) relies on in Anthropic's Messages API, through the
+# official Python SDK (anthropic==2.12.0). Edit this file, then `brain-runner card render`; the page beside it is
+# generated.
+card: 2
+id: EXT-ANTHROPIC-API
+name: Anthropic's Claude API (external)
+kind: external
+owner: ROLE-ENGINE-OWNER
+purpose: Anthropic's Messages API (api.anthropic.com), as far as this repository asks Claude for one whole answer
+  through the official Python SDK, always with the key the customer saved in the Platform's settings.
+not_responsible_for:
+- Holding a key; each call carries the key from the Platform's settings registry, never from a file or the
+  environment of the caller.
+- Deciding what Claude reads; the caller sends it (for the Knovas Assistent, only the passages the person's own
+  search returned, the question and its history).
+- Checking the answer; the Knovas Assistent's check does (statements with a source and a quote).
+terms:
+- fallback (Anthropic's server-side retry of a request on another model when the requested one declines on policy
+  grounds; asked for with fallbacks "default")
+- refusal (an answer that stops with stop_reason refusal; its text is not an answer)
+operations:
+- id: messages
+  name: POST /v1/messages (the SDK's client.beta.messages.create, beta server-side-fallback-2026-07-01) - one whole
+    answer, not streamed, with effort, the fallback and no temperature
+  entrance: http
+  ref: /v1/messages
+contract:
+  messages:
+    promises:
+    - id: EXT-ANTHROPIC-API/messages/P-1
+      statement: 'A request with model, max_tokens, system, messages, output_config.effort and fallbacks "default"
+        (beta header server-side-fallback-2026-07-01) is answered whole: the answer''s text is its text blocks, beside
+        which it may hold thinking and fallback blocks, and stop_reason says end_turn, max_tokens (cut) or refusal.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_providers.py
+        checks:
+        - test_through_the_real_sdk_the_wire_carries_the_ordered_request
+        - test_the_text_is_the_text_blocks_joined
+        - test_a_refusal_fails
+        - test_a_cut_answer_is_passed_on_as_it_is_and_the_check_drops_its_last_line
+    - id: EXT-ANTHROPIC-API/messages/P-2
+      statement: 'An error is an HTTP status the SDK raises as its own class: 429 rate limited and 529 overloaded (ask
+        again later), 401 a refused key, 403 a key without access to the model, any other status a failure; no
+        answer is no connection or a timeout.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_providers.py
+        checks:
+        - test_through_the_real_sdk_an_http_error_maps_the_same
+        - test_through_the_real_sdk_no_connection_and_a_timeout_fail
+    limits:
+    - id: EXT-ANTHROPIC-API/messages/L-1
+      statement: No temperature (the current models refuse it) and no thinking setting (adaptive thinking is the default
+        and cannot be switched off on claude-opus-5-5); thinking counts against max_tokens.
+      risk_class: standard
+review:
+- at: /contract
+  why: The evidence runs the real SDK (2.12.0) over an in-process transport (httpx2.MockTransport) and fakes of its
+    responses, written from the SDK's source and Anthropic's documentation; it shows what is relied on, not that
+    Anthropic keeps it. The one live run is the coordinator's probe of 2026-11-21 (docs/platform-mvp/tools/
+    claude_probe.py, 8 of 8 invented cases, FU-32), not a test.
+- at: /owner
+  why: Proposed owner of this card (what this repository relies on); confirmed by a person (Software Map K4).
+- at: /purpose
+  why: The Brain Builder's views assistant (src/builder/assistant.py, its own key builder.assistant.api_key) calls the
+    same API with tools; L2-BRAIN-BUILDER does not name this dependency yet (not PMVP-25's card to change).
+- at: EXT-ANTHROPIC-API/messages/L-1
+  why: No evidence; read from Anthropic's documentation of the current models. The tests show only that the request
+    carries neither.
