@@ -66,6 +66,42 @@ def record(
                      action, target_type, _error_code(exc))
 
 
+def record_or_raise(
+    conn: Any,
+    *,
+    action: str,
+    actor: Any | None = None,
+    target_type: str | None = None,
+    target_id: str | None = None,
+    outcome: str = "ok",
+    detail: Mapping[str, Any] | None = None,
+) -> None:
+    """Append one entry, or raise: for a change that must not stand without its row.
+
+    The role builder's rule 4 (RB-3, RB-4; design docs/platform-mvp/design/
+    role-builder.md, section 6): a change of a role, its functions or its
+    people is written in the same transaction as its row, so a row that
+    cannot be written undoes the change. Call it inside that transaction
+    (``conn.transaction()``); its error leaves the block and rolls the change
+    back. The caller logs the failure, by ``_error_code`` only.
+
+    The row is the one ``record`` writes, ``actor_email_snapshot`` included;
+    ``record`` itself stays best effort for every other action.
+    """
+    conn.execute(
+        "INSERT INTO audit_log (actor_user_id, actor_email_snapshot, action, "
+        "target_type, target_id, outcome, detail) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (
+            str(actor.id) if actor is not None else None,
+            actor.email if actor is not None else None,
+            action,
+            target_type,
+            target_id,
+            outcome,
+            json.dumps(dict(detail or {})),
+        ),
+    )
+
 def _error_code(exc: BaseException) -> str:
     """The exception's type and, from psycopg, the SQLSTATE and the constraint's
     name: identifiers only. Never str(exc): a database error's message and its
