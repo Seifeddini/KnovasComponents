@@ -149,8 +149,6 @@ clears any lockout.
   `https://<fqdn>` once nginx is in front of it
 - `/api/health` should report the Knovas API as reachable when configured
 
-No tenant yet? Use [demo.md](demo.md) instead of steps 3–5 against a real API.
-
 To stop the stack: `./scripts/stop.sh` — see [stopping web servers](../../docs/stopping-web-servers.md).
 
 ## 6. Optional: open files from AutoDoc (client-side)

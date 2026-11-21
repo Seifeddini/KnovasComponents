@@ -1302,8 +1302,6 @@ class KnovasAPIClient:
         self.base_url = self.config.get('api.base_url', 'http://localhost:5000')
         self.auth_type = self.config.get('api.auth_type', 'bearer')
         self.api_key = self.config.get('api.api_key', '')
-        self.use_secured_api = self.config.get_bool('api.use_secured_api', True)
-        self.allow_legacy_api_fallback = self.config.get_bool('api.allow_legacy_api_fallback', False)
         self.cert_path = self.config.get('api.cert_path', '')
         self.key_path = self.config.get('api.key_path', '')
         self.ca_cert_path = self.config.get('api.ca_cert_path', '')
@@ -1332,9 +1330,6 @@ class KnovasAPIClient:
         self._cert_lock = threading.RLock()
 
         self.endpoints = {
-            'full_sync': self.config.get('api.endpoints.full_sync', '/api/docs/full-sync'),
-            'new_doc': self.config.get('api.endpoints.new_doc', '/api/docs/new'),
-            'search': self.config.get('api.endpoints.search', '/api/search'),
             'health': self.config.get('api.endpoints.health', '/secured/health'),
             'init_transmission': self.config.get('api.endpoints.init_transmission', '/secured/init_document_transmission'),
             'transmit_part': self.config.get('api.endpoints.transmit_part', '/secured/transmit_document_part'),
@@ -1612,8 +1607,7 @@ class KnovasAPIClient:
         and ``snippet_sentence_number`` (``_snippet_with_location``). Outside
         the block rows have none of them:
         the search page reads that key when it matches words
-        (``_search_result_haystack``) and must behave as before. Secured
-        search only -- the legacy GET returns its rows as they are. Per
+        (``_search_result_haystack``) and must behave as before. Per
         thread, like ``asserting_for``, so a concurrent search page request
         keeps its rows unchanged.
         """
@@ -1815,12 +1809,10 @@ class KnovasAPIClient:
         )
 
     def secured_mode(self) -> bool:
-        """Whether this client speaks the secured API over mTLS.
-
-        Document fields exist only there: the legacy GET search has nowhere
-        to carry ``where`` (D13).
+        """Whether this client speaks the secured API over mTLS (client
+        certificate, key and CA configured). Without them it searches nothing.
         """
-        return bool(self.use_secured_api and self.mtls_enabled)
+        return bool(self.mtls_enabled)
 
     def delete_all_documents(self, confirm_client_id: str) -> Dict[str, Any]:
         """DELETE /secured/delete_all_documents — erase the whole corpus.
@@ -1997,13 +1989,11 @@ class KnovasAPIClient:
         Args:
             query: Search query string
             limit: Maximum number of results
-            filters: Query parameters of the legacy GET search. /secured/query
-                reads no filters, so the secured path does not send them
-                (spec F7); the Platform applies its own filters to the answer.
-            where: Document-fields filter; sent only when given. Only the
-                secured API carries it.
+            filters: Not sent: /secured/query reads no filters (spec F7); the
+                Platform applies its own filters to the answer.
+            where: Document-fields filter; sent only when given.
             return_fields: Document-field keys to return per hit; sent only
-                when given. Only the secured API carries it.
+                when given.
 
         Inside ``keeping_snippets()`` the secured rows also carry the Core's
         passage text as ``"snippet"``.
@@ -2012,45 +2002,22 @@ class KnovasAPIClient:
             Search results
 
         Raises:
-            ValueError: ``where`` or ``return_fields`` in legacy mode (D13).
+            RuntimeError: no mTLS certificate paths are configured; nothing
+                was sent.
             QueryRejected: Knovas refused a request that carried ``where``
                 or ``return_fields`` with a document-fields error code.
         """
-        if self.use_secured_api and self.mtls_enabled:
-            extra: Dict[str, Any] = {}
-            if where is not None:
-                extra['where'] = where
-            if return_fields is not None:
-                extra['return_fields'] = return_fields
-            return self._search_documents_secured(query=query, limit=limit, **extra)
-
-        if where is not None or return_fields is not None:
-            # The legacy GET has nowhere to carry them; dropping them would
-            # turn a filtered search into an unfiltered one that looks filtered.
-            raise ValueError(
-                "where/return_fields need the secured API (use_secured_api with mTLS)."
-            )
-
-        if self.use_secured_api and not self.allow_legacy_api_fallback:
+        if not self.mtls_enabled:
             raise RuntimeError(
-                "Secured API mode is enabled but mTLS cert paths are not configured. "
-                "Set SEMANTIX_CLIENT_CERT, SEMANTIX_CLIENT_KEY and SEMANTIX_CA_CERT, "
-                "or explicitly enable legacy fallback for mock/dev."
+                "mTLS cert paths are not configured. "
+                "Set SEMANTIX_CLIENT_CERT, SEMANTIX_CLIENT_KEY and SEMANTIX_CA_CERT."
             )
-
-        endpoint = self.endpoints['search']
-        params = {'query': query, 'limit': limit}
-        if filters:
-            params.update(filters)
-
-        try:
-            response = self._make_request(method='GET', endpoint=endpoint, params=params)
-            result = response.json()
-            logger.info(f"Legacy search successful: query='{query}', results={len(result.get('results', []))}")
-            return result
-        except Exception as e:
-            logger.error(f"Error during search: {e}")
-            raise
+        extra: Dict[str, Any] = {}
+        if where is not None:
+            extra['where'] = where
+        if return_fields is not None:
+            extra['return_fields'] = return_fields
+        return self._search_documents_secured(query=query, limit=limit, **extra)
 
     def llm_generate(
         self,

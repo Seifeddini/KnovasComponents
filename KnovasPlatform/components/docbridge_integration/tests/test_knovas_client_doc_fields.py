@@ -147,12 +147,11 @@ class TestSearchBody:
     @pytest.mark.parametrize("kw", [{"where": {"doc_type": "invoice"}},
                                     {"return_fields": ["title"]},
                                     {"return_fields": False}])
-    def test_legacy_mode_refuses_the_new_keys_and_sends_nothing(self, kw):
-        for client in (make_client(use_secured_api=False, allow_legacy_api_fallback=True),
-                       make_client(use_secured_api=True)):
-            client._session = FakeSession(lambda *a, **k: pytest.fail("sent"))
-            with pytest.raises(ValueError):
-                client.search_documents("q", limit=5, **kw)
+    def test_without_mtls_the_new_keys_are_refused_and_nothing_is_sent(self, kw):
+        client = make_client()  # no mTLS paths configured
+        client._session = FakeSession(lambda *a, **k: pytest.fail("sent"))
+        with pytest.raises(RuntimeError):
+            client.search_documents("q", limit=5, **kw)
 
 
 class TestQueryRejected:

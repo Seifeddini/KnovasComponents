@@ -313,7 +313,6 @@ One Compose project at the repo root covers every component.
 | `docbridge-web`       | Flask application + Gunicorn  | Internal only (`5000`)                        |
 | `docbridge-web-nginx` | In-compose reverse proxy      | `127.0.0.1:${DOCBRIDGE_WEB_PORT:-8081}`       |
 | `knovas-connector`   | Discovery and sync API        | `127.0.0.1:5001`                              |
-| `knovas-mock`         | Offline demo API              | Internal only — **profile `mock` only**       |
 
 
 > Docker service names retain legacy `docbridge` identifiers; they refer to the KnovasPlatform application.
@@ -337,7 +336,7 @@ KnovasPlatform runs on **internal networks only**. Listening ports must not be r
 
 The application port (`5000`) is Docker-internal only. Port `8081` is the sole published application port; in production mode it is bound to loopback.
 
-Knovas API endpoints used (configurable base URL): `/secured/query`, `/secured/health`, `/api/search`, `/secured/init_document_transmission`, `/secured/transmit_document_part`, `/secured/sign_certificate`.
+Knovas API endpoints used (configurable base URL): `/secured/query`, `/secured/health`, `/secured/init_document_transmission`, `/secured/transmit_document_part`, `/secured/sign_certificate`.
 
 ### 2.4 mTLS & credentials
 
@@ -351,7 +350,7 @@ Certificate files under `${SEMANTIX_CERTS_DIR:-./certs}` are mounted read-only t
 | `ca.crt`     | `SEMANTIX_CA_CERT`     | `/app/certs/ca.crt`     |
 
 
-- mTLS enabled by default: `SEMANTIX_USE_SECURED_API=true`
+- mTLS is always on: the Platform speaks only the secured API
 - Automatic certificate renewal: checks every 3600 s, renews when fewer than 30 days remain
 - Optional: `SEMANTIX_CUSTOMER_ID`
 
@@ -376,7 +375,6 @@ on every run.
 
 - `DOCBRIDGE_WEB_PORT` (default `8081`)
 - `DOCBRIDGE_WEB_WORKERS`, `DOCBRIDGE_WEB_THREADS`, `DOCBRIDGE_WEB_TIMEOUT` (defaults 2, 4, 180; the timeout must stay above `RC_EXTRACT_TIMEOUT_SECONDS`, default 120)
-- `SEMANTIX_USE_SECURED_API` (default `true`)
 - `AUTODOC_MOUNT_PATH` (host path) → mounted to `/mnt/autodoc` (read-only)
 - `OPEN_LOCAL_ROOT` — document path inside the container (e.g. `/mnt/autodoc`); maps server paths to client paths
 - `OPEN_UNC_ROOT` — how Windows clients see the share (e.g. `\\fileserver\AutoDocShare`)
@@ -450,33 +448,6 @@ API endpoint: `GET /api/document/<doc_id>/client-path`.
 **Supported browsers:** Current versions of Microsoft Edge or Google Chrome on Windows; Firefox or Chromium on Linux. Safari is not formally tested.
 
 Guide: `KnovasPlatform/docs/integration/opening-documents.md`.
-
-### 2.9 Demo / mock mode
-
-For evaluation without a Knovas tenant. **Not for production.**
-
-In `knovas.env`, point the API at the mock service name:
-
-```env
-KNOVAS_API_URL=http://knovas-mock:5000
-```
-
-then, after `./scripts/setup.sh`, in the generated `KnovasPlatform/.env.generated`:
-
-```env
-SEMANTIX_USE_SECURED_API=false
-SEMANTIX_ALLOW_LEGACY_API_FALLBACK=true
-```
-
-Start with the `mock` profile:
-
-```bash
-docker compose --env-file knovas.env --profile mock up -d --build
-```
-
-The mock API requires no tenant and no mTLS. Do not expose mock services on production networks.
-
-Guide: `KnovasPlatform/docs/demo.md`.
 
 ### 2.10 Hardware
 
@@ -652,6 +623,5 @@ Guide: `KnovasPlatform/docs/integration/troubleshooting.md`.
 | `KnovasPlatform/docs/platforms/debian.md`                | Debian-specific notes     |
 | `KnovasPlatform/docs/platforms/windows.md`               | Windows-specific notes    |
 | `KnovasPlatform/docs/integration/opening-documents.md`   | Document open feature     |
-| `KnovasPlatform/docs/demo.md`                            | Mock-tenant evaluation    |
 
 

@@ -1903,9 +1903,7 @@ def create_app(config_path: Optional[str] = None):
                 body, status = plan.refusal
                 return jsonify(body), status
             # exact_match is decided here, after Knovas answers. /secured/query
-            # reads no filters at all (the client leaves them out, spec F7);
-            # only the legacy GET forwards them, as query parameters, so a
-            # local-only key stays here.
+            # reads no filters at all (the client leaves them out, spec F7).
             knovas_filters = {k: v for k, v in (filters or {}).items()
                               if k not in _LOCAL_ONLY_FILTERS}
 

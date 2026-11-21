@@ -24,7 +24,7 @@ in KnowledgeBase.
 
 Two things exist instead:
 
-- **The demo stack on the workstation.** The compose project `knovascomponents` in the KnovasComponents checkout is the demo setup: `KNOVAS_API_URL=http://knovas-mock:5000`, `COMPOSE_PROFILES=mock,experiments`, `IDENTITY_ENABLED=false`. It talks to the mock, not to the tenant, and has been stopped since 20 Oct 2026.
+- **The demo stack on the workstation.** The compose project `knovascomponents` in the KnovasComponents checkout was the demo setup: `KNOVAS_API_URL=http://knovas-mock:5000`, `COMPOSE_PROFILES=mock,experiments`, `IDENTITY_ENABLED=false`. It talked to the mock, not to the tenant, and has been stopped since 20 Oct 2026; the compose `mock` profile was removed on 2026-11-21.
 - **A development server.** The views were built and measured against the tenant with `src/web_interface/app.py` run directly (section 3 below), on `http://127.0.0.1:5077` without accounts and `http://127.0.0.1:5078` with accounts.
 
 ## 1. Run it with Docker Compose (recommended)
@@ -63,7 +63,7 @@ KNOVAS_TENANT_ID=af639810-afc7-403f-8139-f6026d085c99
 KNOVAS_PLATFORM_URL=http://127.0.0.1:8081          # or https://<fqdn> behind host nginx
 KNOVAS_DOCUMENTS_PATH=./data/no-local-documents     # compose needs a value; the Connector stays off
 PLATFORM_ADMIN_EMAIL=<the CTO's address>
-COMPOSE_PROFILES=                                   # no mock, no experiments
+COMPOSE_PROFILES=                                   # no experiments
 
 # The views read the tenant's Knowledge Graph. Without this they answer
 # "Wissensnetz-Modus erforderlich".

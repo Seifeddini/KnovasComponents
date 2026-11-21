@@ -43,10 +43,6 @@ api:
     health: "${SEMANTIX_HEALTH_ENDPOINT:-/secured/health}"
     sign_certificate: "${SEMANTIX_SIGN_CERTIFICATE_ENDPOINT:-/secured/sign_certificate}"
     delete_information_object: "${SEMANTIX_DELETE_ENDPOINT:-/secured/delete_information_object}"
-    # Legacy/mock endpoints (used only when explicitly enabled)
-    full_sync: "${SEMANTIX_FULL_SYNC_ENDPOINT:-/api/docs/full-sync}"
-    new_doc: "${SEMANTIX_NEW_DOC_ENDPOINT:-/api/docs/new}"
-    search: "${SEMANTIX_SEARCH_ENDPOINT:-/api/search}"
   
   # mTLS certificates (optional — enables real Knovas secured API)
   cert_path: "${SEMANTIX_CLIENT_CERT:-}"
@@ -58,11 +54,6 @@ api:
   cert_auto_renew_enabled: "${SEMANTIX_CERT_AUTO_RENEW_ENABLED:-true}"
   cert_renew_threshold_days: "${SEMANTIX_CERT_RENEW_THRESHOLD_DAYS:-30}"
   cert_check_interval_seconds: "${SEMANTIX_CERT_CHECK_INTERVAL_SECONDS:-3600}"
-
-  # API mode
-  use_secured_api: "${SEMANTIX_USE_SECURED_API:-true}"
-  # Keep false in production. Set true only for explicit mock/dev usage.
-  allow_legacy_api_fallback: "${SEMANTIX_ALLOW_LEGACY_API_FALLBACK:-false}"
 
   # Legacy authentication (only relevant in legacy/mock mode)
   auth_type: "bearer"  # or "api_key"

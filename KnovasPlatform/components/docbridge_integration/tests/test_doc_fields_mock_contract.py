@@ -186,7 +186,7 @@ def _app_on_mock(platform_db, tmp_path, monkeypatch, mode, **kw):
     class RealClient(KnovasAPIClient):
         def __init__(self, config, principal_broker=None):
             config._config.setdefault("api", {}).update({
-                "base_url": "https://knovas.test", "use_secured_api": True,
+                "base_url": "https://knovas.test",
                 "cert_path": "/certs/client.crt", "key_path": "/certs/client.key",
                 "ca_cert_path": "/certs/ca.crt", "cert_auto_renew_enabled": False,
                 "rate_limit": {"requests_per_second": 0, "retry_attempts": 3,

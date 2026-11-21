@@ -93,8 +93,6 @@ class FakeSession:
 
 def make_client(
     base_url="https://knovas.test",
-    use_secured_api=True,
-    allow_legacy_api_fallback=False,
     cert_path="",
     key_path="",
     ca_cert_path="",
@@ -105,8 +103,6 @@ def make_client(
         "api.base_url": base_url,
         "api.auth_type": "bearer",
         "api.api_key": "",
-        "api.use_secured_api": use_secured_api,
-        "api.allow_legacy_api_fallback": allow_legacy_api_fallback,
         "api.cert_path": cert_path,
         "api.key_path": key_path,
         "api.ca_cert_path": ca_cert_path,
@@ -293,8 +289,7 @@ class TestC5FiltersStayOnThePlatform:
     """C5 once forwarded ``filters`` into /secured/query so that case scoping
     was not dropped silently. Knovas reads no such key (1.5.0, spec F7): the
     secured body leaves it out, and the Platform applies its own filters
-    (exact_match, the score thresholds) to the answer. The legacy GET still
-    sends them as query parameters."""
+    (exact_match, the score thresholds) to the answer."""
 
     def test_the_secured_body_carries_no_filters(self):
         client = make_secured_client()
@@ -307,19 +302,6 @@ class TestC5FiltersStayOnThePlatform:
         client._session = FakeSession(responder)
         client.search_documents("hello world", limit=5, filters={"akten_id": "A-42"})
         assert captured.get("json") == {"Input": "hello world", "limit": 5}
-
-    def test_the_legacy_get_still_sends_them_as_parameters(self):
-        client = make_client(use_secured_api=False, allow_legacy_api_fallback=True)
-        captured = {}
-
-        def responder(method, url, **kw):
-            captured.update(kw)
-            return FakeResponse(200, {"results": []})
-
-        client._session = FakeSession(responder)
-        client.search_documents("hello", limit=5, filters={"akten_id": "A-42"})
-        assert captured["params"] == {"query": "hello", "limit": 5, "akten_id": "A-42"}
-
 
 # ---------------------------------------------------------------------------
 # L1 — https enforcement for secured/mTLS mode

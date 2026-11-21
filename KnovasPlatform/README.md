@@ -20,8 +20,6 @@ cp knovas.env.example knovas.env   # edit
 
 Requirements: mTLS client certs in the root `certs/`, Docker Compose, a filled `knovas.env`.
 
-**Demo without a tenant:** [docs/demo.md](docs/demo.md)
-
 **Knovas HTTP API:** [docs/KnovasAPI/README.md](../docs/KnovasAPI/README.md)
 
 **mTLS certificates:** [docs/certificates.md](../docs/certificates.md) — both components read the **repo root** `certs/`. Drop in the `.pem` files Knovas ships; `./scripts/setup.sh` adds the `client.crt` / `client.key` / `ca.crt` names the Platform expects.
