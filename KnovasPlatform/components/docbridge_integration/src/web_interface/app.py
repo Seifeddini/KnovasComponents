@@ -1942,6 +1942,13 @@ def create_app(config_path: Optional[str] = None):
             },
         ))
 
+        # The shell's own page: /styleguide, administrators only (PMVP-10).
+        from web_interface.shell_routes import create_shell_blueprint
+
+        app.register_blueprint(create_shell_blueprint(identity_gate, page_context=lambda: {
+            **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+            'asset_version': _static_asset_version()}))
+
         from builder.publisher import BrainRunnerEngine
         from builder.store import WorkspaceStore
         from web_interface.builder_routes import create_builder_blueprint
