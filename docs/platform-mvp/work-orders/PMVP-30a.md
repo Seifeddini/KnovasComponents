@@ -178,3 +178,42 @@ document at its start. I did not guess the passage (see "Stopped on").
   `dossier-1440.png`, `dossier-390.png` (Überblick, the first fact opened), `dokumente-1440.png`, `dokumente-390.png`,
   `compare-1440.png`, `compare-390.png` (beside `02-dossier.png`), `facts.json`. The tools (`serve.py`, `shoot.py`) are
   one folder up; the invented firm is the reference screen's.
+
+### Rework 1 (2026-11-21, after the verifier's FAIL on `55a926f`)
+
+`origin/feat/platform-mvp` merged once more (`4f8cbb5`: the navigation, the fixed `@import` tests `fe91aba`, FU-38,
+CR-2; one conflict in `boundaries.yaml`, wording). Code `821ccfb`, card `1afbf53`.
+
+1. **Experiment pointers.** `split=experiments_search.split` is handed in from `app.py` (as to the document-fields
+   listing). `read_dossier`/`node_documents` take a `listable` test built on it: an `experiments/<domain>/<KEY>`
+   pointer is not listed, is no fact's source (the fact gets «ohne Beleg») and is never granted or sent to
+   `document_readable`. `test_an_experiment_document_is_not_listed_not_a_source_and_never_handed_over` is the
+   verifier's case (listed, granted) read from the grant store itself.
+2. **Grant on click.** Showing the dossier grants nothing. Every document link (list and facts) goes to
+   `GET /dossier/<node_id>/dokument/<n>` (1 = the first by name). It reads `GET /nodes/<id>` again as the person,
+   takes the n-th listable document, asks `document_readable(pointer)` as the person, and only then grants that one
+   document (`_grant_for_current_user`, same row shape as search) and redirects. Not readable, out of range, a hidden
+   or missing node, any failure: Flask's one 404, nothing granted. Tests: a stale assignment is not granted; a click
+   grants exactly one document to that person; another person's click grants the first person nothing.
+3. **Where it opens.** The row goes through search's own `_enhance_listing_rows` (open hints, OneDrive links), then
+   the order of a hit (`app.js` `_previewActionsHtml`, `openPreview`): a OneDrive/SharePoint address →
+   `document_external_open`; a PDF while `open.pdf_inline_in_browser` → `preview_document`; else, while
+   `_download_open_enabled()` → `download_document`; else a plain message (409, «Nur auf Ihrem Rechner»), nothing
+   granted: a hit's «Öffnen» (companion, file path on the person's PC) is browser code the dossier cannot run.
+   Tested with PDFs inline on and off (an app built with `open.pdf_inline_in_browser: false`), a non-PDF, downloads off.
+4. **`node_type_id`** goes into a path only as a uuid (`valid_type_id`); anything else: no type reads, no eyebrow
+   (a core type's CURIE such as `euo:Person` included).
+5. **The card.** `*/P-2` (POST-02, a passage opens) has no evidence any more; its review entry points at FU-38 and
+   CR-2. What holds is on the dossier route: P-2 (showing hands over nothing; the list without experiments), P-4 (a
+   fact without a mark opens its source document). The click route has its operation, N-1, P-1 (checked per click,
+   one document, one person, same 404) and P-2 (opens where a hit does).
+
+**Still open.** `document_readable` in `knovas_client.py` logs the pointer (`%r`) when the call itself fails (a
+transport or TLS error): customer text in a log line, in a file this order forbids. The dossier logs only types.
+The fix is one line in the client (log the exception type, not the pointer), with FU-09/FU-31.
+
+**Checks (rework).** Own database `knovas_platform_test_pmvp30a`: `tests/test_brain_views_dossier_*.py` 70 passed;
+`tests/test_shell_*.py` and `tests/test_pmvp11_navigation_acceptance.py` 441 passed; `tests/test_doc_fields_*.py`
+281 passed; `tests/test_platform_settings.py` 55 passed: 847, 0 failed. Frozen check all OK. `card check` 15 valid;
+`card render --check` 0 not current; `map-check --scope touched`, base `origin/feat/platform-mvp`: problems 0;
+in scope `need_added` on the two routes' N-1 (new operations) and `no_contract` on the factory (review entry).
