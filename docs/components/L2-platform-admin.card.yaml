@@ -137,7 +137,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
-        - TestMember::test_a_member_is_refused_a_page
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_the_page
   http.GET.admin.people:
     needs:
@@ -156,7 +157,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
-        - TestMember::test_a_member_is_refused_a_page
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_the_page
   http.POST.admin.people.create:
     needs:
@@ -173,7 +175,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
   http.POST.admin.people.disable:
     needs:
@@ -186,7 +189,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
   http.POST.admin.people.enable:
     needs:
@@ -199,7 +203,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
   http.POST.admin.people.roles:
     needs:
@@ -212,7 +217,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
   http.POST.admin.people.groups:
     needs:
@@ -225,7 +231,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
   http.POST.admin.people.reset-password:
     needs:
@@ -238,7 +245,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
   http.POST.admin.people.sign-out:
     needs:
@@ -251,7 +259,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
   http.GET.admin.system:
     needs:
@@ -264,7 +273,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
-        - TestMember::test_a_member_is_refused_a_page
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_the_page
   http.GET.approvals:
     needs:
@@ -385,8 +395,11 @@ review:
 - at: /contract
   why: 'Plan § 7 names Verwaltung only in SHELL POST-01, whose server half ("the server refuses the page otherwise") is
     each route''s N-1 here. Every other line of these routes (what they promise, their limits) has no source in § 7: PMVP-40
-    to PMVP-42 write them with their page tests (A-01 to A-06). Since PMVP-40 every route''s N-1 has a live test: signed
-    out (302 to the sign-in), a member (403) and an administrator (200), in tests/test_web_admin_gates.py.'
+    to PMVP-42 write them with their page tests (A-01 to A-06). Since PMVP-40 every route''s N-1 has live tests in
+    tests/test_web_admin_gates.py: the view the app registered lets in admin alone (allowed_roles); every other role the
+    console gives (approver, ingestion_manager, member, experimenter, experiments_manager) and an account with no role
+    get 403 and nothing runs; an administrator gets 200. The signed-out test (302 to the sign-in) cannot catch a missing
+    route gate on its own: the app''s sign-in check answers first.'
 - at: /operations
   why: 'create_admin_blueprint and run_guarded have no line: plan § 7 gives none. run_guarded''s two outcomes (queued, or
     executed and recorded as a bypass) are a candidate for PMVP-42, which needs a second administrator for the enforcement

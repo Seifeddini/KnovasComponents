@@ -115,7 +115,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
-        - TestMember::test_a_member_is_refused_a_page
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_the_page
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
@@ -134,7 +135,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
-        - TestMember::test_a_member_is_refused_a_page
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_the_page
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
@@ -153,7 +155,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
@@ -172,7 +175,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
@@ -191,6 +195,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_the_fields_routes_send_a_signed_out_visitor_to_sign_in
+        - TestRefused::test_every_role_but_the_administrator_is_refused_the_fields_routes
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
         checks:
@@ -209,6 +215,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_the_fields_routes_send_a_signed_out_visitor_to_sign_in
+        - TestRefused::test_every_role_but_the_administrator_is_refused_the_fields_routes
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
         checks:
@@ -227,6 +235,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_the_fields_routes_send_a_signed_out_visitor_to_sign_in
+        - TestRefused::test_every_role_but_the_administrator_is_refused_the_fields_routes
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
         checks:
@@ -245,7 +255,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
-        - TestMember::test_a_member_is_refused_a_page
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_the_page
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
@@ -264,7 +275,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
@@ -283,7 +295,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
@@ -302,7 +315,8 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
         checks:
         - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
-        - TestMember::test_a_member_is_refused_a_form_and_nothing_runs
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
         - TestAdministrator::test_an_administrator_gets_through_the_form
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
@@ -352,10 +366,12 @@ review:
     operations of their own when the card was split (admin.py on L2-PLATFORM-ADMIN imports them).'
 - at: /contract
   why: 'Plan § 7 names Verwaltung only in SHELL POST-01, whose server half ("the server refuses the page otherwise") is
-    each route''s N-1 here. Every other line of these routes has no source in § 7. Since PMVP-40 each N-1 has a live test
-    for a signed-out visitor, a member and an administrator (tests/test_web_admin_gates.py); for the three fields routes,
-    which answer JSON, the member''s 403 and the administrator''s 200 are TestDocFieldsLive''s. The source check of
-    test_web_admin_documents.py (every @bp.route carries @require_admin) stays as a second piece of evidence.'
+    each route''s N-1 here. Every other line of these routes has no source in § 7. Since PMVP-40 each N-1 has live tests
+    in tests/test_web_admin_gates.py: the view the app registered lets in admin alone (allowed_roles); every other role
+    the console gives and an account with no role get 403 and nothing runs; an administrator gets 200 (for the three
+    fields routes, which answer JSON, that 200 is TestDocFieldsLive''s). The signed-out test cannot catch a missing
+    route gate on its own: the app''s sign-in check answers first. The source check of test_web_admin_documents.py
+    (every @bp.route carries @require_admin) stays as a second piece of evidence.'
 - at: /responsible_for
   why: 'PMVP-40 (2026-11-21): both pages are one column of the shared page parts (_parts.html); the group tree stays a tree,
     a folder rule and a document are rows of a list, their access groups in words. Marks only for exceptions: a document

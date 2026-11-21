@@ -170,7 +170,10 @@ executors the other). After: L2-PLATFORM-ADMIN 13,835 tokens, L2-PLATFORM-ACCESS
   `map-check --scope touched` (base `1c6c7f2`, head the last commit): problems 0; budget 0 findings; complete 5
   `no_contract` (`create_admin_blueprint` and `run_guarded` as before, and the three names of L2-PLATFORM-ACCESS:
   plan § 7 gives none, review entries say so); compatible 11 `operation_removed` on L2-PLATFORM-ADMIN - the eleven
-  routes that moved to L2-PLATFORM-ACCESS with the same ids, no consumer. Run from
+  routes that moved to L2-PLATFORM-ACCESS with the same ids. **Corrected in the follow-up:** not "no consumer" - the
+  shell card's `uses` named two of them (`http.GET.documents`, `http.GET.access-groups`) and their N-1 lines under
+  L2-PLATFORM-ADMIN, which `--scope touched` did not show and `--scope all` did (2 `unknown_line`, 2
+  `unknown_operation`); the shell card now names L2-PLATFORM-ACCESS for those two. Run from
   `KnowledgeBase-worktrees/pmvp-01/scripts`, read only; nothing reached a tenant.
 - **In the browser** (headless Chrome, the real app with invented people, groups, rules and documents, full pages at
   1440 and 390 px): before, all three pages scrolled sideways at 390 and the lowest text contrast was 3.46 (the green
@@ -194,6 +197,31 @@ executors the other). After: L2-PLATFORM-ADMIN 13,835 tokens, L2-PLATFORM-ACCESS
   integrated.
 - **The parent card**: `L1-WORKSPACE` (KnowledgeBase) does not list `L2-PLATFORM-ACCESS`; outside this repository.
 - **The role words** want a person's yes (the third point of «The look»).
+
+### Follow-up after verification (2026-11-21, the coordinator's five points)
+
+`origin/feat/platform-mvp` (`e15ce98b`) merged in first (a fast-forward).
+
+1. **The shell card's references**: its `uses` named `http.GET.documents` and `http.GET.access-groups` and their N-1
+   lines under L2-PLATFORM-ADMIN; it now names them under L2-PLATFORM-ACCESS. `map-check --scope all` against
+   `4b7791b`: 0 `unknown_line`, 0 `unknown_operation` (before: 2 and 2), no new finding. The note above that said
+   "no consumer" is corrected.
+2. **Gate tests that catch a widened gate**: `tests/test_web_admin_gates.py` now asks, for every one of the 21 routes,
+   every role the console gives except admin (`admin.ASSIGNABLE_ROLES`: approver, ingestion_manager, member,
+   experimenter, experiments_manager) and an account with no role: 403 and nothing run (126 tests, `TestRefused`).
+   `TestTheGate` reads the view the app registered for each route and asserts its gate lets in admin alone
+   (`allowed_roles`). The docstring and both cards say that the signed-out test cannot catch a missing gate. 187 tests.
+3. **One primary button**: «Gruppe anlegen» in the head is a link to the section (`parts.link`, the fixed anchor);
+   the form's button is the page's one primary button.
+4. **Label match** (WCAG 2.5.3): the select-all box has no aria-label; its visible label names it.
+5. **German state words**: `gelöscht`, `archiviert` (the states of the Brain's document list besides `active`, Secure
+   API) and `zurückgehalten` (a held document); any other state by its key. The template (`state_words`) and
+   `admin_documents.js` (`STATE_WORDS`) hold the same table; `TestTheLookOfTheAccessPages` in
+   `test_web_admin_documents.py` checks both, the one main action and the label.
+
+Tests (own database): `tests/test_web_admin_*.py` 629 passed; `tests/test_shell_*.py` with
+`tests/test_pmvp11_navigation_acceptance.py` 441 passed. Frozen check all OK. `card check` 0 errors on the admin,
+access and shell cards; `card render --check` 17 cards, 0 not current.
 
 ## Verification (coordinator's record)
 

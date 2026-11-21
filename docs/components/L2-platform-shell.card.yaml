@@ -101,17 +101,21 @@ uses:
 - component: L2-PLATFORM-ADMIN
   operations:
   - http.GET.admin.people
-  - http.GET.documents
-  - http.GET.access-groups
   - http.GET.admin.system
   - http.GET.approvals
   expects:
   - L2-PLATFORM-ADMIN/http.GET.admin.people/N-1
-  - L2-PLATFORM-ADMIN/http.GET.documents/N-1
-  - L2-PLATFORM-ADMIN/http.GET.access-groups/N-1
   - L2-PLATFORM-ADMIN/http.GET.admin.system/N-1
   - L2-PLATFORM-ADMIN/http.GET.approvals/N-1
   method: the link «Verwaltung» (console_url, the first Admin page the person may open - Personen for an administrator, Freigaben for an approver) and the entries of the area Verwaltung (admin_pages); the web app offers a page only when the person holds a role that page's route gate lets in
+- component: L2-PLATFORM-ACCESS
+  operations:
+  - http.GET.documents
+  - http.GET.access-groups
+  expects:
+  - L2-PLATFORM-ACCESS/http.GET.documents/N-1
+  - L2-PLATFORM-ACCESS/http.GET.access-groups/N-1
+  method: the entries Dokumente and Zugriffsgruppen of the area Verwaltung (admin_pages), offered only when the person holds a role those routes' gate lets in; the two pages were L2-PLATFORM-ADMIN's until PMVP-40 split the card
 - component: L2-BRAIN-BUILDER
   operations:
   - home

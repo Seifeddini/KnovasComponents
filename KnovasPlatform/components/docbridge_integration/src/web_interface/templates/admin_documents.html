@@ -16,7 +16,11 @@
 {% import "_parts.html" as parts %}
 {# PMVP-40: one column built from the shared page parts. A document is one row of the list: its box, title and
    path, its access groups in words, and a mark only when its state is not "active" (marks only for
-   exceptions). admin_documents.js draws the rows it loads in the same way. #}
+   exceptions). admin_documents.js draws the rows it loads in the same way.
+
+   The states the Brain's document list knows (active, deleted, archived) and a held document (quarantined), in
+   words; a state not in this table is shown by its key. admin_documents.js holds the same table (STATE_WORDS). #}
+{% set state_words = {'deleted': 'gelöscht', 'archived': 'archiviert', 'quarantined': 'zurückgehalten'} %}
 
 <main class="admin admin-column">
 {% call parts.page(wide=True) %}
@@ -135,7 +139,7 @@
 
         <div class="document-select-all">
             <label class="admin-check">
-                <input type="checkbox" id="document-select-all" aria-label="Alle sichtbaren Dokumente auswählen">
+                <input type="checkbox" id="document-select-all">
                 <span>Alle sichtbaren auswählen</span>
             </label>
         </div>
@@ -149,7 +153,7 @@
                     <input type="checkbox" name="pointer" value="{{ d.pointer }}" aria-label="{{ d.title or d.pointer }} auswählen">
                     <div class="document-text">
                         <p class="document-title"><span>{{ d.title or '—' }}</span>
-                            {%- if d.status and d.status != 'active' %} {{ parts.tag(d.status, 'warn') }}{% endif %}</p>
+                            {%- if d.status and d.status != 'active' %} {{ parts.tag(state_words.get(d.status, d.status), 'warn') }}{% endif %}</p>
                         <p class="ptr">{{ d.pointer }}</p>
                         <p class="k-small"><span class="k-muted">Zugriffsgruppen:</span>
                             {% if d.access_groups %}{{ d.access_groups|join(', ') }}{% else %}<span class="k-muted">offen</span>{% endif %}</p>
