@@ -402,3 +402,16 @@ Second round, at `98de30e` (the head before these notes), in this worktree.
   asks. A process that is killed (not stopped) leaves its schema behind with the extension in it, and every later
   test in that database fails with `type "citext" does not exist` until the schema is dropped. It happened to me
   once in my own database.
+
+## Verification (coordinator's record)
+
+- **2026-11-21, fresh verifier session, `feat/pmvp-10` @ `5536443`: PASS WITH NOTES.** Frozen check 5 of 5; the brand
+  file 33 passed, none skipped; the builder's shell tests 102 passed. Scope: 17 files, all allowed; the 16 rules of
+  the second round changed one word each and set codes, ids, paths or a diff. All 22 old variable names kept, 20
+  through `var(--k-...)`; tokens and fonts equal the reference; nothing leaves the installation. `/styleguide`:
+  signed out 302, member 403, approver 403, administrator 200, POST 405. Eleven pages at both widths keep their
+  widths and are drawn in IBM Plex. Card checks clean. A reduced run of 2,595 page and style tests: every failure
+  is on the base too.
+- Integrated into `feat/platform-mvp` by the coordinator (merge `863cee3`). The whole suite is run by the
+  coordinator against `baseline-failing-ids.txt` once PMVP-11 and PMVP-12 are in as well.
+- Carried forward: `docs/platform-mvp/follow-ups.md` FU-28 to FU-30.

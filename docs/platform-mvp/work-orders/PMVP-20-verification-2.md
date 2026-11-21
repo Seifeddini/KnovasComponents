@@ -67,3 +67,9 @@ second model call checks each sentence against its passage); they stay open.
 PMVP-22a, 22b, 23, 24, 25 and 31 (the assistant's pages and switch, the evidence trail from a reference), and the
 assistant part of PMVP-33. Not waiting: PMVP-01, 03 (against the service's interface), 10, 11, 12, the Brain views
 30a, 30b, 32, 34, Admin 40 to 43.
+
+## Resumed on 2026-11-20 with another design
+
+The founder resumed the item the same day and asked for a changed approach. The proposal above (stricter
+cutting rules) was dropped; `PMVP-20-rework-2.md` replaces it: the model answers in statements with one source and
+a word-for-word quote each, and plain code checks form, source, quote and numbers. Nothing is cut into sentences.
