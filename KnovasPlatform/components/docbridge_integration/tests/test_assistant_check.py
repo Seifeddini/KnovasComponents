@@ -548,23 +548,23 @@ def _offered(passage, span=None):
 @pytest.mark.parametrize("text, claims", [
     # thousands: an apostrophe is not written, a space is
     ("CHF 1'500", {"1500"}),
-    ("CHF 1’500", {"1500"}),
+    ("CHF 1\u2019500", {"1500"}),
     ("CHF 1500", {"1500"}),
     ("CHF 1 500", {"1 500"}),
-    ("CHF 1 500 000", {"1 500 000"}),
-    ("CHF 1 500 und 2  500", {"1 500", "2 500"}),                  # white space of any kind is one space
+    ("CHF 1\u202f500\u00a0000", {"1 500 000"}),
+    ("CHF 1\u2002500 und 2  500", {"1 500", "2 500"}),                  # white space of any kind is one space
     ("CHF 1' 500", {"1 500"}),
     ("CHF 12\n500 und 3\t000", {"12 500", "3 000"}),                  # a statement has no lines
-    ("CHF 1­500, 2​500 und 3͏500", {"1500", "2500", "3500"}),   # what is not seen does not separate
-    ("2023 150 Fälle", {"2023", "150"}),
+    ("CHF 1\u00ad500, 2\u200b500 und 3\u034f500", {"1500", "2500", "3500"}),   # what is not seen does not separate
+    ("2023 150 F\u00e4lle", {"2023", "150"}),
     ("12 3456", {"12", "3456"}),
     # a stop or a comma between digits ties them
     ("CHF 1'500.50", {"1500.50"}),
-    ("CHF 1'500.–", {"1500"}),
+    ("CHF 1'500.\u2013", {"1500"}),
     ("EUR 1.500", {"1.500"}),
     ("3,5 %", {"3,5%"}),                                             # changed: per cent belongs to the number
     ("am 31.12.2025.", {"31.12.2025"}),
-    ("am 1. März 2024.", {"D#1.3.2024"}),                        # changed: a date with a month is one number
+    ("am 1. M\u00e4rz 2024.", {"D#1.3.2024"}),                        # changed: a date with a month is one number
     # what belongs to a number: letters and accents after it, one letter alone after it, a sign before it
     ("Art. 266a OR", {"266a"}),
     ("ART. 266A OR", {"266a"}),
@@ -574,12 +574,12 @@ def _offered(passage, span=None):
     ("Art. 266 OR", {"266"}),
     ("5 e-mails und 6 l'an", {"5", "6"}),
     ("Format A4", {"4"}),
-    ("Saldo -500 und −200, Tel. +41", {"-500", "-200", "+41"}),
-    ("Art. 266ͣ", {"266ͣ"}),
+    ("Saldo -500 und \u2212200, Tel. +41", {"-500", "-200", "+41"}),
+    ("Art. 266\u0363", {"266\u0363"}),
     # numbers that are told apart: a word, white space, list and sentence marks, brackets, a dash
     ("Art. 5, 6 und 7", {"5", "6", "7"}),
     ("Art. 5 (2); 2024", {"5", "2", "2024"}),
-    ("5-7 Tage, 2023–2024, 8 - 9", {"5", "7", "2023", "2024", "8", "9"}),
+    ("5-7 Tage, 2023\u20132024, 8 - 9", {"5", "7", "2023", "2024", "8", "9"}),
     ("5% - 7%", {"5%", "7%"}),                                       # changed: per cent belongs to the number
     # numbers with any other mark between them are one claim, as they stand
     ("2/3 Mehrheit", {"2/3"}),
@@ -588,21 +588,21 @@ def _offered(passage, span=None):
     ("1_500", {"1_500"}),
     ("3a2", {"3a2"}),
     ("3'30", {"3'30"}),                      # no thousands mark: three digits must follow
-    ("1‚5", {"1‚5"}),              # a low quotation mark is not an apostrophe
-    ("3․5", {"3․5"}),
-    ("1⠀500", {"1⠀500"}),
-    ("5 ́7", {"5 ́7"}),
+    ("1\u201a5", {"1\u201a5"}),              # a low quotation mark is not an apostrophe
+    ("3\u20245", {"3\u20245"}),
+    ("1\u2800500", {"1\u2800500"}),
+    ("5 \u03017", {"5 \u03017"}),
     # raised digits, fractions and number signs
-    ("Art. 271a¹ und 50 m²", {"271a¹", "50", "²"}),
-    ("10³ Franken, 3½ Zimmer", {"10³", "3½"}),
-    ("CHF ⁵⁰⁰, ½ Jahr, Ziff. ①", {"⁵⁰⁰", "½", "①"}),
+    ("Art. 271a\u00b9 und 50 m\u00b2", {"271a\u00b9", "50", "\u00b2"}),
+    ("10\u00b3 Franken, 3\u00bd Zimmer", {"10\u00b3", "3\u00bd"}),
+    ("CHF \u2075\u2070\u2070, \u00bd Jahr, Ziff. \u2460", {"\u2075\u2070\u2070", "\u00bd", "\u2460"}),
     # digits of another script and marks on a digit stay as written
-    ("３０ Tage", {"３０"}),
-    ("৪ Wochen", {"৪"}),
-    ("CHF 5̶0̶0̶", {"5̶0̶0̶"}),
+    ("\uff13\uff10 Tage", {"\uff13\uff10"}),
+    ("\u09ea Wochen", {"\u09ea"}),
+    ("CHF 5\u03360\u03360\u0336", {"5\u03360\u03360\u0336"}),
     # number words
     ("drei Monate", {"3"}),
-    ("Zwölf Monate, zwoelf Tage, FÜNF Jahre", {"12", "5"}),
+    ("Zw\u00f6lf Monate, zwoelf Tage, F\u00dcNF Jahre", {"12", "5"}),
     ("in Acht Tagen, ausser Acht gelassen", {"8"}),      # a statement is read strictly
     ("keine Zahl", set()),
 ])
@@ -618,14 +618,14 @@ def test_what_a_statement_claims(text, claims):
      {"21", "100", "2024", "0", "1800"}),
     ("die zweite Rate, eine Zweidrittelmehrheit, ein Drittel, zweieinhalb Jahre",
      {"w#zweit", "1|w#ein", "w#zweidrittelmehrheit", "w#drittel", "w#zweieinhalb"}),
-    ("einjährig, einmal, einfach, Einsprache, Eintrag, Einsicht", {"1|w#einjaehrig", "1|w#einmal"}),
-    ("sechsmonatigen, Zehnjahresfrist, zweijährige",
+    ("einj\u00e4hrig, einmal, einfach, Einsprache, Eintrag, Einsicht", {"1|w#einjaehrig", "1|w#einmal"}),
+    ("sechsmonatigen, Zehnjahresfrist, zweij\u00e4hrige",
      {"6|w#sechsmonatig", "10|w#zehnjahresfrist", "2|w#zweijaehrig"}),
     ("Achtung, im Zweifel, die Zweigniederlassung, Elfenbein, dreist", set()),
     ("six months, twenty days, one year", {"6", "20", "1|w#ein"}),
     ("null und nichtig", {"w#null und nichtig"}),
     # months and dates
-    ("März, Maerz, im Mai, Juni 2025, am 1. März, 31. Dezember 2025",
+    ("M\u00e4rz, Maerz, im Mai, Juni 2025, am 1. M\u00e4rz, 31. Dezember 2025",
      {"D#.3.", "D#.5.", "D#.6.2025", "D#1.3.", "D#31.12.2025"}),
     ("Mrz., Jan Meier, August Keller", {"D#.3.|w#mrz", "D#.1.|w#jan", "D#.8.|w#august"}),
     ("am 3. Jan. 2025", {"D#3.1.2025"}),
@@ -635,7 +635,7 @@ def test_what_a_statement_claims(text, claims):
     ("Der Mieter hat einen Teil der Miete bezahlt.", {"1|w#ein"}),
     # signs, per cent and scales are part of the number
     ("minus 500, -500, minus drei", {"-500", "-3"}),
-    ("5%, 5 %, 5 Prozent, 5‰, 5 Promille, fünf Prozent", {"5%", "5‰"}),
+    ("5%, 5 %, 5 Prozent, 5\u2030, 5 Promille, f\u00fcnf Prozent", {"5%", "5\u2030"}),
     ("CHF 2 Mio., 2 Millionen, 3 Mrd., eine Million", {"2#6", "3#9", "1#6|w#ein#6"}),
 ])
 def test_what_counts_as_a_number_since_the_hardening(text, claims):
@@ -651,25 +651,25 @@ def test_what_counts_as_a_number_since_the_hardening(text, claims):
     ("CHF 1 500 pro Monat", ["1 500"], ["1500", "1", "500"]),
     ("CHF 1'500.50 pro Monat", ["1500.50"], ["1500", "50", "1"]),
     ("am 31.12.2025", ["31.12.2025"], ["31", "12", "2025"]),
-    ("Die Busse beträgt 10⁶ Franken.", ["10⁶"], ["10", "⁶"]),
-    ("Art. 271a¹ OR", ["271a¹"], ["271a", "¹", "271"]),
+    ("Die Busse betr\u00e4gt 10\u2076 Franken.", ["10\u2076"], ["10", "\u2076"]),
+    ("Art. 271a\u00b9 OR", ["271a\u00b9"], ["271a", "\u00b9", "271"]),
     ("Art. 266 a contrario", ["266 a"], ["266", "266a"]),
     ("Art. 266a OR", ["266a"], ["266", "266 a"]),
-    ("Art. 266ͣ OR", ["266ͣ"], ["266"]),
+    ("Art. 266\u0363 OR", ["266\u0363"], ["266"]),
     ("Saldo -500 Franken", ["-500"], ["500"]),
     ("Saldo minus 500 Franken", ["-500"], ["500"]),
-    ("Zins 5 %, Gebühr 2‰", ["5%", "2‰"], ["5", "2"]),
-    ("am 1. März 2024", ["D#1.3.2024"], ["1", "2024", "D#.3.", "D#1.3."]),
+    ("Zins 5 %, Geb\u00fchr 2\u2030", ["5%", "2\u2030"], ["5", "2"]),
+    ("am 1. M\u00e4rz 2024", ["D#1.3.2024"], ["1", "2024", "D#.3.", "D#1.3."]),
     # a line break or a tab between two numbers: neither reading is offered
     ("nach Absatz 2\n500 Franken Busse", [], ["2", "500", "2 500", "2500"]),
     ("CHF 12\t500 pro Jahr", [], ["12", "500", "12 500", "12500"]),
-    ("Absatz 2\nDie Busse beträgt 500 Franken", ["2", "500"], ["2 500"]),
-    ("am 1. März\n2024", ["D#1.3.", "2024"], ["D#1.3.2024"]),
+    ("Absatz 2\nDie Busse betr\u00e4gt 500 Franken", ["2", "500"], ["2 500"]),
+    ("am 1. M\u00e4rz\n2024", ["D#1.3.", "2024"], ["D#1.3.2024"]),
     # words
     ("drei Monate, in acht Tagen", ["3", "8"], ["1"]),
     ("nicht ausser Acht lassen", [], ["8"]),
     ("Darauf ist Acht zu geben; er gibt acht und hat es in Acht genommen.", [], ["8"]),
-    ("Die Parteien sind sich eins über eine Frist.", ["w#ein"], ["1"]),
+    ("Die Parteien sind sich eins \u00fcber eine Frist.", ["w#ein"], ["1"]),
     ("eine dreimonatige Frist", ["w#ein", "w#dreimonatig", "3"], ["1"]),
     ("die Zweigniederlassung, Zweidrittelmehrheit", ["w#zweidrittelmehrheit"], ["2", "w#zweigniederlassung"]),
     ("Jan Meier kam im August.", ["w#jan", "w#august"], ["D#.1.", "D#.8."]),
@@ -683,16 +683,16 @@ def test_what_a_passage_offers(passage, holds, lacks):
 
 
 def test_only_what_stands_wholly_inside_the_quote_is_offered():
-    passage = "Die Frist beträgt 30 Tage; massgebend ist Art. 266 a OR seit dem 1. März 2024."
+    passage = "Die Frist betr\u00e4gt 30 Tage; massgebend ist Art. 266 a OR seit dem 1. M\u00e4rz 2024."
 
     def inside(quote):
         return _offered(passage, locate_quote(quote, passage))
 
-    assert inside("Die Frist beträgt 30 Tage") == {"30"}
+    assert inside("Die Frist betr\u00e4gt 30 Tage") == {"30"}
     assert inside("massgebend ist Art. 266") == set()          # "266 a" goes on after the quote
     assert inside("ist Art. 266 a OR") == {"266 a"}
-    assert inside("OR seit dem 1. März") == set()         # so does the date
-    assert inside("seit dem 1. März 2024.") == {"D#1.3.2024"}
+    assert inside("OR seit dem 1. M\u00e4rz") == set()         # so does the date
+    assert inside("seit dem 1. M\u00e4rz 2024.") == {"D#1.3.2024"}
 
 
 @pytest.mark.parametrize("statement, passage", [
@@ -858,22 +858,22 @@ def test_the_verifiers_inputs_are_removed(statement, passage, quote):
 
 @pytest.mark.parametrize("statement, passage, quote", [
     # number words written with an accent, without the umlaut, with letters that look like plain ones
-    ("Die Frist beträgt dréi Monate.", "Die Frist beträgt sechs Monate.", None),
-    ("Die Frist beträgt funf Monate.", "Die Frist beträgt drei Monate.", None),
-    ("Die Frist beträgt dreı Monate.", "Die Frist beträgt sechs Monate.", None),
-    ("Die Frist beträgt ᴅʀᴇɪ Monate.", "Die Frist beträgt sechs Monate.", None),
-    ("Die Frist beträgt dre̵i Monate.", "Die Frist beträgt sechs Monate.", None),
+    ("Die Frist betr\u00e4gt dr\u00e9i Monate.", "Die Frist betr\u00e4gt sechs Monate.", None),
+    ("Die Frist betr\u00e4gt funf Monate.", "Die Frist betr\u00e4gt drei Monate.", None),
+    ("Die Frist betr\u00e4gt dre\u0131 Monate.", "Die Frist betr\u00e4gt sechs Monate.", None),
+    ("Die Frist betr\u00e4gt \u1d05\u0280\u1d07\u026a Monate.", "Die Frist betr\u00e4gt sechs Monate.", None),
+    ("Die Frist betr\u00e4gt dre\u0335i Monate.", "Die Frist betr\u00e4gt sechs Monate.", None),
     # a number written in several words is one number
-    ("Die Busse beträgt zwei Franken.", "Die Busse beträgt zwei hundert Franken.", None),
-    ("Die Busse beträgt drei Franken.", "Die Busse beträgt drei und zwanzig Franken.", None),
-    ("Die Busse beträgt 5 Franken.", "Die Busse beträgt 5 Tausend Franken.", None),
-    ("Die Busse beträgt 5 Franken.", "Die Busse beträgt 5 Tsd. Franken.", None),
+    ("Die Busse betr\u00e4gt zwei Franken.", "Die Busse betr\u00e4gt zwei hundert Franken.", None),
+    ("Die Busse betr\u00e4gt drei Franken.", "Die Busse betr\u00e4gt drei und zwanzig Franken.", None),
+    ("Die Busse betr\u00e4gt 5 Franken.", "Die Busse betr\u00e4gt 5 Tausend Franken.", None),
+    ("Die Busse betr\u00e4gt 5 Franken.", "Die Busse betr\u00e4gt 5 Tsd. Franken.", None),
     # a word broken at a line end: with a hyphen it is read neither way, with a soft hyphen as one word
-    ("Die Frist beträgt drei Tage.", "Die Frist beträgt drei-\nzehn Tage.",
-     "Frist beträgt drei- zehn Tage"),
-    ("Die Frist beträgt dreizehn Tage.", "Die Frist beträgt drei-\nzehn Tage.",
-     "Frist beträgt drei- zehn Tage"),
-    ("Die Frist beträgt drei Tage.", "Die Frist beträgt drei­\nzehn Tage.", None),
+    ("Die Frist betr\u00e4gt drei Tage.", "Die Frist betr\u00e4gt drei-\nzehn Tage.",
+     "Frist betr\u00e4gt drei- zehn Tage"),
+    ("Die Frist betr\u00e4gt dreizehn Tage.", "Die Frist betr\u00e4gt drei-\nzehn Tage.",
+     "Frist betr\u00e4gt drei- zehn Tage"),
+    ("Die Frist betr\u00e4gt drei Tage.", "Die Frist betr\u00e4gt drei\u00ad\nzehn Tage.", None),
     # a number word inside a word
     ("Es gilt die Mindestdreimonatsfrist.", "Es gilt die Mindestsechsmonatsfrist.", None),
     ("Es gilt die Mindestzweidrittelmehrheit.", "Es gilt die Mindestdreiviertelmehrheit.", None),
@@ -883,15 +883,15 @@ def test_number_words_cannot_hide_from_the_check(statement, passage, quote):
 
 
 @pytest.mark.parametrize("statement, passage", [
-    ("Die Busse beträgt 200 Franken.", "Die Busse beträgt zwei hundert Franken."),
-    ("Die Busse beträgt dreiundzwanzig Franken.", "Die Busse beträgt drei und zwanzig Franken."),
-    ("Die Busse beträgt 5 Tausend Franken.", "Die Busse beträgt 5 Tsd. Franken."),
-    ("Die Frist beträgt dreizehn Tage.", "Die Frist beträgt drei­\nzehn Tage."),
-    ("Die Frist beträgt fünf Monate.", "Die Frist beträgt fuenf Monate."),
+    ("Die Busse betr\u00e4gt 200 Franken.", "Die Busse betr\u00e4gt zwei hundert Franken."),
+    ("Die Busse betr\u00e4gt dreiundzwanzig Franken.", "Die Busse betr\u00e4gt drei und zwanzig Franken."),
+    ("Die Busse betr\u00e4gt 5 Tausend Franken.", "Die Busse betr\u00e4gt 5 Tsd. Franken."),
+    ("Die Frist betr\u00e4gt dreizehn Tage.", "Die Frist betr\u00e4gt drei\u00ad\nzehn Tage."),
+    ("Die Frist betr\u00e4gt f\u00fcnf Monate.", "Die Frist betr\u00e4gt fuenf Monate."),
     ("Es gilt die Mindestdreimonatsfrist.", "Es gilt eine Mindestfrist von drei Monaten."),
     # "acht" inside a word is no number there; "Merkmal", "Stichtag" hold no number word
-    ("Die Pacht läuft ein Pachtjahr.", "Die Pacht läuft ein Pachtjahr lang."),
-    ("Der Pächter zahlt im Pachtjahr.", "Der Pächter zahlt im Pachtjahr vorab."),
+    ("Die Pacht l\u00e4uft ein Pachtjahr.", "Die Pacht l\u00e4uft ein Pachtjahr lang."),
+    ("Der P\u00e4chter zahlt im Pachtjahr.", "Der P\u00e4chter zahlt im Pachtjahr vorab."),
     ("Das Merkmal gilt seit dem Stichtag.", "Das Merkmal gilt seit dem Stichtag fest."),
     ("Die Frist gilt innerhalb des Monats.", "Die Frist gilt innerhalb des Monats."),
 ])
