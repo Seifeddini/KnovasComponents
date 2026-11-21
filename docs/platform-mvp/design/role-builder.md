@@ -206,23 +206,25 @@ nothing: it carries a Platform-signed claim to the Secure API.
 
 **Chosen: the Platform hands the Core a pool of the agent's signed claims ahead of use.**
 
-1. Every minute, and at once after a change on the agent pages, the Platform signs ten claims per live external agent
-   (each 300 seconds, each its own `jti`) and sends them with `PUT /secured/agents/<agent id>/claims`, replacing the
-   agent's pool. A revoked agent, an agent whose person is not active and an agent over 32 groups get
-   `DELETE …/claims` instead. Behind the switch `AGENTS_CORE_GATEWAY`, off until the Core has CR-R5.
+1. Every minute, and at once after a change on the agent pages, the Platform signs 20 claims (the Core's maximum)
+   per live external agent (each 300 seconds, each its own `jti`) and sends them with
+   `PUT /secured/agents/<agent id>/claims`, replacing the agent's pool. A revoked agent, an agent whose person is not
+   active and an agent over 32 groups get `DELETE …/claims` instead. Behind the switch `AGENTS_CORE_GATEWAY`, off
+   until the Core has CR-R5.
 2. Knovas issues the agent's gateway key with the agent's id (`manage_mcp_keys issue --agent <id>`, CR-R6), only for a
    `brokered` tenant.
 3. On each call with such a key the gateway takes one unused claim of that agent and sends it as `principal_assertion`
    with the actor `{kind: agent, id: <agent id>}`. The Secure API verifies it exactly as it verifies a person's claim
-   today and burns its `jti`. No claim left: the tool says no rights are current, and nothing is read.
+   today and burns its `jti`. No claim left, nothing is read: a pool used up within the last five minutes answers
+   "busy, try again"; no pool at all answers that no rights are current (CR-R6).
 
 Why: the Core's verifier and enforcement stay as they are, the Platform needs no inbound connection, a change counts
 at the next push (at once from the agent pages, else within a minute, at most 300 seconds if the Platform is down),
-and the pool bounds an agent to about ten calls a minute. Rejected: the gateway signing per call with a key of its own
-(it would mint principals, and the verifier would change); the gateway asking the Platform per call (a client's
-Platform is not reachable from cloudscale). **Cost:** the Core holds bearer claims for at most 300 seconds, readable
-and deletable only by the gateway's role; one push per agent a minute. On the Knovas tenant Claude Code moves from the
-internal server, which stops at `brokered`, to the gateway with an agent key.
+and the pool bounds an agent to 20 upstream calls a minute (more needs a higher Core maximum). Rejected: the gateway
+signing per call with a key of its own (it would mint principals, and the verifier would change); the gateway asking
+the Platform per call (a client's Platform is not reachable from cloudscale). **Cost:** the Core holds bearer claims
+for at most 300 seconds, readable and deletable only by the gateway's role; one push per agent a minute. On the Knovas
+tenant Claude Code moves from the internal server, which stops at `brokered`, to the gateway with an agent key.
 
 ## 6. Safety rules (proposed, each with its control)
 

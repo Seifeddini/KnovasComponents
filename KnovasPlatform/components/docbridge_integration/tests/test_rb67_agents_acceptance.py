@@ -25,7 +25,7 @@ What is pinned:
 4. The assistant searches with its own claim, narrowed to the signed-in person, on every Core call of an answer, and
    declares itself as the actor with the person as ``on_behalf_of``.
 5. Delivery (RB-7), behind ``AGENTS_CORE_GATEWAY`` (off by default; off, nothing reaches the Core): for every live
-   external agent ``PUT /secured/agents/<agent id>/claims`` with exactly ``{"claims": [...]}``, 1 to 20 claims signed
+   external agent ``PUT /secured/agents/<agent id>/claims`` with exactly ``{"claims": [...]}``, exactly 20 claims (the Core's maximum) signed
    by the Platform's broker key, each with the agent's id as subject, its groups and functions, its own ``jti`` and a
    lifetime of at most 300 seconds, and no person's assertion; for a revoked agent, an agent whose person is not
    active and an agent over 32 groups ``DELETE /secured/agents/<agent id>/claims`` and never a ``PUT``. The assistant
@@ -204,7 +204,7 @@ def _pushed(app, agent_id):
     (put,) = _wire(app).put_for(agent_id)
     assert set(put["json"]) == {"claims"}, put["json"].keys()
     claims = put["json"]["claims"]
-    assert 1 <= len(claims) <= 20
+    assert len(claims) == 20                                           # the Core's maximum (CR-R5)
     verified = [_verify(app, token) for token in claims]
     assert len({c.jti for c in verified}) == len(verified)
     for claim in verified:

@@ -99,11 +99,15 @@ gateway sends one per call.** The agent is known to both by the Platform's agent
   when empty). Answers 204.
 - **Data:** a new table, e.g. `agent_claims(id, client_id → clients ON DELETE CASCADE, agent_id TEXT, claim TEXT, jti,
   expires_at)`, an index on `(client_id, agent_id, expires_at)`; expired rows purged; at most 20 per agent. Readable
-  and deletable only by the gateway's role (`mcp_gateway_reader` gains `SELECT, DELETE` on it) and the app.
+  and deletable only by the gateway's role (`mcp_gateway_reader` gains `SELECT, DELETE` on it) and the app. Per
+  agent also `last_pool_expires_at` (the latest claim's `exp` of the last `PUT`; cleared by `DELETE`), which CR-R6
+  reads to tell a used-up pool from none.
 - **Logs and audit:** one line per call with the tenant, the agent id, the count, the outcome and an error code; never a
   claim, a group name or a `jti` beyond its first eight characters (GI-DATA-04). An audit event `agent.claims.replaced`
   or `agent.claims.dropped` with the agent id and the count.
 - **Rate:** the class `metadata` (10 per second, burst 20) is enough: the Platform pushes once a minute per agent.
+- **The limit this sets, plainly:** the Platform pushes 20 claims, the maximum, and each upstream call burns one, so
+  **an agent makes at most 20 upstream calls a minute; raise the Core's maximum if pilots need more.**
 - **Decision text:** DEC-0077 amended: "a signed claim names a person **or an agent registered on the Platform**".
 - **Depends on:** CR-R1 (a tenant can be `brokered`). **Used by:** RB-7 (the Platform pushes) and CR-R6.
 
@@ -117,11 +121,15 @@ gateway sends one per call.** The agent is known to both by the Platform's agent
   claim of (the key's tenant, `agent_id`) atomically (`DELETE … WHERE id = (SELECT … ORDER BY expires_at LIMIT 1 FOR
   UPDATE SKIP LOCKED) RETURNING claim`), send it as the body field `principal_assertion`, and declare the actor
   `{"kind": "agent", "id": "<agent_id>"}`. A retry after `429`/`503` takes a fresh claim (the Secure API burns each
-  `jti`). No claim left: the tool answers "No current rights for this agent; nothing was read." and nothing is sent
-  upstream (not the busy text).
+  `jti`). **No unused claim left**, nothing is sent upstream, and the answer depends on whether the agent has a pool:
+  - it had one within the last 5 minutes (`last_pool_expires_at` later than now minus 300 seconds) and it is used
+    up: the gateway's busy text with a retry hint ("Knovas is busy, try again in a few seconds."), outcome
+    `pool_empty`;
+  - it has none (never pushed, dropped by `DELETE`, or expired more than 5 minutes ago): "No current rights for this
+    agent; nothing was read.", outcome `no_claim`.
 - **Unchanged:** the key check, the tenant from the key's row, the certificate per tenant, the Secure API's verifier
   and enforcement (a claim from the pool is verified like any Platform claim).
-- **Logs:** the existing `mcp_call` line gains `agent_id` and the outcome `no_claim`; never a claim.
+- **Logs:** the existing `mcp_call` line gains `agent_id` and the outcomes `pool_empty` and `no_claim`; never a claim.
 - **Models and sign-off:** `gateway_key.als` / `gateway_tools.als` gain the bound key and "a bound key's call carries
   exactly one pooled claim of its agent"; GI-GW-01 to GI-GW-05 as amended need a new sign-off (Siran), as the plan
   requires for any change to them.
