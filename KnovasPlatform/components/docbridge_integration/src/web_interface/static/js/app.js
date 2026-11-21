@@ -1439,20 +1439,6 @@ class DocumentSearchApp {
         if (this.showListButton) this.showListButton.hidden = true;
     }
 
-    /** Up to maxSentences sentences from plain text (falls back to char limit). */
-    firstSentencesExcerpt(text, maxSentences = 4, maxChars = 6000) {
-        const raw = String(text || '').trim();
-        if (!raw) return '';
-        const parts = raw.split(/(?<=[.!?…])\s+/).filter((s) => s.trim().length > 0);
-        let out = parts.slice(0, maxSentences).join(' ').trim();
-        if (!out) {
-            out = raw.length > maxChars ? raw.substring(0, maxChars) + '…' : raw;
-        } else if (out.length > maxChars) {
-            out = out.substring(0, maxChars) + '…';
-        }
-        return out;
-    }
-
     /**
      * Soft-truncate an LLM summary at a char cap. Preserves the abstractive
      * summary the server produced instead of slicing it to the first N sentences
@@ -1495,13 +1481,6 @@ class DocumentSearchApp {
             if (typeof t === 'string') return t.trim();
         }
         return '';
-    }
-
-    hasContextPreview(doc) {
-        return Boolean(
-            (doc.first_page_preview && String(doc.first_page_preview).trim()) ||
-            (doc.context_snippet && (doc.context_snippet.match || doc.context_snippet.before || doc.context_snippet.after)),
-        );
     }
 
     _buildContextSnippetHtml(snippet) {
@@ -2190,31 +2169,6 @@ class DocumentSearchApp {
             .replace(/\\/g, '\\\\')
             .replace(/'/g, "\\'")
             .replace(/\r|\n/g, ' ');
-    }
-    
-    formatDate(dateString) {
-        try {
-            const date = new Date(dateString);
-            return date.toLocaleDateString('de-DE', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        } catch {
-            return dateString;
-        }
-    }
-    
-    formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
     }
 }
 

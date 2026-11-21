@@ -85,8 +85,6 @@ web:
     verify_files_on_disk: false   # skip os.stat on every hit; open still checks on demand
     enrichment_max_bytes: 52428800
     supplement_max_enrichment_scan: 5000
-autodoc:
-  max_discovery_entries: 10000
 ```
 
 When `verify_files_on_disk` is false, search results set `can_open` from path mapping only; **Öffnen** and companion mint still verify the file exists once at open time.

@@ -346,20 +346,6 @@ def _ingested_summary_from_hit(item: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _chunk_text_from_hit(item: Dict[str, Any]) -> Optional[str]:
-    """First non-empty chunk/snippet field from a query hit or nested metadata."""
-    for k in ("snippet", "text", "chunk", "content", "body", "preview", "matched_text", "excerpt", "highlight"):
-        v = item.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    nest = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    for k in ("snippet", "text", "chunk", "content", "matched_text", "excerpt"):
-        v = nest.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    return None
-
-
 def _snippet_from_hit(item: Dict[str, Any]) -> Optional[str]:
     """The Core's verbatim passage text of one /secured/query hit, or None.
 
@@ -369,7 +355,7 @@ def _snippet_from_hit(item: Dict[str, Any]) -> Optional[str]:
     the hit's own ``snippet``: a window of at most 240 characters cut from the
     chunk's ``original_text`` (whole rows for a table chunk, none for an auto
     summary). Only that key is read -- not ``text``, ``content`` or the other
-    keys ``_chunk_text_from_hit`` accepts: GI-QUERY-04 promises that served
+    chunk keys a hit may carry: GI-QUERY-04 promises that served
     text is ``original_text``, and the BM25 ``text`` field has its digits
     stripped.
     """
@@ -454,13 +440,6 @@ def _document_date_from_hit(item: Dict[str, Any]) -> Any:
                 continue
             return v
     return None
-
-
-def _cap_path_keep_suffix(path: str, max_chars: int = 300) -> str:
-    """Truncate long paths from the beginning so the end (e.g. filename) is kept."""
-    if len(path) <= max_chars:
-        return path
-    return "…" + path[-(max_chars - 1) :]
 
 
 def _normalize_semantix_path_for_init(raw: Optional[Any]) -> Optional[str]:
@@ -2062,81 +2041,6 @@ class KnovasAPIClient:
         response = self._request_no_retry('POST', endpoint, data=body, as_person=as_person)
         return response.json() if response.content else {}
     
-    def sync_document_batch(
-        self, 
-        documents: List[Dict[str, Any]],
-        endpoint_type: str = 'full_sync'
-    ) -> Dict[str, Any]:
-        """
-        Synchronize a batch of documents to Knovas.
-        
-        Args:
-            documents: List of document dictionaries
-            endpoint_type: Type of endpoint ('full_sync' or 'new_doc')
-            
-        Returns:
-            API response data
-        """
-        endpoint = self.endpoints.get(endpoint_type, self.endpoints['full_sync'])
-        
-        try:
-            response = self._make_request(
-                method='POST',
-                endpoint=endpoint,
-                data={'documents': documents}
-            )
-            
-            result = response.json()
-            logger.info(
-                f"Batch sync successful: {len(documents)} documents to {endpoint}"
-            )
-            return result
-            
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error during batch sync: {e}")
-            if e.response is not None:
-                logger.error(f"Response body: {e.response.text}")
-            raise
-        except Exception as e:
-            logger.error(f"Error during batch sync: {e}")
-            raise
-    
-    def sync_single_document(
-        self, 
-        document: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Synchronize a single document to Knovas.
-        
-        Args:
-            document: Document dictionary
-            
-        Returns:
-            API response data
-        """
-        if self.use_secured_api and self.mtls_enabled:
-            return self._sync_single_document_secured(document)
-
-        endpoint = self.endpoints['new_doc']
-        
-        try:
-            response = self._make_request(
-                method='POST',
-                endpoint=endpoint,
-                data=document
-            )
-            
-            result = response.json()
-            logger.info(f"Single document sync successful: {document.get('doc_id')}")
-            return result
-            
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error during single document sync: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error during single document sync: {e}")
-            raise
-    
     def search_documents(
         self,
         query: Union[str, List[str]],
@@ -2789,12 +2693,6 @@ class KnovasAPIClient:
             'POST', f'/nodes/{quote(str(node_id), safe="")}/filters',
             data={'query_text': query_text, 'child_node_name': child_node_name})
 
-    def graph_delete_filter(self, node_id: str, filter_id: str) -> Optional[Dict[str, Any]]:
-        """DELETE /secured/graph/nodes/<id>/filters/<fid>."""
-        return self._graph_request(
-            'DELETE',
-            f'/nodes/{quote(str(node_id), safe="")}/filters/{quote(str(filter_id), safe="")}')
-
     def graph_placements(self, node_id: str,
                          status: str = 'active') -> List[Dict[str, Any]]:
         """GET /secured/graph/nodes/<id>/placements?status=active|rejected."""
@@ -2808,11 +2706,6 @@ class KnovasAPIClient:
         """POST /secured/graph/placements/<pid>/reject - dauerhaft."""
         return self._graph_request(
             'POST', f'/placements/{quote(str(placement_id), safe="")}/reject')
-
-    def graph_restore_placement(self, placement_id: str) -> Optional[Dict[str, Any]]:
-        """POST /secured/graph/placements/<pid>/restore - expliziter Override."""
-        return self._graph_request(
-            'POST', f'/placements/{quote(str(placement_id), safe="")}/restore')
 
     # -- Document fields (typed values per document) -------------------------
     # Contract: KnowledgeBase docs/Knovas_Developer_Kit/api/Knowledge_Graph_API.md
@@ -3396,48 +3289,6 @@ class KnovasAPIClient:
             'DELETE', f'/secured/folder_rules/{quote(str(rule_id), safe="")}')
         return result is not None
 
-    def format_document_payload(
-        self,
-        doc_id: str,
-        akten_id: Optional[str],
-        doc_type: Optional[str],
-        file_path: str,
-        timestamp: datetime,
-        file_size: int,
-        file_hash: str,
-        additional_metadata: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Format document data for API submission.
-        
-        Args:
-            doc_id: Document ID
-            akten_id: Akten ID
-            doc_type: Document type
-            file_path: Relative file path
-            timestamp: Document timestamp
-            file_size: File size in bytes
-            file_hash: File hash (SHA256)
-            additional_metadata: Additional metadata fields
-            
-        Returns:
-            Formatted document payload
-        """
-        payload = {
-            'doc_id': str(doc_id),
-            'akten_id': str(akten_id) if akten_id else None,
-            'type': doc_type,
-            'path': file_path,
-            'timestamp': timestamp.isoformat() if isinstance(timestamp, datetime) else timestamp,
-            'size': file_size,
-            'hash': file_hash
-        }
-        
-        if additional_metadata:
-            payload.update(additional_metadata)
-        
-        return payload
-
     def _search_documents_secured(
         self,
         query: Union[str, List[str]],
@@ -3518,134 +3369,3 @@ class KnovasAPIClient:
             'total': len(normalized_results),
             'semantix': semantix_meta,
         }
-
-    def _sync_single_document_secured(self, document: Dict[str, Any]) -> Dict[str, Any]:
-        identifier = str(document.get('doc_id') or document.get('path') or 'unknown')
-        parts, init_fields, partial = _secured_transmit_parts_from_document(document)
-        if partial:
-            logger.warning(
-                "Secured single document %s is partial: %s",
-                identifier,
-                " ".join(f"{k}={v}" for k, v in sorted(partial.items())),
-            )
-
-        init_endpoint = self.endpoints.get('init_transmission', '/secured/init_document_transmission')
-        init_body: Dict[str, Any] = {
-            'identifier': identifier,
-            'part_count': len(parts),
-        }
-        init_body.update(init_fields)
-
-        # Non-idempotent: never retry init/transmit — a retried 4xx/5xx (or a
-        # retried connection error after the server already committed) would
-        # create duplicate document parts. Use the no-retry request path.
-        init_resp = self._request_no_retry(
-            method='POST',
-            endpoint=init_endpoint,
-            data=init_body,
-        ).json()
-
-        transmission_key_id = init_resp.get('transmission_key_id')
-        if not transmission_key_id:
-            raise RuntimeError('init_document_transmission returned no transmission_key_id')
-
-        part_endpoint = self.endpoints.get('transmit_part', '/secured/transmit_document_part')
-        for idx, part in enumerate(parts):
-            payload = _secured_transmit_part_payload(transmission_key_id, idx, part)
-            if idx == 0 and ('page_number' in payload or 'sentence_number' in payload):
-                logger.info(
-                    "Secured transmit part 0 location page=%s sentence=%s doc=%s",
-                    payload.get('page_number'),
-                    payload.get('sentence_number'),
-                    identifier,
-                )
-            self._request_no_retry(method='POST', endpoint=part_endpoint, data=payload)
-
-        logger.info(f"Secured single document sync successful: {identifier}")
-        result: Dict[str, Any] = {'status': 'success', 'identifier': identifier, 'mode': 'secured'}
-        if partial:
-            # Counts only (GI-EXTRACT-04): the caller can tell the operator
-            # that the scan pages did not all make it.
-            result['partial'] = dict(partial)
-        return result
-
-
-class BatchProcessor:
-    """Process documents in batches for API submission."""
-    
-    def __init__(
-        self, 
-        api_client: KnovasAPIClient,
-        batch_size: Optional[int] = None
-    ):
-        """
-        Initialize batch processor.
-        
-        Args:
-            api_client: KnovasAPIClient instance
-            batch_size: Number of documents per batch
-        """
-        self.api_client = api_client
-        
-        config = get_config()
-        self.batch_size = batch_size or config.get_int('api.rate_limit.batch_size', 100)
-    
-    def process_documents_in_batches(
-        self,
-        documents: List[Dict[str, Any]],
-        endpoint_type: str = 'full_sync',
-        progress_callback: Optional[callable] = None
-    ) -> Dict[str, Any]:
-        """
-        Process list of documents in batches.
-        
-        Args:
-            documents: List of document dictionaries
-            endpoint_type: API endpoint type
-            progress_callback: Optional callback function(current, total, batch_result)
-            
-        Returns:
-            Summary of processing results
-        """
-        total_docs = len(documents)
-        processed = 0
-        failed = 0
-        results = []
-        
-        logger.info(f"Starting batch processing: {total_docs} documents, batch_size={self.batch_size}")
-        
-        for i in range(0, total_docs, self.batch_size):
-            batch = documents[i:i + self.batch_size]
-            batch_num = (i // self.batch_size) + 1
-            total_batches = (total_docs + self.batch_size - 1) // self.batch_size
-            
-            try:
-                logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} documents)")
-                
-                result = self.api_client.sync_document_batch(batch, endpoint_type)
-                results.append(result)
-                
-                processed += len(batch)
-                
-                if progress_callback:
-                    progress_callback(processed, total_docs, result)
-                
-            except Exception as e:
-                logger.error(f"Batch {batch_num} failed: {e}")
-                failed += len(batch)
-        
-        summary = {
-            'total': total_docs,
-            'processed': processed,
-            'failed': failed,
-            'success_rate': (processed / total_docs * 100) if total_docs > 0 else 0,
-            'batches': len(results),
-            'results': results
-        }
-        
-        logger.info(
-            f"Batch processing complete: {processed}/{total_docs} successful, "
-            f"{failed} failed ({summary['success_rate']:.1f}% success rate)"
-        )
-        
-        return summary

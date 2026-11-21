@@ -630,15 +630,6 @@ class GraphOntologySource:
             self._invalidate()
         return ok
 
-    def assign_document(self, entity_id: str, pointer: str) -> bool:
-        """Dokument einem Knoten zuordnen - Grundlage fuer Filter."""
-        if not entity_id or not pointer:
-            return False
-        ok = self._client.graph_assign_knowledge(entity_id, pointer) is not None
-        if ok:
-            self._invalidate()
-        return ok
-
     def corpus(self) -> Dict[str, Any]:
         """Anzahl unterschiedlicher Dokumente ueber alle Knoten."""
         pointers = set()

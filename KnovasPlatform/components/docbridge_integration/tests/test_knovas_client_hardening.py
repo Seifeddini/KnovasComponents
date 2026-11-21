@@ -145,22 +145,6 @@ def _fast_retries(monkeypatch):
 # ---------------------------------------------------------------------------
 
 class TestC3RetryOnlyOnConnectionErrors:
-    def test_transmit_post_http_500_attempted_once(self):
-        """Init/transmit POST that returns HTTP 500 must be attempted EXACTLY once."""
-        client = make_secured_client()
-        calls = {"n": 0}
-
-        def responder(method, url, **kw):
-            calls["n"] += 1
-            return FakeResponse(500)
-
-        client._session = FakeSession(responder)
-
-        with pytest.raises(requests.exceptions.HTTPError):
-            client._sync_single_document_secured({"doc_id": "D1", "path": "/x/y.txt"})
-
-        assert calls["n"] == 1, f"expected 1 attempt, got {calls['n']} (retried!)"
-
     def test_http_error_on_idempotent_get_not_retried(self):
         """A 4xx/5xx on a GET propagates immediately (HTTPError, not retried)."""
         client = make_client()

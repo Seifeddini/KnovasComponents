@@ -3832,19 +3832,6 @@ _LOCAL_ONLY_FILTERS = frozenset({'exact_match'})
 _SEARCH_LIMIT_MAX = 50
 
 
-def _clamp_search_limit(raw: Any, default: int) -> int:
-    """The browser's ``limit`` as an int in 1..50; the default when it is
-    not a number."""
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        try:
-            value = int(default)
-        except (TypeError, ValueError):
-            value = 20
-    return max(1, min(_SEARCH_LIMIT_MAX, value))
-
-
 def _search_result_haystack(result: Dict[str, Any]) -> str:
     """Lowercased text used for strict / exact-style matching.
 

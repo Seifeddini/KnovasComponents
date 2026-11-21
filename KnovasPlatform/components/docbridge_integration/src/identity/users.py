@@ -81,10 +81,6 @@ class EmailTakenError(UserError):
     """That address already has an account."""
 
 
-class UnknownUserError(UserError):
-    """No account with that id."""
-
-
 class UnknownRoleError(UserError):
     """No such platform role."""
 

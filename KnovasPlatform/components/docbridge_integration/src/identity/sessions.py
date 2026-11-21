@@ -132,16 +132,6 @@ class SessionStore:
         ).fetchall()
         return len(rows)
 
-    def list_for_user(self, user_id: UUID | str) -> list[dict[str, Any]]:
-        rows = self._conn.execute(
-            "SELECT id, created_at, last_seen_at, expires_at, ip, user_agent "
-            "FROM sessions WHERE user_id = %s AND revoked_at IS NULL "
-            "AND expires_at > now() ORDER BY last_seen_at DESC",
-            (str(user_id),),
-        ).fetchall()
-        keys = ("id", "created_at", "last_seen_at", "expires_at", "ip", "user_agent")
-        return [dict(zip(keys, r)) for r in rows]
-
     def purge_expired(self) -> int:
         """Delete rows that can no longer authorise anything. Returns the count.
 

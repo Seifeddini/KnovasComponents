@@ -18,8 +18,6 @@ database:
 autodoc:
   # Mount path for AutoDoc directory
   path: "${AUTODOC_PATH:-/mnt/autodoc}"
-  # Cap for find_autodoc_files() directory walks (0 = unlimited)
-  max_discovery_entries: 10000
   
   # File naming pattern: {GUID}_{AkteID}_{Typ}.{ext}
   # Supported file extensions
