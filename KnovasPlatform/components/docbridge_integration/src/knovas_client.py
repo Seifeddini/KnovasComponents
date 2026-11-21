@@ -29,7 +29,6 @@ from tenacity import (
 from assistant.errors import CoreBusy, CoreFailed
 from config_loader import get_config
 from doc_fields_view import display_title as _doc_fields_display_title
-from part_metadata import enrich_transmit_parts_with_location
 
 
 logger = logging.getLogger(__name__)
@@ -549,103 +548,6 @@ def _normalize_semantix_path_for_init(raw: Optional[Any]) -> Optional[str]:
     if len(s) > 2000:
         s = s[:1999] + "…"
     return s
-
-
-def _secured_init_fields_from_document(document: Dict[str, Any]) -> Dict[str, str]:
-    """title, path, description for secured init (Client Integration Guide)."""
-    out: Dict[str, str] = {}
-    title = document.get("display_name") or document.get("title")
-    if title is not None:
-        title = str(title).strip()[:500] or None
-    if not title:
-        path_hint = document.get("path")
-        if path_hint:
-            ps = str(path_hint).strip()
-            if ps.startswith("http://") or ps.startswith("https://"):
-                try:
-                    from urllib.parse import parse_qs, unquote, urlparse
-
-                    qs = parse_qs(urlparse(ps).query)
-                    vals = qs.get("file") or []
-                    if vals:
-                        raw = unquote(vals[0].split(";")[0]).strip()
-                        title = raw[:500] if raw else None
-                except Exception:
-                    title = None
-            if not title:
-                stem = ps.replace("\\", "/").rstrip("/").split("/")[-1].split("?")[0]
-                title = stem[:500] if stem else None
-    if not title:
-        did = document.get("doc_id")
-        if did is not None:
-            title = str(did).strip()[:500] or None
-    if title:
-        out["title"] = title
-    path = _normalize_semantix_path_for_init(document.get("path"))
-    if path:
-        out["path"] = path
-    desc = document.get("description")
-    if desc is not None:
-        ds = str(desc).strip()
-        if ds:
-            out["description"] = ds[:2000]
-    return out
-
-
-def _secured_transmit_parts_from_document(
-    document: Dict[str, Any],
-) -> Tuple[List[Dict[str, Any]], Dict[str, str], Optional[Dict[str, Any]]]:
-    """
-    Build init fields and transmit parts for secured single-document sync.
-
-    Uses knovas_extract_upload when it is importable and content_base64 is
-    present (extraction runs in a guarded child process with a wall-clock
-    ceiling); otherwise one Markdown fallback part. The third value is the
-    extraction's partial note (counts only: OCR pages skipped, backend) or
-    None for a complete document.
-    """
-    init_fields = _secured_init_fields_from_document(document)
-    identifier = str(document.get("doc_id") or document.get("path") or "unknown")
-    b64 = document.get("content_base64")
-    ext = (document.get("type") or document.get("extension") or "").strip().lower().lstrip(".")
-
-    if b64 and ext:
-        try:
-            from knovas_extract_upload import extract_parts_from_base64
-        except ImportError:
-            extract_parts_from_base64 = None  # type: ignore[misc,assignment]
-        else:
-            try:
-                use_ocr: bool | str = "auto"
-                ocr_language = "deu+eng"
-                try:
-                    cfg = get_config()
-                    use_ocr = "auto" if cfg.get_bool("advanced.extraction.use_ocr", True) else False
-                    ocr_language = str(cfg.get("advanced.extraction.ocr_language") or ocr_language)
-                except Exception:
-                    pass
-                extracted = extract_parts_from_base64(
-                    str(b64),
-                    ext,
-                    pointer=identifier,
-                    path=str(init_fields.get("path") or identifier),
-                    use_ocr=use_ocr,
-                    ocr_language=ocr_language,
-                )
-                if extracted.parts:
-                    return extracted.parts, init_fields, extracted.partial
-            except Exception as exc:
-                logger.warning("Secured single-doc extract failed for %s: %s", identifier, exc)
-
-    path_line = init_fields.get("path") or identifier
-    lines = [path_line]
-    if document.get("akten_id"):
-        lines.append(f"Akte: {document.get('akten_id')}")
-    if document.get("doc_type"):
-        lines.append(f"Typ: {document.get('doc_type')}")
-    snippet = "\n".join(lines)
-    parts = enrich_transmit_parts_with_location([{"snippet": snippet}], full_text=snippet)
-    return parts, init_fields, None
 
 
 _MAX_TABLES_PER_PART = 50

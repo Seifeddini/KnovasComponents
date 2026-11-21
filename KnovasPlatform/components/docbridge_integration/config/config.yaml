@@ -4,16 +4,6 @@
 autodoc:
   # Mount path for AutoDoc directory
   path: "${AUTODOC_PATH:-/mnt/autodoc}"
-  
-  # File naming pattern: {GUID}_{AkteID}_{Typ}.{ext}
-  # Supported file extensions
-  supported_extensions:
-    - ".docx"
-    - ".doc"
-    - ".pdf"
-    - ".txt"
-    - ".xlsx"
-    - ".xls"
 
 # Knovas API Configuration
 api:
@@ -226,12 +216,6 @@ logging:
 performance:
   # Threading
   max_workers: 4
-  
-  # File processing
-  chunk_size: 8192  # bytes for file reading
-  
-  # Memory limits
-  max_file_size: 104857600  # 100 MB
 
 # The firm's own Knovas Connector, on knovas-internal only (never published).
 knovas_connector:
