@@ -61,3 +61,72 @@ As in `PMVP-20.md`. Notes go under a heading `## Builder's notes, rework 1` at t
    database, `PLATFORM_DB_TEST_DSN=…/knovas_platform_test_<name>`): same failing ids as the `feat/platform-mvp`
    commit you merged, or each new one explained.
 3. Commits `PMVP-20: …` with the co-author line; `feat/pmvp-20` pushed. No pull request.
+
+## Builder's notes, rework 1
+
+Builder session, 2026-11-19. `origin/feat/platform-mvp` @ `a55cdb0` merged into `feat/pmvp-20` (`11167ea`); the
+rework is commit `abf7dd5` plus these notes and the README. Nothing here is verified; that is the verifier's.
+
+**What changed** (`P/src/assistant/service.py`, `P/src/knovas_client.py`, own tests):
+
+1. *A reference closes its statement.* A stop, `;`, `!` or `?` right after a bracket group holding a digit ends
+   the sentence, whatever follows (space or none, any case). References right after a stop still belong to the
+   sentence before and end it too.
+2. *Numbers.* A number before a full stop (`500`, `1'500`, `3,5`, `1.1.2024`, `2023`) ends the sentence, except
+   a 1-2 digit number followed by a month (`MONTHS`) or preceded by an article or preposition (`ORDINAL_LEADS`).
+   In the same spirit (when unsure, cut): a full stop before a lower-case word now ends the sentence unless the
+   word before it is an abbreviation; `usw.`, `etc.`, `ff.`, `usf.`, `uvm.` end it unless a lower-case word
+   follows; a single capital ends it unless it stands before a number (`S. 4`) or after a lower-case single
+   letter (`z. B.`, `u. U.`); a stop glued to the next word ends a sentence only between a plain word and a
+   capital (`Monate.Sie`). `;` without a reference never cuts.
+3. *Abbreviations.* `ABBREVIATIONS` is grouped (law and citation; people, titles, firms and places; everyday;
+   months) and now holds `hr`, `fr`, `fa`, `kt`, `med`, `dipl`, `ing`, `lic`, `iur`, `phil`, `rer`, `pol`,
+   `oec`, `nat`, `mag`, `gebr`, `ges`, `fam`, `gde`, `bez`, `erw`, `bst`, `urt`, `beschl`, `anh`, `lt`, `exkl`,
+   `insbes`, `allg`, `entspr`, `einschl`, `ehem`, `rd`, `rp`, `vorm`, `zus`, `ggü` and others.
+4. *No-answer sentence.* A fragment that starts with `NO_ANSWER_TEXT` (markers stripped, any case) is dropped
+   wherever it appears and not counted in `removed`; an answer of only that sentence is therefore `no_answer` with
+   the passages. System instruction rule 4 now reads "reply with only this sentence, exactly as written and
+   without any number … Never add it to an answer"; rule 2 asks for a number on "every statement of an answer",
+   no longer on "every sentence".
+5. *Page of the snippet's chunk.* `_snippet_with_location` reads the chunks first, in order, and returns the
+   snippet with that chunk's page and sentence; a row-level snippet no chunk carries keeps an unknown location.
+   Inside `keeping_snippets()` the row gets `snippet_page_number` and `snippet_sentence_number`;
+   `passages_from_rows` uses them (None when unknown, never another chunk's page). Tests:
+   `test_assistant_knovas_client.py::test_a_row_keeps_the_page_of_its_snippet_not_of_the_first_chunk`,
+   `test_assistant_core.py::test_a_reference_opens_the_page_its_text_is_on` (first chunk without snippet, end to
+   end), `test_assistant_service.py::test_the_page_is_the_snippets_own`.
+6. A fragment without a letter (a list number such as `1.`, now cut off) is not a sentence, so numbered lists do
+   not inflate `removed`.
+
+**Open point from plan § 5.2, `/secured/fulfill-evidence`.** On KnowledgeBase master the route
+(`secure_api.py` ~3878; off in `defaults.toml`, on in dev and prod) is an evidence retriever for template
+filling: it takes field descriptions, runs its own retrieval under the same RBAC chunk filter and returns chunk
+text with page and sentence, without an LLM. It never judges whether a given sentence is supported by a given
+passage, so it cannot carry any part of the reference check, and calling it would be a second retrieval path,
+which POST-02 rules out; a support (entailment) check would need a Core route of its own.
+
+**For the verifier, and decisions for the coordinator.**
+
+- *A comma after `[n]` does not cut* (rule 1 names a stop, a semicolon and a line break): "Die Frist beträgt drei
+  Monate [1], und 2023 wurde sie verlängert." is still shown as one sentence under `[1]`. Cutting there too would
+  follow "when unsure, cut", but splits ordinary sentences ("Laut Vertrag [1], gilt …") and drops their second
+  half. Your call.
+- The no-answer match is a prefix match on the German sentence. A "found nothing" in other words or another
+  language has no `[n]`, so it is removed and the reply is `no_answer` anyway.
+- Two of my own earlier tests pinned joins and were changed to the new rule
+  (`test_a_stop_before_a_lower_case_word_ends_a_sentence`, `test_a_quoted_sentence_ends_with_its_stop`).
+- Accepted losses from cutting: initials ("Hans M. Müller"), "Variante B. Danach …", "www.Knovas.ch".
+- FU-06 to FU-14 untouched.
+
+**Evidence** (from `P`, Windows, Python 3.13.5):
+
+- `test_pmvp20_assistant_acceptance.py` 22 passed; `test_pmvp20_sentence_split_acceptance.py` 24 passed (14 of
+  them failed before the rework); own tests `test_assistant_service.py`, `test_assistant_knovas_client.py`,
+  `test_assistant_core.py` 153 passed. The frozen-test check prints `OK` for all three files.
+- Whole suite, `PLATFORM_DB_REQUIRED=true py -3 -m pytest -q -p no:cacheprovider --continue-on-collection-errors`,
+  each run on a database of its own (created for the run, dropped afterwards):
+  `feat/pmvp-20` 6,441 passed, 105 failed, 56 errors, 40 skipped, 8 xfailed, 1 xpassed; the merged
+  `feat/platform-mvp` commit `a55cdb0` 6,242 passed and exactly the same 105 failed and 56 errors (identical test
+  ids, the Windows environment failures of the first notes). Collection errors: `test_experiments_runner_client.py`
+  in both; on `a55cdb0` also both PMVP-20 frozen files (no `assistant` package there). No new failure.
+- `py -3 scripts/check_ascii_py.py 11167ea..HEAD` -> 0 added lines with a byte > 0x7F.

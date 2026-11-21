@@ -1,0 +1,96 @@
+{# The shared page parts (PMVP-12, plan FEAT-2026-11-19-platform-mvp F-7, section 5.1): the pieces every new screen
+   is made of. Use:
+
+       {% import "_parts.html" as parts %}
+       {% call parts.page() %}
+           {{ parts.page_head("Limmat Immobilien AG", eyebrow="Mandant") }}
+           {% call parts.card() %} ... {% endcall %}
+       {% endcall %}
+
+   static/css/parts.css draws them (style.css pulls it in, so a page that loads the base styles has it);
+   /styleguide shows each macro in each state with its call.
+
+   The names and arguments are fixed: the screens rely on them. Everything a macro is given is escaped (autoescape
+   is on, and nothing here is marked safe), so a name or a sentence comes out as text whatever it holds. An href is
+   escaped as an attribute, not checked as an address: build it (url_for), never take it from a document.
+   No script. #}
+
+{# The one centred column: 640 px, wide 720 px. One column and one main action per screen. #}
+{% macro page(wide=False) -%}
+<div class="k-page{% if wide %} k-page--wide{% endif %}">
+{{ caller() }}
+</div>
+{%- endmacro %}
+
+{# Eyebrow, h1, lede. For a main action beside the head, put both in an element with the class k-head. #}
+{% macro page_head(title, eyebrow=None, lede=None) -%}
+<div class="k-page-head">
+    {%- if eyebrow %}<p class="k-eyebrow">{{ eyebrow }}</p>{% endif -%}
+    <h1 class="k-title">{{ title }}</h1>
+    {%- if lede %}<p class="k-lede">{{ lede }}</p>{% endif -%}
+</div>
+{%- endmacro %}
+
+{# A small upper-case heading (h2) and its content. #}
+{% macro section(title) -%}
+<section class="k-section">
+<h2 class="k-section-title">{{ title }}</h2>
+{{ caller() }}
+</section>
+{%- endmacro %}
+
+{# A card. now=True marks the one card that is current. #}
+{% macro card(now=False) -%}
+<div class="k-card{% if now %} k-card--now{% endif %}"{% if now %} aria-current="true"{% endif %}>
+{{ caller() }}
+</div>
+{%- endmacro %}
+
+{# One row of a list: the caller puts two children in, the content (left) and the end (right). Rows that follow
+   each other get a hairline between them. #}
+{% macro rowline() -%}
+<div class="k-rowline">
+{{ caller() }}
+</div>
+{%- endmacro %}
+
+{# Tabs, as links. items: dicts with key, label, href and an optional count; active: the key of the current one. #}
+{% macro tabs(items, active) -%}
+<nav class="k-tabs" aria-label="Reiter">
+    {%- for item in items %}
+    <a class="k-tab{% if item.key == active %} k-tab--on{% endif %}" href="{{ item.href }}"
+       {%- if item.key == active %} aria-current="page"{% endif %}>{{ item.label }}
+       {%- if item.count is defined and item.count is not none %} <span class="k-tab-count">{{ item.count }}</span>{% endif -%}
+    </a>
+    {%- endfor %}
+</nav>
+{%- endmacro %}
+
+{# A status dot. state: ok, warn or bad (anything else draws a grey dot). label is its accessible name and is not
+   shown. A warn or bad dot never stands alone: the caller writes the problem and the fix beside it. #}
+{% macro status_dot(state, label) -%}
+<span class="k-dot{% if state in ('ok', 'warn', 'bad') %} k-dot--{{ state }}{% endif %}" role="img" aria-label="{{ label }}"></span>
+{%- endmacro %}
+
+{# A pill. kind: "" (plain), warn, bad or acc. Marks are for exceptions only. #}
+{% macro tag(text, kind="") -%}
+<span class="k-tag{% if kind in ('warn', 'bad', 'acc') %} k-tag--{{ kind }}{% endif %}">{{ text }}</span>
+{%- endmacro %}
+
+{# The numbered reference: a link when href is given, else a button. active=True is the one whose passage is open.
+   With controls (the id of what it opens) it says so: aria-controls, and aria-expanded following active.
+   PMVP-22b gives it its behaviour; here are the mark-up and both states. #}
+{% macro ref_chip(number, active=False, href=None, controls=None) -%}
+{%- if href -%}
+<a class="k-ref{% if active %} k-ref--on{% endif %}" href="{{ href }}"
+   {%- if controls %} aria-expanded="{{ 'true' if active else 'false' }}" aria-controls="{{ controls }}"{% endif %}>{{ number }}</a>
+{%- else -%}
+<button type="button" class="k-ref{% if active %} k-ref--on{% endif %}"
+   {%- if controls %} aria-expanded="{{ 'true' if active else 'false' }}" aria-controls="{{ controls }}"{% endif %}>{{ number }}</button>
+{%- endif -%}
+{%- endmacro %}
+
+{# A link. dotted=True for a name that opens a dossier (W-08). #}
+{% macro link(text, href, dotted=False) -%}
+<a class="k-link{% if dotted %} k-link--dotted{% endif %}" href="{{ href }}">{{ text }}</a>
+{%- endmacro %}
