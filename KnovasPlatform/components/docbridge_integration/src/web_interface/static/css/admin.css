@@ -2232,7 +2232,7 @@
 }
 .role-data-row > form { flex: none; }
 .role-data-error { margin: var(--k-space-xs) 0 0; color: var(--k-color-danger-fg); }
-.role-part > p.k-small { margin: var(--k-space-xs) 0 0; overflow-wrap: anywhere; }
+.role-part[data-role-part="data"] > p { margin: var(--k-space-xs) 0 0; overflow-wrap: anywhere; }
 
 /* The dry run: a panel in the flow of its part (or above the row of roles, for the move). */
 .role-dry-run {

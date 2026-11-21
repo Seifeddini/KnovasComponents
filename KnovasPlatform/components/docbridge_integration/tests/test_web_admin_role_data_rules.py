@@ -31,7 +31,7 @@ from conftest import platform_db_reachable
 pytestmark = pytest.mark.skipif(not platform_db_reachable(), reason="No PostgreSQL at the identity test DSN")
 
 from identity import roles as roles_mod  # noqa: E402
-from identity.roles import RoleStore, claim_groups  # noqa: E402
+from identity.roles import claim_groups  # noqa: E402
 from test_rb5_role_data_acceptance import (  # noqa: E402,F401 - the frozen file's fake Core, world and scene
     ADD,
     ADOPT,
@@ -45,7 +45,6 @@ from test_rb5_role_data_acceptance import (  # noqa: E402,F401 - the frozen file
     _alert,
     _dry_run,
     _part,
-    _rule,
     _text,
     scene,
     world,
