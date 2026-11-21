@@ -325,6 +325,11 @@ custom_views:
   dir: "${CUSTOM_VIEWS_DIR:-/mnt/custom-views}"
   facts_per_minute: "${CUSTOM_VIEWS_FACTS_PER_MINUTE:-60}"
 
+# Brain views (PMVP-30a): the members' dossier at /dossier/<id>, read with the person's own rights. On the
+# settings page (registry brain_views.enabled: aus or an); the environment pins it. Off by default.
+brain_views:
+  enabled: "${BRAIN_VIEWS_ENABLED:-aus}"
+
 # Client file open: browser launches UNC/local path on the user's PC (no install).
 # Optional companion (semantix-doc:) if browser launch is blocked by policy.
 # Ansichten (/views): process and spine views drawn from the ontology's
