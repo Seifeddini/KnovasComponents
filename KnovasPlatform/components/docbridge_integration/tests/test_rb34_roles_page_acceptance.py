@@ -30,7 +30,9 @@ What is pinned:
    cannot leave Administration (rule 3); the 32-group cap; giving oneself a role needs no second administrator
    (rule 1, founder 2026-11-21).
 7. Deleting: Administration and Mitglied cannot be deleted; a role in use is deleted in the design's order (its
-   members, then its Core group, then the role); a Core refusal leaves the role and says so (502).
+   members, then its Core group, then the role). A 404 from the Core means the group is already gone: the role is
+   deleted and its audit row says so (``core_group_already_absent``). A 409 or any other refusal leaves the role,
+   its members stay removed, and the page says so (502) (coordinator, 2026-11-21).
 8. Administration and Mitglied get their Core groups on an administrator's action (``POST /admin/roles/connect``):
    Administration the tenant's administrator group, Mitglied a new root group «Mitglied». Never at start, never on a
    GET (RB-1/2 rule 9).
@@ -120,6 +122,8 @@ def DELETE(role_id):                                                 # noqa: N80
 CREATED, RENAMED, FUNCTIONS_CHANGED = "role.created", "role.renamed", "role.functions_changed"
 MEMBER_ADDED, MEMBER_REMOVED, DELETED = "role.member_added", "role.member_removed", "role.deleted"
 LINKED, PERSON_ROLES = "role.core_group_linked", "user.roles_changed"          # PERSON_ROLES: target_type "user"
+#: In role.deleted's detail: true when the Core answered 404, the group was already gone (coordinator, 2026-11-21).
+ALREADY_ABSENT = "core_group_already_absent"
 
 ADMIN_GROUP = {"group_id": "g-admins", "name": "Administratoren", "parent_id": None, "is_admin": True}
 
@@ -134,8 +138,8 @@ class RecordingCore(FakeGraphApi):
     """The Core as the app sees it. Every call whose name says it writes is recorded with its arguments; ``observe``
     runs inside each such call before it answers, so a test sees what the Platform has committed at that moment.
     ``refuse[call]`` makes a group call fail as the real client lets it fail: "none" (a 404: nothing written, the
-    client answers None), "false" (``delete_access_group``'s 404) or "raise" (any other refusal, such as 409 for a
-    group that data still name)."""
+    client answers None), "false" (``delete_access_group``'s 404: the group is already gone) or "raise" (any other
+    refusal, such as 409 for a group that data still name)."""
 
     calls: list = []
     groups: list = []
@@ -822,25 +826,41 @@ def test_a_role_in_use_is_deleted_members_first_then_its_core_group_then_the_rol
     seen = []
     RecordingCore.observe = lambda call, args, kwargs: seen.append(
         (call, {str(m) for m in RoleStore(world.conn).get_role(role.id).members}))
+    mark = world.mark()
     assert world.admin.post(DELETE(role.id), {}).status_code == 200
     call, = _core()
     assert (call[0], _arg(call, 0, "identifier")) == ("delete_access_group", "g-sek")
     assert seen == [("delete_access_group", set())]                     # the role still there, its members gone
     assert role.id not in {r.id for r in world.store.list_roles()}
     assert "approver" not in world.repo.roles_of(anna.id) | world.repo.roles_of(bert.id)
+    assert not _one(world.audit_since(mark), DELETED)["detail"].get(ALREADY_ABSENT)   # the Core deleted it
 
 
-@pytest.mark.parametrize("mode", ["false", "raise"])
-def test_a_core_refusal_leaves_the_role_and_says_so(mode, world):
+def test_a_core_404_means_the_group_is_already_gone_and_the_role_is_deleted(world):
     anna = world.person("anna")
     role = world.role("Sekretariat", {"approver"}, group="g-sek", members=[anna])
-    RecordingCore.refuse = {"delete_access_group": mode}
+    RecordingCore.refuse = {"delete_access_group": "false"}             # the client's 404: unknown at the Core
+    mark = world.mark()
+    assert world.admin.post(DELETE(role.id), {}).status_code == 200
+    assert [c[0] for c in _core()] == ["delete_access_group"]
+    assert role.id not in {r.id for r in world.store.list_roles()}
+    assert "approver" not in world.repo.roles_of(anna.id)
+    row = _one(world.audit_since(mark), DELETED)
+    assert (row["target_type"], row["target_id"], row["outcome"]) == ("role", str(role.id), "ok")
+    assert row["detail"].get(ALREADY_ABSENT) is True
+
+
+def test_a_core_refusal_leaves_the_role_without_its_members_and_says_so(world):
+    anna = world.person("anna")
+    role = world.role("Sekretariat", {"approver"}, group="g-sek", members=[anna])
+    RecordingCore.refuse = {"delete_access_group": "raise"}             # 409: data still name the group
     mark = world.mark()
     response = world.admin.post(DELETE(role.id), {})
     assert response.status_code == 502
     assert "Knovas" in _alert(response.data.decode("utf-8"))
     kept = world.store.get_role(role.id)
     assert (kept.name, kept.core_group_id, set(kept.functions)) == ("Sekretariat", "g-sek", {"approver"})
+    assert world.member_ids(role.id) == set()                            # removed first, as the design orders it
     assert not [r for r in world.audit_since(mark) if r["action"] == DELETED and r["outcome"] == "ok"]
 
 
