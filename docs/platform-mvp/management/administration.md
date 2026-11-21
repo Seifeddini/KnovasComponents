@@ -40,7 +40,7 @@ position is shown and switched with a second administrator (PMVP-42); the pilot'
 
 **What a role is.** A bundle with a name and a description: **functions** (what its members may do, from the ten the
 Platform knows, such as "Freigaben bestätigen" or "Einlesen"), at most one **Core group** (what its members may read)
-and **members** (people for now; the Knovas Assistent and external agents come with RB-6 and RB-7). A person may do
+and **members** (people, and agents: the Knovas Assistent and external agents, RB-6 and RB-7). A person may do
 everything any of her roles allows. The Rollen page (RB-3, RB-4) is described below under «Rollen bearbeiten».
 
 **The two roles.** Every installation has exactly «Administration» and «Mitglied», and neither can be deleted.
@@ -122,6 +122,34 @@ is the last active one; two administrators who act at the same moment wait for e
 **Everything is in the log.** Every change writes its row in the audit log in the same step as the change: who did
 it, which role or person (by id), and the functions before and after (by their technical keys). Never a role's name,
 description, a person's name or address. If the row cannot be written, the change is not kept and the page says so.
+## Agents (the role builder, RB-6 and RB-7)
+
+**What an agent is.** A member of roles that is not a person. Every agent reads what its roles allow; when it acts for a
+person, only what that person may also read. No agent joins Administration, and a person's own direct access groups
+reach no agent: only roles give an agent data. The Platform signs each agent's claim (its id, its roles' groups and
+functions); the Knovas Core accepts it as it accepts a person's.
+
+- **The Knovas Assistent** is a member of every role but Administration, also of roles made later. An administrator
+  takes it out of a role on the role page, under «Mitglieder» («darf nicht von KI genutzt werden», for example
+  «Personal»). It always acts
+  for the person who asks: every call it makes to the Core for an answer carries its own claim, narrowed to that
+  person, and says "the assistant, for this person". It is switched off in the settings, not revoked.
+- **External agents** (Claude Code, Copilot …) are registered on the new page **Verwaltung → Agenten**: a name, and
+  either a person they act for (fixed for good; deactivating her stops the agent) or none («selbständig», then at most
+  32 access groups). A new agent has no role; it joins roles on the role page («Mitglieder» › «+ Agent hinzufügen»). The page shows each agent's id; Knovas
+  issues the agent's key for its gateway (`mcp.knovas.ch`) with that id. **The Platform holds no agent key** and never
+  sees it. How to connect Claude Code is in `KnovasPlatform/docs/agents.md` (German).
+- **Revoke** an external agent on the Agenten page: from that moment it has no claim; with the switch on, the Core
+  drops its claims in the same request.
+- **The switch «Agenten über das Knovas-Gateway»** (settings; `AGENTS_CORE_GATEWAY` pins it), **off** by default. On,
+  the Platform hands the Core every minute, and at once after a change on the agent pages, 20 signed claims per live
+  external agent, each valid at most 300 seconds (so an agent makes at most 20 calls a minute); a revoked agent, one
+  whose person is inactive and one over 32 groups get theirs dropped. Changes made on the role or people page reach the
+  Core at the next minute. Founder, 21 November: **on a client's installation agents are switched on only once
+  enforcement is «Ein»**; the Knovas GmbH pilot may use them before, as it uses Claude Code today.
+- **Every change is in the log by id**: agent created, revoked, added to or taken out of a role, with the acting
+  administrator; never a name.
+
 
 ## How it protects data and access
 
@@ -147,7 +175,9 @@ description, a person's name or address. If the row cannot be written, the chang
 | PMVP-42 | enforcement position and switch | not started; waits for two green rights runs of the Core | management (critical) |
 | PMVP-43 | the pilot's rights test set | not started | Siran (sensitive) |
 | RB-1, RB-2 | roles: tables, the two roles, the move of an existing installation; functions and groups read from roles; the last-administrator rule and the 32-group cap | built; no verification verdict yet | management (critical: a migration) |
-| RB-3, RB-4 | the Rollen page; creating, renaming and deleting roles, their functions and people; the people page offers roles; deactivating waits for removals (the last-administrator race) | built (branch `feat/rb-3-4`); no verification verdict yet | Siran (sensitive) |
+| RB-3, RB-4 | the Rollen page; creating, renaming and deleting roles, their functions and people; the people page offers roles; deactivating waits for removals (the last-administrator race) | verified (with notes); integrated | Siran (sensitive) |
+| RB-6 | one claim for every agent; the Knovas Assistent a member of every role but Administration, answering with its own claim | verified (with notes); not yet integrated | management (critical: a migration, with RB-7) |
+| RB-7 | external agents: the Agenten page, agents on the role page («Mitglieder»), their signed claims handed to the Core behind a switch (off) | verified (with notes); the agent rows on the role page added after RB-3/RB-4 were integrated; not yet integrated | management (critical: a migration, signing and claims) |
 
 ## Decisions taken
 
@@ -159,6 +189,8 @@ description, a person's name or address. If the row cannot be written, the chang
 | 21 Nov | coordinator | The menu reads the roles each Admin gate lets in; as a result an ingestion manager now sees "Verwaltung", leading to Ingestion only |
 | 21 Nov | coordinator | The assistant's key has no setting in the deployment files; it is entered on the settings page only |
 | 21 Nov | founder | Roles: a new installation has only Administration and Mitglied; granting oneself a role needs no second administrator; the last-administrator rule stays; no deny |
+| 21 Nov | founder | Agents: the Platform signs agents' claims; external agents are in the pilot and enforced like the assistant; **"Core gateway only"** (the Platform gets no agent endpoint, RB-8 dropped); **"only after «Ein»"** on client installations |
+| 21 Nov | coordinator (RB-6, RB-7 work order) | A pool of 20 claims a minute per external agent, each at most 300 seconds; Knovas issues the gateway key with the agent's id; the assistant joins every role but Administration and its claim rides on every Core call of an answer; the switch is off by default |
 | 21 Nov | coordinator (RB-1, RB-2 work order) | "Verwaltung" belongs to Administration alone; Administration's and Mitglied's Core groups are linked by an administrator in RB-4, not at start-up; a new account joins no role until the console makes it a member |
 | 21 Nov | coordinator (RB-3, RB-4 work order) | Linking Administration and Mitglied to Knovas is its own button; the two keep their names; a role's description is set when it is created; adopting an existing Knovas group as a role's group moves to RB-5 (it brings data); a group Knovas no longer knows counts as deleted; no second administrator for role changes |
 
@@ -178,6 +210,13 @@ description, a person's name or address. If the row cannot be written, the chang
 - **Three readers of groups** (the Experimente search's "missing group" hint, the Builder's list of who holds a group,
   one check of viewers without groups) still read only a person's direct groups, not her roles' groups (open since
   RB-1/RB-2; not in RB-4's files).
+- **Agents act only as far as the Core does.** Today the assistant's claim is signed and logged and narrows nothing
+  (enforcement is off); agents are registered and members of roles, and the switch stays off. With CR-R1 («Ein»
+  possible) the assistant reads only what its roles and the person hold; with CR-R5 the Core takes the external
+  agents' claims; with CR-R6 an agent's own gateway key works. Until then the Knovas GmbH pilot keeps today's access
+  for Claude Code (the internal MCP server, or a company key of the gateway).
+- **At most 20 calls a minute per external agent** (the Core's pool maximum); more needs a higher maximum at the Core.
+- **A deleted person's agent** disappears with her; the Core keeps its claims until they end (at most 300 seconds).
 
 ## Depends on
 
@@ -191,5 +230,6 @@ The engine owner role, proposed on the cards (Verwaltung, and "Zugriff" on PMVP-
 confirm it.
 
 **Where the detail is:** `docs/platform-mvp/work-orders/PMVP-11.md`, `PMVP-40.md` (branch `feat/pmvp-40`), `PMVP-25.md`
-(branch `feat/pmvp-25`), `RB-1-2.md` (branch `feat/rb-1-2`), `RB-3-4.md` (branch `feat/rb-3-4`); `docs/platform-mvp/design/role-builder.md`;
+(branch `feat/pmvp-25`), `RB-1-2.md` (branch `feat/rb-1-2`), `RB-3-4.md` (branch `feat/rb-3-4`), `RB-6-7.md`
+(branch `feat/rb-6-7`); `KnovasPlatform/docs/agents.md`; `docs/platform-mvp/design/role-builder.md`;
 `docs/components/L2-platform-admin.md`; `docs/platform-mvp/follow-ups.md`.

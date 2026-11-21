@@ -29,11 +29,11 @@ from conftest import platform_db_reachable  # noqa: E402
 pytestmark = pytest.mark.skipif(not platform_db_reachable(), reason="No PostgreSQL at the identity test DSN")
 
 # the Admin pages in the menu's order; Dokumentfelder is drawn only while Knovas offers document fields
-# (RB-3: «Rollen» right after «Personen»)
-ADMIN_PAGES = ["admin.people", "admin.roles", "admin.documents", "admin.access_groups", "admin.doc_fields",
-               "admin.ingestion", "admin.system", "admin.approvals"]
-NAMES = {"admin.people": "Personen", "admin.roles": "Rollen", "admin.documents": "Dokumente",
-         "admin.access_groups": "Zugriffsgruppen",
+# (RB-3: «Rollen» right after «Personen»; RB-7: «Agenten» right after «Rollen»)
+ADMIN_PAGES = ["admin.people", "admin.roles", "admin.agents", "admin.documents", "admin.access_groups",
+               "admin.doc_fields", "admin.ingestion", "admin.system", "admin.approvals"]
+NAMES = {"admin.people": "Personen", "admin.roles": "Rollen", "admin.agents": "Agenten",
+         "admin.documents": "Dokumente", "admin.access_groups": "Zugriffsgruppen",
          "admin.doc_fields": "Dokumentfelder", "admin.ingestion": "Ingestion", "admin.system": "System",
          "admin.approvals": "Freigaben"}
 # every role the console can give a person (admin.ASSIGNABLE_ROLES), alone, and two that are held together

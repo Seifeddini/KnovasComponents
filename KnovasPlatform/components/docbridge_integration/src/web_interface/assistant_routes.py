@@ -220,22 +220,60 @@ def create_assistant_blueprint(*, csrf_valid: Callable[[str], bool], grant: Call
     return bp
 
 
+class AsTheAssistant:
+    """The service, answering with the Knovas Assistent's own claim for the signed-in person (RB-6).
+
+    The whole answer runs inside ``client.asserting_for(AgentPrincipal(<the assistant>, <the person>))``, so every
+    Core call of it (the search, the document-fields probe inside it, ``/secured/llm/generate``) carries the claim
+    ``AgentStore.claim_for`` gives the assistant for that person (its roles' groups and functions, narrowed to what
+    the person holds) and declares ``{"kind": "agent", "id": <the assistant>, "on_behalf_of": {"kind": "user",
+    "id": <the person>}}``. It fails closed: a client that cannot assert for someone else, no signed-in person or no
+    assistant answers ``failed`` and nothing is searched as the person instead.
+    """
+
+    def __init__(self, service: Any, *, client: Any, identity_gate: Any) -> None:
+        self._service = service
+        self._client = client
+        self._gate = identity_gate
+
+    def answer(self, question: str, history: Sequence[Any] = ()) -> Reply:
+        from assistant.service import FAILED_TEXT
+        from identity.agents import AgentPrincipal, AgentStore
+
+        asserting = getattr(self._client, "asserting_for", None)
+        try:
+            person = self._gate.current_user() if self._gate is not None else None
+            if not callable(asserting) or person is None:
+                raise LookupError("no principal for the assistant")
+            principal = AgentPrincipal(agent_id=AgentStore(self._gate.connection()).assistant().id,
+                                       on_behalf_of=person.id)
+        except Exception as exc:  # noqa: BLE001 - fail closed: no claim, no answer
+            logger.warning("Fragen: the assistant's claim is not available (%s)", type(exc).__name__)
+            return _plain("failed", FAILED_TEXT)
+        with asserting(principal):
+            return self._service.answer(question, history)
+
+
 def install_assistant(app: Flask, *, client: Any, identity_gate: Any, split: Callable[..., Any],
                       csrf_valid: Callable[[str], bool], grant: Callable[[List[Dict[str, Any]]], None],
                       page_context: Callable[[], Mapping[str, Any]], pdf_preview: Callable[[], bool]) -> None:
     """Register the ask page and the factory of its service (one line in app.py).
 
     The service is built per request, inside it, by PMVP-25's ``make_service`` on the settings' Resolver: so the
-    switch and the provider apply without a restart, and the client signs every call for the signed-in person
-    (``assistant/README.md``, "Wiring"). A test replaces ``app.extensions["assistant"]["service"]``.
+    switch and the provider apply without a restart (``assistant/README.md``, "Wiring"). It answers as the Knovas
+    Assistent for the signed-in person (``AsTheAssistant``, RB-6): the client signs every call with the assistant's
+    claim narrowed to that person. A test replaces ``app.extensions["assistant"]["service"]``.
     """
 
     def build_service():
-        from assistant.core import make_service
+        from assistant.core import OFF, make_service
         from web_interface import doc_fields_routes
 
-        return make_service(app.extensions["platform_settings"], client, split=split,
-                            user_key=lambda: doc_fields_routes.user_key_for(identity_gate))
+        service = make_service(app.extensions["platform_settings"], client, split=split,
+                               user_key=lambda: doc_fields_routes.user_key_for(identity_gate))
+        if service is OFF:
+            return OFF
+        return AsTheAssistant(service, client=client, identity_gate=identity_gate)
 
     app.extensions[EXTENSION] = {"service": build_service}
     app.register_blueprint(create_assistant_blueprint(
@@ -243,6 +281,6 @@ def install_assistant(app: Flask, *, client: Any, identity_gate: Any, split: Cal
 
 
 __all__: Sequence[str] = (
-    "EXPIRED_TEXT", "SWITCH_ENV", "assistant_enabled", "create_assistant_blueprint", "install_assistant",
+    "EXPIRED_TEXT", "SWITCH_ENV", "AsTheAssistant", "assistant_enabled", "create_assistant_blueprint", "install_assistant",
     "removed_line", "shown_reply", "split_tail",
 )

@@ -396,7 +396,7 @@ def create_admin_blueprint(
 
     from web_interface.admin_roles import attach_role_routes
 
-    attach_role_routes(
+    role_page = attach_role_routes(
         bp,
         gate,
         csrf_valid=csrf_valid,
@@ -405,6 +405,13 @@ def create_admin_blueprint(
         client_factory=client_factory,
         require_admin=require_admin,
     )
+
+    # Agents (RB-6, RB-7): the agent pages and the agents of a role, behind the same require_admin; a role's
+    # agent forms answer with the Rollen page.
+    from web_interface.admin_agents import attach_agent_routes
+
+    attach_agent_routes(bp, gate, csrf_valid=csrf_valid, csrf_token=csrf_token, page_context=page_context,
+                        require_admin=require_admin, role_page=role_page)
 
     from web_interface.admin_doc_fields import attach_doc_field_routes
 

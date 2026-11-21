@@ -365,6 +365,10 @@ class RoleStore:
                     "VALUES (%s, %s, 'custom', %s, %s) RETURNING id",
                     (clean, text, group, _by(by))).fetchone()[0]
                 self._write_functions(role_id, wanted)
+                # RB-6: the Knovas Assistent is a member of every role but Administration, also of later ones.
+                from identity.agents import join_new_role
+
+                join_new_role(self._conn, role_id, by=by)
         except psycopg.errors.UniqueViolation:
             # Another writer took the name between the check and the insert. The database's message names it.
             raise RoleNameTaken() from None
@@ -406,7 +410,10 @@ class RoleStore:
             ident, _ = self._lock(role_id)
             members = [r[0] for r in self._conn.execute(
                 "SELECT user_id FROM tenant_role_members WHERE role_id = %s", (ident,))]
-            with group_cap(self._conn, members):
+            # RB-6: also no 33rd group for an agent of the role acting on its own (people's rows, then agents').
+            from identity.agents import agent_group_cap
+
+            with group_cap(self._conn, members), agent_group_cap(self._conn, ident):
                 self._conn.execute(
                     "UPDATE tenant_roles SET core_group_id = %s, updated_at = now() WHERE id = %s", (group, ident))
         logger.info("Role %s: Core group %s (%d members)", ident, "set" if group else "removed", len(members))

@@ -1225,6 +1225,22 @@ def _graph_payload_list(payload: Any, *candidate_keys: str,
 # silent break that surfaces as "search returns nothing" on a BROKERED tenant.
 ASSERTION_FIELD = "principal_assertion"
 
+# The declared actor (KnowledgeBase services/request_actor.py): the body's
+# ``actor`` on a POST, ``?actor=<base64url JSON>`` on a GET -- never both, the
+# Core refuses that. Declared, not verified: the Core records it and decides
+# nothing on it. Sent only while an agent acts (RB-6: the Knovas Assistent
+# answering a person, ``asserting_for(AgentPrincipal)``).
+ACTOR_FIELD = "actor"
+
+
+def _encode_actor(actor: Dict[str, Any]) -> str:
+    """The ``?actor=`` form of an actor: base64url of compact UTF-8 JSON, no padding."""
+    import base64
+    import json as _json
+
+    raw = _json.dumps(actor, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
 # /secured/query refuses a limit above 50 with 422 (QP:91-103).
 _SECURED_QUERY_MAX_LIMIT = 50
 # POST /secured/graph/doc-values/find caps its page at 200
@@ -1576,9 +1592,11 @@ class KnovasAPIClient:
     def asserting_for(self, user):
         """Requests in this block carry ``user``'s principal assertion instead of the signed-in person's.
 
-        For the access window's "explain access" (Brain Builder B14) only: an administrator asks the Brain
-        whether *that* person may read a document, and the Brain answers with its own policy. Per thread, so a
-        concurrent request of someone else keeps its own principal.
+        For the access window's "explain access" (Brain Builder B14): an administrator asks the Brain
+        whether *that* person may read a document, and the Brain answers with its own policy. And for the
+        Knovas Assistent (RB-6): ``user`` is an ``identity.agents.AgentPrincipal``, every call of the block
+        carries the assistant's claim narrowed to the person and declares the agent as its actor
+        (``_with_principal``). Per thread, so a concurrent request of someone else keeps its own principal.
         """
         import threading
 
@@ -1628,13 +1646,35 @@ class KnovasAPIClient:
         """
         self._principal_broker = broker
 
-    def _with_principal(self, data):
+    def _declared_actor(self) -> Optional[Dict[str, Any]]:
+        """The actor the principal in force declares, or None.
+
+        Only an agent declares one (RB-6): the principal ``asserting_for``
+        names offers ``declared_actor`` as a dict (``AgentPrincipal``). A
+        person, the signed-in user included, declares none, as before.
+        """
+        principal = getattr(getattr(self, "_principal_local", None), "user", None)
+        actor = getattr(principal, "declared_actor", None) if principal is not None else None
+        return dict(actor) if isinstance(actor, dict) else None
+
+    def _actor_params(self, method: Optional[str], params: Optional[Dict] = None) -> Optional[Dict]:
+        """``params`` with ``?actor=`` on a GET while an agent acts (its body carries none), else unchanged."""
+        actor = self._declared_actor()
+        if actor is None or str(method or '').upper() != 'GET':
+            return params
+        return {**(params or {}), ACTOR_FIELD: _encode_actor(actor)}
+
+    def _with_principal(self, data, method=None):
         """Attach the caller's assertion to an outgoing body.
 
         Fail closed when there is no authenticated user. An unsigned call
         resolves to asserted=False at the Secure API -- "unrestricted
         documents only" -- and returns *more* than a correctly scoped one.
         A wall that widens under failure is not a wall.
+
+        While an agent acts (``asserting_for(AgentPrincipal)``, RB-6) the body
+        also declares it as ``actor``, except on a GET (``method``), which
+        declares it in the query string (``_actor_params``).
         """
         if self._principal_broker is None:
             return data
@@ -1647,15 +1687,20 @@ class KnovasAPIClient:
             )
         assertion = self._principal_broker.assertion_for(user)
         if data is None:
-            return {ASSERTION_FIELD: assertion}
-        if not isinstance(data, dict):
+            body = {ASSERTION_FIELD: assertion}
+        elif not isinstance(data, dict):
             # Every secured endpoint takes a JSON object. A non-dict body is a
             # caller we have not accounted for; guessing how to attach the
             # assertion is how one route would quietly lose it.
             raise TypeError(
                 f"Cannot attach a principal assertion to a {type(data).__name__} body."
             )
-        return {**data, ASSERTION_FIELD: assertion}
+        else:
+            body = {**data, ASSERTION_FIELD: assertion}
+        actor = self._declared_actor()
+        if actor is not None and str(method or 'POST').upper() != 'GET':
+            body[ACTOR_FIELD] = actor
+        return body
 
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers for API requests."""
@@ -1713,7 +1758,8 @@ class KnovasAPIClient:
         headers = self._get_headers()
         
         logger.debug(f"Making {method} request to {url}")
-        data = self._with_principal(data)
+        data = self._with_principal(data, method)
+        params = self._actor_params(method, params)
 
         response = self._session.request(
             method=method,
@@ -1762,7 +1808,8 @@ class KnovasAPIClient:
         self._ensure_certificate_freshness()
         url = f"{self.base_url}{endpoint}"
         if as_person:
-            data = self._with_principal(data)
+            data = self._with_principal(data, method)
+            params = self._actor_params(method, params)
         response = self._session.request(
             method=method,
             url=url,
@@ -1794,7 +1841,12 @@ class KnovasAPIClient:
         """
         # The assertion first: with nobody signed in nothing is sent, and a
         # refused call should not cost a rate-limit slot either.
-        data = self._with_principal(data)
+        data = self._with_principal(data, method)
+        # ?actor= only while an agent acts on a GET: otherwise the call is exactly as before.
+        extra = {}
+        params = self._actor_params(method)
+        if params:
+            extra['params'] = params
         self._rate_limit()
         self._ensure_certificate_freshness()
         return self._session.request(
@@ -1804,6 +1856,7 @@ class KnovasAPIClient:
             headers=self._get_headers(),
             timeout=self.http_read_timeout if timeout is None else timeout,
             allow_redirects=False,
+            **extra,
         )
 
     def secured_mode(self) -> bool:
@@ -1811,6 +1864,31 @@ class KnovasAPIClient:
         certificate, key and CA configured). Without them it searches nothing.
         """
         return bool(self.mtls_enabled)
+
+    # -- External agents' claims for the Core's MCP gateway (RB-7, CR-R5) ----------------------------------------
+    # The Platform's own calls: no person's principal_assertion, no access_groups and no actor
+    # (as_person=False). The claims carry the authority; the Core verifies each with the tenant's broker key.
+    # Sent once, never retried (the next push replaces the pool anyway), and no body is logged: it holds
+    # bearer claims.
+
+    def put_agent_claims(self, agent_id: str, claims: List[str], *, timeout: Optional[float] = None) -> None:
+        """``PUT /secured/agents/<agent id>/claims`` with exactly ``{"claims": [...]}``: the agent's whole pool.
+
+        Replaces the pool the Core holds for the agent (CR-R5). Raises the
+        ``requests`` error of a refusal (404 without CR-R5, 409
+        ``not_brokered``, 400 ``invalid_claims``, 5xx) or of no connection;
+        the caller logs its class and status, never its text.
+        """
+        self._request_no_retry('PUT', f"/secured/agents/{quote(str(agent_id), safe='')}/claims",
+                               data={'claims': list(claims)}, timeout=timeout, as_person=False)
+
+    def delete_agent_claims(self, agent_id: str, *, timeout: Optional[float] = None) -> None:
+        """``DELETE /secured/agents/<agent id>/claims``: the Core drops the agent's pool at once (CR-R5).
+
+        No body. Raises as ``put_agent_claims``.
+        """
+        self._request_no_retry('DELETE', f"/secured/agents/{quote(str(agent_id), safe='')}/claims",
+                               timeout=timeout, as_person=False)
 
     def delete_all_documents(self, confirm_client_id: str) -> Dict[str, Any]:
         """DELETE /secured/delete_all_documents — erase the whole corpus.
@@ -2339,11 +2417,14 @@ class KnovasAPIClient:
         if not calls:
             return []
         self._ensure_certificate_freshness()
-        bodies = [self._with_principal(None) for _ in calls]
+        bodies = [self._with_principal(None, 'GET') for _ in calls]
+        actor_params = self._actor_params('GET', {}) or {}
         headers = self._get_headers()
 
         def one(index: int) -> Tuple[int, Any]:
             path, params = calls[index]
+            if actor_params:
+                params = {**(params or {}), **actor_params}
             url = f"{self.base_url}/secured/graph{path}"
             status, payload = 599, None
             for attempt in range(max_retries + 1):
@@ -2387,7 +2468,7 @@ class KnovasAPIClient:
         if len(ids) > 500:
             raise ValueError("graph_facts_batch takes at most 500 node ids")
         self._ensure_certificate_freshness()
-        body = self._with_principal({"node_ids": ids})
+        body = self._with_principal({"node_ids": ids}, 'POST')
         try:
             response = self._session.request(
                 method='POST', url=f"{self.base_url}/secured/graph/facts/batch",

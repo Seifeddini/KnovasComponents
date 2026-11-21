@@ -26,7 +26,9 @@ for the pilot. It is not one component; each rule lives in the part named beside
 |---|---|---|
 | The chosen provider: the Knovas Core or Anthropic | the assistant's instruction, the passages this person's search returned, the question and the chat so far | every question, only while the assistant is on |
 | Anthropic | one invented passage and question, no customer text | an administrator presses "Verbindung testen" |
-| The Knovas Core | searches and per-thing reads as the signed-in person, over the Platform's certificate (as today) | search, assistant, dossier |
+| The Knovas Core | searches and per-thing reads as the signed-in person, over the Platform's certificate (as today) | search, dossier |
+| The Knovas Core | the assistant's searches and its generation calls with **the assistant's own signed claim** (its id, the groups and functions of its roles that the person also holds) and "the assistant, for this person" (both ids) | every question, only while the assistant is on (RB-6) |
+| The Knovas Core (for its MCP gateway) | per external agent, every minute: **20 signed claims** (the agent's id, the groups and functions of its roles, narrowed to its person if it has one), each valid at most 300 seconds; or "drop this agent's claims" | only while the switch «Agenten über das Knovas-Gateway» is on (off by default; RB-7) |
 
 The pilot (Knovas GmbH) chose Anthropic on 21 November, so its passages may be sent there. Fonts and styles load from
 the installation itself.
@@ -65,6 +67,27 @@ is only recorded until RB-4 links it in the Core on an administrator's action, s
 may read. No role name, description, person's name or address is written to a log. A request is never signed with more
 than 32 access groups (the Core's limit): a change that would give a 33rd is refused, and nothing is dropped silently.
 
+**Agents** (RB-6, RB-7, built, not yet verified). An agent is a member of roles that is not a person: the Knovas
+Assistent, or an external agent (Claude Code, Copilot) an administrator registers.
+
+- **One rule for every agent:** it reads what its roles allow and, acting for a person, only what she may also read; a
+  person's own direct access groups reach no agent, and no agent is in Administration. The Platform signs that claim;
+  the Core stays the only judge of what it shows.
+- **The assistant** asks the Core with its own claim narrowed to the person who asks, so an administrator can keep it
+  out of a role («Personal») even for people in that role. This narrows only once the Core enforces the claim (CR-R1,
+  «Ein»); until then it is signed and logged and changes nothing.
+- **External agents** read through Knovas's MCP gateway (`mcp.knovas.ch`), never through the Platform, with a key Knovas
+  issues for the agent's id. **The Platform holds no agent key**: no table has a column for one. The Core receives
+  signed claims with the agent's groups and keeps them at most 300 seconds; an external agent reads through the gateway
+  what its claim allows, at most 20 calls a minute. With the switch on, revoking an agent on the Agenten page drops
+  its claims at the Core at once. Deactivating its person on the people page reaches the Core with the next minute's
+  push, which drops them; the claims the Core already holds end within 300 seconds at the latest. Deleting a person
+  deletes her agent and sends the Core nothing; its claims there also end within 300 seconds.
+- **On client installations agents are switched on only after «Ein»** (founder, 21 November); the switch is off by
+  default and, off, nothing about agents reaches the Core.
+- **Logs and audit hold ids only:** an agent's id, counts, HTTP statuses and error classes; never a claim, an agent's
+  or a person's name, a group id or a question.
+
 **Demo tenant and Knovas GmbH tenant.**
 
 | | Demo law firm tenant | Knovas GmbH tenant (Client Zero) |
@@ -82,6 +105,7 @@ than 32 access groups (the Core's limit): a change that would give a 33rd is ref
 | Key handling (PMVP-25) | built; no verification verdict yet | management (critical) |
 | Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | not started; PMVP-42 waits for the Core's rights test | management (critical); Siran (sensitive) |
 | Roles: the move to roles, functions and groups read from roles, the 32-group cap (RB-1, RB-2) | built; no verification verdict yet | management (critical: a migration) |
+| Agents: one signed claim for every agent; external agents' claims handed to the Core behind a switch (RB-6, RB-7) | built; no verification verdict yet; acts with the Core's CR-R1, CR-R5, CR-R6 | management (critical: a migration, signing and claims) |
 
 ## Decisions taken
 
@@ -92,6 +116,7 @@ than 32 access groups (the Core's limit): a change that would give a 33rd is ref
 | 19 Nov | founder | No formal model needed for "reads only through search" (FU-14) |
 | 20 Nov | after the sweep's first verification | The log fingerprint is keyed with the installation's secret |
 | 21 Nov | founder | The customer chooses the provider; the pilot's passages may go to Anthropic |
+| 21 Nov | founder | The Platform signs agents' claims; external agents use only Knovas's gateway ("Core gateway only"); on client installations agents only after «Ein» |
 
 ## Known limits and open points
 
@@ -118,5 +143,6 @@ No single card; the rules sit on the assistant's, Admin's and access cards (engi
 is the founder's.
 
 **Where the detail is:** `docs/platform-mvp/follow-ups.md` (FU-09, 14, 22, 25, 31, 33, 36);
-`docs/platform-mvp/work-orders/PMVP-25.md` (branch `feat/pmvp-25`), `PMVP-20-passages.md`; branch
+`docs/platform-mvp/work-orders/PMVP-25.md` (branch `feat/pmvp-25`), `PMVP-20-passages.md`, `RB-6-7.md` (branch
+`feat/rb-6-7`); `docs/platform-mvp/core-requests.md` (CR-R1, CR-R5, CR-R6); branch
 `maint/platform-logs-no-customer-text`; KnowledgeBase decision DEC-0082.

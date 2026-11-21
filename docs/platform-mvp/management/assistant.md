@@ -35,6 +35,12 @@ slips.
 
 - **One way in:** documents are read only through the person's own search; what search would not show her, the
   assistant never sees or sends on.
+- **Its own claim** (RB-6): the assistant is a member of roles like a person (every role but Administration, until an
+  administrator takes it out of one, for example "Personal"). Every call it makes to the Core for an answer (the
+  search, and the generation with the provider "Knovas") carries the assistant's own signed claim: the groups of its
+  roles that the asking person also holds, never more than hers, and it says "the assistant, for this person". If the
+  assistant cannot be read, the answer fails; it never falls back to the person's own claim. This narrows only once the
+  Core enforces claims (CR-R1, "Ein"); until then it is signed and logged and changes nothing.
 - **What leaves the installation:** the instruction, the passages search returned, the question and the chat so far, to
   the provider the administrator chose ([data-protection.md](data-protection.md)).
 - **Logs** hold counts, reasons, durations and error types; no question, statement, quote or passage (tested).
@@ -57,6 +63,7 @@ slips.
 | PMVP-22a | the ask page | built; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-25 | switch, provider and model, key, connection test | built; no verification verdict yet | management (critical: a secret) |
 | PMVP-22b, 23, 24 | passage in the document; follow-ups and past chats; waiting states | not started | routine |
+| RB-6 | the assistant as a member of roles, answering with its own claim narrowed to the person | built; no verification verdict yet | management (critical: a migration, with RB-7) |
 
 ## Decisions taken
 
@@ -69,6 +76,7 @@ slips.
 | 21 Nov | coordinator | Probe: Claude Opus 5.5 answered 8 of 8 invented cases correctly in the statement form |
 | 21 Nov | coordinator | No automatic retry towards Anthropic, so no question outlasts the web server's 180 seconds; the key has no setting in the deployment files |
 | 19 Nov | verification record | Chat storage is critical under the repository's rule for database changes (the plan said sensitive) |
+| 21 Nov | founder | The Platform signs agents' claims, the assistant's too; one rule for every agent (its roles, narrowed to the person) |
 
 ## Known limits and open points
 
