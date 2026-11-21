@@ -328,3 +328,17 @@ Left as it is, for the coordinator to say if it should change:
 
 - `judging.md` does not mark which passage the table does not know: a judge sees "nicht ok" without a leak, and
   the count of passages the truth files do not know.
+
+## Verification (coordinator's record)
+
+- **First verification, `fe5b1bc`: FAIL** (a rights question counted as ok when nothing was tested; a leak not counted
+  when the pointer was spelled differently). Reworked in `3848509`, `8eb2e93`, `6294e6e` (decisions D1 to D6).
+- **Second verification, 2026-11-21, `6294e6e`: FAIL on one point.** The pointer key (`pmvp_harness/pointers.py`)
+  folds names with `casefold()` and NFC, which merges names that are two different folders on NTFS (`Weiß Hans` /
+  `Weiss Hans`, `STRAẞE` / `STRASSE`, ligatures, the NFC and NFD forms of `Müller`). A `fact` question can then
+  pass on the other client's document, a `rights` question can pass D6, and a correct table holding both names is
+  refused as contradictory. The coordinator's fix list had asked for that folding; the mistake is the coordinator's.
+  Everything else held: frozen 29 passed, the builder's 566 passed (3 skipped without Playwright), no customer text
+  anywhere, the command line and part B as ordered.
+- **Founder, 2026-11-21, on the decision request (two failed verifications): "Accept, note the limit."** Integrated
+  into `feat/platform-mvp` by the coordinator. The limit and the verifier's notes are FU-36.
