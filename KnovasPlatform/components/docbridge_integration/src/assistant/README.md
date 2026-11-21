@@ -222,12 +222,14 @@ What counts as a number, on both sides:
   each); a sign right before them (`-500`, `−500`, `﹣500`, `－500`, `₋500`, `∸500`), the word `minus` (`minus 500`
   is `-500`), or a dash and a space where no number stands before it (`- 500`, as written); letters, accents and
   raised digits right after them (`266a`, `12bis`, `10³`, `10⁶`); a Latin `bis`, `ter`, `quater` … after a space
-  (`Art. 12 bis` is `12bis`, not `12` and not `12ter`; the German `bis` of `5 bis 7` and `von 3 bis zu 5` stays a
-  word); one letter standing alone after them (`266 a`; not a unit letter: `10 m` is `10`); a code of up to three
+  or a hyphen (`Art. 12 bis`, `§ 12 bis`, `Art.` + line break + `12 bis` are `12bis`, not `12` and not `12ter`;
+    `12-ter` is `12ter`; the German `bis` of `5 bis 7` and `von 3 bis zu 5` stays a word); one letter standing alone
+  after them (`266 a`; not a unit letter: `10 m` is `10`); a code of up to three
   letters right before them (`Q1`, `H2`, `A4`, `m2`, `l5`, as written), and `O,5`; a per cent, per mille or per
   ten thousand sign or word after them (`5%`, `5 %`, `5％`, `5 Prozent`, `5-prozentig`, `5-Prozent-Regel`,
   `5 pct.`, `5 Perzent`, `5 per cent`, `fünf vom Hundert`, `5 v.H.` are `5%`; `5‰`, `5 Promille`, `5 per mille`
-  are `5‰`; percentage points are their own: `0,5 %-Punkte`, `0,5 Prozent-Punkte`, `0,5 Prozentpunkte`); a scale
+  are `5‰`; percentage points are their own: `0,5 %-Punkte`, `0,5 Prozent-Punkte`, `0,5 Prozentpunkte`,
+  `0,5 %-Pkt.`, `0,5 % Pkt.`, `0,5 Prozentpkt.`, `0,5 %-Pt.`, `0.5 % points`, `0.5 percentage points`); a scale
   after them (`2 Mio.`, `2 Millionen`, `2 Mill.`; `3 Mrd.`, `3 Mia.`; `5 Tausend`, `5 Tsd.`; `Billion`,
   `Billiarde`); a fraction word after them (`zwei Drittel`, `drei Viertel`). Raised digits, fractions and number
   signs on their own (`²`, `½`, `①`) are numbers too. Two numbers with only marks between them are one (`2/3`,
@@ -244,14 +246,18 @@ What counts as a number, on both sides:
   of a statement before its numbers are read (`zw**ei**` is `zwei`, `5**0**0` is `500`). A German number word in
   capitals inside a sentence is a noun (`die Elf des Vereins`, `eine Drei`): the statement's claims the noun or the
   number, the passage's offers only the noun; at the start of a sentence it is the number (`Drei Monate …`).
-- **`ein`** and its forms (`eine`, `einen`, `einem`, `einer`, `eines`, `eins`, `one`), and the digit `1`: the
-  article or the number 1, read with the word they count: the first word in capitals among the next three (`ein
+- **`ein`** and its forms (`eine`, `einen`, `einem`, `einer`, `eines`, `eins`, `one`), the English article `a`,
+  `an` (only in an English text, where English function words outnumber German ones: `an` is also German, and
+  only with a word after it: `u.a.` is none), and the digit `1`: the article or the number 1, read with the word
+  they count, also over marks and digits (`einen (1) Monat`: Monat; a sentence's end stops it): the first word in
+  capitals among the next three (`ein
   unbefristetes Mietverhältnis`: Mietverhältnis), else the next word (`one month`); a word that is a number or a
   quantity itself ends the search there (`eine dreimonatige Frist`: dreimonatig, `eine halbe Stunde`: halb, `ein
   paar Tage`: paar). Strict: a statement's `ein Monat` is supported only by `ein Monat` (any form) or `1 Monat` in
   the passage, and a statement's `1 Monat` by either or by a `1` anywhere; not by `drei weitere volle Monate`,
   `zwei aufeinanderfolgende Jahre`, `mehrere`, `einige`, `keinen` or `jeden Monat`, `several months`, and not by
-  another `ein` ("einer Frist" does not support "einem Monat"). A passage's `ein` never supports a bare digit 1.
+  another `ein` ("einer Frist" does not support "einem Monat"). A passage's `ein` never supports a bare digit 1,
+  and a statement's `ein` with no word after it is supported only by such a bare `ein`.
   `minus ein…` is supported only by the same words.
 - **Words that begin with a number word** and go on: `dreimonatige`, `zweijährig`, `Zehnjahresfrist`, `zweite`,
   `Drittel`, `Zweidrittelmehrheit`, `zweieinhalb`, `Hälfte`, `doppelt`. Each is its own token, the word without its
@@ -317,6 +323,12 @@ show two numbers in another order than they are read.
   the ordinal stop after digits (`30.` and `30` are one token); letters that look like digits where they are
   ordinary letters alone (`I`, `O`), an emoji. HTML entities (`&minus;500`) are text: the page must show
   statements and quotes as plain text (FU-11).
+- **Known limits, left for the judge model (FU-27)**, by the founder's decision of 2026-11-21 after the second
+  verification: a digit glued to a word in the passage, such as a footnote mark (`Schriftform4` offers `4`, as a
+  code of letters before digits does not cover six letters); `E-Mail` and other words of one capital letter and a
+  hyphen read as an enumeration letter; English dates written month first (`March 31, 2025`); minus signs beyond
+  those listed above; Markdown variants beyond `*` and `_` (`` ` ``, `~~`); no-answer wordings beyond the closed
+  list. A number of the passage in another role (`Abs. 1` supports "1 Jahr") stays the limit named above.
 - **What a passage writes in a way that can be read two ways** and stands on one line: `Absatz 2 500 Franken`
   offers `2 500`, `Art. 266 a contrario` offers `266 a`, and `achte` (the eighth) and `achten` (to respect) are
   one word token, to a statement that writes the same characters. A passage that has "nimmt sich in acht" still

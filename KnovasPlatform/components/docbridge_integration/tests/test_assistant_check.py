@@ -689,7 +689,8 @@ def test_what_counts_as_a_number_since_the_hardening(text, claims):
     ("nicht ausser Acht lassen", [], ["8"]),
     ("Darauf ist Acht zu geben; er gibt acht und hat es in Acht genommen.", [], ["8"]),
     ("Die Parteien sind sich eins \u00fcber eine Frist.", ["w#ein"], ["1"]),
-    ("eine dreimonatige Frist", ["w#ein", "w#dreimonatig", "3"], ["1"]),
+    # changed (coordinator): a passage's "ein X" offers only "ein X", no bare "ein" that any statement's "ein" meets
+    ("eine dreimonatige Frist", ["w#ein:dreimonatig", "w#dreimonatig", "3"], ["1", "w#ein"]),
     ("die Zweigniederlassung, Zweidrittelmehrheit", ["w#zweidrittelmehrheit"], ["2", "w#zweigniederlassung"]),
     ("Jan Meier kam im August.", ["w#jan", "w#august"], ["D#.1.", "D#.8."]),
     ("am 3. Jan. 2025 und im August 2024", ["D#3.1.2025", "D#.8.2024"], ["w#jan", "w#august"]),
@@ -1130,7 +1131,7 @@ def test_a_long_passage_is_read_once_per_answer():
     started = time.monotonic()
     shown, removed_by = check_answer(answer, {1: passage})
     assert len(shown) == 1 and removed_by[NUMBER_NOT_FOUND] == 49
-    assert time.monotonic() - started < 3.0
+    assert time.monotonic() - started <= 1.0
 
 
 # --- the hardening, after verification: the coordinator's points ------------------------------------------
@@ -1279,3 +1280,98 @@ def test_after_verification_these_are_shown(statement, passage):
 def test_after_verification_these_wordings_are_not_statements(statement):
     passage = "Der Mietvertrag kann unter Einhaltung der gesetzlichen Fristen gek\u00fcndigt werden."
     assert _one(statement, passage) == ([], _counts(**{NOT_A_STATEMENT: 1}))
+
+
+# --- the hardening, second verification: speed, a crash, four slips --------------------------------------
+
+
+@pytest.mark.parametrize("statement, passage", [
+    ("After the probation period, the notice period is a month.",
+     "Nach Ablauf der Probezeit betr\u00e4gt die K\u00fcndigungsfrist zwei Monate auf das Ende eines Monats."),
+    ("The warranty period is a year from acceptance.",
+     "The warranty period is two years from acceptance of the work."),
+    ("The notice period is an hour.",
+     "The notice period is two hours for the tenant."),
+    ("Der Referenzzinssatz sinkt um 0,25 %-Pkt.",
+     "Der Referenzzinssatz sinkt um 0,25 %."),
+    ("Der Referenzzinssatz sinkt um 0,25 % Pkt.",
+     "Der Referenzzinssatz sinkt um 0,25 %."),
+    ("Der Referenzzinssatz sinkt um 0,25 Prozentpkt.",
+     "Der Referenzzinssatz sinkt um 0,25 Prozent."),
+    ("Der Referenzzinssatz sinkt um 0,25 %-Pt.",
+     "Der Referenzzinssatz sinkt um 0,25 %."),
+    ("The rate falls by 0.25 % points.",
+     "The rate falls by 0.25 %."),
+    ("The rate falls by 0.25 percentage points.",
+     "The rate falls by 0.25 percent."),
+    ("Nach \u00a7 12 StG betr\u00e4gt die Einsprachefrist 30 Tage.",
+     "\u00a7 12 bis StG: Die Einsprachefrist betr\u00e4gt 30 Tage seit Zustellung der Verf\u00fcgung."),
+    ("Nach Art. 12 OR gilt das.",
+     "Nach Art.\n12 bis OR gilt das."),
+    ("Massgebend ist Art. 12 OR.",
+     "Massgebend ist Art. 12-ter OR."),
+    ("Die K\u00fcndigungsfrist betr\u00e4gt einen (1) Monat.",
+     "Die K\u00fcndigungsfrist betr\u00e4gt zwei (2) Monate (Ziff. 1). Eine K\u00fcndigung bedarf der Schriftform."),
+    ("Die K\u00fcndigungsfrist betr\u00e4gt einen - Monat.",
+     "Die K\u00fcndigungsfrist betr\u00e4gt zwei Monate. Eine K\u00fcndigung gilt."),
+])
+def test_second_verification_these_are_removed(statement, passage):
+    assert _one(statement, passage) == ([], _counts(**{NUMBER_NOT_FOUND: 1}))
+
+
+@pytest.mark.parametrize("statement, passage", [
+    ("The notice period is a month.",
+     "The notice period is a month from receipt."),
+    ("The notice period is one month.",
+     "The notice period is a month from receipt."),
+    ("Der Zins sinkt um 0,25 %-Pkt.",
+     "Der Zins sinkt um 0,25 Prozentpunkte."),
+    ("Nach \u00a7 12 bis StG gilt das.",
+     "Nach \u00a7 12 bis StG gilt das."),
+    ("Die K\u00fcndigung ist an den Vermieter zu richten.",
+     "Die K\u00fcndigung ist an den Vermieter zu richten, binnen 3 Tagen."),
+    ("Das gilt u.a. f\u00fcr Mieter.",
+     "Das gilt u.a. f\u00fcr alle Mieter."),
+    ("Die K\u00fcndigungsfrist betr\u00e4gt einen (1) Monat.",
+     "Die K\u00fcndigungsfrist betr\u00e4gt einen (1) Monat."),
+])
+def test_second_verification_these_are_shown(statement, passage):
+    shown, removed_by = _one(statement, passage)
+    assert [s[0] for s in shown] == [statement] and removed_by == _counts()
+
+
+def _clear_caches():
+    import assistant.check as module
+
+    for cached in (module.offered_numbers, module._folded_passage, module._compound, module._number_word):
+        cached.cache_clear()
+
+
+_HOSTILE = {
+    "letters": "a " * 75_000,                       # letter-spaced text, as a PDF gives it
+    "letters with hyphens": "a-" * 75_000,
+    "spelled": "z w e i " * 19_000,
+    "hundreds": "one " + "hundred " * 19_000,
+    "distinct compounds": " ".join("x%05dmonattagjahrwochmonattag" % n for n in range(5_000)),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_HOSTILE))
+def test_a_hostile_passage_of_150000_characters_and_50_statements_take_at_most_a_second(shape):
+    import time
+
+    passage = ("Die Frist betr\u00e4gt drei Monate. " + _HOSTILE[shape])[:150_000]
+    answer = "\n".join(st("Es gilt ein Monat und 3 Tage und Ziffer IV.", 1, "Die Frist betr\u00e4gt drei Monate")
+                       for _ in range(50))
+    _clear_caches()
+    started = time.monotonic()
+    shown, removed_by = check_answer(answer, {1: passage})
+    assert time.monotonic() - started <= 1.0
+    assert shown == [] and removed_by[NUMBER_NOT_FOUND] == 50
+
+
+@pytest.mark.parametrize("count", [2_000, 2_200, 3_000, 20_000])
+def test_an_absurd_english_number_is_no_number_and_no_exception(count):
+    passage = "Die Frist betr\u00e4gt drei Monate. one " + "hundred " * count
+    assert isinstance(offered_numbers(passage), frozenset)
+    assert _one("Die Frist betr\u00e4gt drei Monate.", passage, "Die Frist betr\u00e4gt drei Monate")[1] == _counts()

@@ -618,10 +618,10 @@ _DIGIT_LETTERS = "lio"
 _UNIT_LETTERS = "mlts"
 #: Latin words after a number and a space that are part of it ("Art. 12 bis", "Abs. 2 ter"); "bis"
 #: only when no number follows it ("5 bis 7" is a range).
-_LATIN_AFTER = re.compile(" (bis|ter|quater|quinquies|sexies|septies|octies|novies|decies)(?![^\\W\\d_])")
+_LATIN_AFTER = re.compile("[ -](bis|ter|quater|quinquies|sexies|septies|octies|novies|decies)(?![^\\W\\d_])")
 _NUMBER_NEXT = re.compile(" +(?:[0-9]|[^\\W\\d_]+)")
 #: "%-Punkte", "Prozent-Punkte": percentage points, a unit of their own.
-_POINTS = re.compile("[- ]?punkt[^\\W\\d_]*")
+_POINTS = re.compile("[- ]?(?:punkt[^\\W\\d_]*|pkte?|pte?|points?)(?![^\\W\\d_])")
 #: "v. H." (vom Hundert) after a number: per cent, not an article letter.
 _PER_HUNDRED = re.compile("v\\. ?h(?![a-z])")
 
@@ -646,8 +646,20 @@ _ENGLISH_WORDS = frozenset({"first", "second", "third", "fourth", "fifth", "sixt
 #: word in the quote with no number before it; a passage's "ein" is never the
 #: digit 1.
 _ONE = frozenset({"ein", "eine", "einen", "einem", "einer", "eines", "eins", "one"})
+#: The English article: read like "ein", but only in an English text ("an" is also German) and only with
+#: the word it counts ("u.a.", "a.a.O." are no article).
+_ARTICLES = frozenset({"a", "an"})
+#: Words that tell an English text from a German one.
+_ENGLISH_MARKS = frozenset({"the", "is", "are", "was", "of", "and", "to", "for", "with", "by", "be", "must",
+                            "shall", "from", "this", "that", "has", "have", "will", "can", "after", "within"})
+_GERMAN_MARKS = frozenset({"der", "die", "das", "und", "ist", "sind", "den", "dem", "des", "zu", "mit", "von",
+                           "fuer", "nach", "bei", "auf", "im", "wird", "werden", "nicht", "eine", "einen"})
 #: The longest German number word read ("neunhundertneunundneunzigtausend...").
 _LONGEST_NUMBER_WORD = 60
+#: The most letters of a number word spelled out one by one ("z-w-e-i"), and the most words of an English
+#: number ("five hundred and ten"): longer runs are no number, and looking further would be slow.
+_LONGEST_SPELLED = 30
+_LONGEST_ENGLISH = 12
 
 #: What a number word is a part of when the word goes on. A span of time, a
 #: room or a multiple it counts: such a word is also its number
@@ -679,6 +691,8 @@ _NOT_NUMBERS = ("zweifel", "zweigniederlass", "zweigstell", "zweigbetrieb", "ach
 _NOT_NUMBER_STEMS = frozenset({"zweig", "dreist"})
 _ENDINGS = ("en", "er", "es", "em", "e", "n", "s")
 
+#: The most characters between "ein" and the word it counts ("einen (1) Monat").
+_LONGEST_GAP_AFTER_ONE = 12
 #: Words after "ein" that are a quantity of their own: "ein paar Tage" is no "ein Tag".
 _QUANTITIES = frozenset({"paar", "bisschen", "wenig", "weniges", "dutzend", "few", "couple"})
 #: Markdown emphasis in a statement: left out before its numbers are read ("zw**ei**").
@@ -870,11 +884,10 @@ def _tokens(item: _Item, *, passage: bool) -> FrozenSet[str]:
         if tail:
             own = "w" + _TAG + "ein" + tail
             return frozenset([own] if passage else [own, "1" + tail])
-        if item.word == "eins" or not item.text:
+        if item.word == "eins" or not item.text:  # a bare "ein" is supported only by a bare one
             own = "w" + _TAG + ("eins" if item.word == "eins" else "ein")
             return frozenset([own, "w" + _TAG + "ein"] if passage else [own])
-        own = "w" + _TAG + "ein:" + item.text
-        return frozenset([own, "w" + _TAG + "ein"] if passage else [own])
+        return frozenset(["w" + _TAG + "ein:" + item.text])
     if item.kind == "noun":
         own = "w" + _TAG + item.word
         return frozenset([own] if passage else [own, item.text])
@@ -1062,10 +1075,13 @@ def _what_stands_before(plain: str, at: int, written: str, *, passage: bool) -> 
 
 
 def _after_enumeration_word(plain: str, at: int) -> bool:
-    """Whether the number at ``at`` follows "Art.", "Abs.", "Ziff." or the like."""
+    """Whether the number at ``at`` follows "Art.", "Abs.", "Ziff.", "\u00a7" or the
+    like, also over a line break."""
     back = at - 1
-    while back >= 0 and plain[back] in " .":
+    while back >= 0 and plain[back] in " .\n":
         back -= 1
+    if back >= 0 and plain[back] == "\u00a7":
+        return True
     first = back
     while first >= 0 and plain[first].isalpha():
         first -= 1
@@ -1156,9 +1172,9 @@ def _word_spans(plain: str) -> List[Tuple[int, int]]:
 def _per_of(word: str) -> str:
     """The sign a word stands for after a number: per cent, per mille, or
     percentage points (their own); empty for other words."""
-    if word.startswith("prozentpunkt"):
+    if word.startswith(("prozentpunkt", "prozentpkt")):
         return "%p"
-    if word.startswith(("prozent", "perzent")) or word in ("pct", "proz", "percent"):
+    if word.startswith(("prozent", "perzent")) or word in ("pct", "proz", "percent", "percentage"):
         return "%"
     if word.startswith("promill"):
         return "\u2030"
@@ -1170,8 +1186,9 @@ def _word_numbers(plain: str, cased: str, spans: List[Tuple[int, int]], words: L
     """The numbers of ``plain`` written with words, and the words that change
     a number ("minus", "Prozent", "Mio.") as items to apply."""
     skipped = _broken_words(plain, spans) if passage else set()
+    english = sum(word in _ENGLISH_MARKS for word in words) > sum(word in _GERMAN_MARKS for word in words)
     found: List[_Item] = []
-    listing_end, at = -1, 0
+    listing_end, at, spelled_to = -1, 0, -1
     while at < len(spans):
         current = at
         at += 1
@@ -1189,7 +1206,7 @@ def _word_numbers(plain: str, cased: str, spans: List[Tuple[int, int]], words: L
             found.append(_Item(start, spans[current + 1][1], "per", "%" if following != "mille" else "\u2030"))
             at = current + 2
             continue
-        if (word.startswith("prozent") and following.startswith("punkt")
+        if (word.startswith(("prozent", "percent")) and following.startswith(("punkt", "pkt", "pt", "point"))
                 and plain[end:spans[current + 1][0]] in ("-", " ")):
             found.append(_Item(start, spans[current + 1][1], "per", "%p"))  # "Prozent-Punkte"
             at = current + 2
@@ -1202,12 +1219,13 @@ def _word_numbers(plain: str, cased: str, spans: List[Tuple[int, int]], words: L
             found.append(_Item(start, spans[current + 1][1], "per", "%"))
             at = current + 2
             continue
-        if len(word) == 1:
+        if len(word) == 1 and current > spelled_to:
             spelled, last = _spelled_out(plain, spans, words, current)
             if last > current:  # "z-w-e-i", "d r e i"
                 found.append(_Item(start, spans[last][1], "num", spelled))
                 at = last + 1
                 continue
+            spelled_to = _run_end(plain, spans, words, current)
         joined, last, value = _joined_number(plain, spans, words, current)
         if last > current:
             found.append(_Item(start, spans[last][1], "num", str(value), word=joined))
@@ -1221,6 +1239,12 @@ def _word_numbers(plain: str, cased: str, spans: List[Tuple[int, int]], words: L
             noun = _noun_after(plain, cased, spans, words, current)
             found.append(_Item(start, end, "ein", noun, word=word))
             continue
+        if word in _ARTICLES and english and not _enumerates(plain, cased, spans, words, current, listing_end,
+                                                             passage=passage, article=True):
+            noun = _noun_after(plain, cased, spans, words, current)
+            if noun:  # "a month"; "u.a." is no article
+                found.append(_Item(start, end, "ein", noun, word=word))
+                continue
         value = _number_word(word)
         if value is None:
             value = _ENGLISH.get(word)
@@ -1261,41 +1285,61 @@ def _word_numbers(plain: str, cased: str, spans: List[Tuple[int, int]], words: L
     return found
 
 
+_SPELLING_GAPS = ("-", " ", ".", ". ", "_", "/")
+
+
 def _spelled_out(plain: str, spans: List[Tuple[int, int]], words: List[str], at: int) -> Tuple[str, int]:
     """A number word spelled out letter by letter ("z-w-e-i", "d r e i",
     "d.r.e.i"): its value and the index of its last letter; else ``at``."""
     letters, last = words[at], at
-    while (last + 1 < len(spans) and len(words[last + 1]) == 1
-           and plain[spans[last][1]:spans[last + 1][0]] in ("-", " ", ".", ". ", "_", "/")):
+    while (last + 1 < len(spans) and last - at < _LONGEST_SPELLED and len(words[last + 1]) == 1
+           and plain[spans[last][1]:spans[last + 1][0]] in _SPELLING_GAPS):
         last += 1
         letters += words[last]
     if last == at:
         return "", at
     value = _number_word(letters)
     if value is None:
-        value = _ENGLISH.get(letters, 1 if letters in _ONE else None)
+        value = _ENGLISH.get(letters)
     return ("", at) if value is None else (str(value), last)
 
 
 _BEFORE_A_WORD = frozenset(" ([{" + chr(10) + chr(34) + chr(39))
 
 
+def _run_end(plain: str, spans: List[Tuple[int, int]], words: List[str], at: int) -> int:
+    """The index of the last single letter of the run ``at`` begins (at most
+    ``_LONGEST_SPELLED`` letters further): none of them begins another try."""
+    last = at
+    while (last + 1 < len(spans) and last - at < _LONGEST_SPELLED and len(words[last + 1]) == 1
+           and plain[spans[last][1]:spans[last + 1][0]] in _SPELLING_GAPS):
+        last += 1
+    return last
+
+
 def _is_noun(plain: str, cased: str, start: int, end: int) -> bool:
     """Whether a number word is written as a noun: a capital and then small
     letters, not at the start of a sentence ("die Elf", "eine Drei")."""
     written = cased[start:end]
-    if not (written[:1].isupper() and written[1:].islower()):
-        return False
+    return written[:1].isupper() and written[1:].islower() and not _starts_sentence(plain, start)
+
+
+def _starts_sentence(plain: str, start: int) -> bool:
+    """Whether a word at ``start`` begins the text or a sentence."""
     back = start - 1
     while back >= 0 and plain[back] in _BEFORE_A_WORD:
         back -= 1
-    return back >= 0 and plain[back] not in ".!?:;"
+    return back < 0 or plain[back] in ".!?:;"
 
 
 def _noun_after(plain: str, cased: str, spans: List[Tuple[int, int]], words: List[str], at: int) -> str:
-    """The word the "ein" at ``at`` counts (``_noun_from``); empty when no word
-    follows it with only white space between."""
-    if at + 1 >= len(spans) or not plain[spans[at][1]:spans[at + 1][0]].isspace():
+    """The word the "ein" at ``at`` counts (``_noun_from``), also over marks
+    and digits ("einen (1) Monat"); empty when the sentence ends first or no
+    word follows."""
+    if at + 1 >= len(spans):
+        return ""
+    gap = plain[spans[at][1]:spans[at + 1][0]]
+    if len(gap) > _LONGEST_GAP_AFTER_ONE or any(char in ".!?;:" or char.isalpha() for char in gap):
         return ""
     return _noun_from(plain, cased, spans, words, at + 1)
 
@@ -1327,8 +1371,10 @@ def _counts_itself(word: str) -> bool:
 
 
 def _enumerates(plain: str, cased: str, spans: List[Tuple[int, int]], words: List[str], at: int,
-                listing_end: int, *, passage: bool) -> bool:
-    """Whether a word is a Roman numeral or the letter of an enumeration."""
+                listing_end: int, *, passage: bool, article: bool = False) -> bool:
+    """Whether a word is a Roman numeral or the letter of an enumeration. With
+    ``article`` (the English "a"): only after "lit.", "Anhang" and the like,
+    in a listing, or as a capital inside a sentence ("Kategorie A")."""
     (start, end), word = spans[at], words[at]
     if plain[end:end + 1].isdecimal():
         return False  # "A4": a code, not an enumeration
@@ -1340,6 +1386,8 @@ def _enumerates(plain: str, cased: str, spans: List[Tuple[int, int]], words: Lis
     if (letter or roman) and (after_keyword or listed):
         return True
     written = cased[start:end]
+    if article:
+        return written == "A" and not _starts_sentence(plain, start)
     capitals = written.isupper() or all(unicodedata.name(char, "").startswith("LATIN LETTER SMALL CAPITAL")
                                         for char in written)
     if not capitals or not (letter or roman):
@@ -1415,7 +1463,7 @@ def _joined_english(plain: str, spans: List[Tuple[int, int]], words: List[str],
             index += 1
             continue
         value = 1 if word == "one" else _ENGLISH.get(word)
-        if value is None:
+        if value is None or count >= _LONGEST_ENGLISH:
             break
         if value == 100:
             current = (current or 1) * 100
@@ -1458,6 +1506,7 @@ def _is_noun_acht(words: List[str], at: int) -> bool:
     return before in _NOUN_ACHT_BEFORE or (bool(after) and after[0] in _NOUN_ACHT_VERBS)
 
 
+@lru_cache(maxsize=8192)
 def _number_word(word: str) -> Optional[int]:
     """The value of a German number word from 0 to 999,999 (umlauts as
     ``ae``, ``oe``, ``ue``, lower case), or None. "ein" and "eins" alone are
@@ -1511,6 +1560,7 @@ def _stem(word: str) -> str:
     return word
 
 
+@lru_cache(maxsize=8192)
 def _compound(word: str) -> Optional[Tuple[str, str]]:
     """``(stem, value)`` when ``word`` begins with a number word and goes on:
     ``value`` is that number when the rest counts a span of time, rooms or a
@@ -1546,6 +1596,11 @@ def _counted_value(value: int, rest: str) -> str:
     return str(value) if rest.startswith(_TIME_UNITS) else ""
 
 
+#: What a number word inside a word stands before, and the longest such number word looked for.
+_INNER_STEMS = _TIME_UNITS + _COUNTED + _FRACTIONS_INSIDE + ("prozent", "promill")
+_LONGEST_INNER = 30
+
+
 def _inner_number(word: str) -> Optional[Tuple[str, str]]:
     """A number word inside ``word``, right before a unit it counts or a
     fraction ("Mindestdreimonatsfrist", "Mindestzweidrittelmehrheit"). "acht"
@@ -1553,9 +1608,9 @@ def _inner_number(word: str) -> Optional[Tuple[str, str]]:
     size = min(len(word), _LONGEST_NUMBER_WORD)
     for at in range(4, size - 2):
         rest = word[at:]
-        if not rest.startswith(_TIME_UNITS + _COUNTED + _FRACTIONS_INSIDE + ("prozent", "promill")):
+        if not rest.startswith(_INNER_STEMS):
             continue
-        for start in range(1, at - 2):
+        for start in range(max(1, at - _LONGEST_INNER), at - 2):
             head = word[start:at]
             value = _number_word(head)
             if value is not None and head != "acht":
