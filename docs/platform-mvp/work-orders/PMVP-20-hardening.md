@@ -224,3 +224,31 @@ every case as expected except `stmt number elsewhere in passage` (now shown, by 
 PMVP-22a's and PMVP-25's) and the frozen file: 943 passed (`test_assistant_check.py` 572). The whole suite was not
 run. 150,000 characters × 50 statements: 0.34 s. My files are ASCII; `check_ascii_py.py 77e309c..HEAD` now also lists the merged files of
 other items (none of mine).
+
+## Builder's notes, second verification
+
+2026-11-21, same branch, after the second FAIL at `5213918` and the founder's decision (fix the speed problem and
+four slips, a short check, then integrate; the rarer spellings are known limits for FU-27). Commits `c607280`
+(merge of `origin/feat/platform-mvp`, no conflict), `95647cd` (the fixes), and the commit of these notes.
+
+- **Speed.** `_spelled_out` looks at most 30 letters and a run that spelled no number is not tried again from
+  inside (linear); `_compound` and `_number_word` are cached per word; the inner number word is looked for in at
+  most 30 letters. `v20h2/perf2.py` worst 0.39 s, `perf4.py` worst **0.52 s**, `perf3.py` 8,000 letters 0.04 s; with
+  every cache cleared, distinct long compounds, letter-spaced text and 20,000 "hundred": 0.24–0.43 s. A test
+  bounds five hostile shapes (150,000 characters, 50 statements) at 1 s.
+- **The crash.** An English number of more than 12 words is no number; `hundred.py` up to 3,000 and a test up to
+  20,000 run without an exception.
+- **English article.** `a`/`an` are read like `ein` (bound to the word they count), only where English function
+  words outnumber German ones (`an` is a German preposition) and only with a word after them (`u.a.`, `a.a.O.`).
+- **Percentage points.** `%-Pkt.`, `% Pkt.`, `Prozentpkt.`, `%-Pt.`, `% points`, `percentage points` are `%p`.
+- **`bis`/`ter`.** Bound after `§`, after `Art.` over a line break, and after a hyphen (`12-ter` is `12ter`).
+- **`ein` before marks** binds to the next word over marks and digits up to 12 characters (`einen (1) Monat`); a
+  sentence end stops it. A statement's bare `ein` is supported only by a bare `ein` in the passage; a passage's
+  `ein X` no longer offers a bare `ein` (one test changed for that, with its reason).
+- README: the known limits (glued digits, `E-Mail`, English dates, other minus signs, Markdown variants, other
+  no-answer wordings) are named with FU-27.
+
+**Evidence.** Frozen file 88 passed, frozen check OK (5 files). `tests/test_assistant_*.py` and the frozen file:
+993 passed (`test_assistant_check.py` 602). `realistic.py`: 6 removed; shown only the two accepted limits (the
+glued footnote digit, `Abs. 1` for "1 Jahr"). `fuzz.py`: 0 wrong quotes, 0 exceptions (4 oracle hits are `drei`
+for `3`). `cost.py`: exact 10 of 10, with slips 7 of 10. My files are ASCII.
