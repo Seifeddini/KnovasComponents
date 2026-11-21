@@ -1,0 +1,65 @@
+/* Knovas Platform: the members' Brain views (PMVP-30a), what the page parts (parts.css) do not hold.
+
+   Brand tokens only: no colour, size or radius is written out here but the own size of a thing (a line of one
+   pixel, the width of the label column). Every class starts with bv-. */
+
+/* The page's column, below the shell: the reference's 40 px above and at the sides, less on a phone. */
+.bv-main {
+    box-sizing: border-box;
+    padding: calc(var(--k-space-xl) + var(--k-space-xs)) calc(var(--k-space-xl) + var(--k-space-xs)) var(--k-space-xl);
+}
+@media (max-width: 640px) {
+    .bv-main { padding: var(--k-space-lg) var(--k-space-md) var(--k-space-xl); }
+}
+
+/* The facts: one line each, a hairline between them. */
+.bv-facts { display: flex; flex-direction: column; }
+.bv-fact { padding: var(--k-space-xs) 0; }
+.bv-fact:first-child { padding-top: 0; }
+.bv-fact:last-child { padding-bottom: 0; }
+.bv-fact + .bv-fact { border-top: 1px solid var(--k-gray-100); }
+/* The row inside sets no padding of its own here: the fact line spaces them. */
+.bv-fact .k-rowline { padding: 0; }
+
+/* Label left in a column of its own, value right; one under the other on a phone. */
+.bv-fact-line {
+    display: grid;
+    grid-template-columns: minmax(8rem, 10rem) minmax(0, 1fr);
+    gap: var(--k-space-2xs) var(--k-space-sm);
+    align-items: baseline;
+}
+.bv-fact-label { color: var(--k-color-text-muted); overflow-wrap: anywhere; }
+.bv-fact-value { color: var(--k-color-text); overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+    .bv-fact-line { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+
+/* A fact with a source opens it: the whole line is the control. */
+.bv-fact-summary {
+    display: block;
+    list-style: none;
+    cursor: pointer;
+    border-radius: var(--k-radius-xs);
+}
+.bv-fact-summary::-webkit-details-marker { display: none; }
+.bv-fact-summary:hover .bv-fact-value { color: var(--k-color-accent); }
+.bv-fact-summary:focus-visible {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: 2px;
+}
+.bv-fact-open {
+    color: var(--k-color-text-muted);
+    transition: transform var(--k-transition-fast);
+}
+.bv-fact[open] .bv-fact-open { transform: rotate(90deg); }
+.bv-source { margin-top: var(--k-space-xs); }
+.bv-source p { margin: 0; }
+.bv-source-head { margin-bottom: var(--k-space-2xs); }
+.bv-source-doc { overflow-wrap: anywhere; }
+
+/* Documents: the name, and the folder under it. */
+.bv-doc { display: flex; flex-direction: column; min-width: 0; }
+.bv-doc-name { color: var(--k-color-text); overflow-wrap: anywhere; }
+.bv-doc-folder { overflow-wrap: anywhere; }
+
+.bv-note { margin: var(--k-space-sm) 0 0; }

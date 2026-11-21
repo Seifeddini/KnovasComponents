@@ -153,11 +153,16 @@ components:
     card: L2-platform-brain-views.card.yaml
     paths:
       - KnovasPlatform/components/docbridge_integration/src/brain_views
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/brain_views_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/dossier.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/brain_views.css
     why: >-
       The members' views (dossier, evidence trail, process line) are a new module (plan § 5.2), written by PMVP-30a
-      to PMVP-34; the path holds nothing yet. The modellers' views (graph_views/, views_routes.py, ontology_graph.py,
-      custom_views/) are not part of it: they read the tenant's whole edge list and have no 25-node limit, which this
-      card's promises forbid.
+      to PMVP-34: the reading in brain_views/, the pages in their own route file, templates and stylesheet under
+      web_interface/. PMVP-30a added the dossier. The web app registers the blueprint (one call in app.py) and keeps
+      the switch's registry entry (platform_settings.py); both stay with it. The modellers' views (graph_views/,
+      views_routes.py, ontology_graph.py, custom_views/) are not part of it: they read the tenant's whole edge list
+      and have no 25-node limit, which this card's promises forbid.
   L2-PLATFORM-SHELL:
     card: L2-platform-shell.card.yaml
     paths:
