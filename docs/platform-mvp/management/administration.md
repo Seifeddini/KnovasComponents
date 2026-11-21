@@ -51,12 +51,16 @@ administrator joins Administration at the first start. Every other role is the f
 **The move of an existing installation.** When the new version starts, the database is moved once, inside the
 installation: everyone joins Mitglied; every administrator joins Administration; and for each combination of the other
 functions that people hold, one role is made, named after its functions (for example «Freigaben bestätigen» or
-«Experimente + Experimente verwalten»), and exactly those people join it. Nobody loses a function and nobody gains one
-except "Fragen und suchen", which no page checks. Every person passes exactly the pages and buttons they passed before
-(tested for each function and for a sample firm). A very long combination keeps its first words and a number, so every
-name is unique and at most 80 characters. The old grants table stays untouched for one release as the way back: going
-back to the previous version restores everyone's functions as they were at the move, but changes made after the move
-are lost.
+«Experimente + Experimente verwalten»), and exactly those people join it. Nobody loses a function. The one change, as
+intended, is that everyone gains "Fragen und suchen" (`member`), because everyone joins Mitglied. No standard page
+checks it: every person passes exactly the console, Builder and Experimente pages and buttons they passed before (tested
+for each function and for a sample firm). But an installation can make `member` count where it configures it: a
+custom view or a profile view open to `member` (`views.profile_roles`), or editing document fields
+(`web.doc_fields.edit_roles`). There, someone who held other functions but not `member` before the move now sees or
+edits what members do. An installation that uses these settings should check them before the move. A very long
+combination keeps its first words and a number, so every name is unique and at most 80 characters. The old grants
+table stays untouched for one release as the way back: going back to the previous version restores everyone's
+functions as they were at the move, but changes made after the move are lost.
 
 **Safety rules built now.**
 

@@ -57,11 +57,13 @@ building are kept outside the repository.
 
 **Roles** (RB-1, RB-2). Who may do what is now decided by roles, kept in the Platform's own database like accounts.
 The move to roles happens inside the installation when the new version starts: nothing leaves it, nothing is written
-to the Knovas Core, and everyone keeps exactly the functions she had (each person passes the same pages and buttons as
-before; tested). The old grants stay untouched for one release as the way back. A role's Core group is only recorded
-until RB-4 links it in the Core on an administrator's action, so roles do not yet change what anyone may read. No role
-name, description, person's name or address is written to a log. A request is never signed with more than 32 access
-groups (the Core's limit): a change that would give a 33rd is refused, and nothing is dropped silently.
+to the Knovas Core, and everyone keeps the functions she had (each person passes the same standard pages and buttons
+as before; tested). The one gain, as intended, is that everyone becomes a member ("Fragen und suchen"): where an
+installation has opened a custom view, a profile view or the editing of document fields to members, people who were
+not members before now get them. The old grants stay untouched for one release as the way back. A role's Core group
+is only recorded until RB-4 links it in the Core on an administrator's action, so roles do not yet change what anyone
+may read. No role name, description, person's name or address is written to a log. A request is never signed with more
+than 32 access groups (the Core's limit): a change that would give a 33rd is refused, and nothing is dropped silently.
 
 **Demo tenant and Knovas GmbH tenant.**
 
