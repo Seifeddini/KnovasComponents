@@ -10,7 +10,7 @@ Covers confirmed issues in the DocBridge web app:
   plus: unauth stats/version path leak, CORS wildcard, weak SECRET_KEY,
         DOCX decompression bomb.
 
-Conventions follow tests/test_web_login.py / test_open_tokens.py.
+Conventions follow tests/test_web_login.py.
 """
 
 import io
@@ -234,28 +234,6 @@ def test_session_cookie_secure_dev_override(tmp_path, monkeypatch):
     cookies = _session_set_cookies(resp)
     assert cookies, "expected a session cookie to be set"
     assert all("Secure" not in c for c in cookies)
-
-
-# ---------------------------------------------------------------------------
-# C2 -- open tokens single-use across workers (shared store)
-# ---------------------------------------------------------------------------
-def test_open_token_single_use_across_worker_instances(tmp_path):
-    from open_tokens import OpenTokenManager
-
-    store = str(tmp_path / "open_tokens.sqlite3")
-    secret = "shared-worker-secret"
-    worker_a = OpenTokenManager(secret, max_age_seconds=120, store_path=store)
-    worker_b = OpenTokenManager(secret, max_age_seconds=120, store_path=store)
-
-    token = worker_a.mint("sub/hello.pdf", "doc-1")
-
-    first = worker_b.verify_and_consume(token, consume=True)
-    assert first is not None
-    assert first["rel"] == "sub/hello.pdf"
-
-    # A different worker instance sharing the same store must reject the replay.
-    second = worker_a.verify_and_consume(token, consume=True)
-    assert second is None
 
 
 # ---------------------------------------------------------------------------

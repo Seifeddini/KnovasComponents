@@ -1,8 +1,7 @@
 """``pytest -k doc_fields_render``: every document-fields surface, rendered.
 
-The compose ``mock`` demo runs in legacy mode and shows no document-field UI,
-so a manual click-through cannot cover these states. This test does it
-instead: the real app, its real Knovas client and the mock Knovas API (over
+No running stack shows every document-field state, so a manual
+click-through cannot cover them. This test does it instead: the real app, its real Knovas client and the mock Knovas API (over
 an in-process ``WsgiSession``) in each server state of spec 2.1 -- ``off``,
 ``values``, ``filters`` without a relevance calibration (``listing_only``)
 and ``filters``. Per state it fetches the search page, the registry view, a

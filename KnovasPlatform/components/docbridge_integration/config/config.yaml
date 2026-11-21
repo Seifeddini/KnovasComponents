@@ -1,35 +1,9 @@
 # DocBridge-Knovas Integration Configuration
 
-# Database Configuration
-database:
-  driver: "Microsoft Access Driver (*.mdb, *.accdb)"
-  dbq: "\\\\fileserver\\DocBridge\\Database\\docbridge.accdb"
-  # Alternative: Use DSN if configured
-  # dsn: "DocBridge"
-  
-  # Document table name (adjust based on actual schema)
-  doc_table: "Documents"
-  
-  # Query configuration
-  query_timeout: 30  # seconds
-  batch_size: 100    # documents per batch
-
 # AutoDoc Configuration
 autodoc:
   # Mount path for AutoDoc directory
   path: "${AUTODOC_PATH:-/mnt/autodoc}"
-  # Cap for find_autodoc_files() directory walks (0 = unlimited)
-  max_discovery_entries: 10000
-  
-  # File naming pattern: {GUID}_{AkteID}_{Typ}.{ext}
-  # Supported file extensions
-  supported_extensions:
-    - ".docx"
-    - ".doc"
-    - ".pdf"
-    - ".txt"
-    - ".xlsx"
-    - ".xls"
 
 # Knovas API Configuration
 api:
@@ -43,13 +17,8 @@ api:
     transmit_part: "${SEMANTIX_TRANSMIT_PART_ENDPOINT:-/secured/transmit_document_part}"
     query: "${SEMANTIX_QUERY_ENDPOINT:-/secured/query}"
     health: "${SEMANTIX_HEALTH_ENDPOINT:-/secured/health}"
-    generate_certificate: "${SEMANTIX_GENERATE_CERTIFICATE_ENDPOINT:-/secured/generate_certificate}"
     sign_certificate: "${SEMANTIX_SIGN_CERTIFICATE_ENDPOINT:-/secured/sign_certificate}"
     delete_information_object: "${SEMANTIX_DELETE_ENDPOINT:-/secured/delete_information_object}"
-    # Legacy/mock endpoints (used only when explicitly enabled)
-    full_sync: "${SEMANTIX_FULL_SYNC_ENDPOINT:-/api/docs/full-sync}"
-    new_doc: "${SEMANTIX_NEW_DOC_ENDPOINT:-/api/docs/new}"
-    search: "${SEMANTIX_SEARCH_ENDPOINT:-/api/search}"
   
   # mTLS certificates (optional — enables real Knovas secured API)
   cert_path: "${SEMANTIX_CLIENT_CERT:-}"
@@ -61,14 +30,9 @@ api:
   cert_auto_renew_enabled: "${SEMANTIX_CERT_AUTO_RENEW_ENABLED:-true}"
   cert_renew_threshold_days: "${SEMANTIX_CERT_RENEW_THRESHOLD_DAYS:-30}"
   cert_check_interval_seconds: "${SEMANTIX_CERT_CHECK_INTERVAL_SECONDS:-3600}"
-  cert_renew_method: "${SEMANTIX_CERT_RENEW_METHOD:-csr}"  # csr | legacy
 
-  # API mode
-  use_secured_api: "${SEMANTIX_USE_SECURED_API:-true}"
-  # Keep false in production. Set true only for explicit mock/dev usage.
-  allow_legacy_api_fallback: "${SEMANTIX_ALLOW_LEGACY_API_FALLBACK:-false}"
-
-  # Legacy authentication (only relevant in legacy/mock mode)
+  # Header authentication of the retired unsecured API. The secured API
+  # authenticates by the client certificate; leave api_key empty.
   auth_type: "bearer"  # or "api_key"
   api_key: "${SEMANTIX_API_KEY}"
 
@@ -229,16 +193,6 @@ web:
     # Documents per page of the field listing (at most 200).
     find_page_size: 50
 
-  # Document opening
-  document_handler:
-    # How to handle document opening
-    # Options: "link", "download", "external"
-    mode: "external"
-    
-    # External application to open documents (Windows)
-    # e.g., "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
-    external_app: null
-
 # Logging Configuration
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -262,12 +216,6 @@ logging:
 performance:
   # Threading
   max_workers: 4
-  
-  # File processing
-  chunk_size: 8192  # bytes for file reading
-  
-  # Memory limits
-  max_file_size: 104857600  # 100 MB
 
 # The firm's own Knovas Connector, on knovas-internal only (never published).
 knovas_connector:
@@ -331,7 +279,6 @@ brain_views:
   enabled: "${BRAIN_VIEWS_ENABLED:-aus}"
 
 # Client file open: browser launches UNC/local path on the user's PC (no install).
-# Optional companion (semantix-doc:) if browser launch is blocked by policy.
 # Ansichten (/views): process and spine views drawn from the ontology's
 # definitions. Plan: docs/superpowers/plans/2026-10-27-process-and-spine-views.md
 views:
@@ -446,21 +393,16 @@ assistant:
 
 open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"
-  companion_enabled: "${OPEN_COMPANION_ENABLED:-false}"
-  token_ttl_seconds: "${OPEN_TOKEN_TTL_SECONDS:-120}"
   # How long a document stays reachable after a person's search returned it.
   # The file routes serve only what that person's own retrieval handed them;
   # see src/document_grants.py. Shorter means a withdrawn access takes effect
   # sooner and a long reading session has to search again.
   grant_ttl_seconds: "${OPEN_GRANT_TTL_SECONDS:-3600}"
   grant_store_path: "${OPEN_GRANT_STORE_PATH:-}"
-  public_base_url: "${OPEN_PUBLIC_BASE_URL:-}"
-  companion_uri_scheme: "${OPEN_COMPANION_URI_SCHEME:-semantix-doc}"
   unc_root: "${OPEN_UNC_ROOT:-}"
   local_root: "${OPEN_LOCAL_ROOT:-}"
   client_local_root: "${OPEN_CLIENT_LOCAL_ROOT:-}"
   pdf_inline_in_browser: "${OPEN_PDF_INLINE_IN_BROWSER:-true}"
-  allow_server_side_startfile: "${OPEN_ALLOW_SERVER_SIDE_STARTFILE:-false}"
   allow_degraded_download_open: "${OPEN_ALLOW_DEGRADED_DOWNLOAD_OPEN:-false}"
 
 # Security Configuration

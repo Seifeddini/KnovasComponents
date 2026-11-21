@@ -313,7 +313,6 @@ One Compose project at the repo root covers every component.
 | `docbridge-web`       | Flask application + Gunicorn  | Internal only (`5000`)                        |
 | `docbridge-web-nginx` | In-compose reverse proxy      | `127.0.0.1:${DOCBRIDGE_WEB_PORT:-8081}`       |
 | `knovas-connector`   | Discovery and sync API        | `127.0.0.1:5001`                              |
-| `knovas-mock`         | Offline demo API              | Internal only — **profile `mock` only**       |
 
 
 > Docker service names retain legacy `docbridge` identifiers; they refer to the KnovasPlatform application.
@@ -337,7 +336,7 @@ KnovasPlatform runs on **internal networks only**. Listening ports must not be r
 
 The application port (`5000`) is Docker-internal only. Port `8081` is the sole published application port; in production mode it is bound to loopback.
 
-Knovas API endpoints used (configurable base URL): `/secured/query`, `/secured/health`, `/api/search`, `/secured/init_document_transmission`, `/secured/transmit_document_part`, `/secured/generate_certificate`.
+Knovas API endpoints used (configurable base URL): `/secured/query`, `/secured/health`, `/secured/init_document_transmission`, `/secured/transmit_document_part`, `/secured/sign_certificate`.
 
 ### 2.4 mTLS & credentials
 
@@ -351,7 +350,7 @@ Certificate files under `${SEMANTIX_CERTS_DIR:-./certs}` are mounted read-only t
 | `ca.crt`     | `SEMANTIX_CA_CERT`     | `/app/certs/ca.crt`     |
 
 
-- mTLS enabled by default: `SEMANTIX_USE_SECURED_API=true`
+- mTLS is always on: the Platform speaks only the secured API
 - Automatic certificate renewal: checks every 3600 s, renews when fewer than 30 days remain
 - Optional: `SEMANTIX_CUSTOMER_ID`
 
@@ -376,9 +375,7 @@ on every run.
 
 - `DOCBRIDGE_WEB_PORT` (default `8081`)
 - `DOCBRIDGE_WEB_WORKERS`, `DOCBRIDGE_WEB_THREADS`, `DOCBRIDGE_WEB_TIMEOUT` (defaults 2, 4, 180; the timeout must stay above `RC_EXTRACT_TIMEOUT_SECONDS`, default 120)
-- `SEMANTIX_USE_SECURED_API` (default `true`)
 - `AUTODOC_MOUNT_PATH` (host path) → mounted to `/mnt/autodoc` (read-only)
-- `OPEN_PUBLIC_BASE_URL` — public HTTPS base URL (required for production host-NGINX; e.g. `https://knovas.example.internal`)
 - `OPEN_LOCAL_ROOT` — document path inside the container (e.g. `/mnt/autodoc`); maps server paths to client paths
 - `OPEN_UNC_ROOT` — how Windows clients see the share (e.g. `\\fileserver\AutoDocShare`)
 - `OPEN_CLIENT_LOCAL_ROOT` — how Linux clients mount the share (e.g. `/mnt/autodoc`)
@@ -386,9 +383,8 @@ on every run.
 - `DOC_FIELDS_UI` (default `auto`) — `off` hides all document-field UI; there is no `on`: the Platform shows what Knovas serves for the tenant, in secured mode only (`KnovasPlatform/docs/features/document-fields.md`)
 - `DOC_FIELDS_EDIT_ROLES` (default `admin`) — roles that may edit document-field values; `special` fields stay admin-only
 
-**File-open companion (optional fallback)**
+**File open**
 
-- `OPEN_COMPANION_ENABLED` (default `false`)
 - `OPEN_BROWSER_CLIENT_PATH` (default `true`)
 
 ### 2.6 Storage
@@ -447,47 +443,11 @@ The **Open** (*Öffnen*) feature opens documents from the browser without a clie
 - The browser must be allowed by IT policy to follow `file:` / UNC links from an HTTPS origin
 - The user must have the native application for the file type installed (Word, Excel, etc.)
 
-If the browser cannot open `file:`/UNC links, deploy the optional open companion:
-
-
-| Platform | Location                                                 |
-| -------- | -------------------------------------------------------- |
-| Windows  | `KnovasPlatform/components/semantix_open_companion/`     |
-| Linux    | `KnovasPlatform/components/knovas_open_companion/linux/` |
-
-
-Enable with `OPEN_COMPANION_ENABLED=true`. API endpoints: `GET /api/document/<doc_id>/client-path`, `POST /api/open-tokens/mint`, `POST /api/open-tokens/redeem`.
+API endpoint: `GET /api/document/<doc_id>/client-path`.
 
 **Supported browsers:** Current versions of Microsoft Edge or Google Chrome on Windows; Firefox or Chromium on Linux. Safari is not formally tested.
 
 Guide: `KnovasPlatform/docs/integration/opening-documents.md`.
-
-### 2.9 Demo / mock mode
-
-For evaluation without a Knovas tenant. **Not for production.**
-
-In `knovas.env`, point the API at the mock service name:
-
-```env
-KNOVAS_API_URL=http://knovas-mock:5000
-```
-
-then, after `./scripts/setup.sh`, in the generated `KnovasPlatform/.env.generated`:
-
-```env
-SEMANTIX_USE_SECURED_API=false
-SEMANTIX_ALLOW_LEGACY_API_FALLBACK=true
-```
-
-Start with the `mock` profile:
-
-```bash
-docker compose --env-file knovas.env --profile mock up -d --build
-```
-
-The mock API requires no tenant and no mTLS. Do not expose mock services on production networks.
-
-Guide: `KnovasPlatform/docs/demo.md`.
 
 ### 2.10 Hardware
 
@@ -627,8 +587,7 @@ Guide: `KnovasConnector/docs/operations.md`.
 | Container restart loop     | Check `docker compose logs docbridge-web` — often a missing `WEB_SECRET_KEY`, or `COMPANY_LOGIN_*` still set while per-user identity is on                          |
 | NGINX 502 bad gateway      | Stack not running or on another port; `./scripts/start.sh`; match `proxy_pass` port to `DOCBRIDGE_WEB_PORT`                                                        |
 | Login page missing         | Set real secrets in `knovas.env`, re-run `./scripts/setup.sh && ./scripts/start.sh`                                                                                |
-| Open / Öffnen does nothing | Share not mounted on client PC; set `OPEN_UNC_ROOT` / `OPEN_CLIENT_LOCAL_ROOT` / `OPEN_LOCAL_ROOT`; browser may block `file:` links from HTTPS — try companion mode |
-| Open-token wrong host      | Set `OPEN_PUBLIC_BASE_URL=https://<fqdn>` and recreate `docbridge-web`                                                                                              |
+| Open / Öffnen does nothing | Share not mounted on client PC; set `OPEN_UNC_ROOT` / `OPEN_CLIENT_LOCAL_ROOT` / `OPEN_LOCAL_ROOT`; browser may block `file:` links from HTTPS |
 | Search returns no results  | Confirm Knovas Connector ingestion completed; verify `SEMANTIX_API_URL` and mTLS certs                                                                              |
 
 
@@ -664,7 +623,5 @@ Guide: `KnovasPlatform/docs/integration/troubleshooting.md`.
 | `KnovasPlatform/docs/platforms/debian.md`                | Debian-specific notes     |
 | `KnovasPlatform/docs/platforms/windows.md`               | Windows-specific notes    |
 | `KnovasPlatform/docs/integration/opening-documents.md`   | Document open feature     |
-| `KnovasPlatform/docs/integration/open-tokens-api.md`     | Companion-mode API        |
-| `KnovasPlatform/docs/demo.md`                            | Mock-tenant evaluation    |
 
 

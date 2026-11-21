@@ -195,16 +195,15 @@ def settings(config: Any) -> DocFieldsSettings:
 
 
 def is_secured(client: Any) -> bool:
-    """Secured mode (``use_secured_api`` and mTLS). Outside it the legacy GET
-    search has nowhere to carry ``where`` and no doc-fields route exists
-    (D13). A client may answer through ``secured_mode()``."""
+    """Secured mode (mTLS configured). Outside it no search and no doc-fields
+    route is reached (D13). A client may answer through ``secured_mode()``."""
     probe = getattr(client, "secured_mode", None)
     if callable(probe):
         try:
             return bool(probe())
         except Exception:  # noqa: BLE001 - unknown means not secured
             return False
-    return bool(getattr(client, "use_secured_api", False) and getattr(client, "mtls_enabled", False))
+    return bool(getattr(client, "mtls_enabled", False))
 
 
 # ---------------------------------------------------------------------------

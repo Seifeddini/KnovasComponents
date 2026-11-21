@@ -93,21 +93,16 @@ class FakeSession:
 
 def make_client(
     base_url="https://knovas.test",
-    use_secured_api=True,
-    allow_legacy_api_fallback=False,
     cert_path="",
     key_path="",
     ca_cert_path="",
     customer_id="",
     cert_auto_renew_enabled=False,
-    cert_renew_method="csr",
 ):
     values = {
         "api.base_url": base_url,
         "api.auth_type": "bearer",
         "api.api_key": "",
-        "api.use_secured_api": use_secured_api,
-        "api.allow_legacy_api_fallback": allow_legacy_api_fallback,
         "api.cert_path": cert_path,
         "api.key_path": key_path,
         "api.ca_cert_path": ca_cert_path,
@@ -115,7 +110,6 @@ def make_client(
         "api.cert_auto_renew_enabled": cert_auto_renew_enabled,
         "api.cert_renew_threshold_days": 30,
         "api.cert_check_interval_seconds": 3600,
-        "api.cert_renew_method": cert_renew_method,
         "api.rate_limit.requests_per_second": 0,  # disable rate-limit sleeps
         "api.rate_limit.retry_attempts": 3,
         "api.rate_limit.retry_backoff": 2,
@@ -146,7 +140,8 @@ def _fast_retries(monkeypatch):
 
 class TestC3RetryOnlyOnConnectionErrors:
     def test_transmit_post_http_500_attempted_once(self):
-        """Init/transmit POST that returns HTTP 500 must be attempted EXACTLY once."""
+        """An upload's init POST answered with HTTP 500 is sent EXACTLY once:
+        the server may have committed, and a retry would duplicate parts."""
         client = make_secured_client()
         calls = {"n": 0}
 
@@ -157,7 +152,10 @@ class TestC3RetryOnlyOnConnectionErrors:
         client._session = FakeSession(responder)
 
         with pytest.raises(requests.exceptions.HTTPError):
-            client._sync_single_document_secured({"doc_id": "D1", "path": "/x/y.txt"})
+            client.upload_text_document(
+                "D1", title="Titel", description="", path="/x/y.txt",
+                parts=[{"snippet": "Text"}],
+            )
 
         assert calls["n"] == 1, f"expected 1 attempt, got {calls['n']} (retried!)"
 
@@ -216,14 +214,17 @@ class TestC4CertRenewalSafety:
             key_path=str(key),
             ca_cert_path=str(ca),
             customer_id="cust-1",
-            cert_renew_method="legacy",
+        )
+        monkeypatch.setattr(
+            client, "_generate_csr_key_pair", lambda: ("CSR", "NEW INVALID KEY"), raising=False
+        )
+        monkeypatch.setattr(
+            client, "sign_certificate",
+            lambda csr, validity_days=None: {"certificate": "NEW INVALID CERT"}, raising=False
         )
 
         def responder(method, url, **kw):
-            return FakeResponse(
-                200,
-                {"certificate_pem": "NEW INVALID CERT", "private_key": "NEW INVALID KEY"},
-            )
+            raise AssertionError("the signing call is stubbed")
 
         original_session = FakeSession(responder)
         client._session = original_session
@@ -253,13 +254,17 @@ class TestC4CertRenewalSafety:
             key_path=str(key),
             ca_cert_path=str(ca),
             customer_id="cust-1",
-            cert_renew_method="legacy",
+        )
+        monkeypatch.setattr(
+            client, "_generate_csr_key_pair", lambda: ("CSR", "NEW KEY"), raising=False
+        )
+        monkeypatch.setattr(
+            client, "sign_certificate",
+            lambda csr, validity_days=None: {"certificate": "NEW CERT"}, raising=False
         )
 
         def responder(method, url, **kw):
-            return FakeResponse(
-                200, {"certificate_pem": "NEW CERT", "private_key": "NEW KEY"}
-            )
+            raise AssertionError("the signing call is stubbed")
 
         original_session = FakeSession(responder)
         client._session = original_session
@@ -304,8 +309,7 @@ class TestC5FiltersStayOnThePlatform:
     """C5 once forwarded ``filters`` into /secured/query so that case scoping
     was not dropped silently. Knovas reads no such key (1.5.0, spec F7): the
     secured body leaves it out, and the Platform applies its own filters
-    (exact_match, the score thresholds) to the answer. The legacy GET still
-    sends them as query parameters."""
+    (exact_match, the score thresholds) to the answer."""
 
     def test_the_secured_body_carries_no_filters(self):
         client = make_secured_client()
@@ -318,19 +322,6 @@ class TestC5FiltersStayOnThePlatform:
         client._session = FakeSession(responder)
         client.search_documents("hello world", limit=5, filters={"akten_id": "A-42"})
         assert captured.get("json") == {"Input": "hello world", "limit": 5}
-
-    def test_the_legacy_get_still_sends_them_as_parameters(self):
-        client = make_client(use_secured_api=False, allow_legacy_api_fallback=True)
-        captured = {}
-
-        def responder(method, url, **kw):
-            captured.update(kw)
-            return FakeResponse(200, {"results": []})
-
-        client._session = FakeSession(responder)
-        client.search_documents("hello", limit=5, filters={"akten_id": "A-42"})
-        assert captured["params"] == {"query": "hello", "limit": 5, "akten_id": "A-42"}
-
 
 # ---------------------------------------------------------------------------
 # L1 — https enforcement for secured/mTLS mode

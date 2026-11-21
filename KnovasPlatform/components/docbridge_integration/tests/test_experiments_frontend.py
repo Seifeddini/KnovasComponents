@@ -271,7 +271,7 @@ class TestSidebar:
         env = _env()
         common = _context(active_nav="suche")
         del common["experiments_nav"]
-        index_ctx = dict(common, browser_client_open_enabled=False, companion_enabled=False,
+        index_ctx = dict(common, browser_client_open_enabled=False,
                          allow_degraded_download_open=False, open_mapping_configured=False,
                          pdf_inline_in_browser=False, onedrive_enrichment_loaded=False,
                          m365_mode=False, results_per_page=20, build_id="b")
@@ -1631,10 +1631,6 @@ class TestManagePageRegressions:
 
 
 class TestLayoutRegressions:
-    # The blank-canvas branch has no layout of its own. e2e-ui-14 (2), list
-    # titles breaking mid-word, and the CSS half of (3) return with the new
-    # design; see DESIGN-CANVAS.md.
-
     def test_sidebar_brings_the_active_item_into_view(self):
         """e2e-ui-14 (3): when the nav scrolls in itself (below 900px), the
         sidebar script moves the current entry to its start."""

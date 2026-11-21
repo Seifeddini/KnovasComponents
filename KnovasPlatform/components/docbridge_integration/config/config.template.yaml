@@ -1,22 +1,7 @@
 # DocBridge Integration Configuration Template
 # Copy this file to config.yaml and fill in your values
 
-# DocBridge Database Configuration
 docbridge:
-  # Database connection settings
-  database:
-    # Driver name for pyodbc
-    driver: "Microsoft Access Driver (*.mdb, *.accdb)"
-    # Path to DocBridge database file (UNC or local path)
-    # Example: "\\\\fileserver\\DocBridge\\Database\\docbridge.accdb"
-    dbq: ""
-    # Optional: DSN name if using ODBC Data Source Name
-    dsn: ""
-    # Database table name containing document metadata
-    doc_table: "Documents"
-    # Database table name containing file metadata
-    files_table: "Files"
-  
   # AutoDoc folder settings
   autodoc:
     # Path to AutoDoc folder containing PDF and DOCX files

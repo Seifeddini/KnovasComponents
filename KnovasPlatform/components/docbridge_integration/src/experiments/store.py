@@ -138,10 +138,6 @@ def canonical_uuid(value: Any) -> Optional[str]:
         return None
 
 
-def is_uuid(value: Any) -> bool:
-    return canonical_uuid(value) is not None
-
-
 def safe_text(value: Any, limit: int = 200) -> Optional[str]:
     """``value`` when it is text a query can carry (no NUL, valid UTF-8, at
     most ``limit`` characters), else None -- a lookup by such a key simply

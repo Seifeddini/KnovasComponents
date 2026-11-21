@@ -33,7 +33,7 @@ names the state; nothing else in the UI mentions a reduced one.
 
 | State (System tab) | Knovas has | The Platform shows |
 |---|---|---|
-| `aus` | feature switched off for the account, knowledge graph off, older server — or the Platform runs without mTLS (legacy mode), or `DOC_FIELDS_UI=off` | nothing new |
+| `aus` | feature switched off for the account, knowledge graph off, older server — or the Platform runs without mTLS, or `DOC_FIELDS_UI=off` | nothing new |
 | `Werte (ohne Filter)` | values | the field panel in the preview, the **Dokumentfelder** admin tab, the field drawer in **Dokumente** |
 | `Werte + Liste (Feldfilter bei Knovas vorübergehend nicht verfügbar)` | values and listing; Knovas answered a filtered search with `503 where_requires_calibration` ("a problem on the Knovas side, try again later") | additionally: typed values on result cards, the **Liste anzeigen** listing, the admin **Feldfilter** |
 | `Werte + Filter` | everything | additionally: the filter rail in the search |
@@ -259,9 +259,8 @@ re-upload (bounded per cycle). Folder rules and manual values stay.
 Both go into `knovas.env`. The rest of `web.doc_fields` in
 `config/config.yaml` (cache times, page size) rarely needs changing.
 
-The compose `mock` demo ([../demo.md](../demo.md)) runs in legacy mode and
-therefore shows no document fields; `MOCK_DOC_FIELDS` on the mock serves the
-automated tests.
+`MOCK_DOC_FIELDS` on the mock API (`KnovasPlatform/mock_knovas_api/`) serves
+the automated tests.
 
 ## Privacy and audit
 
@@ -271,8 +270,8 @@ automated tests.
   routes with a JSON body.
 - **Known limitation (application logs):** application log lines that predate
   document fields still name document paths and pointers — opening,
-  downloading and previewing a document, a failed preview or thumbnail, the
-  legacy search (its query text), and the Knovas Connector's upload-failure,
+  downloading and previewing a document, a failed preview or thumbnail, and
+  the Knovas Connector's upload-failure,
   partial-OCR and removal lines. Folder names are where path-template values
   come from, so these lines can carry field values too. Treat the Platform's
   and the Knovas Connector's container logs as confidential, like the documents.

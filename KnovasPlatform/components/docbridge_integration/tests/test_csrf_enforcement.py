@@ -5,11 +5,9 @@ Coordinated hardening: every state-changing POST the browser issues must carry a
 valid ``X-CSRF-Token`` header (mirrors static/js/app.js). Endpoints enforced here:
 
   POST /api/search
-  POST /api/document/<id>/open
 
-Exempt / unchanged: login + logout (form ``csrf_token``, validated in-handler),
-/api/open-tokens/mint (in-handler X-CSRF-Token check -> 400), /api/open-tokens/redeem
-(companion Bearer token, no browser session). GET requests are never gated.
+Exempt / unchanged: login + logout (form ``csrf_token``, validated in-handler).
+GET requests are never gated.
 
 Conventions follow tests/test_web_login.py / test_security_hardening.py.
 """
@@ -117,16 +115,6 @@ def test_search_post_without_csrf_is_forbidden(csrf_app):
     assert resp.status_code == 403
 
 
-def test_open_document_post_without_csrf_is_forbidden(csrf_app):
-    client = csrf_app.test_client()
-    _login_and_token(client)
-    resp = client.post(
-        "/api/document/doc-1/open",
-        json={"path": "sub/hello.pdf"},
-    )
-    assert resp.status_code == 403
-
-
 def test_search_post_with_invalid_csrf_is_forbidden(csrf_app):
     client = csrf_app.test_client()
     _login_and_token(client)
@@ -153,20 +141,6 @@ def test_search_post_with_valid_csrf_allowed(csrf_app):
     assert resp.get_json()["success"] is True
 
 
-def test_open_document_post_with_valid_csrf_not_csrf_blocked(csrf_app):
-    client = csrf_app.test_client()
-    token = _login_and_token(client)
-    resp = client.post(
-        "/api/document/doc-1/open",
-        json={"path": "sub/hello.pdf"},
-        headers={"X-CSRF-Token": token},
-    )
-    # Server-side open is disabled by default -> 410; the point is the CSRF gate
-    # let the request through to the handler (i.e. it is NOT a 403).
-    assert resp.status_code != 403
-    assert resp.status_code == 410
-
-
 # ---------------------------------------------------------------------------
 # Regression: GET, login precedence, and exempt endpoints stay unchanged
 # ---------------------------------------------------------------------------
@@ -175,16 +149,3 @@ def test_unauthenticated_search_is_401_not_403(csrf_app):
     client = csrf_app.test_client()
     resp = client.post("/api/search", json={"query": "vertrag"})
     assert resp.status_code == 401
-
-
-def test_mint_without_csrf_still_returns_400_not_403(csrf_app):
-    # /api/open-tokens/mint keeps its own in-handler CSRF check (400), not the gate.
-    client = csrf_app.test_client()
-    _login_and_token(client)
-    resp = client.post(
-        "/api/open-tokens/mint",
-        json={"doc_id": "doc-1", "path": "sub/hello.pdf"},
-    )
-    assert resp.status_code != 403
-    # companion disabled in this config -> 503 (still proves the gate did not fire)
-    assert resp.status_code in (400, 503)

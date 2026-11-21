@@ -41,8 +41,6 @@ PUBLIC_ENDPOINTS = frozenset(
         "stats",
         "api_version",
         "health",
-        "open_token_redeem",
-        "open_tokens_spec",
     }
 )
 

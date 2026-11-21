@@ -121,32 +121,6 @@ def links_of(plan_links: str, plan_key: str) -> Dict[str, List[str]]:
     return out
 
 
-def set_links(plan_links: str, plan_key: str, relation: str, targets: List[str], note: str) -> str:
-    """Make this plan's edges of one relation exactly ``targets``.
-
-    Lines that stay keep their place; dropped targets lose their line; new ones
-    are appended under a comment. Other plans' lines stay byte for byte.
-    """
-    lines = plan_links.splitlines(keepends=True)
-    present: List[str] = []
-    kept = []
-    for ln in lines:
-        m = LINK_RE.match(ln.rstrip("\n"))
-        if m and m.group(1) == plan_key and m.group(2) == relation:
-            if m.group(3) in targets and m.group(3) not in present:
-                present.append(m.group(3))
-                kept.append(ln)
-            continue
-        kept.append(ln)
-    text = "".join(kept)
-    if text and not text.endswith("\n"):
-        text += "\n"
-    new = [t for t in targets if t not in present]
-    if new:
-        text += f"  # {note}\n" + "".join(f"  - {{from: {plan_key}, relation: {relation}, to: {t}}}\n" for t in new)
-    return text
-
-
 # -- writing the plan file ------------------------------------------------------------
 
 class Edit:

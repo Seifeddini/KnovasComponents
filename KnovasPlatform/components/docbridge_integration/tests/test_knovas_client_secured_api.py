@@ -46,7 +46,6 @@ def test_csr_renewal_installs_certificate(tmp_path, monkeypatch):
         cert_path=str(cert),
         key_path=str(key),
         ca_cert_path=str(ca),
-        cert_renew_method="csr",
     )
     original_session = FakeSession(lambda *a, **k: FakeResponse(200))
     client._session = original_session
@@ -299,26 +298,11 @@ class TestSchemaAndFilters:
 
 
 # ---------------------------------------------------------------------------
-# Graph client: facts CRUD and neighbours with induced edges
+# Graph client: facts and neighbours with induced edges
 # ---------------------------------------------------------------------------
 
 
 class TestFactsAndNeighbours:
-    def test_create_fact_requires_an_attribute_or_a_label(self, client):
-        with pytest.raises(ValueError):
-            client.graph_create_fact("n1", "Wert")
-
-    def test_create_fact_with_an_attribute_id(self, client, capture):
-        client.graph_create_fact("n1", {"value": "2026-03-04", "precision": "day"},
-                                 attribute_id="a1")
-        assert capture.last.data == {
-            "attribute_id": "a1",
-            "value": {"value": "2026-03-04", "precision": "day"}}
-
-    def test_create_fact_with_a_free_form_label(self, client, capture):
-        client.graph_create_fact("n1", "Wert", label="Notiz")
-        assert capture.last.data == {"label": "Notiz", "value": "Wert"}
-
     def test_facts_reads_the_list(self, client, requests_mock):
         requests_mock(json={"facts": [{"id": "f1", "value": "Wert"}]})
         assert client.graph_facts("n1")[0]["id"] == "f1"
@@ -359,28 +343,12 @@ class TestFactsAndNeighbours:
         assert result["neighbors"] == []
         assert [e["id"] for e in result["edges"]] == ["e1", "e2"]
 
-    # -- verb and endpoint, for the fact methods too ------------------------
+    # -- verb and endpoint, for the fact read too ---------------------------
 
     def test_facts_is_a_get_on_the_node_s_facts(self, client, capture):
         client.graph_facts("n1")
         assert capture.last.method == "GET"
         assert capture.last.url.endswith("/secured/graph/nodes/n1/facts")
-
-    def test_creating_a_fact_posts_to_the_same_path(self, client, capture):
-        client.graph_create_fact("n1", "Wert", label="Notiz")
-        assert capture.last.method == "POST"
-        assert capture.last.url.endswith("/secured/graph/nodes/n1/facts")
-
-    def test_updating_a_fact_patches_the_fact_not_the_node(self, client, capture):
-        client.graph_update_fact("f1", value="Neu")
-        assert capture.last.method == "PATCH"
-        assert capture.last.url.endswith("/secured/graph/facts/f1")
-        assert capture.last.data == {"value": "Neu"}
-
-    def test_deleting_a_fact_deletes_the_fact(self, client, capture):
-        client.graph_delete_fact("f1")
-        assert capture.last.method == "DELETE"
-        assert capture.last.url.endswith("/secured/graph/facts/f1")
 
     def test_neighbours_is_a_get_on_the_node_s_neighbours(self, client, capture):
         client.graph_neighbors("n1")
@@ -403,4 +371,4 @@ class TestFactsAndNeighbours:
         """204 No Content has no body to parse. It used to come back as {},
         which every caller reads as "the write did not happen"."""
         requests_mock(json=None, status=204)
-        assert client.graph_delete_fact("f1")
+        assert client.graph_delete_edge("e1")

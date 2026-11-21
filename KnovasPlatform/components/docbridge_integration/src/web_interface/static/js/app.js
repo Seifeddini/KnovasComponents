@@ -103,9 +103,9 @@ class DocumentSearchApp {
     }
 
     /**
-     * Headers for a state-changing JSON request. Attaches the X-CSRF-Token the same
-     * way the companion-mint call does, so every POST/PUT/PATCH/DELETE the server
-     * gates uniformly is accepted. Read-only GETs do not need this.
+     * Headers for a state-changing JSON request. Attaches the X-CSRF-Token, so
+     * every POST/PUT/PATCH/DELETE the server gates uniformly is accepted.
+     * Read-only GETs do not need this.
      */
     _jsonHeadersWithCsrf(extra) {
         return Object.assign(
@@ -1439,20 +1439,6 @@ class DocumentSearchApp {
         if (this.showListButton) this.showListButton.hidden = true;
     }
 
-    /** Up to maxSentences sentences from plain text (falls back to char limit). */
-    firstSentencesExcerpt(text, maxSentences = 4, maxChars = 6000) {
-        const raw = String(text || '').trim();
-        if (!raw) return '';
-        const parts = raw.split(/(?<=[.!?…])\s+/).filter((s) => s.trim().length > 0);
-        let out = parts.slice(0, maxSentences).join(' ').trim();
-        if (!out) {
-            out = raw.length > maxChars ? raw.substring(0, maxChars) + '…' : raw;
-        } else if (out.length > maxChars) {
-            out = out.substring(0, maxChars) + '…';
-        }
-        return out;
-    }
-
     /**
      * Soft-truncate an LLM summary at a char cap. Preserves the abstractive
      * summary the server produced instead of slicing it to the first N sentences
@@ -1495,13 +1481,6 @@ class DocumentSearchApp {
             if (typeof t === 'string') return t.trim();
         }
         return '';
-    }
-
-    hasContextPreview(doc) {
-        return Boolean(
-            (doc.first_page_preview && String(doc.first_page_preview).trim()) ||
-            (doc.context_snippet && (doc.context_snippet.match || doc.context_snippet.before || doc.context_snippet.after)),
-        );
     }
 
     _buildContextSnippetHtml(snippet) {
@@ -1729,58 +1708,19 @@ class DocumentSearchApp {
         else card.appendChild(box);
     }
     
-    async openDocument(docId, pathOrBrowserFlag, browserOrCompanionFlag, companionFlag) {
-        let path = pathOrBrowserFlag;
-        let useBrowserClientOpen = browserOrCompanionFlag;
-        let useCompanion = companionFlag;
-        // Legacy signature: openDocument(docId, useBrowser, useCompanion) — path === docId
-        if (typeof pathOrBrowserFlag === 'boolean') {
-            path = docId;
-            useBrowserClientOpen = pathOrBrowserFlag;
-            useCompanion = browserOrCompanionFlag;
-        }
+    async openDocument(docId, path) {
         const cfg = typeof window !== 'undefined' ? window.__DOCBRIDGE__ || {} : {};
-        const browserOpen = useBrowserClientOpen === true || !!cfg.browserClientOpenEnabled;
-        const companionOpen = useCompanion === true || !!cfg.companionEnabled;
-        const onHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
-
-        // Companion first on HTTPS — browsers block UNC/file: launches.
-        if (onHttps && companionOpen) {
-            return this.openDocumentCompanion(docId, path);
+        if (!cfg.browserClientOpenEnabled) {
+            this.showError('Öffnen auf dem eigenen Rechner ist in dieser Installation ausgeschaltet.');
+            return;
         }
-        if (browserOpen) {
-            return this.openDocumentOnClient(docId, path);
-        }
-        if (companionOpen) {
-            return this.openDocumentCompanion(docId, path);
-        }
-
-        try {
-            const response = await fetch(`/api/document/${encodeURIComponent(docId)}/open`, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: this._jsonHeadersWithCsrf(),
-                body: JSON.stringify({ path: path }),
-            });
-            if (this._redirectIfLoginRequired(response)) return;
-
-            const data = await response.json();
-
-            if (data.success) {
-                this.showSuccess('Dokument wird geöffnet...');
-            } else {
-                throw new Error(data.error || 'Fehler beim Öffnen');
-            }
-        } catch (error) {
-            console.error('Error opening document:', error);
-            this.showError(`Fehler beim Öffnen: ${error.message}`);
-        }
+        return this.openDocumentOnClient(docId, path);
     }
 
     /**
-     * Open a file on the user's PC using a UNC or local path (no companion install).
+     * Open a file on the user's PC using a UNC or local path.
      * Works only on HTTP/intranet where the browser allows file/UNC navigation.
-     * On HTTPS, UNC/file launches are blocked — use Companion or copy the path manually.
+     * On HTTPS, UNC/file launches are blocked: the path is copied instead.
      */
     async openDocumentOnClient(docId, path) {
         try {
@@ -1810,7 +1750,7 @@ class DocumentSearchApp {
                 this.showSuccess(
                     pathHint
                         ? `HTTPS blockiert direktes Öffnen. UNC-Pfad kopiert — Win+R, Einfügen, Enter: ${pathHint}`
-                        : 'HTTPS blockiert direktes Öffnen. Installieren Sie den Open Companion.',
+                        : 'HTTPS blockiert direktes Öffnen.',
                 );
                 return;
             }
@@ -1900,33 +1840,6 @@ class DocumentSearchApp {
         }
     }
 
-    async openDocumentCompanion(docId, path) {
-        try {
-            const response = await fetch('/api/open-tokens/mint', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: this._jsonHeadersWithCsrf(),
-                body: JSON.stringify({ doc_id: docId, path }),
-            });
-            if (this._redirectIfLoginRequired(response)) return;
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok || !data.success) {
-                throw new Error(data.error || `HTTP ${response.status}`);
-            }
-            if (data.companion_href) {
-                window.location.href = data.companion_href;
-                return;
-            }
-            throw new Error('Kein companion_href in Antwort');
-        } catch (error) {
-            console.error('Companion open:', error);
-            this.showError(
-                `Öffnen über Companion fehlgeschlagen: ${error.message}. ` +
-                    'Ist der Knovas Open Companion auf diesem Rechner installiert? Öffnen erfolgt lokal auf dem Client, nicht auf dem Server. Siehe docs/integration/opening-documents.md.',
-            );
-        }
-    }
-    
     async downloadDocument(docId, path) {
         try {
             const idSeg = encodeURIComponent(docId);
@@ -2190,31 +2103,6 @@ class DocumentSearchApp {
             .replace(/\\/g, '\\\\')
             .replace(/'/g, "\\'")
             .replace(/\r|\n/g, ' ');
-    }
-    
-    formatDate(dateString) {
-        try {
-            const date = new Date(dateString);
-            return date.toLocaleDateString('de-DE', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        } catch {
-            return dateString;
-        }
-    }
-    
-    formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
     }
 }
 

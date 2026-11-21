@@ -11,9 +11,6 @@ WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    unixodbc \
-    unixodbc-dev \
-    odbcinst \
     libpq-dev \
     gcc \
     g++ \
@@ -33,12 +30,6 @@ RUN apt-get update && apt-get install -y \
 ENV OMP_THREAD_LIMIT=1 \
     TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata \
     PYMUPDF_SUGGEST_LAYOUT_ANALYZER=0
-
-# Install Microsoft ODBC Driver for SQL Server (if needed for Access alternative)
-# Note: For Access databases, you may need to install mdbtools
-RUN apt-get update && apt-get install -y \
-    mdbtools \
-    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file
 COPY requirements.txt .

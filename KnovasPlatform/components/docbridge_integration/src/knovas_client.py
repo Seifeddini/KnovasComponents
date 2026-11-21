@@ -17,7 +17,6 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID
 from tempfile import NamedTemporaryFile
 from tenacity import (
     RetryError,
@@ -30,7 +29,6 @@ from tenacity import (
 from assistant.errors import CoreBusy, CoreFailed
 from config_loader import get_config
 from doc_fields_view import display_title as _doc_fields_display_title
-from part_metadata import enrich_transmit_parts_with_location
 
 
 logger = logging.getLogger(__name__)
@@ -346,20 +344,6 @@ def _ingested_summary_from_hit(item: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _chunk_text_from_hit(item: Dict[str, Any]) -> Optional[str]:
-    """First non-empty chunk/snippet field from a query hit or nested metadata."""
-    for k in ("snippet", "text", "chunk", "content", "body", "preview", "matched_text", "excerpt", "highlight"):
-        v = item.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    nest = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    for k in ("snippet", "text", "chunk", "content", "matched_text", "excerpt"):
-        v = nest.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    return None
-
-
 def _snippet_from_hit(item: Dict[str, Any]) -> Optional[str]:
     """The passage text of one /secured/query hit, or None (``_snippet_with_location``).
 
@@ -369,8 +353,8 @@ def _snippet_from_hit(item: Dict[str, Any]) -> Optional[str]:
     and the first of those as the hit's own ``snippet``: a window of at most
     240 characters cut from the chunk's ``original_text`` (whole rows for a
     table chunk, none for an auto summary). Only ``original_text`` and
-    ``snippet`` are read -- not ``text``, ``content`` or the other keys
-    ``_chunk_text_from_hit`` accepts: GI-QUERY-04 promises that served text
+    ``snippet`` are read -- not ``text``, ``content`` or other chunk keys
+    a hit may carry: GI-QUERY-04 promises that served text
     is ``original_text``, and the BM25 ``text`` field has its digits
     stripped.
     """
@@ -550,13 +534,6 @@ def _document_date_from_hit(item: Dict[str, Any]) -> Any:
     return None
 
 
-def _cap_path_keep_suffix(path: str, max_chars: int = 300) -> str:
-    """Truncate long paths from the beginning so the end (e.g. filename) is kept."""
-    if len(path) <= max_chars:
-        return path
-    return "…" + path[-(max_chars - 1) :]
-
-
 def _normalize_semantix_path_for_init(raw: Optional[Any]) -> Optional[str]:
     """Path for init_document_transmission (max 2000, forward slashes)."""
     if raw is None:
@@ -571,103 +548,6 @@ def _normalize_semantix_path_for_init(raw: Optional[Any]) -> Optional[str]:
     if len(s) > 2000:
         s = s[:1999] + "…"
     return s
-
-
-def _secured_init_fields_from_document(document: Dict[str, Any]) -> Dict[str, str]:
-    """title, path, description for secured init (Client Integration Guide)."""
-    out: Dict[str, str] = {}
-    title = document.get("display_name") or document.get("title")
-    if title is not None:
-        title = str(title).strip()[:500] or None
-    if not title:
-        path_hint = document.get("path")
-        if path_hint:
-            ps = str(path_hint).strip()
-            if ps.startswith("http://") or ps.startswith("https://"):
-                try:
-                    from urllib.parse import parse_qs, unquote, urlparse
-
-                    qs = parse_qs(urlparse(ps).query)
-                    vals = qs.get("file") or []
-                    if vals:
-                        raw = unquote(vals[0].split(";")[0]).strip()
-                        title = raw[:500] if raw else None
-                except Exception:
-                    title = None
-            if not title:
-                stem = ps.replace("\\", "/").rstrip("/").split("/")[-1].split("?")[0]
-                title = stem[:500] if stem else None
-    if not title:
-        did = document.get("doc_id")
-        if did is not None:
-            title = str(did).strip()[:500] or None
-    if title:
-        out["title"] = title
-    path = _normalize_semantix_path_for_init(document.get("path"))
-    if path:
-        out["path"] = path
-    desc = document.get("description")
-    if desc is not None:
-        ds = str(desc).strip()
-        if ds:
-            out["description"] = ds[:2000]
-    return out
-
-
-def _secured_transmit_parts_from_document(
-    document: Dict[str, Any],
-) -> Tuple[List[Dict[str, Any]], Dict[str, str], Optional[Dict[str, Any]]]:
-    """
-    Build init fields and transmit parts for secured single-document sync.
-
-    Uses knovas_extract_upload when it is importable and content_base64 is
-    present (extraction runs in a guarded child process with a wall-clock
-    ceiling); otherwise one Markdown fallback part. The third value is the
-    extraction's partial note (counts only: OCR pages skipped, backend) or
-    None for a complete document.
-    """
-    init_fields = _secured_init_fields_from_document(document)
-    identifier = str(document.get("doc_id") or document.get("path") or "unknown")
-    b64 = document.get("content_base64")
-    ext = (document.get("type") or document.get("extension") or "").strip().lower().lstrip(".")
-
-    if b64 and ext:
-        try:
-            from knovas_extract_upload import extract_parts_from_base64
-        except ImportError:
-            extract_parts_from_base64 = None  # type: ignore[misc,assignment]
-        else:
-            try:
-                use_ocr: bool | str = "auto"
-                ocr_language = "deu+eng"
-                try:
-                    cfg = get_config()
-                    use_ocr = "auto" if cfg.get_bool("advanced.extraction.use_ocr", True) else False
-                    ocr_language = str(cfg.get("advanced.extraction.ocr_language") or ocr_language)
-                except Exception:
-                    pass
-                extracted = extract_parts_from_base64(
-                    str(b64),
-                    ext,
-                    pointer=identifier,
-                    path=str(init_fields.get("path") or identifier),
-                    use_ocr=use_ocr,
-                    ocr_language=ocr_language,
-                )
-                if extracted.parts:
-                    return extracted.parts, init_fields, extracted.partial
-            except Exception as exc:
-                logger.warning("Secured single-doc extract failed for %s: %s", identifier, exc)
-
-    path_line = init_fields.get("path") or identifier
-    lines = [path_line]
-    if document.get("akten_id"):
-        lines.append(f"Akte: {document.get('akten_id')}")
-    if document.get("doc_type"):
-        lines.append(f"Typ: {document.get('doc_type')}")
-    snippet = "\n".join(lines)
-    parts = enrich_transmit_parts_with_location([{"snippet": snippet}], full_text=snippet)
-    return parts, init_fields, None
 
 
 _MAX_TABLES_PER_PART = 50
@@ -1418,8 +1298,6 @@ class KnovasAPIClient:
         self.base_url = self.config.get('api.base_url', 'http://localhost:5000')
         self.auth_type = self.config.get('api.auth_type', 'bearer')
         self.api_key = self.config.get('api.api_key', '')
-        self.use_secured_api = self.config.get_bool('api.use_secured_api', True)
-        self.allow_legacy_api_fallback = self.config.get_bool('api.allow_legacy_api_fallback', False)
         self.cert_path = self.config.get('api.cert_path', '')
         self.key_path = self.config.get('api.key_path', '')
         self.ca_cert_path = self.config.get('api.ca_cert_path', '')
@@ -1437,12 +1315,6 @@ class KnovasAPIClient:
         self.cert_auto_renew_enabled = self.config.get_bool('api.cert_auto_renew_enabled', True)
         self.cert_renew_threshold_days = self.config.get_int('api.cert_renew_threshold_days', 30)
         self.cert_check_interval_seconds = self.config.get_int('api.cert_check_interval_seconds', 3600)
-        self.cert_renew_method = (
-            (self.config.get('api.cert_renew_method', '') or '').strip().lower()
-            or (os.getenv('SEMANTIX_CERT_RENEW_METHOD') or 'csr').strip().lower()
-        )
-        if self.cert_renew_method not in ('csr', 'legacy'):
-            self.cert_renew_method = 'csr'
         self._last_cert_check_at = 0.0
         # Serialize the certificate freshness check / renewal / session swap so
         # concurrent request threads can't race on _last_cert_check_at or _session.
@@ -1454,14 +1326,10 @@ class KnovasAPIClient:
         self._cert_lock = threading.RLock()
 
         self.endpoints = {
-            'full_sync': self.config.get('api.endpoints.full_sync', '/api/docs/full-sync'),
-            'new_doc': self.config.get('api.endpoints.new_doc', '/api/docs/new'),
-            'search': self.config.get('api.endpoints.search', '/api/search'),
             'health': self.config.get('api.endpoints.health', '/secured/health'),
             'init_transmission': self.config.get('api.endpoints.init_transmission', '/secured/init_document_transmission'),
             'transmit_part': self.config.get('api.endpoints.transmit_part', '/secured/transmit_document_part'),
             'query': self.config.get('api.endpoints.query', '/secured/query'),
-            'generate_certificate': self.config.get('api.endpoints.generate_certificate', '/secured/generate_certificate'),
             'sign_certificate': self.config.get(
                 'api.endpoints.sign_certificate', '/secured/sign_certificate'
             ),
@@ -1535,18 +1403,6 @@ class KnovasAPIClient:
             logger.warning("Could not parse cert expiry: %s", exc)
             return None
 
-    def _extract_customer_id_from_cert(self) -> Optional[str]:
-        try:
-            with open(self.cert_path, "rb") as f:
-                cert = x509.load_pem_x509_certificate(f.read(), default_backend())
-            for oid in (NameOID.COMMON_NAME, NameOID.ORGANIZATIONAL_UNIT_NAME):
-                attrs = cert.subject.get_attributes_for_oid(oid)
-                if attrs:
-                    return str(attrs[0].value)
-        except Exception:
-            return None
-        return None
-
     def _atomic_write(self, path: str, content: str) -> None:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1597,11 +1453,6 @@ class KnovasAPIClient:
         finally:
             session.close()
 
-    def _attempt_certificate_renewal(self) -> bool:
-        if self.cert_renew_method == 'legacy':
-            return self._attempt_certificate_renewal_legacy()
-        return self._attempt_certificate_renewal_csr()
-
     def _csr_subject_from_current_cert(self) -> x509.Name:
         with open(self.cert_path, "rb") as f:
             cert = x509.load_pem_x509_certificate(f.read(), default_backend())
@@ -1627,7 +1478,8 @@ class KnovasAPIClient:
         ).decode("utf-8")
         return csr_pem, key_pem
 
-    def _attempt_certificate_renewal_csr(self) -> bool:
+    def _attempt_certificate_renewal(self) -> bool:
+        """Renew by CSR: a new key pair here, signed by /secured/sign_certificate."""
         try:
             csr_pem, private_key_pem = self._generate_csr_key_pair()
             payload = self.sign_certificate(csr_pem, validity_days=365)
@@ -1645,41 +1497,6 @@ class KnovasAPIClient:
         return self._install_renewed_certificate_pair(
             str(certificate_pem).strip() + "\n",
             str(private_key_pem).strip() + "\n",
-        )
-
-    def _attempt_certificate_renewal_legacy(self) -> bool:
-        endpoint = self.endpoints.get('generate_certificate', '/secured/generate_certificate')
-        customer_id = self.customer_id or self._extract_customer_id_from_cert()
-        if not customer_id:
-            logger.warning("Auto-renew skipped: customer_id unavailable")
-            return False
-
-        try:
-            response = self._session.request(
-                method='POST',
-                url=f"{self.base_url}{endpoint}",
-                json={'certificate_data': {'customer_id': customer_id}},
-                headers=self._get_headers(),
-                timeout=self.http_read_timeout,
-                allow_redirects=False,
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except Exception as exc:
-            logger.error("Auto-renew request failed: %s", exc)
-            return False
-
-        certificate_pem = payload.get('certificate_pem')
-        private_key = payload.get('private_key') or payload.get('private_key_pem')
-        if not certificate_pem or not private_key:
-            logger.error("Auto-renew response missing certificate/key")
-            return False
-        if "ENCRYPTED PRIVATE KEY" in str(private_key):
-            logger.error("Auto-renew returned encrypted private key; cannot install automatically")
-            return False
-        return self._install_renewed_certificate_pair(
-            str(certificate_pem).strip() + "\n",
-            str(private_key).strip() + "\n",
         )
 
     def _install_renewed_certificate_pair(self, certificate_pem: str, private_key_pem: str) -> bool:
@@ -1788,8 +1605,7 @@ class KnovasAPIClient:
         and ``snippet_sentence_number`` (``_snippet_with_location``). Outside
         the block rows have none of them:
         the search page reads that key when it matches words
-        (``_search_result_haystack``) and must behave as before. Secured
-        search only -- the legacy GET returns its rows as they are. Per
+        (``_search_result_haystack``) and must behave as before. Per
         thread, like ``asserting_for``, so a concurrent search page request
         keeps its rows unchanged.
         """
@@ -1991,12 +1807,10 @@ class KnovasAPIClient:
         )
 
     def secured_mode(self) -> bool:
-        """Whether this client speaks the secured API over mTLS.
-
-        Document fields exist only there: the legacy GET search has nowhere
-        to carry ``where`` (D13).
+        """Whether this client speaks the secured API over mTLS (client
+        certificate, key and CA configured). Without them it searches nothing.
         """
-        return bool(self.use_secured_api and self.mtls_enabled)
+        return bool(self.mtls_enabled)
 
     def delete_all_documents(self, confirm_client_id: str) -> Dict[str, Any]:
         """DELETE /secured/delete_all_documents — erase the whole corpus.
@@ -2158,81 +1972,6 @@ class KnovasAPIClient:
         response = self._request_no_retry('POST', endpoint, data=body, as_person=as_person)
         return response.json() if response.content else {}
     
-    def sync_document_batch(
-        self, 
-        documents: List[Dict[str, Any]],
-        endpoint_type: str = 'full_sync'
-    ) -> Dict[str, Any]:
-        """
-        Synchronize a batch of documents to Knovas.
-        
-        Args:
-            documents: List of document dictionaries
-            endpoint_type: Type of endpoint ('full_sync' or 'new_doc')
-            
-        Returns:
-            API response data
-        """
-        endpoint = self.endpoints.get(endpoint_type, self.endpoints['full_sync'])
-        
-        try:
-            response = self._make_request(
-                method='POST',
-                endpoint=endpoint,
-                data={'documents': documents}
-            )
-            
-            result = response.json()
-            logger.info(
-                f"Batch sync successful: {len(documents)} documents to {endpoint}"
-            )
-            return result
-            
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error during batch sync: {e}")
-            if e.response is not None:
-                logger.error(f"Response body: {e.response.text}")
-            raise
-        except Exception as e:
-            logger.error(f"Error during batch sync: {e}")
-            raise
-    
-    def sync_single_document(
-        self, 
-        document: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Synchronize a single document to Knovas.
-        
-        Args:
-            document: Document dictionary
-            
-        Returns:
-            API response data
-        """
-        if self.use_secured_api and self.mtls_enabled:
-            return self._sync_single_document_secured(document)
-
-        endpoint = self.endpoints['new_doc']
-        
-        try:
-            response = self._make_request(
-                method='POST',
-                endpoint=endpoint,
-                data=document
-            )
-            
-            result = response.json()
-            logger.info(f"Single document sync successful: {document.get('doc_id')}")
-            return result
-            
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error during single document sync: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error during single document sync: {e}")
-            raise
-    
     def search_documents(
         self,
         query: Union[str, List[str]],
@@ -2248,13 +1987,11 @@ class KnovasAPIClient:
         Args:
             query: Search query string
             limit: Maximum number of results
-            filters: Query parameters of the legacy GET search. /secured/query
-                reads no filters, so the secured path does not send them
-                (spec F7); the Platform applies its own filters to the answer.
-            where: Document-fields filter; sent only when given. Only the
-                secured API carries it.
+            filters: Not sent: /secured/query reads no filters (spec F7); the
+                Platform applies its own filters to the answer.
+            where: Document-fields filter; sent only when given.
             return_fields: Document-field keys to return per hit; sent only
-                when given. Only the secured API carries it.
+                when given.
 
         Inside ``keeping_snippets()`` the secured rows also carry the Core's
         passage text as ``"snippet"``.
@@ -2263,45 +2000,22 @@ class KnovasAPIClient:
             Search results
 
         Raises:
-            ValueError: ``where`` or ``return_fields`` in legacy mode (D13).
+            RuntimeError: no mTLS certificate paths are configured; nothing
+                was sent.
             QueryRejected: Knovas refused a request that carried ``where``
                 or ``return_fields`` with a document-fields error code.
         """
-        if self.use_secured_api and self.mtls_enabled:
-            extra: Dict[str, Any] = {}
-            if where is not None:
-                extra['where'] = where
-            if return_fields is not None:
-                extra['return_fields'] = return_fields
-            return self._search_documents_secured(query=query, limit=limit, **extra)
-
-        if where is not None or return_fields is not None:
-            # The legacy GET has nowhere to carry them; dropping them would
-            # turn a filtered search into an unfiltered one that looks filtered.
-            raise ValueError(
-                "where/return_fields need the secured API (use_secured_api with mTLS)."
-            )
-
-        if self.use_secured_api and not self.allow_legacy_api_fallback:
+        if not self.mtls_enabled:
             raise RuntimeError(
-                "Secured API mode is enabled but mTLS cert paths are not configured. "
-                "Set SEMANTIX_CLIENT_CERT, SEMANTIX_CLIENT_KEY and SEMANTIX_CA_CERT, "
-                "or explicitly enable legacy fallback for mock/dev."
+                "mTLS cert paths are not configured. "
+                "Set SEMANTIX_CLIENT_CERT, SEMANTIX_CLIENT_KEY and SEMANTIX_CA_CERT."
             )
-
-        endpoint = self.endpoints['search']
-        params = {'query': query, 'limit': limit}
-        if filters:
-            params.update(filters)
-
-        try:
-            response = self._make_request(method='GET', endpoint=endpoint, params=params)
-            result = response.json()
-            logger.info(f"Legacy search successful: query='{query}', results={len(result.get('results', []))}")
-            return result
-        except Exception as e:
-            logger.error(f"Error during search: {e}")
-            raise
+        extra: Dict[str, Any] = {}
+        if where is not None:
+            extra['where'] = where
+        if return_fields is not None:
+            extra['return_fields'] = return_fields
+        return self._search_documents_secured(query=query, limit=limit, **extra)
 
     def llm_generate(
         self,
@@ -2817,36 +2531,6 @@ class KnovasAPIClient:
             return None
         return _graph_payload_list(payload, 'facts')
 
-    def graph_create_fact(self, node_id: str, value: Any,
-                          attribute_id: Optional[str] = None,
-                          label: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """POST /secured/graph/nodes/<id>/facts.
-
-        Der CHECK des Servers verlangt attribute_id ODER label. Hier abzulehnen
-        heisst, der Aufrufer sieht die Regel - statt eines 422 aus drei Schichten
-        Entfernung.
-        """
-        if not attribute_id and not label:
-            raise ValueError("a fact needs an attribute_id or a label")
-        data: Dict[str, Any] = {'value': value}
-        if attribute_id:
-            data['attribute_id'] = attribute_id
-        else:
-            data['label'] = label
-        return self._graph_request(
-            'POST', f'/nodes/{quote(str(node_id), safe="")}/facts', data=data)
-
-    def graph_update_fact(self, fact_id: str,
-                          **fields: Any) -> Optional[Dict[str, Any]]:
-        """PATCH /secured/graph/facts/<fid>."""
-        return self._graph_request(
-            'PATCH', f'/facts/{quote(str(fact_id), safe="")}', data=dict(fields))
-
-    def graph_delete_fact(self, fact_id: str) -> Optional[Dict[str, Any]]:
-        """DELETE /secured/graph/facts/<fid>."""
-        return self._graph_request(
-            'DELETE', f'/facts/{quote(str(fact_id), safe="")}')
-
     def graph_delete_edge(self, edge_id: str) -> Optional[Dict[str, Any]]:
         """DELETE /secured/graph/edges/<id> - nur manuelle Kanten."""
         return self._graph_request(
@@ -2885,12 +2569,6 @@ class KnovasAPIClient:
             'POST', f'/nodes/{quote(str(node_id), safe="")}/filters',
             data={'query_text': query_text, 'child_node_name': child_node_name})
 
-    def graph_delete_filter(self, node_id: str, filter_id: str) -> Optional[Dict[str, Any]]:
-        """DELETE /secured/graph/nodes/<id>/filters/<fid>."""
-        return self._graph_request(
-            'DELETE',
-            f'/nodes/{quote(str(node_id), safe="")}/filters/{quote(str(filter_id), safe="")}')
-
     def graph_placements(self, node_id: str,
                          status: str = 'active') -> List[Dict[str, Any]]:
         """GET /secured/graph/nodes/<id>/placements?status=active|rejected."""
@@ -2904,11 +2582,6 @@ class KnovasAPIClient:
         """POST /secured/graph/placements/<pid>/reject - dauerhaft."""
         return self._graph_request(
             'POST', f'/placements/{quote(str(placement_id), safe="")}/reject')
-
-    def graph_restore_placement(self, placement_id: str) -> Optional[Dict[str, Any]]:
-        """POST /secured/graph/placements/<pid>/restore - expliziter Override."""
-        return self._graph_request(
-            'POST', f'/placements/{quote(str(placement_id), safe="")}/restore')
 
     # -- Document fields (typed values per document) -------------------------
     # Contract: KnowledgeBase docs/Knovas_Developer_Kit/api/Knowledge_Graph_API.md
@@ -3492,48 +3165,6 @@ class KnovasAPIClient:
             'DELETE', f'/secured/folder_rules/{quote(str(rule_id), safe="")}')
         return result is not None
 
-    def format_document_payload(
-        self,
-        doc_id: str,
-        akten_id: Optional[str],
-        doc_type: Optional[str],
-        file_path: str,
-        timestamp: datetime,
-        file_size: int,
-        file_hash: str,
-        additional_metadata: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Format document data for API submission.
-        
-        Args:
-            doc_id: Document ID
-            akten_id: Akten ID
-            doc_type: Document type
-            file_path: Relative file path
-            timestamp: Document timestamp
-            file_size: File size in bytes
-            file_hash: File hash (SHA256)
-            additional_metadata: Additional metadata fields
-            
-        Returns:
-            Formatted document payload
-        """
-        payload = {
-            'doc_id': str(doc_id),
-            'akten_id': str(akten_id) if akten_id else None,
-            'type': doc_type,
-            'path': file_path,
-            'timestamp': timestamp.isoformat() if isinstance(timestamp, datetime) else timestamp,
-            'size': file_size,
-            'hash': file_hash
-        }
-        
-        if additional_metadata:
-            payload.update(additional_metadata)
-        
-        return payload
-
     def _search_documents_secured(
         self,
         query: Union[str, List[str]],
@@ -3615,134 +3246,3 @@ class KnovasAPIClient:
             'total': len(normalized_results),
             'semantix': semantix_meta,
         }
-
-    def _sync_single_document_secured(self, document: Dict[str, Any]) -> Dict[str, Any]:
-        identifier = str(document.get('doc_id') or document.get('path') or 'unknown')
-        parts, init_fields, partial = _secured_transmit_parts_from_document(document)
-        if partial:
-            logger.warning(
-                "Secured single document %s is partial: %s",
-                identifier,
-                " ".join(f"{k}={v}" for k, v in sorted(partial.items())),
-            )
-
-        init_endpoint = self.endpoints.get('init_transmission', '/secured/init_document_transmission')
-        init_body: Dict[str, Any] = {
-            'identifier': identifier,
-            'part_count': len(parts),
-        }
-        init_body.update(init_fields)
-
-        # Non-idempotent: never retry init/transmit — a retried 4xx/5xx (or a
-        # retried connection error after the server already committed) would
-        # create duplicate document parts. Use the no-retry request path.
-        init_resp = self._request_no_retry(
-            method='POST',
-            endpoint=init_endpoint,
-            data=init_body,
-        ).json()
-
-        transmission_key_id = init_resp.get('transmission_key_id')
-        if not transmission_key_id:
-            raise RuntimeError('init_document_transmission returned no transmission_key_id')
-
-        part_endpoint = self.endpoints.get('transmit_part', '/secured/transmit_document_part')
-        for idx, part in enumerate(parts):
-            payload = _secured_transmit_part_payload(transmission_key_id, idx, part)
-            if idx == 0 and ('page_number' in payload or 'sentence_number' in payload):
-                logger.info(
-                    "Secured transmit part 0 location page=%s sentence=%s doc=%s",
-                    payload.get('page_number'),
-                    payload.get('sentence_number'),
-                    identifier,
-                )
-            self._request_no_retry(method='POST', endpoint=part_endpoint, data=payload)
-
-        logger.info(f"Secured single document sync successful: {identifier}")
-        result: Dict[str, Any] = {'status': 'success', 'identifier': identifier, 'mode': 'secured'}
-        if partial:
-            # Counts only (GI-EXTRACT-04): the caller can tell the operator
-            # that the scan pages did not all make it.
-            result['partial'] = dict(partial)
-        return result
-
-
-class BatchProcessor:
-    """Process documents in batches for API submission."""
-    
-    def __init__(
-        self, 
-        api_client: KnovasAPIClient,
-        batch_size: Optional[int] = None
-    ):
-        """
-        Initialize batch processor.
-        
-        Args:
-            api_client: KnovasAPIClient instance
-            batch_size: Number of documents per batch
-        """
-        self.api_client = api_client
-        
-        config = get_config()
-        self.batch_size = batch_size or config.get_int('api.rate_limit.batch_size', 100)
-    
-    def process_documents_in_batches(
-        self,
-        documents: List[Dict[str, Any]],
-        endpoint_type: str = 'full_sync',
-        progress_callback: Optional[callable] = None
-    ) -> Dict[str, Any]:
-        """
-        Process list of documents in batches.
-        
-        Args:
-            documents: List of document dictionaries
-            endpoint_type: API endpoint type
-            progress_callback: Optional callback function(current, total, batch_result)
-            
-        Returns:
-            Summary of processing results
-        """
-        total_docs = len(documents)
-        processed = 0
-        failed = 0
-        results = []
-        
-        logger.info(f"Starting batch processing: {total_docs} documents, batch_size={self.batch_size}")
-        
-        for i in range(0, total_docs, self.batch_size):
-            batch = documents[i:i + self.batch_size]
-            batch_num = (i // self.batch_size) + 1
-            total_batches = (total_docs + self.batch_size - 1) // self.batch_size
-            
-            try:
-                logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} documents)")
-                
-                result = self.api_client.sync_document_batch(batch, endpoint_type)
-                results.append(result)
-                
-                processed += len(batch)
-                
-                if progress_callback:
-                    progress_callback(processed, total_docs, result)
-                
-            except Exception as e:
-                logger.error(f"Batch {batch_num} failed: {e}")
-                failed += len(batch)
-        
-        summary = {
-            'total': total_docs,
-            'processed': processed,
-            'failed': failed,
-            'success_rate': (processed / total_docs * 100) if total_docs > 0 else 0,
-            'batches': len(results),
-            'results': results
-        }
-        
-        logger.info(
-            f"Batch processing complete: {processed}/{total_docs} successful, "
-            f"{failed} failed ({summary['success_rate']:.1f}% success rate)"
-        )
-        
-        return summary

@@ -279,7 +279,7 @@ fuer Kunden: [docs/client/document-fields.md](docs/client/document-fields.md),
 Knovas Connector: [KnovasConnector/CHANGELOG.md](KnovasConnector/CHANGELOG.md) (0.3.0).
 
 Die API-Referenz `docs/KnovasAPI/Secure_API.md` ist zugunsten des Knovas
-Developer Kit stillgelegt (wie zuvor `KnovasPlatform/knovas-docs/`); die
+Developer Kit stillgelegt (wie zuvor eine alte Kopie in `KnovasPlatform/`); die
 Dokumentfelder stehen nur dort.
 
 ## nginx wartet so lange wie gunicorn

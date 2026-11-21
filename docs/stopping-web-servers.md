@@ -18,15 +18,6 @@ One Compose project at the repo root covers all of it. From `KnovasComponents/`:
 docker compose --env-file knovas.env down
 ```
 
-**Demo stack** (adds the profile-gated mock API container):
-
-```bash
-docker compose --env-file knovas.env --profile mock down
-```
-
-`stop.sh` does not pass `--profile mock`, so stop a demo run with the command
-above rather than the script.
-
 **Rebuild and start again:**
 
 ```bash
@@ -109,4 +100,3 @@ you also started a standalone RC project for component development.
 
 - Start platform: [KnovasPlatform/docs/setup.md](../KnovasPlatform/docs/setup.md)
 - Start Knovas Connector: [KnovasConnector/docs/SETUP.md](../KnovasConnector/docs/SETUP.md)
-- Demo mock API: [KnovasPlatform/docs/demo.md](../KnovasPlatform/docs/demo.md)

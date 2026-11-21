@@ -147,10 +147,3 @@ class NodeGrantStore:
             return False
         grants = self.for_node(node_id)
         return str(user.id) == grants["owner"] or str(user.id) in grants["editors"]
-
-    def nodes_for_user(self, user_id: UUID | str) -> list[str]:
-        """Node ids this user owns or edits. For an account-deletion review."""
-        rows = self._conn.execute(
-            "SELECT node_id FROM node_grants WHERE user_id = %s", (str(user_id),)
-        ).fetchall()
-        return [str(node_id) for (node_id,) in rows]

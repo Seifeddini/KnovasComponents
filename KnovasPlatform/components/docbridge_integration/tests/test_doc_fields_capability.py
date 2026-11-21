@@ -2,7 +2,7 @@
 
 Spec 2.2: the probe classification, the TTLs, the four signals and the
 needs_calibration hold that a probe must not lift; D1/D13: nothing turns the
-feature on, and legacy mode is off without a request. Registry, entity
+feature on, and a client without mTLS is off without a request. Registry, entity
 names and node names (F3) are cached per user and never fetched with ``q``
 (D10). A registry read Knovas does not answer is remembered per user, and
 the last registry is used meanwhile.
@@ -218,7 +218,7 @@ class TestSignals:
 
 class TestCapabilityFor:
     def test_a_client_outside_secured_mode_is_off_without_a_request(self):
-        client = make_client(use_secured_api=True)  # no mTLS paths configured
+        client = make_client()  # no mTLS paths configured
 
         def refuse(*a, **kw):
             raise AssertionError("no request may be sent")
