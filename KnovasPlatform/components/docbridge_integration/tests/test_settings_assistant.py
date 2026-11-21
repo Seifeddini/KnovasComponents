@@ -124,6 +124,17 @@ def test_the_four_entries_are_registered_for_the_whole_installation():
     assert ps.REGISTRY["assistant.anthropic_api_key"].file_key is None     # never read from a file
 
 
+def test_the_page_and_the_assistant_name_the_same_entries():
+    from web_interface import settings_routes
+
+    assert (settings_routes.ASSISTANT_KEY, settings_routes.ASSISTANT_MODEL) == (providers.SETTING_API_KEY,
+                                                                                providers.SETTING_MODEL)
+    assert set(ASSISTANT_KEYS) == {providers.SETTING_ENABLED, providers.SETTING_PROVIDER, providers.SETTING_MODEL,
+                                   providers.SETTING_API_KEY}
+    assert ps.REGISTRY[providers.SETTING_MODEL].choices == providers.ANTHROPIC_MODELS
+    assert ps.REGISTRY[providers.SETTING_PROVIDER].choices == providers.PROVIDERS
+
+
 def test_the_defaults_are_off_knovas_and_opus(resolver):
     assert resolver.value("assistant.enabled") == "aus"
     assert resolver.value("assistant.provider") == "knovas"

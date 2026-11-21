@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 BUILTIN_ROLES = ("admin", "approver", "ingestion_manager", "member")
 BUNDLE_KEY = "views.config_source"
 TOKEN_KEY = "views.change_requests.github_token"
+ASSISTANT_KEY = "assistant.anthropic_api_key"        # the Knovas Assistent's key: "Verbindung testen"
+ASSISTANT_MODEL = "assistant.model"
 
 
 def create_settings_blueprint(resolver: ps.Resolver, *, gate: Any,
@@ -112,11 +114,11 @@ def create_settings_blueprint(resolver: ps.Resolver, *, gate: Any,
         if key == TOKEN_KEY:
             token = str(value).strip() if value not in (None, "") else resolver.secret(TOKEN_KEY)
             return jsonify(ps.test_repository_access(repository(), token, make_repo))
-        if key == assistant_providers.SETTING_API_KEY:
+        if key == ASSISTANT_KEY:
             # A key typed but not yet saved is tested as typed; else the saved one. Never echoed.
-            api_key = str(value).strip() if value not in (None, "") else resolver.secret(key)
+            api_key = str(value).strip() if value not in (None, "") else resolver.secret(ASSISTANT_KEY)
             return jsonify(assistant_providers.connection_test(
-                api_key, resolver.value(assistant_providers.SETTING_MODEL), client_factory=anthropic_client))
+                api_key, resolver.value(ASSISTANT_MODEL), client_factory=anthropic_client))
         return jsonify({"ok": False, "error": f"Für {key} gibt es keinen Test."}), 404
 
     return bp
