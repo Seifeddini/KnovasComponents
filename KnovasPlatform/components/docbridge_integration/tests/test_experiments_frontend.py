@@ -1631,10 +1631,6 @@ class TestManagePageRegressions:
 
 
 class TestLayoutRegressions:
-    # The blank-canvas branch has no layout of its own. e2e-ui-14 (2), list
-    # titles breaking mid-word, and the CSS half of (3) return with the new
-    # design; see DESIGN-CANVAS.md.
-
     def test_sidebar_brings_the_active_item_into_view(self):
         """e2e-ui-14 (3): when the nav scrolls in itself (below 900px), the
         sidebar script moves the current entry to its start."""

@@ -1,9 +1,9 @@
 /* ontology.css -- Cortex (/cortex), on top of style.css.
 
-   Blank canvas, like style.css. What is left is behaviour: Cytoscape draws
-   the graph into #graphContainer and needs a box with a real size, the
-   controls over the graph must sit above its canvas to stay clickable, and
-   the drawers slide in when a type or a document is chosen (.open).
+   First the behaviour: Cytoscape draws the graph into #graphContainer and
+   needs a box with a real size, the controls over the graph must sit above
+   its canvas to stay clickable, and the drawers slide in when a type or a
+   document is chosen (.open). Then the look of the page.
    The look of nodes and edges is not CSS: it is the `style:` list in
    static/js/ontology.js (CortexApp, cytoscape({ style: [...] })). */
 
@@ -86,7 +86,7 @@
 }
 
 
-/* --- Your design starts here --------------------------------------------- */
+/* --- Look --------------------------------------------------------------- */
 
 :root {
     color-scheme: light;
