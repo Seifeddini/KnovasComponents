@@ -4,7 +4,8 @@
  * A value the installation pins is read-only. A secret is a write-only field: the page only says
  * whether it is set. Save sends the changed values with the CSRF token; "Zurücksetzen" removes
  * the page's value. The bundle source and the token each have a Test; the Knovas Assistent's key has
- * "Verbindung testen" (PMVP-25), and the page says when anthropic is chosen without a key.
+ * "Verbindung testen" (PMVP-25), and the page says when anthropic is chosen without a key. Under the answer mode
+ * stands one warning line (state.warnings, PMVP-20 brain-mcp); a refused save shows the server's own words.
  */
 (function () {
     'use strict';
@@ -129,6 +130,7 @@
                 el('p', { class: 'platform-settings-note', text: s.help }),
                 state.problems && state.problems[s.key] ? el('p', { class: 'platform-settings-error', text: state.problems[s.key] }) : null,
                 el('div', { class: 'platform-setting-field' }, [...field(s), reset]),
+                state.warnings && state.warnings[s.key] ? el('p', { class: 'platform-settings-warning', role: 'note', text: state.warnings[s.key] }) : null,
                 el('p', { class: 'platform-setting-origin mono', text: `${origin(s)}${s.scope === 'installation' ? ' · für die ganze Installation' : ' · für diesen Mandanten'}` }),
             ]));
         });

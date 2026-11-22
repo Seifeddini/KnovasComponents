@@ -42,6 +42,16 @@ passages, the question) and a transport error's text at DEBUG; the app holds the
 
 ``connection_test`` is the settings page's "Verbindung testen": one call with an invented passage and question.
 
+<<Brain-Werkzeuge>> (PMVP-20 brain-mcp): with ``assistant.mode`` ``brain_mcp`` (only with ``anthropic``),
+``make_brain_mcp_ask`` calls Claude with the MCP connector against the Knovas MCP gateway
+(``assistant.brain_mcp_url``, ``https://mcp.knovas.ch/mcp`` by default, only under ``knovas.ch``) with the
+company's gateway key (``assistant.brain_mcp_key``, a secret) as the server's ``authorization_token``: the same
+request as above plus ``mcp_servers``, an ``mcp_toolset`` that allows only ``search`` and ``fetch``, and the beta
+``mcp-client-2025-11-20``; within a wall-clock deadline (PMVP-24's numbers). ``assistant.brain_tools`` reads the
+tool results and checks the answer. ``settings_problems``, ``settings_warnings`` and ``brain_mcp_refusal`` are the
+settings page's lines and its refusal. Then Anthropic receives the gateway key with every question and calls the
+gateway with it; the gateway reads with the company's key, not as the person.
+
 The SDK is imported when a call is made, not when this module is imported: the settings page imports this module.
 This module is ASCII-only: umlauts are ``\\u`` escapes.
 """
@@ -49,6 +59,7 @@ This module is ASCII-only: umlauts are ``\\u`` escapes.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -64,6 +75,14 @@ SETTING_ENABLED = "assistant.enabled"
 SETTING_PROVIDER = "assistant.provider"
 SETTING_MODEL = "assistant.model"
 SETTING_API_KEY = "assistant.anthropic_api_key"
+#: \u00abBrain-Werkzeuge\u00bb (PMVP-20 brain-mcp): the answer mode, the gateway's address and the company's gateway key.
+SETTING_MODE = "assistant.mode"
+SETTING_BRAIN_MCP_URL = "assistant.brain_mcp_url"
+SETTING_BRAIN_MCP_KEY = "assistant.brain_mcp_key"
+
+MODE_PASSAGES = "passages"
+MODE_BRAIN_MCP = "brain_mcp"
+MODES = (MODE_PASSAGES, MODE_BRAIN_MCP)
 
 PROVIDER_KNOVAS = "knovas"
 PROVIDER_ANTHROPIC = "anthropic"
@@ -109,6 +128,12 @@ def chosen_provider(value: Any) -> Optional[str]:
     """The provider a value of ``assistant.provider`` names, or None for one that is not offered."""
     text = str(value).strip().lower() if isinstance(value, str) else ""
     return text if text in PROVIDERS else None
+
+
+def chosen_mode(value: Any) -> Optional[str]:
+    """The answer mode a value of ``assistant.mode`` names, or None for one that is not offered."""
+    text = str(value).strip().lower() if isinstance(value, str) else ""
+    return text if text in MODES else None
 
 
 def make_anthropic_generate(*, api_key: Value, model: Value = DEFAULT_ANTHROPIC_MODEL,
@@ -199,6 +224,268 @@ def unavailable_generate(reason: str) -> GenerateFn:
         raise CoreFailed(reason)
 
     return generate
+
+
+# ---------------------------------------------------------------------------
+# \u00abBrain-Werkzeuge\u00bb: Claude calls the Knovas MCP gateway itself (PMVP-20 brain-mcp)
+# ---------------------------------------------------------------------------
+
+#: The gateway's address by default (KnowledgeBase knovas_mcp/gateway; FEAT-2026-11-16-copilot-mcp-gateway).
+DEFAULT_BRAIN_MCP_URL = "https://mcp.knovas.ch/mcp"
+#: The only domain the gateway may be at: Anthropic sends the company's gateway key to this address, so an address
+#: elsewhere would hand the key to whoever runs it. Checked on the settings page and again before every call.
+BRAIN_MCP_DOMAIN = "knovas.ch"
+#: The name of the gateway in ``mcp_servers`` and its toolset (``mcp_server_name``).
+BRAIN_MCP_SERVER_NAME = "knovas-brain"
+#: The MCP connector's beta (claude-api skill, shared/tool-use-concepts.md, "MCP Connector (Beta)").
+BRAIN_MCP_BETA = "mcp-client-2025-11-20"
+#: The gateway's tools Claude may call (the toolset's allowlist: every other tool of the server stays off).
+BRAIN_MCP_TOOLS = ("search", "fetch")
+#: How often a paused turn (``stop_reason == "pause_turn"``, the server's tool loop at its limit) is continued.
+BRAIN_MCP_MAX_CONTINUATIONS = 2
+
+#: The warning under the mode on the settings page (the founder's words of 2026-11-22).
+BRAIN_MCP_WARNING = (
+    "Brain-Werkzeuge lesen alles, was der Schl\u00fcssel Ihres Unternehmens sieht, unabh\u00e4ngig von den Rollen der "
+    "Person. Nur ohne \u00abEin\u00bb verwenden."
+)
+#: Why the page refuses ``brain_mcp`` (and the problem lines it shows when a deployment set it all the same).
+BRAIN_MCP_NEEDS_ANTHROPIC = (
+    "Brain-Werkzeuge gehen nur mit dem Sprachmodell anthropic: Claude ruft das Knovas-Gateway selbst auf."
+)
+BRAIN_MCP_NEEDS_API_KEY = (
+    "Brain-Werkzeuge brauchen den Schl\u00fcssel f\u00fcr die Claude API (Knovas Assistent): bitte zuerst setzen."
+)
+BRAIN_MCP_NEEDS_GATEWAY_KEY = (
+    "Brain-Werkzeuge brauchen den Schl\u00fcssel des Knovas-Gateways: bitte zuerst setzen."
+)
+
+
+def brain_mcp_url_problem(value: Any) -> Optional[str]:
+    """Why ``value`` cannot be the gateway's address (a German text for the page), or None when it can.
+
+    Only ``https://`` on ``knovas.ch`` or a name under it, written in ASCII alone, without user, password, query or
+    fragment, and without white space or control characters: Anthropic sends the gateway key to this address.
+    """
+    from urllib.parse import urlsplit
+
+    text = value.strip() if isinstance(value, str) else ""
+    if not text:
+        return "Die Adresse des Knovas-Gateways fehlt."
+    if not text.isascii():
+        return "Die Adresse des Knovas-Gateways darf nur ASCII-Zeichen enthalten."
+    if (any(char.isspace() or ord(char) < 32 or ord(char) == 127 or char == chr(92) for char in text)
+            or len(text) > 500):
+        return "Die Adresse des Knovas-Gateways ist keine g\u00fcltige Adresse."
+    try:
+        parts = urlsplit(text)
+        host = (parts.hostname or "").lower()
+        parts.port  # noqa: B018 - a bad port raises here
+    except ValueError:
+        return "Die Adresse des Knovas-Gateways ist keine g\u00fcltige Adresse."
+    if parts.scheme.lower() != "https" or not host:
+        return "Die Adresse des Knovas-Gateways muss mit https:// beginnen."
+    if parts.username is not None or parts.password is not None or parts.query or parts.fragment:
+        return "Die Adresse des Knovas-Gateways darf weder Benutzer noch Abfrage noch Anker enthalten."
+    if (host != BRAIN_MCP_DOMAIN and not host.endswith("." + BRAIN_MCP_DOMAIN)) or not _HOST_NAME.fullmatch(host):
+        return ("Das Knovas-Gateway liegt unter knovas.ch; eine andere Adresse ist nicht erlaubt (Anthropic schickt "
+                "den Gateway-Schl\u00fcssel dorthin).")
+    return None
+
+
+#: A host name as the check accepts it: letters, digits, dots and hyphens only (no percent sign, no bracket).
+_HOST_NAME = re.compile("[a-z0-9.-]{1,253}")
+
+
+class BrainCall:
+    """What one answer through the Brain's tools brought back: every response of the turn, in order (more than one
+    only when a paused turn was continued). The caller reads the tool results and the final text from them."""
+
+    def __init__(self, responses: List[Any], model: str) -> None:
+        self.responses = list(responses)
+        self.model = model
+
+    @property
+    def stop(self) -> Any:
+        return getattr(self.responses[-1], "stop_reason", None) if self.responses else None
+
+
+AskFn = Callable[..., BrainCall]
+
+
+def make_brain_mcp_ask(*, api_key: Value, model: Value = DEFAULT_ANTHROPIC_MODEL, gateway_url: Value = None,
+                       gateway_key: Value, client_factory: Optional[ClientFactory] = None,
+                       clock: Callable[[], float] = time.monotonic) -> AskFn:
+    """``ask(*, system_instruction, messages, max_tokens, deadline_at, min_seconds) -> BrainCall`` through Claude
+    with the MCP connector, against the Knovas MCP gateway (\u00abBrain-Werkzeuge\u00bb).
+
+    The request is today's (``make_anthropic_generate``: the model, effort medium, the server-side fallback, no
+    temperature, no thinking setting, at least ``ANTHROPIC_MIN_MAX_TOKENS``) plus the connector: ``mcp_servers``
+    with the gateway's address and the company's gateway key as ``authorization_token``, a ``tools`` entry
+    ``mcp_toolset`` for that server that allows only ``BRAIN_MCP_TOOLS``, and the beta ``BRAIN_MCP_BETA``. The
+    client is today's too: the key of the settings, the pinned address, no retry.
+
+    The deadline (as PMVP-24's order): ``deadline_at`` is a ``clock()`` reading by which the whole turn must end. A
+    request is not started with less than ``min_seconds`` left (``CoreBusy``; a continuation is then left out and
+    the turn ends as it is). Each request runs on a worker thread with the client's timeout at most the time left
+    (``ANTHROPIC_TIMEOUT_SECONDS`` otherwise), and the caller waits for it only until ``deadline_at``: then the
+    client is closed and the answer is ``CoreBusy``. A timeout is busy (PMVP-24, decision D1); every other error is
+    mapped as ``make_anthropic_generate`` maps it.
+
+    ``api_key``, ``model``, ``gateway_url`` and ``gateway_key`` are values or callables giving them (the settings,
+    read on every call). Without either key, or with an address ``brain_mcp_url_problem`` refuses, nothing is sent
+    (``CoreFailed``). The gateway key goes into the request body and nowhere else: never a log line, an exception
+    or a page. The SDK's DEBUG line of the request's options is held back for these requests whatever level its
+    logger has (``_NoBrainRequestOptions``).
+    """
+
+    def ask(*, system_instruction: str, messages: List[Dict[str, Any]], max_tokens: int, deadline_at: float,
+            min_seconds: float) -> BrainCall:
+        key = _text(_read(api_key))
+        if not key:
+            logger.warning("Knovas Assistent: brain tools need the Claude API key")
+            raise CoreFailed("anthropic_key_missing")
+        name = _text(_read(model)) or DEFAULT_ANTHROPIC_MODEL
+        if name not in ANTHROPIC_MODELS:
+            logger.warning("Knovas Assistent: the model is not one of %s", ", ".join(ANTHROPIC_MODELS))
+            raise CoreFailed("anthropic_model_unknown")
+        url = _text(_read(gateway_url)) or DEFAULT_BRAIN_MCP_URL
+        if brain_mcp_url_problem(url) is not None:
+            logger.warning("Knovas Assistent: brain tools refused the gateway's address")
+            raise CoreFailed("brain_mcp_url_refused")
+        token = _text(_read(gateway_key))
+        if not token:
+            logger.warning("Knovas Assistent: brain tools have no gateway key")
+            raise CoreFailed("brain_mcp_key_missing")
+        request: Dict[str, Any] = {
+            "model": name,
+            "max_tokens": max(int(max_tokens), ANTHROPIC_MIN_MAX_TOKENS),
+            "system": system_instruction,
+            "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
+            "output_config": {"effort": ANTHROPIC_EFFORT},
+            "betas": list(ANTHROPIC_BETAS) + [BRAIN_MCP_BETA],
+            "fallbacks": ANTHROPIC_FALLBACKS,
+            "mcp_servers": [{"type": "url", "url": url, "name": BRAIN_MCP_SERVER_NAME,
+                             "authorization_token": token}],
+            "tools": [{"type": "mcp_toolset", "mcp_server_name": BRAIN_MCP_SERVER_NAME,
+                       "default_config": {"enabled": False},
+                       "configs": {tool: {"enabled": True} for tool in BRAIN_MCP_TOOLS}}],
+        }
+        import anthropic  # the SDK; imported here so that the settings page does not load it
+
+        _hold_back_brain_request_options()
+        factory = client_factory or _sdk_client
+        responses: List[Any] = []
+        asked = list(request["messages"])
+        paused: List[Any] = []
+        for turn in range(1 + BRAIN_MCP_MAX_CONTINUATIONS):
+            left = deadline_at - clock()
+            if left < min_seconds:
+                logger.warning("Knovas Assistent: deadline step=%s not started left_ms=%d",
+                               "brain_tools" if turn == 0 else "brain_tools_continuation", int(left * 1000))
+                if turn == 0:
+                    raise CoreBusy("no_time_to_generate")
+                break
+            response = _request_by_deadline(factory, key, request, deadline_at, clock, anthropic, name)
+            responses.append(response)
+            if getattr(response, "stop_reason", None) != "pause_turn":
+                break
+            # A paused turn goes back as it came, after the question, and the server resumes it: no extra user
+            # message (claude-api skill, shared/tool-use-concepts.md, "Stop reasons for server-side tools"). After a
+            # second pause the assistant's content so far stays one message, so the roles still alternate.
+            paused.extend(getattr(response, "content", None) or [])
+            request["messages"] = asked + [{"role": "assistant", "content": list(paused)}]
+        call = BrainCall(responses, name)
+        if call.stop == "refusal":
+            raise CoreFailed("anthropic_refusal")
+        return call
+
+    return ask
+
+
+def unavailable_ask(reason: str) -> AskFn:
+    """An ask that always fails: \u00abBrain-Werkzeuge\u00bb are chosen without what they need (e.g. another provider)."""
+
+    def ask(**_kwargs: Any) -> BrainCall:
+        logger.warning("Knovas Assistent: brain tools not usable (%s)", reason)
+        raise CoreFailed(reason)
+
+    return ask
+
+
+def _request_by_deadline(factory: ClientFactory, key: str, request: Dict[str, Any], deadline_at: float,
+                         clock: Callable[[], float], anthropic: Any, name: str) -> Any:
+    """One request, waited for until ``deadline_at`` by the wall clock whatever the socket does: PMVP-24's
+    ``core.call_within`` (a worker thread; past the time the client is closed and the answer is busy)."""
+    from assistant.core import OutOfTime, call_within
+
+    left = deadline_at - clock()
+    timeout = max(0.1, min(ANTHROPIC_TIMEOUT_SECONDS, left))
+    started = time.monotonic()
+    client: Any = None
+    response: Any = None
+    failure: Optional[CoreError] = None
+    try:
+        client = factory(api_key=key, timeout=timeout, max_retries=ANTHROPIC_MAX_RETRIES)
+        response = call_within(max(0.0, left), lambda: client.beta.messages.create(**request),
+                               on_overrun=lambda: _close(client), name="brain-tools")
+    except OutOfTime:
+        failure = CoreBusy("brain_tools_deadline")
+        logger.warning("Knovas Assistent: deadline step=brain_tools ran out of time model=%s ms=%d", name,
+                       _ms(started))
+    except Exception as exc:  # noqa: BLE001 - mapped; an error outside the SDK fails with nothing of its text
+        failure = _mapped_brain(exc, anthropic)
+        logger.warning("Knovas Assistent: anthropic call failed (%s%s) model=%s ms=%d", type(exc).__name__,
+                       _status_note(failure), name, _ms(started))
+    finally:
+        _close(client)
+    if failure is not None:
+        # Raised here, outside any handler: the SDK's exception (its request holds both keys) is neither cause nor
+        # context.
+        raise failure
+    usage = getattr(response, "usage", None)
+    logger.info("Knovas Assistent: anthropic model=%s served_by=%s stop=%s input_tokens=%s output_tokens=%s ms=%d",
+                name, _safe_name(getattr(response, "model", None)),
+                _safe_name(getattr(response, "stop_reason", None)),
+                _count(getattr(usage, "input_tokens", None)), _count(getattr(usage, "output_tokens", None)),
+                _ms(started))
+    return response
+
+
+def _mapped_brain(exc: BaseException, anthropic: Any) -> CoreError:
+    """As ``_mapped``, but a timeout is busy (PMVP-24, D1), and an error outside the SDK fails with no text of it."""
+    if isinstance(exc, anthropic.APITimeoutError):
+        return CoreBusy("anthropic_timeout")
+    if isinstance(exc, anthropic.AnthropicError):
+        return _mapped(exc, anthropic)
+    return CoreFailed("anthropic_error")
+
+
+class _NoBrainRequestOptions(logging.Filter):
+    """Drops the SDK's DEBUG "Request options" record of a request that carries ``mcp_servers``.
+
+    Its body holds the company's gateway key (``authorization_token``), the question and the chat. The app holds the
+    SDK's loggers at INFO (FU-39); this filter keeps that true for these requests when a test or an operator sets
+    the logger to DEBUG all the same (FU-46). Other requests' records are left alone.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno > logging.DEBUG:
+            return True
+        args = record.args
+        options = args[0] if isinstance(args, tuple) and args else args
+        body = options.get("json_data") if isinstance(options, dict) else None
+        return not (isinstance(body, dict) and "mcp_servers" in body)
+
+
+_SDK_REQUEST_LOGGER = "anthropic._base_client"
+_REQUEST_OPTIONS_GUARD = _NoBrainRequestOptions()
+
+
+def _hold_back_brain_request_options() -> None:
+    target = logging.getLogger(_SDK_REQUEST_LOGGER)
+    if _REQUEST_OPTIONS_GUARD not in target.filters:
+        target.addFilter(_REQUEST_OPTIONS_GUARD)
 
 
 def _mapped(exc: BaseException, anthropic: Any) -> CoreError:
@@ -309,17 +596,78 @@ def connection_test(api_key: Optional[str], model: Any, *,
     return {"ok": False, "error": text, "outcome": outcome}
 
 
+BRAIN_MCP_KEY_MISSING_TEXT = (
+    "Brain-Werkzeuge sind gew\u00e4hlt, aber es ist kein lesbarer Schl\u00fcssel des Knovas-Gateways gesetzt: "
+    "So kann der Knovas Assistent nicht antworten."
+)
+
+
 def settings_problems(settings: Any) -> Dict[str, str]:
-    """What the settings page says next to a setting: the key is missing while anthropic is chosen."""
+    """What the settings page says next to a setting: the key is missing while anthropic is chosen; and, with
+    \u00abBrain-Werkzeuge\u00bb chosen (a deployment may pin them past the page's refusal), another provider, no gateway
+    key or an address that is refused."""
+    problems: Dict[str, str] = {}
     try:
-        if chosen_provider(settings.value(SETTING_PROVIDER)) != PROVIDER_ANTHROPIC:
-            return {}
-        if _text(settings.secret(SETTING_API_KEY)):
-            return {}
+        provider = chosen_provider(settings.value(SETTING_PROVIDER))
+        if provider == PROVIDER_ANTHROPIC and not _text(settings.secret(SETTING_API_KEY)):
+            problems[SETTING_API_KEY] = KEY_MISSING_TEXT
+        if chosen_mode(settings.value(SETTING_MODE)) == MODE_BRAIN_MCP:
+            if provider != PROVIDER_ANTHROPIC:
+                problems[SETTING_MODE] = BRAIN_MCP_NEEDS_ANTHROPIC
+            if not _text(settings.secret(SETTING_BRAIN_MCP_KEY)):
+                problems[SETTING_BRAIN_MCP_KEY] = BRAIN_MCP_KEY_MISSING_TEXT
+            url_problem = brain_mcp_url_problem(settings.value(SETTING_BRAIN_MCP_URL) or DEFAULT_BRAIN_MCP_URL)
+            if url_problem:
+                problems[SETTING_BRAIN_MCP_URL] = url_problem
     except Exception as exc:  # noqa: BLE001 - the page still loads; it just says nothing here
         logger.warning("Knovas Assistent: settings not readable (%s)", type(exc).__name__)
         return {}
-    return {SETTING_API_KEY: KEY_MISSING_TEXT}
+    return problems
+
+
+def settings_warnings() -> Dict[str, str]:
+    """The lines the settings page always shows under a setting: the warning under the answer mode."""
+    return {SETTING_MODE: BRAIN_MCP_WARNING}
+
+
+#: What a removed page value falls back to (config.yaml's defaults of the two choices).
+_FALLBACKS = {SETTING_MODE: MODE_PASSAGES, SETTING_PROVIDER: PROVIDER_KNOVAS}
+
+
+def brain_mcp_refusal(settings: Any, values: Any) -> Optional[str]:
+    """Why a save of the settings page is refused, or None: it would leave \u00abBrain-Werkzeuge\u00bb chosen without
+    the provider anthropic, the Claude API key or the gateway key.
+
+    ``values`` is what the page sends (a key's new value, or None or an empty text to remove the page's value);
+    what it leaves out is read from ``settings``. Only a save that touches the mode, the provider or one of the two
+    keys is looked at, so an unrelated save is never refused for a deployment's choice.
+    """
+    watched = (SETTING_MODE, SETTING_PROVIDER, SETTING_API_KEY, SETTING_BRAIN_MCP_KEY)
+    if not isinstance(values, dict) or not any(key in values for key in watched):
+        return None
+
+    def removed(raw: Any) -> bool:
+        return raw is None or (isinstance(raw, str) and not raw.strip())
+
+    def choice(key: str) -> Any:
+        if key in values:
+            return _FALLBACKS[key] if removed(values[key]) else values[key]
+        return settings.value(key)
+
+    def has_secret(key: str) -> bool:
+        if key in values:
+            return not removed(values[key])
+        return bool(_text(settings.secret(key)))
+
+    if chosen_mode(choice(SETTING_MODE)) != MODE_BRAIN_MCP:
+        return None
+    if chosen_provider(choice(SETTING_PROVIDER)) != PROVIDER_ANTHROPIC:
+        return BRAIN_MCP_NEEDS_ANTHROPIC
+    if not has_secret(SETTING_API_KEY):
+        return BRAIN_MCP_NEEDS_API_KEY
+    if not has_secret(SETTING_BRAIN_MCP_KEY):
+        return BRAIN_MCP_NEEDS_GATEWAY_KEY
+    return None
 
 
 # ---------------------------------------------------------------------------

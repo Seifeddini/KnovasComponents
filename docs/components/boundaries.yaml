@@ -148,8 +148,9 @@ components:
       ask.css, ask.js; since PMVP-23 also the chat pages and the data of the sidebar's chat block, which the shell's
       partial draws) is here, though in web_interface/, because it exists only for the assistant; the search page
       it is reached from (index.html) and the wiring in app.py stay with the web app. knovas_client.py, which the service calls and which imports its error types, stays with the
-      web app, and so does the settings page (settings_routes.py), which shows the assistant's four entries and calls
-      its connection test.
+      web app, and so does the settings page (settings_routes.py), which shows the assistant's entries, calls its
+      connection test and, since PMVP-20 brain-mcp, its warning and its refusal of «Brain-Werkzeuge» (brain_tools.py:
+      Claude reads through the Knovas MCP gateway).
   L2-PLATFORM-BRAIN-VIEWS:
     card: L2-platform-brain-views.card.yaml
     paths:
@@ -305,7 +306,8 @@ components:
     card: EXT-mcp-gateway.card.yaml
     paths: []
     why: External - the Core's MCP gateway for external agents and the Secure API's pool of each agent's
-      Platform-signed claims (CR-R5, CR-R6; RB-7), not built in the Core yet.
+      Platform-signed claims (CR-R5, CR-R6; RB-7), not built in the Core yet. Since PMVP-20 brain-mcp Anthropic's MCP
+      connector also calls the gateway (live) for the Knovas Assistent, with the company's key.
   EXT-JIRA-API:
     card: EXT-jira-api.card.yaml
     paths: []

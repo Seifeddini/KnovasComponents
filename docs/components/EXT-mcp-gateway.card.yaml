@@ -32,7 +32,8 @@ operations:
   ref: DELETE /secured/agents/{agent_id}/claims
 - id: mcp
   name: POST https://mcp.knovas.ch/mcp - the gateway's tools search and fetch, called by an external agent with its
-    agent-bound key (CR-R6); the Platform does not call it
+    agent-bound key (CR-R6); the Platform does not call it itself, but with «Brain-Werkzeuge» (PMVP-20 brain-mcp)
+    Anthropic's MCP connector calls it for the Knovas Assistent with the company's key
   entrance: http
   ref: POST /mcp
 contract:

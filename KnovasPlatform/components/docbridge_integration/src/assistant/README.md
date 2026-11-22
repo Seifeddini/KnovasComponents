@@ -123,6 +123,60 @@ like every entry there) shows the four entries and, next to the key, "Verbindung
 "funktioniert" or the plain failure ("Schlüssel abgelehnt", "ausgelastet", "keine Verbindung", ...). It logs the
 outcome class only. With `anthropic` chosen and no readable key, the page says so next to the key.
 
+## «Brain-Werkzeuge»: Claude reads the Brain through the Knovas MCP gateway (PMVP-20 brain-mcp)
+
+Founder, 2026-11-22: "I want the LLM with access to the brain mcp to work already". A second answer mode beside the
+passages of the person's own search (work order `docs/platform-mvp/work-orders/PMVP-20-brain-mcp.md`):
+
+| Entry | Values | Default | Pinned by |
+|---|---|---|---|
+| `assistant.mode` | `passages` (the five steps above), `brain_mcp` («Brain-Werkzeuge», only with `anthropic`) | `passages` | `ASSISTANT_MODE` |
+| `assistant.brain_mcp_url` | the gateway's address: `https://` on `knovas.ch` or a name under it, no user, query or fragment | `https://mcp.knovas.ch/mcp` | `ASSISTANT_BRAIN_MCP_URL` |
+| `assistant.brain_mcp_key` | the company's gateway key (`knovas_gw_…`), sealed by the registry's `SecretBox`, never shown | none | nothing (the page only) |
+
+With `brain_mcp`, `core.make_service` returns `brain_tools.BrainToolsService` (the same `answer(question, history,
+*, search_text=None) -> Reply`): nothing is searched by the Platform. `providers.make_brain_mcp_ask` makes the
+request of the `anthropic` path above plus the MCP connector (claude-api skill, `shared/tool-use-concepts.md`, "MCP
+Connector (Beta)"):
+
+```python
+client.beta.messages.create(..., betas=["server-side-fallback-2026-07-01", "mcp-client-2025-11-20"],
+    mcp_servers=[{"type": "url", "url": <assistant.brain_mcp_url>, "name": "knovas-brain",
+                  "authorization_token": <assistant.brain_mcp_key>}],
+    tools=[{"type": "mcp_toolset", "mcp_server_name": "knovas-brain", "default_config": {"enabled": False},
+            "configs": {"search": {"enabled": True}, "fetch": {"enabled": True}}}])
+```
+
+- **What the gateway reads.** The key is a company key: the gateway sends no access groups and no principal, so it
+  reads what a caller without groups reads (everything under `disabled`, open documents under `enforcing`),
+  **whatever the asking person's roles**. The settings page shows one warning line under the mode («Brain-Werkzeuge
+  lesen alles, was der Schlüssel Ihres Unternehmens sieht, unabhängig von den Rollen der Person. Nur ohne «Ein»
+  verwenden.»). Keep it off under «Ein»; Core requests CR-R5/CR-R6 would let the gateway read as the person.
+- **The answer stays checked.** The passages are the texts of the gateway's tool results in that same turn
+  (`brain_tools.read_tool_results`: each `mcp_tool_result` answering an `mcp_tool_use` of the server `knovas-brain`,
+  not an error, whose text is the gateway's JSON: every search result's `passages[]` and every fetched `text`, with
+  the document's title, the Core's pointer). A search result's `summary` is not a passage. The model answers in the
+  same JSON lines with the document's title as `source`; `brain_tools.resolve_sources` turns each title into the
+  number of one passage of that document (the shortest on which the check alone shows the statement, else the
+  first; a title no tool returned, or a number, becomes 0), and `check.check_answer`, unchanged, runs over all
+  passages. No tool result: `no_answer` (`busy` when the gateway answered busy). The answer is the text after the
+  last tool block.
+- **The reply** (`brain_tools.ToolsReply`) holds only the cited passages, renumbered; a `no_answer` the first passage
+  of each document (at most 10). The page never grants them (`opens_directly` False): a stored chat opens a document
+  through its click route after the Core said the person may read it; an unsaved reply shows the title without a link.
+- **The deadline** (PMVP-24: the route's `core.Deadline`, 150 s from the request, and `MIN_GENERATE_SECONDS` 30; `core.call_within`): a
+  request runs on a worker thread, its client timeout at most the time left (60 s otherwise), and is waited for only
+  until the answer's deadline, then the client is closed. Not started with less than 30 s left. A paused turn
+  (`pause_turn`) is sent back as it came, at most twice, after the question as one assistant message (the content of every paused response so far), so the roles alternate. A timeout is busy (PMVP-24, D1); every other error as above.
+- **The keys and the logs.** Without either key, or with an address the check refuses, nothing is sent. The gateway
+  key is in the request body only. The SDK's DEBUG line of the request options is dropped for requests that carry
+  `mcp_servers` (`providers._NoBrainRequestOptions`, on the logger `anthropic._base_client`), whatever its level.
+  One line per answer counts the tool calls and results, with Anthropic's message ids: never a question, a title, a
+  grant, a passage, an answer or a key.
+- **The settings page** refuses a save that would leave `brain_mcp` without `anthropic`, the Claude API key or the
+  gateway key (`providers.brain_mcp_refusal`, its own words, nothing saved) and names what a deployment's
+  `brain_mcp` lacks (`settings_problems`).
+
 ## The design: statements with a source and a quote
 
 The first design let the model write prose with `[n]` marks and cut the prose into sentences by punctuation. It
@@ -411,6 +465,10 @@ show two numbers in another order than they are read.
 | time for all reads of a question | `ASSISTANT_CONTEXT_SECONDS` (environment, per question) | 8 s | wall-clock, more than 0 and at most 8; a larger value is cut to 8, anything else gives 8, with such a warning |
 | parts read of one document | `context.MAX_PARTS`, `context.PART_CHARS` | 3 of 20,000 characters | a hit further into a document keeps its snippet |
 | least words of a run that stands for the chunk | `context.MIN_RUN_WORDS` | 8 | when the whole snippet is not in the text |
+| the answer's deadline (brain tools) | the route's `core.Deadline`; `brain_tools.ANSWER_DEADLINE_SECONDS`, `MIN_GENERATE_SECONDS` (= `core`'s) | 150 s, 30 s | the whole turn, its continuations included |
+| searches and fetches allowed (brain tools) | `brain_tools.MAX_SEARCHES`, `MAX_FETCHES` | 3, 3 | told to the model |
+| passages read from tool results (brain tools) | `brain_tools.MAX_TOOL_PASSAGES`, `MAX_PASSAGE_CHARS`, `MAX_TOOL_CHARS` | 60; 20,000 characters a passage (cut at a word); 200,000 in all | the rest are not read |
+| continuations of a paused turn (brain tools) | `providers.BRAIN_MCP_MAX_CONTINUATIONS` | 2 | |
 | a digit's weight in the history | `service.DIGIT_WEIGHT_BYTES` | 3 | one token per digit at three bytes a token (FU-06) |
 | smallest cut piece of the newest pair | `service.MIN_HISTORY_PIECE_BYTES` | 100 | a history budget below two pieces sends no history (FU-07) |
 

@@ -71,6 +71,11 @@ through the settings' Resolver::
                            user_key=lambda: doc_fields_routes.user_key_for(identity_gate))
     if service is OFF:
         ...  # the route refuses
+
+With ``assistant.mode`` ``brain_mcp`` (<<Brain-Werkzeuge>>, PMVP-20 brain-mcp) ``make_service`` returns
+``brain_tools.BrainToolsService`` instead: Claude calls the Knovas MCP gateway's tools itself with the
+company's gateway key (``providers.make_brain_mcp_ask``) and nothing is searched here. Only with
+``anthropic``; another provider, or a mode that is not offered, fails every answer and sends nothing.
 """
 
 from __future__ import annotations
@@ -366,6 +371,10 @@ def make_service(settings: Any, client: Any, *, split: SplitFn, user_key: UserKe
     if not providers.is_enabled(settings.value(providers.SETTING_ENABLED)):
         return OFF
     provider = providers.chosen_provider(settings.value(providers.SETTING_PROVIDER))
+    raw_mode = settings.value(providers.SETTING_MODE)
+    mode = providers.chosen_mode(raw_mode) if raw_mode not in (None, "") else providers.MODE_PASSAGES
+    if mode != providers.MODE_PASSAGES:
+        return _brain_tools_service(settings, provider, mode, anthropic_client, deadline)
     if provider == providers.PROVIDER_KNOVAS:
         generate = make_generate(client, deadline=deadline)
     elif provider == providers.PROVIDER_ANTHROPIC:
@@ -379,6 +388,30 @@ def make_service(settings: Any, client: Any, *, split: SplitFn, user_key: UserKe
         generate = providers.unavailable_generate("provider_unknown")
     return AssistantService(search=make_search(client, split=split, user_key=user_key, deadline=deadline),
                             generate=generate, read_text=make_read_text(client))
+
+
+def _brain_tools_service(settings: Any, provider: Optional[str], mode: Optional[str],
+                         anthropic_client: Optional[Callable[..., Any]], deadline: Optional[Deadline] = None) -> Any:
+    """The service of <<Brain-Werkzeuge>> (PMVP-20 brain-mcp): Claude with the MCP connector on the settings' keys,
+    model and gateway address, read on every call. Only with ``anthropic``; another provider, or a mode that is not
+    offered (only a deployment can set one), fails every answer (``failed``) and nothing is sent anywhere. The route's
+    ``deadline`` (PMVP-24) bounds the whole turn, its continuations included."""
+    from assistant import providers
+    from assistant.brain_tools import BrainToolsService
+
+    if mode != providers.MODE_BRAIN_MCP:
+        ask = providers.unavailable_ask("mode_unknown")
+    elif provider != providers.PROVIDER_ANTHROPIC:
+        ask = providers.unavailable_ask("brain_mcp_needs_anthropic")
+    else:
+        ask = providers.make_brain_mcp_ask(
+            api_key=lambda: settings.secret(providers.SETTING_API_KEY),
+            model=lambda: settings.value(providers.SETTING_MODEL),
+            gateway_url=lambda: settings.value(providers.SETTING_BRAIN_MCP_URL),
+            gateway_key=lambda: settings.secret(providers.SETTING_BRAIN_MCP_KEY),
+            client_factory=anthropic_client,
+        )
+    return BrainToolsService(ask=ask, deadline=deadline)
 
 
 def _secured(client: Any) -> bool:
