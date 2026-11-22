@@ -10,9 +10,9 @@ from __future__ import annotations
 import pytest
 
 from brain_views import related
-from brain_views.related import (MAX_NAMED_KINDS, OTHER_KIND, OTHER_KIND_NAME, SORT_NAME, SORT_NAME_DESC,
-                                 SORT_RELATION, Unavailable, arrange, filter_text, matches, plural, read_related,
-                                 sort_choice, sort_key)
+from brain_views.lists import (SORT_NAME, SORT_NAME_DESC, SORT_RELATION, arrange, filter_text, matches, sort_choice,
+                               sort_key)  # PMVP-32a moved them here from brain_views.related, unchanged
+from brain_views.related import MAX_NAMED_KINDS, OTHER_KIND, OTHER_KIND_NAME, Unavailable, plural, read_related
 from knovas_client import GraphError, KnowledgeGraphDisabled
 
 START = "6f1c2c1e-0000-4000-8000-0000000b0001"

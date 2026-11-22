@@ -152,17 +152,45 @@ components:
   L2-PLATFORM-BRAIN-VIEWS:
     card: L2-platform-brain-views.card.yaml
     paths:
-      - KnovasPlatform/components/docbridge_integration/src/brain_views
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/__init__.py
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/limit.py
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/lists.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/brain_views_routes.py
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/dossier.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/brain_views.css
     why: >-
       The members' views (dossier, evidence trail, process line) are a new module (plan § 5.2), written by PMVP-30a
-      to PMVP-34: the reading in brain_views/, the pages in their own route file, templates and stylesheet under
-      web_interface/. PMVP-30a added the dossier; PMVP-34 the 25-node limit every view calls (brain_views/limit.py); PMVP-30b the related things by kind (brain_views/related.py). The web app registers the blueprint (one call in app.py) and keeps
-      the switch's registry entry (platform_settings.py); both stay with it. The modellers' views (graph_views/,
-      views_routes.py, ontology_graph.py, custom_views/) are not part of it: they read the tenant's whole edge list
-      and have no 25-node limit, which this card's promises forbid.
+      to PMVP-34. This card keeps what they share: the blueprint with its switch and gate (brain_views_routes.py), the
+      25-node limit every view draws through (PMVP-34, brain_views/limit.py) and the stylesheet. PMVP-32a split the
+      dossier (L2-PLATFORM-DOSSIER) and the process line (L2-PLATFORM-PROCESS-LINE) off for the context budget; their
+      routes hang on this blueprint. The web app registers the blueprint (one call in app.py) and keeps the switch's
+      registry entry (platform_settings.py); both stay with it. The modellers' views (graph_views/, views_routes.py,
+      ontology_graph.py, custom_views/) are not part of it: they read the tenant's whole edge list and have no
+      25-node limit, which this card's promises forbid.
+  L2-PLATFORM-DOSSIER:
+    card: L2-platform-dossier.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/dossier.py
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/related.py
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/plurals.json
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/dossier_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/dossier.html
+    why: >-
+      The dossier of one thing (PMVP-30a), its related things by kind (PMVP-30b) and the card «Läuft gerade»
+      (PMVP-32a): the reading in brain_views/, the routes in their own file, the template. Split from
+      L2-PLATFORM-BRAIN-VIEWS by PMVP-32a the way RB-FIX-1 split Rollen and Agenten: one card for all views was over
+      the context budget. Its routes hang on that card's blueprint and gate.
+  L2-PLATFORM-PROCESS-LINE:
+    card: L2-platform-process-line.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/process_line.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/process_line_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ablauf.html
+    why: >-
+      The process line of one thing (PMVP-32a, plan B-06), built per thing on the Client Zero convention (decision
+      PMVP-32): the reading, its route and its template. A card of its own from the start, as the coordinator split
+      the Brain views for the context budget; its route hangs on L2-PLATFORM-BRAIN-VIEWS's blueprint and gate. The
+      modellers' Ablauf view (graph_views/) is not reused (FU-19).
   L2-PLATFORM-SHELL:
     card: L2-platform-shell.card.yaml
     paths:

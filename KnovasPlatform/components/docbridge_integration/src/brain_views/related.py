@@ -1,54 +1,35 @@
-"""The dossier's related things by kind (PMVP-30b, plan B-01, B-03): what is connected to one thing, counted per
-kind and listed behind a tab, read as the signed-in person.
+"""The dossier's related things by kind (PMVP-30b, plan B-01, B-03), read as the signed-in person, per thing.
 
-One starting point (PRE-01): one node id. The reads are per thing (POST-03) and go through the Platform's one Knovas
-client, which signs every call as the person signed in on this request (as the dossier's reads do):
+1. ``graph_neighbors(node, depth=1, include_edges=True)``: the things one hop away this person may see (the Core walks
+   the person's visible subgraph; nothing here filters by rights) and the edges among them. The start (hop 0), rows
+   not one hop away and rows without a usable id are left out.
+2. One ``graph_get_many`` round of ``/node-types/<type>``: the names of the ``MAX_NAMED_KINDS`` kinds with the most
+   things; the rest, a kind whose read fails and things without a kind are «Weitere Einträge».
 
-1. ``GET /secured/graph/nodes/<id>/neighbors?depth=1&include_edges=true`` (``graph_neighbors``): the things one hop
-   away that this person may see, and the edges among them and the starting thing. The Core walks the person's
-   visible subgraph only (graph_api.node_neighbors), so a related thing the person may not see is neither counted
-   nor listed; nothing here filters by rights. The starting thing itself (hop 0), a row whose hop is not 1 and a row
-   without a usable id are left out.
-2. ``GET /secured/graph/node-types/<type>`` for the distinct kinds (``graph_get_many``, one round, each call signed as
-   the person): the kind's name. At most ``MAX_NAMED_KINDS`` kinds are named, the ones with the most things; the
-   rest, a kind whose read fails and things without a kind fall under one kind «Weitere Einträge».
-
-Never ``graph_export``, ``graph_edges``, ``graph_nodes`` or ``graph_node_types``.
-
-**A thing's relation** comes from the edges between the starting thing and it (``relation``); several are joined
-(«Partei, Vermieterin»). An answer without edges leaves the rows without a relation.
-
-**A kind's name in the plural** («Mandate 7»): the Brain has no plural (a node type has a name and a description), so
-the plurals come from one table (``PLURALS``): the kinds of the legal pack (builder/packs/legal/pack.json, by key and
-by German label) and of the pilot's tenant, Knovas GmbH (KnowledgeBase docs/ModernDocs/client-zero/ontology/
-generated/node-types.json, English names, German plurals from their ``display_de``). A kind outside the table keeps the
-name the Brain gives it.
-
-**The lists** (B-03) sort and filter what was read, on the Platform (the Core has no paged neighbours read): by name
-A to Z (the default) or Z to A, or by relation; one filter text over the names, case and spacing ignored, at most
-``FILTER_MAX`` characters; ``brain_views.limit.paged`` cuts the pages.
-
-Nothing here logs: a name, a relation and a filter text are the firm's text (GI-DATA-04).
+Never a whole-tenant read. A row's relation comes from the edges between the start and it (several joined). A kind's
+name in the plural comes from one table, ``plurals.json`` beside this file (the Brain has no plural); a kind outside
+it keeps its own name. The step the thing is in (PMVP-32a, the dossier's card «Läuft gerade»): the one neighbour
+joined by ``in_state`` of kind ``ProcessStep``, its process the one joined by ``instance_of`` of kind ``Process``; no
+further read. The lists sort and filter what was read (the Core has no paged neighbours read). Nothing here logs.
 """
 from __future__ import annotations
 
-import unicodedata
+import json
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import quote
 
 from knovas_client import KnowledgeGraphDisabled
 
 from brain_views.dossier import UNNAMED_NODE, valid_node_id, valid_type_id
 
+# The lists' helpers (sort, filter) moved to brain_views/lists.py (PMVP-32a), unchanged.
+from brain_views.lists import sort_key
+
 MAX_NAMED_KINDS = 20
-FILTER_MAX = 100
 OTHER_KIND = "ohne"
 OTHER_KIND_NAME = "Weitere Einträge"
-
-SORT_NAME = "name"
-SORT_NAME_DESC = "name-ab"
-SORT_RELATION = "beziehung"
 
 
 class Unavailable(Exception):
@@ -81,6 +62,18 @@ class Kind:
 class Related:
     kinds: Tuple[Kind, ...]
     total: int
+    # PMVP-32a: the step this thing is in, and its process, when the neighbours show exactly one of each
+    in_state: Optional[Thing] = None
+    process: Optional[Thing] = None
+
+    @property
+    def step_name(self) -> Optional[str]:
+        """The step's name without the «<process name>: » the convention puts before it (as the process line names
+        its steps), or None without a step."""
+        if self.in_state is None:
+            return None
+        name, prefix = self.in_state.name, f"{self.process.name}: " if self.process is not None else ""
+        return (name[len(prefix):].strip() if prefix and name.startswith(prefix) else "") or name
 
     def kind(self, key: Any) -> Optional[Kind]:
         """The kind with this key, or None (an unknown key, or one this thing does not have)."""
@@ -95,104 +88,11 @@ NOTHING = Related(kinds=(), total=0)
 
 # -- the plurals ---------------------------------------------------------------------------------------------------
 
-# By the kind's name as the Brain gives it (compared without regard to case and spacing).
-PLURALS: Dict[str, str] = {
-    # the legal pack (builder/packs/legal/pack.json): by key, and by the German label
-    "Matter": "Mandate", "Mandat": "Mandate",
-    "Proceeding": "Verfahren", "Verfahren": "Verfahren",
-    "Court": "Gerichte", "Gericht": "Gerichte",
-    "ProceduralDeadline": "Prozessuale Fristen", "Prozessuale Frist": "Prozessuale Fristen",
-    "Submission": "Rechtsschriften", "Rechtsschrift": "Rechtsschriften",
-    "CourtDecision": "Urteile", "Urteil": "Urteile",
-    "PowerOfAttorney": "Vollmachten", "Vollmacht": "Vollmachten",
-    "Forderung": "Forderungen",
-    # the reference screens' kinds (02-dossier: «Mandate», «Verträge», «Personen»)
-    "Mandant": "Mandanten", "Vertrag": "Verträge", "Partei": "Parteien", "Dokument": "Dokumente",
-    "Organisation": "Organisationen",
-    # the pilot's tenant, Knovas GmbH (client-zero ontology, generated/node-types.json)
-    "Product": "Produkte",
-    "PlatformTier": "Plattform-Stufen",
-    "ApiServiceGroup": "API-Dienstgruppen",
-    "Capability": "Fähigkeiten",
-    "BoundedContext": "Software-Bereiche",
-    "System": "Systeme",
-    "Interface": "Schnittstellen",
-    "Interaction": "Komponentenaufrufe",
-    "Component": "Software-Komponenten",
-    "ComponentContract": "Komponentenverträge",
-    "Invariant": "Goldene Invarianten",
-    "FeaturePlan": "Feature-Pläne",
-    "Phase": "Phasen",
-    "Gate": "Gates",
-    "Milestone": "Meilensteine",
-    "Goal": "Ziele",
-    "KeyResult": "Schlüsselergebnisse",
-    "Metric": "Kennzahlen",
-    "MetricSample": "Messwerte",
-    "Decision": "Entscheidungen",
-    "Risk": "Risiken",
-    "Hypothesis": "Hypothesen",
-    "Experiment": "Experimente",
-    "Result": "Ergebnisse",
-    "PreMortem": "Pre-Mortems",
-    "Tripwire": "Auslöseschwellen",
-    "Vision": "Visionen",
-    "Bet": "Wetten",
-    "Forecast": "Prognosen",
-    # Knovas GmbH's Claim is «Aussage»; the legal pack's key Claim is «Forderung». The pilot's reading wins here.
-    "Claim": "Aussagen",
-    "Question": "Prüffragen",
-    "SpecItem": "Anforderungen",
-    "WorkItem": "Aufgaben",
-    "Idea": "Ideen",
-    "Issue": "Tickets",
-    "IssueProject": "Jira-Projekte",
-    "Process": "Prozesse",
-    "ProcessStep": "Prozessschritte",
-    "ProcessInstance": "Prozessinstanzen",
-    "Event": "Ereignisse",
-    "RunEvent": "Laufereignisse",
-    "Function": "Unternehmensfunktionen",
-    "Role": "Rollen",
-    "Person": "Personen",
-    "Agent": "KI-Agenten",
-    "Market": "Märkte",
-    "Segment": "Kundensegmente",
-    "Persona": "Personas",
-    "EvidenceRecord": "Evidenzeinträge",
-    "Channel": "Vertriebskanäle",
-    "Campaign": "Kampagnen",
-    "MarketingAsset": "Marketing-Materialien",
-    "Lead": "Leads",
-    "Account": "Kundenorganisationen",
-    "Opportunity": "Verkaufschancen",
-    "Quote": "Angebote",
-    "Contract": "Verträge",
-    "Customer": "Kundenbeziehungen",
-    "Record": "Dokumentbeschreibungen",
-    "Repository": "Code-Repositorys",
-    "SourceFile": "Quelldateien",
-    "Symbol": "Code-Symbole",
-    "Commit": "Commits",
-    "TestRun": "Testläufe",
-    "AlloyCheck": "Alloy-Prüfungen",
-    "GlossaryTerm": "Glossarbegriffe",
-    "Release": "Releases",
-    "Spine": "Strukturachsen",
-    "SpineLevel": "Strukturebenen",
-    "Company": "Unternehmen",
-    "ValueStream": "Wertströme",
-    "Deployment": "Deployments",
-    "Service": "Dienste",
-    "Job": "Geplante Jobs",
-    "Environment": "Umgebungen",
-    "DataStore": "Datenspeicher",
-    "DataSet": "Datenbestände",
-    "Setting": "Einstellungen",
-    "Workflow": "CI-Workflows",
-    "WorkflowJob": "CI-Jobs",
-    "Library": "Fremdbibliotheken",
-}
+# By the kind's name as the Brain gives it (compared without regard to case and spacing): brain_views/plurals.json,
+# one section each for the legal pack, the reference screens' words and the pilot's tenant (Knovas GmbH).
+_TABLE = json.loads((Path(__file__).with_name("plurals.json")).read_text(encoding="utf-8"))
+PLURALS: Dict[str, str] = {name: word for section, names in _TABLE.items() if not section.startswith("_")
+                           for name, word in names.items()}
 
 
 def _folded(text: str) -> str:
@@ -230,7 +130,8 @@ def read_related(client: Any, node_id: str) -> Related:
     rows = _rows(answer.get("neighbors"), node_id)
     if not rows:
         return NOTHING
-    relations = _relations(answer.get("edges"), node_id)
+    by_relation = _relations(answer.get("edges"), node_id)
+    relations = {other: ", ".join(sorted(found, key=sort_key)) for other, found in by_relation.items()}
     names = _kind_names(client, [type_id for _, type_id in rows])
     grouped: Dict[str, List[Thing]] = {}
     for thing_row, type_id in rows:
@@ -242,7 +143,16 @@ def read_related(client: Any, node_id: str) -> Related:
              for key, things in grouped.items()]
     # By count, highest first, then by name; «Weitere Einträge», which is no kind of its own, comes last.
     kinds.sort(key=lambda k: (k.key == OTHER_KIND, -k.count, sort_key(k.name), k.key))
-    return Related(kinds=tuple(kinds), total=sum(k.count for k in kinds))
+
+    def joined_by(relation: str, kind_name: str) -> Optional[Thing]:
+        """The one row joined to the start by ``relation`` whose kind the Brain names ``kind_name``, or None."""
+        found = [Thing(id=row["id"], name=row["name"], relation=relation) for row, type_id in rows
+                 if relation in by_relation.get(row["id"].lower(), ())
+                 and type_id is not None and _folded(names.get(type_id, "")) == _folded(kind_name)]
+        return found[0] if len(found) == 1 else None
+
+    return Related(kinds=tuple(kinds), total=sum(k.count for k in kinds),
+                   in_state=joined_by("in_state", "ProcessStep"), process=joined_by("instance_of", "Process"))
 
 
 def _rows(neighbours: Any, node_id: str) -> List[Tuple[Dict[str, str], Optional[str]]]:
@@ -265,9 +175,8 @@ def _rows(neighbours: Any, node_id: str) -> List[Tuple[Dict[str, str], Optional[
     return found
 
 
-def _relations(edges: Any, node_id: str) -> Dict[str, str]:
-    """For each thing joined to the start by an edge (by its id in lower case), its relations joined
-    («Partei, Vermieterin»)."""
+def _relations(edges: Any, node_id: str) -> Dict[str, set]:
+    """For each thing joined to the start by an edge (by its id in lower case), the names of its relations."""
     start = node_id.lower()
     found: Dict[str, set] = {}
     for edge in edges if isinstance(edges, list) else []:
@@ -283,7 +192,7 @@ def _relations(edges: Any, node_id: str) -> Dict[str, str]:
         relation = _clean(edge.get("relation"))
         if relation:
             found.setdefault(other.lower(), set()).add(relation)
-    return {other: ", ".join(sorted(names, key=sort_key)) for other, names in found.items()}
+    return found
 
 
 def _kind_names(client: Any, type_ids: Sequence[Optional[str]]) -> Dict[str, str]:
@@ -312,46 +221,6 @@ def _kind_names(client: Any, type_ids: Sequence[Optional[str]]) -> Dict[str, str
         if name:
             names[type_id] = name
     return names
-
-
-# -- the lists -----------------------------------------------------------------------------------------------------
-
-
-def sort_key(text: str) -> str:
-    """A name as the lists sort it: case, accents and spacing ignored («Ärzte» beside «Arzt», not after «Zürich»)."""
-    decomposed = unicodedata.normalize("NFKD", text.replace("ß", "ss"))
-    return " ".join("".join(c for c in decomposed if not unicodedata.combining(c)).split()).casefold()
-
-
-def filter_text(raw: Any) -> str:
-    """The filter as the page keeps it: spacing collapsed, at most FILTER_MAX characters, no control characters."""
-    if not isinstance(raw, str):
-        return ""
-    text = "".join(c for c in raw if unicodedata.category(c)[0] != "C")
-    return " ".join(text.split())[:FILTER_MAX].strip()
-
-
-def matches(name: str, needle: str) -> bool:
-    """Whether a name holds the filter text, case and spacing ignored."""
-    return not needle or _folded(needle) in _folded(name)
-
-
-def sort_choice(raw: Any, *, relations: bool) -> str:
-    """The list's sort from the address: one of the known keys, else by name A to Z."""
-    allowed = (SORT_NAME, SORT_NAME_DESC, SORT_RELATION) if relations else (SORT_NAME, SORT_NAME_DESC)
-    return raw if raw in allowed else SORT_NAME
-
-
-def arrange(items: Sequence[Any], *, name: Callable[[Any], str], needle: str, sort: str,
-            relation: Optional[Callable[[Any], Optional[str]]] = None) -> List[Any]:
-    """The items the filter keeps, in the chosen order (by relation: things without one last, then by name)."""
-    kept = [item for item in items if matches(name(item), needle)]
-    by_name = sorted(kept, key=lambda item: sort_key(name(item)))
-    if sort == SORT_NAME_DESC:
-        return list(reversed(by_name))
-    if sort == SORT_RELATION and relation is not None:
-        return sorted(by_name, key=lambda item: (relation(item) is None, sort_key(relation(item) or "")))
-    return by_name
 
 
 def _clean(value: Any) -> str:

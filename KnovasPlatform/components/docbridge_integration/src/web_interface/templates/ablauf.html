@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="de">
+{# The process line (PMVP-32a, plan B-06): where one thing stands in its process, for a member of the Workspace.
+   process_line_routes.py hands in `line` (brain_views.process_line.Line) and what is drawn: `rows` (the drawn steps
+   of the main path, about twelve a row: number, name, state done / now / open), `hidden` with `hidden_text` and
+   `steps_href` (the rest, a count that opens the whole main path as a list, `all_steps`), `since`, `ways` (the other
+   ways from the current step) and every address, built there with url_for. Without a line the page is one message.
+   Nothing here makes an address out of what the Brain says, and nothing is marked safe. Built from the page parts;
+   brain_views.css holds the line, with tokens only. The marks of PMVP-34: data-bv-node on what is drawn (the thing,
+   each step), data-bv-row on each row of a list, data-bv-more on the count that opens the rest. #}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if line %}{{ line.name }} · Ablauf{% else %}Ablauf{% endif %} · {{ brand }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/brain_views.css') }}?v={{ asset_version }}">
+</head>
+<body>
+{% import "_parts.html" as parts %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+
+    <div class="app-content">
+        <main class="bv-main">
+        {% call parts.page(wide=True) %}
+            {% if not line %}
+            {{ parts.page_head("Ablauf nicht geladen", lede="Der Brain hat gerade nicht geantwortet. Bitte versuchen Sie es in einem Moment noch einmal.") }}
+            {% elif not line.in_process %}
+            <div data-bv-node>{{ parts.page_head(line.name, eyebrow=line.kind, lede="Für diesen Eintrag ist kein Ablauf hinterlegt.") }}</div>
+            <p class="k-small">{{ parts.link("Zum Dossier", dossier_href) }}</p>
+            {% elif not line.complete %}
+            <div data-bv-node>{{ parts.page_head(line.name, eyebrow=line.kind, lede="Ablauf «" ~ line.process_name ~ "»") }}</div>
+            <p class="bv-unavailable k-muted">Der Ablauf ist nicht vollständig beschrieben.</p>
+            <p class="k-small">{{ parts.link("Zum Dossier", dossier_href) }}</p>
+            {% else %}
+            <div data-bv-node>{{ parts.page_head(line.name, eyebrow=line.kind, lede=("Ablauf «" ~ line.process_name ~ "»" ~ (" · Schritt " ~ line.position ~ " von " ~ line.main|length if line.position else ""))) }}</div>
+
+            <div class="bv-steps" aria-label="Schritte des Hauptwegs">
+                {% for row in rows %}
+                <ol class="bv-line" start="{{ row[0].number }}">
+                    {% for step in row %}
+                    <li class="bv-step bv-step--{{ step.state }}" data-bv-node{% if step.state == 'now' %} aria-current="step"{% endif %}>
+                        <span class="bv-step-mark" aria-hidden="true">{% if step.state == 'done' %}✓{% else %}{{ step.number }}{% endif %}</span>
+                        <span class="bv-step-name">{{ step.name }}</span>
+                        {% if step.state == 'done' %}<span class="bv-hidden"> (erledigt)</span>{% elif step.state == 'now' %}<span class="bv-hidden"> (jetzt)</span>{% endif %}
+                    </li>
+                    {% endfor %}
+                </ol>
+                {% endfor %}
+                {% if hidden %}
+                <p class="bv-steps-more k-small"><a class="k-link" data-bv-more="{{ hidden }}" href="{{ steps_href }}">{{ hidden_text }}</a> <span class="k-muted">Schritte des Hauptwegs als Liste</span></p>
+                {% endif %}
+            </div>
+
+            {% if line.position is none %}
+            <p class="bv-left k-small">Dieser Eintrag hat den Hauptweg verlassen: <strong>{{ line.current.name }}</strong>.</p>
+            {% endif %}
+
+            {% call parts.card(now=True) %}
+            <div class="bv-now-head">
+                <h2 class="bv-now-title">Jetzt: {{ line.current.name }}</h2>
+                {% if since or line.who %}<span class="k-muted k-small">{% if since %}seit {{ since }}{% endif %}{% if since and line.who %} · {% endif %}{% if line.who %}{{ line.who }}{% endif %}</span>{% endif %}
+            </div>
+            {% if ways %}
+            <details class="bv-ways">
+                <summary class="bv-ways-summary k-small">Andere Wege ({{ ways|length }})</summary>
+                <div class="bv-list">
+                    {% for way in ways %}
+                    {% call parts.rowline() %}
+                    <span class="bv-way" data-bv-row>{{ way.name }}</span>
+                    <span class="k-muted k-small">{% if way.back %}zurück{% else %}Abzweigung{% endif %}</span>
+                    {% endcall %}
+                    {% endfor %}
+                </div>
+            </details>
+            {% endif %}
+            {% endcall %}
+
+            <div class="bv-after">
+                {% if line.next_step %}<p class="k-small"><span class="k-muted">Danach:</span> {{ line.next_step.name }}</p>{% else %}<p></p>{% endif %}
+                <p class="k-small">{{ parts.link("Zum Dossier", dossier_href) }}</p>
+            </div>
+
+            {% if all_steps %}
+            {% call parts.section("Alle Schritte des Hauptwegs") %}
+            <div class="bv-list">
+                {% for step in all_steps %}
+                {% call parts.rowline() %}
+                <span class="bv-way" data-bv-row>{{ step.number }}. {{ step.name }}</span>
+                <span class="k-muted k-small">{% if step.state == 'done' %}erledigt{% elif step.state == 'now' %}jetzt{% else %}offen{% endif %}</span>
+                {% endcall %}
+                {% endfor %}
+            </div>
+            {% endcall %}
+            {% endif %}
+            {% endif %}
+        {% endcall %}
+        </main>
+    </div>
+</div>
+</body>
+</html>

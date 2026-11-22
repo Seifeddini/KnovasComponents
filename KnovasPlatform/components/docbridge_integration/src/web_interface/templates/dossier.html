@@ -9,7 +9,9 @@
    parts do not (the fact line, the fact that opens its source, the list's form and pages), with tokens only.
    PMVP-30b: one tab per kind of related thing with its count; `kind` and `listing` (the list's page, form fields
    and page links) for a kind's list and for «Dokumente»; `near_failed` when the related things could not be read.
-   The marks of PMVP-34: data-bv-node on what is drawn (the thing), data-bv-row on each row of a list. #}
+   PMVP-32a: `running` (the step the thing is in, its process and the address of its line) for the card «Läuft
+   gerade» on the Überblick. The marks of PMVP-34: data-bv-node on what is drawn (the thing, the card that stands for
+   its step), data-bv-row on each row of a list. #}
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -111,6 +113,17 @@
                 {% endif %}
             {% endcall %}
             {% else %}
+            {% if running %}
+            {% call parts.card(now=True) %}
+            <div class="bv-running" data-bv-node>
+                <div>
+                    <h2 class="bv-running-head k-section-title">Läuft gerade</h2>
+                    {{ parts.link(running.step, running.href) }}{% if running.process %}<span class="k-muted k-small"> · Ablauf «{{ running.process }}»</span>{% endif %}
+                </div>
+                <span class="k-muted" aria-hidden="true">→</span>
+            </div>
+            {% endcall %}
+            {% endif %}
             {% call parts.section("Angaben") %}
                 {% if dossier.facts %}
                 <div class="bv-facts">
