@@ -608,6 +608,21 @@ Freigaben summary.
   287 passed. Frozen check: all nine OK. `card check` 20 cards valid, 0 errors, 0 warnings; `card render --check` 0 not
   current.
 
+**Split «Rollendaten»** (coordinator, 2026-11-22): RB-5's part has a card of its own,
+**L2-PLATFORM-ROLE-DATA** (`docs/components/L2-platform-role-data.card.yaml`), the way RB-FIX-1 split Rollen and
+Agenten: `admin_role_data.py` and a new template `templates/_role_data.html` (RB-5's parts of the Rollen page and their
+words, which `admin_roles.html` imports with its context and calls: the move offer above the row of roles, the content of
+`<section data-role-part="data">`). R-1, the seven routes and three calls (`attach_role_data_routes`, `role_data_part`,
+`execute_role_data`), each with a gate line (routes) and a promise; uses of L2-PLATFORM-ADMIN (`run_guarded`),
+L2-BRAIN-BUILDER (`builder.access.Tree`) and EXT-BRAIN-API; L2-PLATFORM-ROLES uses its two calls, L2-PLATFORM-ACCESS
+its executor; `boundaries.yaml` has the component. The Rollen card is back to the base plus that use and a pointer. To fit
+the budget, `admin_role_data.py` was made shorter (53,573 to 39,790 characters: the invariants live on the card, the
+page's words in the template; behaviour unchanged, the views pass codes the template words) and the card's evidence
+lists name at most five checks each. **Sizes (map-check, `--worktree` on the final tree):** L2-PLATFORM-ROLE-DATA
+15,700 tokens (card 5,603, code 9,947), L2-PLATFORM-ROLES about 13,000, the admin and access cards within the budget;
+budget 0 findings in scope, declared 0, compatible 0, complete 6 `no_contract` (the five known ones and RB-FIX-1's
+`attach_role_routes`), problems 0. `card check` 21 cards valid, `card render --check` 0 not current.
+
 **Open, for the coordinator and the verifier:**
 
 1. **Founder to check (decision 2):** with the bypass on (the default) an administrator changes a role's data alone,
@@ -622,7 +637,6 @@ Freigaben summary.
 4. **The real client puts a pointer in a query string** (`document_access(pointer)`, `documents(prefix=pointer)`), as
    the «Zugriff» pages do; urllib3 logs a request line with its query at DEBUG when its logger is at DEBUG (the app
    holds it quiet). Not RB-5's to change (`knovas_client.py`, FU-43).
-5. **The card's budget:** see "Merge of RB-FIX-1" above (L2-PLATFORM-ROLES 33,953 tokens; the admin card is within
-   its budget).
+5. **The cards' budget:** resolved by the split «Rollendaten» above (every card in scope within 16,000).
 6. Verifier: the frozen file takes about 9 minutes; run in a database of your own. A killed run leaves schemas behind
    (recreate the database).

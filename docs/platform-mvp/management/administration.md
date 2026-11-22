@@ -284,7 +284,8 @@ functions); the Knovas Core accepts it as it accepts a person's.
 - **Contrast of the old green tints (FU-28)** below 4.5 to 1; PMVP-40 replaces them with the brand's.
 - **The Admin card was over its size budget (FU-17)**; PMVP-40 split it. After the role builder it was over again
   (FU-44); RB-FIX-1 gives the Rollen page and the Agenten page a card each («Rollen», «Agenten»), because one card for
-  both would still have been over the budget.
+  both would still have been over the budget. RB-5's part of the Rollen page (a role's data) has a card of its own
+  («Rollendaten») for the same reason.
 - **"Was sieht …?" and the enforcement position** are still the Builder's files (FU-20).
 - Ingestion, document fields and System have no card; their domain is open.
 - Small findings: an approver who is also an ingestion manager lands on Ingestion; malformed roles give an error page;
@@ -319,11 +320,11 @@ the shell (navigation, look, page parts).
 
 ## Owner
 
-The engine owner role, proposed on the cards (Verwaltung, "Zugriff", and «Rollen» and «Agenten» on RB-FIX-1's branch);
+The engine owner role, proposed on the cards (Verwaltung, "Zugriff", «Rollen», «Agenten» and «Rollendaten»);
 a person has still to confirm it.
 
 **Where the detail is:** `docs/platform-mvp/work-orders/PMVP-11.md`, `PMVP-40.md` (branch `feat/pmvp-40`), `PMVP-25.md`
 (branch `feat/pmvp-25`), `RB-1-2.md` (branch `feat/rb-1-2`), `RB-3-4.md` (branch `feat/rb-3-4`), `RB-6-7.md`
 (branch `feat/rb-6-7`), `RB-FIX-1.md` (branch `maint/rb-fix-1`), `RB-5.md` (branch `feat/rb-5`); `KnovasPlatform/docs/agents.md`;
 `docs/platform-mvp/design/role-builder.md`; `docs/components/L2-platform-admin.md`, `L2-platform-roles.md`,
-`L2-platform-agents.md`; `docs/platform-mvp/follow-ups.md`.
+`L2-platform-role-data.md`, `L2-platform-agents.md`; `docs/platform-mvp/follow-ups.md`.

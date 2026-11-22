@@ -206,12 +206,19 @@ components:
     paths:
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_roles.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_roles.html
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_role_data.py
     why: >-
-      The role builder's Rollen page (RB-3, RB-4): a role's functions, its people and its Core group; a role's data,
-      its dry runs, adopting a group and moving direct grants (admin_role_data.py, RB-5). Split from
+      The role builder's Rollen page (RB-3, RB-4): a role's functions, its people and its Core group. Split from
       L2-PLATFORM-ADMIN by RB-FIX-1 (context budget: together the card was 33,409 tokens); its routes hang on that
       card's blueprint and gate. The role store and the claim's groups it calls stay in identity/, which has no card.
+  L2-PLATFORM-ROLE-DATA:
+    card: L2-platform-role-data.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_role_data.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_role_data.html
+    why: >-
+      What a role may read (RB-5): «Darf lesen», its dry runs, four eyes, adopting a group and moving direct grants.
+      Split from L2-PLATFORM-ROLES the way RB-FIX-1 split Rollen and Agenten: one card for both was over the context
+      budget. Its routes hang on the console's blueprint and gate and answer with the Rollen page.
   L2-PLATFORM-AGENTS:
     card: L2-platform-agents.card.yaml
     paths:

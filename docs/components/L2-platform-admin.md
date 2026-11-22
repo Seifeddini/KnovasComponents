@@ -222,7 +222,7 @@ card_hash: sha256:9bd5286f66cd8dc1
 | Component | Operations | Expects |
 |---|---|---|
 | `L2-PLATFORM-ACCESS` | `call.web_interface.guarded.run_guarded` |  |
-| `L2-PLATFORM-ROLES` | `call.web_interface.guarded.run_guarded` |  |
+| `L2-PLATFORM-ROLE-DATA` | `call.web_interface.guarded.run_guarded` |  |
 | `L2-PLATFORM-SHELL` | `http.GET.admin.people`; `http.GET.admin.system`; `http.GET.approvals` | `L2-PLATFORM-ADMIN/http.GET.admin.people/N-1`; `L2-PLATFORM-ADMIN/http.GET.admin.system/N-1`; `L2-PLATFORM-ADMIN/http.GET.approvals/N-1` |
 
 ## Hides

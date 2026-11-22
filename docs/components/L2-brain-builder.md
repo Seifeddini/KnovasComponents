@@ -1503,7 +1503,7 @@ card_hash: sha256:95f4d9402dc4677c
 |---|---|---|
 | `L2-HOST-NGINX` | `protocol-enrol`; `protocol-heartbeat`; `protocol-config`; `protocol-package`; `protocol-runs`; `protocol-command-done`; `protocol-events`; `protocol-checks` | `L2-BRAIN-BUILDER/protocol-heartbeat/N-1` |
 | `L2-IMAGE-RELEASE` |  | The site package the Builder writes names the images knovas-link and sync-component (builder/sites.py CONTAINERS), the package names release_image.sh pushes; a test compares them, no code reads them across the boundary. |
-| `L2-PLATFORM-ROLES` |  |  |
+| `L2-PLATFORM-ROLE-DATA` |  |  |
 | `L2-PLATFORM-SHELL` | `home` | `L2-BRAIN-BUILDER/home/N-1` |
 | `L3-KNOVAS-LINK` | `protocol-enrol`; `protocol-heartbeat`; `protocol-config`; `protocol-package`; `protocol-runs`; `protocol-command-done`; `protocol-events`; `protocol-checks` | `L2-BRAIN-BUILDER/protocol-enrol/P-1`; `L2-BRAIN-BUILDER/protocol-heartbeat/P-1`; `L2-BRAIN-BUILDER/protocol-config/P-1`; `L2-BRAIN-BUILDER/protocol-runs/N-1` |
 | `L3-SYNC-COMPONENT` | `protocol-enrol`; `protocol-heartbeat`; `protocol-config`; `protocol-package`; `protocol-runs`; `protocol-command-done`; `protocol-events`; `protocol-checks` | `L2-BRAIN-BUILDER/protocol-enrol/P-1`; `L2-BRAIN-BUILDER/protocol-config/P-1`; `L2-BRAIN-BUILDER/protocol-package/P-1` |
