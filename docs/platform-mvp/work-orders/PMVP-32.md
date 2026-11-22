@@ -326,4 +326,88 @@ later item can make per tenant. Recorded as the coordinator's follow-up.
 
 ### 32b
 
-(the builder writes here)
+Builder session of 2026-11-22 (builder B, AGENT-claude-code). `feat/pmvp-32b` from `feat/pmvp-32a` (`15509cd6`, not
+yet integrated); `origin/feat/platform-mvp` merged in before the push.
+
+#### What was built
+
+| File | What |
+|---|---|
+| `src/brain_views/process_line.py` | `Requirement` and `Line.requirements`, `Line.more_requirements`; `Line.instances`; `read_instances` → `Instances`; the start of both reads shared as `_context` (no change of 32a's reads) |
+| `src/web_interface/process_line_routes.py` | the checklist's rows (each present thing's dossier through `url_for`); the count and its link; `GET /ablauf/<node_id>/alle` (`brain_views.lists.listing`) |
+| `templates/ablauf.html` | the checklist in «Jetzt» (✓ and a link per thing present, an empty ring and «fehlt noch» or «wahlweise» per missing entry, «(1 von 2)» for a `min_count` above one), the note on direction, «Weitere Voraussetzungen werden hier nicht geprüft.»; «Alle N Einträge in diesem Ablauf →» with `data-bv-more` |
+| `templates/ablauf_alle.html` (new) | the list of the others: head (`data-bv-node`), the GET form, rows (`data-bv-row`) opening each one's line, the pages, «Zurück zum Ablauf» |
+| `static/css/brain_views.css` | the checklist's marks; tokens only |
+| `tests/test_brain_views_process_line_missing.py` (25) | below |
+| the Ablauf card, its page, `boundaries.yaml` | R-3; `http.GET.ablauf._node_id/P-6` («fehlt noch»), `P-7` (the count and its link); the operation `http.GET.ablauf._node_id.alle` with N-1, P-1, P-2; the template; the uses |
+
+#### What I decided, and why (the verifier should look here first)
+
+1. **«fehlt noch»** follows the coordinator's point 4: the current step's `requires` entries with a path of exactly
+   one hop with a `relation` and a `to_type`; present = the thing's neighbours (from 32a's neighbours read, no new
+   read) joined to it by an edge of that relation (either end: the hop's `direction` is not checked, and the card
+   says so) whose kind the Brain names `to_type` (case and spacing ignored). A kind outside the 20 the kind round names
+   cannot match. `min_count` defaults to 1 (a non-number or a number below 1 counts as 1); `required` is false only
+   when it says `false`. An entry with a longer, empty or unreadable path is left out, and the one line says so; an
+   unreadable `requires` value shows no checklist.
+2. **A missing optional entry** is listed with its type and «wahlweise» (muted), not marked: "not marked" read as no
+   «fehlt noch»; leaving it out entirely would hide that the step asks for it. One word to drop if unwanted.
+3. **The present things are rows** (`data-bv-row`), links to their dossiers; each row says the entry's type at its
+   end. They are not drawn things (the order: "rows").
+4. **The count** is asked in the edges route's second round (`/edges?node_id=<process>&type=instance_of`, beside
+   the steps' reads), so a 404 or an unfiltered first answer still falls back after one call (32a's tests unchanged);
+   in the fallback it is the process neighbours' `instance_of` edges. N includes this thing; the link carries
+   `data-bv-more="N-1"` (the others, which the list shows); alone in its process, there is no link. The words are
+   «Alle N Einträge in diesem Ablauf» (not the kind's plural: the plural table is the Dossier card's).
+5. **The list** (`/ablauf/<node_id>/alle`) reads the thing, its neighbours and their kinds as the line does (the same
+   gate, the same 404), then the process's neighbours once for the names; no read per instance and no step read.
+   Sorted A–Z / Z–A (no relation sort: there is one relation), filtered, 50 a page; each row opens that thing's line.
+   The form and the pages are drawn as on the dossier's lists, in the new template: `dossier.html`'s macros may not be
+   moved in this item (FU for the coordinator: a shared part).
+
+#### Tests
+
+`test_brain_views_process_line_missing.py` (25): two kinds over one hop, one present and one missing (one row, one
+«fehlt noch»); another kind or another relation does not count; `min_count` 2 with one present («(1 von 2)», «fehlt
+noch»), then with two; a missing optional entry not marked; a two-hop entry left out with the line, alone and beside
+a one-hop entry; unreadable `requires` values; only the current step's entries; the direction not checked; the count
+from the edges route and from both fallbacks; the list by name without a read per instance; in no process; the link
+and its `data-bv-more`; alone in the process; the list's rows, head, back link; pages of 50 (123 others), a page out
+of range, the filter, Z–A; mark-up as text and every address from `url_for`; the gate (302, 404 switched off without
+asking the Core, 404 for a missing thing, the sentence for a thing in no process); logs at DEBUG (FU-46) without a
+name or the filter text.
+
+#### Checks
+
+- **Tests** (own database `knovas_platform_test_pmvpB`, one process): `test_brain_views_process_line_missing.py` 25
+  passed. With the frozen `test_pmvp34_view_limit_acceptance.py` (17, unchanged; it opens `/ablauf/<id>/alle` as a
+  view route by itself), all of `tests/test_brain_views_*.py` and `tests/test_pmvp11_navigation_acceptance.py`: 288
+  passed and 1 failed, the one predicted below; after the change that file again, 20 passed: **289 green**. The whole
+  suite was not run.
+- **One existing test changed, as the order predicts**: `test_brain_views_process_line_page.py::
+  test_thirteen_steps_wrap_into_two_even_rows` (mine, 32a) asserted that the page has no `data-bv-more` at all, meaning
+  "no step left out"; 32b's «Alle N … in diesem Ablauf» carries its own `data-bv-more`, so the line now asserts that
+  no link opens the steps' list (`ansicht=schritte`).
+- **A trap for whoever takes screenshots**: the screenshot server (`serve.py`) migrates its own schema in the same
+  test database, and its migration creates the `citext` extension there; while it runs, every test schema's
+  migration finds the extension "present" but not on its search path and fails at setup (`type "citext" does not
+  exist`). One run hit it (170 errors); the server was stopped, the 171 leftover schemas of that run dropped, and the
+  run repeated.
+- **Frozen check**: all eleven OK.
+- **Cards**: `card check` valid, 0 errors, 0 warnings; `card render --check` 0 not current; `map-check --scope touched
+  --worktree`, base `origin/feat/platform-mvp`: problems 0, **budget 0** (L2-PLATFORM-BRAIN-VIEWS 9,216,
+  L2-PLATFORM-DOSSIER 14,818, L2-PLATFORM-PROCESS-LINE 15,114 tokens), complete 3 `no_contract` (the factory and the
+  two attach functions, review entries), compatible 9 (32a's moved dossier lines).
+- **In the browser** (headless Chrome, the real app, the fake Core of 32a with a `requires` on the current step: a
+  Person over `owned_by` present, a Vertrag over `governed_by` missing, an optional Mandat over `part_of` present, and
+  a two-hop entry; 14 instances; 1440 and 390 px): nothing scrolls sideways; no failed request; lowest text contrast
+  4.76 to 1; a focus ring on every link, the filter box, the sort choice and «Anwenden». Screenshots, outside the
+  repository:
+  `C:\Users\siran\AppData\Local\Temp\claude\1838582cff9d51e1\af9716ae-0421-42ac-9fac-6acb192cc6e6\scratchpad\builderB\shots32b\`:
+  `ablauf-fehlt-noch-*.png` and `compare-ablauf-fehlt-noch-*.png` (beside `03-ablauf.png`), `alle-*.png` (13 others),
+  `alle-gefiltert-*.png` (filtered on «portal», Z–A); `facts.json`.
+
+#### Open, for the coordinator
+
+- The list macros now exist twice (`dossier.html` and `ablauf_alle.html`); one shared part would hold them both.
+- «fehlt noch» for documents (SPEC-11) waits for option C of the decision.

@@ -38,7 +38,10 @@ and turns the rest into a count that opens a list. Unlike the existing views mad
 - Built on Knovas GmbH's own processes (the Client Zero convention: process and steps in the Brain, an instance in a
   step). A thing in no process says so in one sentence; a process not completely described too, and the reason goes
   to the log (no names).
-- What is still missing in a step («fehlt noch») and the list of all instances of a process come with PMVP-32b.
+- See what the current step still needs (PMVP-32b): the things it asks for that are there, each opening its dossier,
+  and «fehlt noch» for what is missing (things connected to this one directly; documents wait for law-firm data).
+- Open «Alle 14 Einträge in diesem Ablauf»: the other things in the same process as a list (by name, filter, 50 a
+  page), each opening its own line.
 
 **Built: the 25-thing limit (PMVP-34).** Every view takes what it draws through one shared function; what does not
 fit is a count («115 weitere») that opens a list of 50 rows a page. The dossier draws one thing (the thing itself);
@@ -49,7 +52,6 @@ its facts and documents are rows of a list.
 | Item | What | Note |
 |---|---|---|
 | PMVP-31 | the evidence trail ("Beleg-Spur") from a reference in an answer | third on the plan's cut list |
-| PMVP-32b | the process line's «fehlt noch» and «Alle N … in diesem Ablauf» | work order written (`work-orders/PMVP-32.md`); same builder, after 32a. Law-firm process data asked of the demo plan and the Builder's bet (`decisions/PMVP-32-question.md`, option C) |
 | PMVP-33 | names in search results and answers link to the dossier | |
 
 ## How it protects data and access
@@ -79,7 +81,7 @@ its facts and documents are rows of a list.
 | PMVP-34 the 25-thing limit | built 22 Nov (its frozen test green); no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-30b related things by kind | built 22 Nov; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-32a process line | built 22 Nov; no verification verdict yet | Jannik or Siran (routine) |
-| PMVP-32b «fehlt noch», all instances | in build (same builder) | Jannik or Siran (routine) |
+| PMVP-32b «fehlt noch», all instances | built 22 Nov; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-31, 33 | not started | Jannik or Siran (routine) |
 
 Gate G3 (Tuesday 8 December) asks that the dossier and the process line open from an answer.
@@ -120,7 +122,10 @@ Gate G3 (Tuesday 8 December) asks that the dossier and the process line open fro
   per view; someone with production access checks it before the pilot.
 - **Who** in the process line is the owner fact only when it is a name; Knovas GmbH stores a person's key (`PERS-…`),
   which is left out, so the pilot shows no name there.
-- **A law firm's matters have no process line** until their data exists in the Brain (option C of the decision).
+- **A law firm's matters have no process line** until their data exists in the Brain (option C of the decision);
+  «fehlt noch» names things, not documents, until then (SPEC-11's "the missing document").
+- **«fehlt noch» checks one step of connection only** and cannot check its direction (the Brain's connections keep
+  none); longer requirements are said to be unchecked.
 - **Page parts' link check (FU-34)** was planned with PMVP-30a but its order forbade touching the parts: still open.
 - **Rights enforcement** is off for every tenant today; the dossier shows what the Core hands this person (see
   [data-protection.md](data-protection.md)).

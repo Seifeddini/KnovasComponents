@@ -58,7 +58,7 @@ branch reaches main only through a pull request a person reviews and merges; the
 | The 25-thing limit: one shared function, the marks its frozen test counts | PMVP-34 | built 22 Nov (its frozen test green); no verification verdict yet | routine: Jannik or Siran |
 | Related things by kind: tabs with counts, lists that sort, filter and page | PMVP-30b | built 22 Nov; no verification verdict yet | routine: Jannik or Siran |
 | Process line: main path, current step, since when, what next | PMVP-32a | built 22 Nov on Knovas GmbH's own processes (founder); no verification verdict yet | routine: Jannik or Siran |
-| Process line: «fehlt noch», all instances | PMVP-32b | in build (after 32a) | routine: Jannik or Siran |
+| Process line: «fehlt noch», all instances | PMVP-32b | built 22 Nov; no verification verdict yet | routine: Jannik or Siran |
 | Not started (no work order) | PMVP-02, 04, 22b, 31, 33, 41–43, 60–62; RB-9, RB-10 (RB-8 dropped: "Core gateway only") | not started | as the plan and the role builder's design say |
 
 "Management" approves critical items (DEC-0081); who exactly is **open**. Updating the pilot instance (PMVP-62) needs
@@ -71,7 +71,7 @@ both founders.
 | G0 | Fri 20 Nov | bet and plan approved; D-A1 to D-A3 decided | met on 19 Nov |
 | G1 | Tue 24 Nov | board live; development instance answers a search; harness runs; shell pull request open | harness runs (stub data); development instance not started (waits for the demo law firm); bet card lags; shell pull request: open |
 | G2 | Tue 1 Dec | an answer with checked references on the development instance; capacity test | service and ask page built; no model in production (FU-32); capacity test not started |
-| G3 | Tue 8 Dec | dossier and process line open from an answer; Admin and Quellen list in the new look | dossier built; process line not started; Admin look in build |
+| G3 | Tue 8 Dec | dossier and process line open from an answer; Admin and Quellen list in the new look | dossier and process line built (not verified); opening them from an answer (PMVP-33) not started; Admin look in build |
 | Freeze / MVP / Launch | 11 Dec / 15 Dec / 12 Jan 2027 | only fixes / targets met on the pilot / launch rows | |
 
 ## Founder decisions so far
