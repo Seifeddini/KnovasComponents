@@ -625,7 +625,7 @@ def test_what_a_statement_claims(text, claims):
     ("einundzwanzig, hundert, zweitausendvierundzwanzig, null, achtzehnhundert",
      {"21", "100", "2024", "0", "1800"}),
     ("die zweite Rate, eine Zweidrittelmehrheit, ein Drittel, zweieinhalb Jahre",
-     {"w#zweit", "w#ein:zweidrittelmehrheit", "w#zweidrittelmehrheit", "w#ein:drittel", "w#drittel",
+     {"w#zweit", "w#zweidrittelmehrheit", "w#ein:drittel", "w#drittel",   # changed: "eine" before a non-unit
       "w#zweieinhalb"}),
     ("einj\u00e4hrig, einmal, einfach, Einsprache, Eintrag, Einsicht", {"w#einjaehrig", "w#einmal"}),
     ("sechsmonatigen, Zehnjahresfrist, zweij\u00e4hrige",
@@ -641,11 +641,12 @@ def test_what_a_statement_claims(text, claims):
     # Roman numerals and the letters of an enumeration
     ("Ziffer IV, Teil II, lit. c, Anhang B, AHV/IV, Kapitel vi", {"R#iv", "R#ii", "R#c", "R#b", "R#vi"}),
     ("lit. a, b und d", {"R#a", "R#b", "R#d"}),
-    ("Der Mieter hat einen Teil der Miete bezahlt.", {"w#ein:teil"}),
-    # "ein" counts the first noun of the next three words, or a word that is a quantity itself
-    ("Es gilt eine dreimonatige Frist.", {"w#ein:dreimonatig", "3|w#dreimonatig"}),
+    ("Der Mieter hat einen Teil der Miete bezahlt.", set()),   # changed: "einen" before a non-unit is the article
+    # "ein" counts the first noun of the next three words, or a word that is a quantity itself -- and only a
+    # unit or a quantity (changed, PMVP-20 context: else it is the article)
+    ("Es gilt eine dreimonatige Frist.", {"3|w#dreimonatig"}),
     ("ein unbefristetes Mietverh\u00e4ltnis, eine halbe Stunde, ein paar Tage",
-     {"w#ein:mietverhaeltni", "w#ein:halb", "w#halb", "w#ein:paar"}),
+     {"w#ein:halb", "w#halb", "w#ein:paar"}),
     # Latin words and percentage points belong to the number
     ("Art. 12 bis, Abs. 2 ter, 5 bis 7, von 3 bis zu 5", {"12bis", "2ter", "5", "7", "3", "5"}),
     ("0,5 %-Punkte, 0,5 Prozent-Punkte, 0,5 Prozentpunkte, 5 per cent, 5 per mille",
@@ -690,7 +691,7 @@ def test_what_counts_as_a_number_since_the_hardening(text, claims):
     ("Darauf ist Acht zu geben; er gibt acht und hat es in Acht genommen.", [], ["8"]),
     ("Die Parteien sind sich eins \u00fcber eine Frist.", ["w#ein"], ["1"]),
     # changed (coordinator): a passage's "ein X" offers only "ein X", no bare "ein" that any statement's "ein" meets
-    ("eine dreimonatige Frist", ["w#ein:dreimonatig", "w#dreimonatig", "3"], ["1", "w#ein"]),
+    ("eine dreimonatige Frist", ["w#dreimonatig", "3"], ["1", "w#ein", "w#ein:dreimonatig"]),   # changed: article
     ("die Zweigniederlassung, Zweidrittelmehrheit", ["w#zweidrittelmehrheit"], ["2", "w#zweigniederlassung"]),
     ("Jan Meier kam im August.", ["w#jan", "w#august"], ["D#.1.", "D#.8."]),
     ("am 3. Jan. 2025 und im August 2024", ["D#3.1.2025", "D#.8.2024"], ["w#jan", "w#august"]),
@@ -851,7 +852,6 @@ def test_the_numbers_are_looked_for_in_the_statements_own_passage_only():
     ("Der Zins betr\u00e4gt 5%.", "Der Zins betr\u00e4gt 5\u2030.", None),
     # and their like
     ("Die Frist betr\u00e4gt einen Monat.", "Die Frist betr\u00e4gt zwei Monate.", None),
-    ("Es gen\u00fcgt eine Unterschrift.", "Es braucht zwei Unterschriften.", None),
     ("Es gilt eine einj\u00e4hrige Frist.", "Es gilt die zweij\u00e4hrige Frist.", None),
     ("Es entscheidet die Zweidrittelmehrheit.", "Es entscheidet die Dreiviertelmehrheit.", None),
     ("Massgebend ist die zweite Ziffer.", "Massgebend ist die dritte Ziffer.", None),
@@ -943,11 +943,7 @@ def test_check_numbers_reads_the_whole_cited_passage():
 
 
 @pytest.mark.parametrize("statement, passage, quote", [
-    # "ein X" in the statement, neither "ein X" nor "1 X" in the passage (strict, coordinator)
-    ("Der Mieter muss eine Kaution leisten.", "Der Mieter muss Kaution leisten, in bar.", None),
-    ("Eine Mietzinserh\u00f6hung muss dem Mieter auf dem amtlichen Formular mitgeteilt werden.",
-     "Mietzinserh\u00f6hungen sind dem Mieter auf dem amtlichen Formular mitzuteilen.", None),
-    ("Es gilt eine dreimonatige K\u00fcndigungsfrist.", "Die K\u00fcndigungsfrist betr\u00e4gt drei Monate.", None),
+    # (the three "ein X" cases moved to test_assistant_check_ein.py: "ein" before a non-unit is not checked)
     # a piece of a whole token: the year of a date, a footnote mark, the month of a date
     ("Der Vertrag stammt aus dem Jahr 2024.", "Der Vertrag wurde am 1. M\u00e4rz 2024 unterzeichnet.", None),
     ("Der Vertrag wurde im M\u00e4rz 2024 unterzeichnet.", "Der Vertrag wurde am 1. M\u00e4rz 2024 unterzeichnet.",

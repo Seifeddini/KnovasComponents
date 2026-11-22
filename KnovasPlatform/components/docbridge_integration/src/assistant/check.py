@@ -562,12 +562,22 @@ def _covers_whole_words(words: str, start: int, end: int) -> bool:
 # quote with no number before it, "D" a month or a date, "R" a Roman numeral
 # or the letter of an enumeration, "e" a scale (million).
 
-#: Apostrophes and dashes of any kind as their plain form, and the signs that
-#: look like per cent or per mille as those. Other marks stay as written: a
-#: low quotation mark between digits looks like a comma.
+#: The em dash and its longer kin are never a minus sign: they set words apart
+#: ("Honorarvereinbarung \u2014 2019-031"), and German, French and Italian
+#: write a minus as "-", "\u2212" or "\u2013". As numbers are read they are
+#: one mark, ``_SEPARATOR``, which tells two numbers apart and signs none
+#: (PMVP-20 context, the demo tenant's question 4: "\u2014 2019-031" read as
+#: -2019 took the year from every statement that named the matter).
+_SEPARATOR_DASHES = "\u2014\u2015\u2e3a\u2e3b"
+_SEPARATOR = "\u2014"
+#: Apostrophes and dashes of any kind as their plain form (the separating ones
+#: as ``_SEPARATOR``), and the signs that look like per cent or per mille as
+#: those. Other marks stay as written: a low quotation mark between digits
+#: looks like a comma.
 _NUMBER_PLAIN = str.maketrans({
     **{mark: "'" for mark in _APOSTROPHES},
-    **{dash: "-" for dash in _DASHES},
+    **{dash: "-" for dash in _DASHES if dash not in _SEPARATOR_DASHES},
+    **{dash: _SEPARATOR for dash in _SEPARATOR_DASHES},
     "\uff05": "%", "\ufe6a": "%", "\u066a": "%", "\u0609": "\u2030", "\u060a": "\u2031",
 })
 #: The digits of one number: thousands set off by an apostrophe, by a space
@@ -584,7 +594,7 @@ _PER = "%\u2030\u2031"
 #: What may stand between two numbers that are told apart: white space, the
 #: marks of a list or a sentence, brackets, and a dash ("5-7" is 5 and 7).
 #: Anything else between two numbers makes one of them ("2/3", "14:30").
-_BETWEEN_NUMBERS = " \n,;.()[]{}\"!?-"
+_BETWEEN_NUMBERS = " \n,;.()[]{}\"!?-" + _SEPARATOR
 #: Characters that are written from right to left.
 _RIGHT_TO_LEFT = ("R", "AL", "AN")
 #: White space that ends a line of a passage; a tab too, it can stand where
@@ -641,10 +651,9 @@ _ENGLISH = {"zero": 0, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "se
 #: English words for an order or a count that are no number word: each its own token.
 _ENGLISH_WORDS = frozenset({"first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth",
                             "ninth", "tenth", "once", "twice", "thrice", "double", "triple", "half"})
-#: "ein" and its forms: the article or the number 1. A statement's "ein" is
-#: supported by "ein" with the same word after it in the quote, or by that
-#: word in the quote with no number before it; a passage's "ein" is never the
-#: digit 1.
+#: "ein" and its forms: the article or the number 1 (the number only before a
+#: word of ``_ONE_UNITS``). A statement's "ein X" is supported by "ein X" or
+#: "1 X" in the passage; a passage's "ein" is never the digit 1.
 _ONE = frozenset({"ein", "eine", "einen", "einem", "einer", "eines", "eins", "one"})
 #: The English article: read like "ein", but only in an English text ("an" is also German) and only with
 #: the word it counts ("u.a.", "a.a.O." are no article).
@@ -695,6 +704,20 @@ _ENDINGS = ("en", "er", "es", "em", "e", "n", "s")
 _LONGEST_GAP_AFTER_ONE = 12
 #: Words after "ein" that are a quantity of their own: "ein paar Tage" is no "ein Tag".
 _QUANTITIES = frozenset({"paar", "bisschen", "wenig", "weniges", "dutzend", "few", "couple"})
+#: "ein" and its forms (and the English "a", "an") are the number 1 only before one of these words, as ``_stem``
+#: leaves them: a unit of time, money, share or count, or a quantity ("ein Monat", "einen Franken", "eine
+#: H\u00e4lfte", "ein Exemplar", "ein paar"). Before any other word it is the article and is not checked: "ein
+#: Ansatz", "eine Kaution" (PMVP-20 context, the coordinator's decision of 2026-11-22, after the demo tenant's
+#: question 4 lost every statement to "ein Ansatz"). "eins" and "one" are always the number.
+_ONE_UNITS = frozenset({
+    "tag", "woch", "monat", "jahr", "jahrzehnt", "jahrhundert", "dekad", "stund", "minut", "sekund", "quartal",
+    "semester",
+    "prozent", "promill", "frank", "chf", "fr", "rapp", "euro", "eur", "dollar", "usd",
+    "mal", "drittel", "viertel", "achtel", "haelft", "halb", "seit", "exemplar",
+    "day", "week", "month", "year", "hour", "percent", "franc", "tim", "third", "quart", "half", "pag", "copy",
+    "copi",
+}) | _QUANTITIES
+_ALWAYS_ONE = frozenset({"eins", "one"})
 #: Markdown emphasis in a statement: left out before its numbers are read ("zw**ei**").
 _MARKDOWN = re.compile("[*_]+")
 
@@ -1237,13 +1260,15 @@ def _word_numbers(plain: str, cased: str, spans: List[Tuple[int, int]], words: L
             continue
         if word in _ONE:
             noun = _noun_after(plain, cased, spans, words, current)
-            found.append(_Item(start, end, "ein", noun, word=word))
+            if word in _ALWAYS_ONE or not noun or noun in _ONE_UNITS:  # else the article: not checked
+                found.append(_Item(start, end, "ein", noun, word=word))
             continue
         if word in _ARTICLES and english and not _enumerates(plain, cased, spans, words, current, listing_end,
                                                              passage=passage, article=True):
             noun = _noun_after(plain, cased, spans, words, current)
             if noun:  # "a month"; "u.a." is no article
-                found.append(_Item(start, end, "ein", noun, word=word))
+                if noun in _ONE_UNITS:  # "a month"; "a tenant" is the article: not checked
+                    found.append(_Item(start, end, "ein", noun, word=word))
                 continue
         value = _number_word(word)
         if value is None:
@@ -1612,6 +1637,10 @@ def _inner_number(word: str) -> Optional[Tuple[str, str]]:
             continue
         for start in range(max(1, at - _LONGEST_INNER), at - 2):
             head = word[start:at]
+            if head in ("ein", "eins") and rest.startswith(_ONE_COUNTED):
+                # "Mindesteinjahresfrist": the word stands for itself, as "einjaehrig" does; the article
+                # before it is not checked since "ein" counts only before a unit (PMVP-20 context).
+                return _stem(word), ""
             value = _number_word(head)
             if value is not None and head != "acht":
                 return _stem(word), _counted_value(value, rest)
