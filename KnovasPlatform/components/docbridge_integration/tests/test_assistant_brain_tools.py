@@ -738,3 +738,79 @@ def test_the_passages_requests_carry_no_connector():
     (request,) = fake.requests
     assert "mcp_servers" not in request and "tools" not in request
     assert request["betas"] == ["server-side-fallback-2026-07-01"]
+
+
+# --- the verifier's notes (fix round) ------------------------------------------------------------------------------
+
+
+def test_a_passage_from_a_tool_result_is_cut_to_the_gateways_part_size():
+    huge = ("Die Kuendigungsfrist betraegt drei Monate auf Ende Juni. " * 100_000)[:5_600_000]
+    turn = message(use("u1", "fetch", {"id": GRANT_1}), result("u1", fetch_json(PTR_LEASE, huge)),
+                   text(lines(S_FRIST)))
+    started = time.monotonic()
+    found = brain_tools.read_tool_results([turn])
+    (passage,) = found.passages
+    assert len(passage.text) <= brain_tools.MAX_PASSAGE_CHARS == 20_000 and found.cut == 1
+    assert huge.startswith(passage.text) and huge[len(passage.text)] == " "   # cut at a word boundary
+    reply = _service(FakeAnthropic(turn)).answer(QUESTION)
+    assert reply.status == "answered" and len(reply.passages[0].text) <= 20_000
+    assert time.monotonic() - started < 5
+
+
+def test_all_passages_of_one_answer_together_are_capped():
+    blocks = []
+    for i in range(14):                                                        # 14 whole parts: 280,000 characters
+        part = (f"Teil {i} " + "Wort " * 4_000)[:20_000]
+        blocks += [use(f"u{i}", "fetch", {"id": GRANT_1}), result(f"u{i}", fetch_json(f"akte/Dok{i}.pdf", part))]
+    found = brain_tools.read_tool_results([message(*blocks, text('{"no_answer": true}'))])
+    assert sum(len(p.text) for p in found.passages) <= brain_tools.MAX_TOOL_CHARS == 200_000
+    assert len(found.passages) == 10 and found.not_read == 4
+
+
+def test_a_second_pause_keeps_one_assistant_message_after_the_question():
+    first = message(use("mcptoolu_1", "search", {"query": "Kuendigungsfrist"}),
+                    result("mcptoolu_1", search_json(hit(PTR_LEASE, [SNIP_1]))), stop="pause_turn", msg_id="msg_a")
+    second = message(use("mcptoolu_2", "fetch", {"id": GRANT_1}),
+                     result("mcptoolu_2", fetch_json(PTR_LEASE, FETCHED)), stop="pause_turn", msg_id="msg_b")
+    third = message(text(lines(S_FRIST, S_FORM)), msg_id="msg_c")
+    fake = FakeAnthropic(first, second, third)
+    reply = _service(fake).answer(QUESTION, [Turn("user", "Wer vermietet?"), Turn("assistant", "Die Hardturm AG.")])
+    assert reply.status == "answered" and len(reply.sentences) == 2
+    asked = fake.requests[0]["messages"]
+    for request in fake.requests[1:]:
+        roles = [m["role"] for m in request["messages"]]
+        assert all(a != b for a, b in zip(roles, roles[1:])), roles             # the roles alternate
+        assert request["messages"][:-1] == asked and roles[-1] == "assistant"
+    assert [b["id"] for b in fake.requests[1]["messages"][-1]["content"] if b["type"] == "mcp_tool_use"] == [
+        "mcptoolu_1"]
+    assert [b["id"] for b in fake.requests[2]["messages"][-1]["content"] if b["type"] == "mcp_tool_use"] == [
+        "mcptoolu_1", "mcptoolu_2"]
+
+
+@pytest.mark.parametrize("address", ["https://mcp.kn\u00f6vas.ch/mcp", "https://mcp.knovas.ch/m\u00fcp",
+                                     "https://mcp.knovas\uff0ech/mcp", "https://xn--mcp.knovas.ch/\u2024"])
+def test_an_address_that_is_not_all_ascii_is_refused(address):
+    assert providers.brain_mcp_url_problem(address) == (
+        "Die Adresse des Knovas-Gateways darf nur ASCII-Zeichen enthalten.")
+    fake = FakeAnthropic()
+    assert BrainToolsService(ask=_ask(fake, gateway_url=address)).answer(QUESTION).status == "failed"
+    assert fake.built == []
+
+
+def test_the_routes_deadline_bounds_a_brain_turn(resolver):
+    from assistant.core import Deadline
+
+    settings = resolver({"ASSISTANT_MODE": "brain_mcp", "ASSISTANT_ENABLED": "an", "ASSISTANT_PROVIDER": "anthropic"})
+    settings.save(_Admin(), {"assistant.anthropic_api_key": KEY, "assistant.brain_mcp_key": GW_KEY},
+                  roles=("admin",))
+    from assistant.core import make_service
+
+    late = FakeAnthropic()
+    service = make_service(settings, _Client(), split=_split, anthropic_client=late,
+                           deadline=Deadline(150, started=time.monotonic() - 125))       # 25 s left
+    assert service.answer(QUESTION).status == "busy" and late.built == []
+    fake = FakeAnthropic()
+    service = make_service(settings, _Client(), split=_split, anthropic_client=fake,
+                           deadline=Deadline(150, started=time.monotonic() - 110))       # 40 s left
+    assert service.answer(QUESTION).status == "answered"
+    assert 38 <= fake.built[0]["timeout"] <= 40.0

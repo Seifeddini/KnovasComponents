@@ -374,7 +374,7 @@ def make_service(settings: Any, client: Any, *, split: SplitFn, user_key: UserKe
     raw_mode = settings.value(providers.SETTING_MODE)
     mode = providers.chosen_mode(raw_mode) if raw_mode not in (None, "") else providers.MODE_PASSAGES
     if mode != providers.MODE_PASSAGES:
-        return _brain_tools_service(settings, provider, mode, anthropic_client)
+        return _brain_tools_service(settings, provider, mode, anthropic_client, deadline)
     if provider == providers.PROVIDER_KNOVAS:
         generate = make_generate(client, deadline=deadline)
     elif provider == providers.PROVIDER_ANTHROPIC:
@@ -391,10 +391,11 @@ def make_service(settings: Any, client: Any, *, split: SplitFn, user_key: UserKe
 
 
 def _brain_tools_service(settings: Any, provider: Optional[str], mode: Optional[str],
-                         anthropic_client: Optional[Callable[..., Any]]) -> Any:
+                         anthropic_client: Optional[Callable[..., Any]], deadline: Optional[Deadline] = None) -> Any:
     """The service of <<Brain-Werkzeuge>> (PMVP-20 brain-mcp): Claude with the MCP connector on the settings' keys,
     model and gateway address, read on every call. Only with ``anthropic``; another provider, or a mode that is not
-    offered (only a deployment can set one), fails every answer (``failed``) and nothing is sent anywhere."""
+    offered (only a deployment can set one), fails every answer (``failed``) and nothing is sent anywhere. The route's
+    ``deadline`` (PMVP-24) bounds the whole turn, its continuations included."""
     from assistant import providers
     from assistant.brain_tools import BrainToolsService
 
@@ -410,7 +411,7 @@ def _brain_tools_service(settings: Any, provider: Optional[str], mode: Optional[
             gateway_key=lambda: settings.secret(providers.SETTING_BRAIN_MCP_KEY),
             client_factory=anthropic_client,
         )
-    return BrainToolsService(ask=ask)
+    return BrainToolsService(ask=ask, deadline=deadline)
 
 
 def _secured(client: Any) -> bool:

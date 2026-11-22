@@ -13,8 +13,9 @@ One question, one reply (``BrainToolsService.answer``, the same signature and ``
    results; the same JSON lines as the passages mode, with the document's title as ``source``), the chat so far as
    the passages mode sends it (whole pairs, the oldest dropped first; ``service._fit_history``) and the question.
    A follow-up's ``search_text`` is not used: Claude searches itself.
-2. **Ask** once (a paused turn is continued by the provider, at most twice), within ``ANSWER_DEADLINE_SECONDS``
-   of the start; a request is not started with less than ``MIN_GENERATE_SECONDS`` left (PMVP-24's numbers).
+2. **Ask** once (a paused turn is continued by the provider, at most twice), within the answer's deadline: the
+   route's ``core.Deadline`` (PMVP-24, started with the request), else ``ANSWER_DEADLINE_SECONDS`` from the start; a
+   request is not started with less than ``MIN_GENERATE_SECONDS`` left.
 3. **Read the tool results** of that answer (``read_tool_results``): each ``mcp_tool_result`` of the gateway's
    server that answers one of its ``mcp_tool_use`` blocks and is not an error is the gateway's JSON; every search
    result's passage and every fetched part becomes a ``Passage``, numbered 1..n in the order returned, its
@@ -49,6 +50,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 from assistant import check
+from assistant import core as _core
 from assistant.errors import CoreBusy
 from assistant.service import (BUSY_TEXT, CORE_MAX_MESSAGES, DEFAULT_PROMPT_BUDGET_BYTES, FAILED_TEXT,
                                MAX_QUESTION_BYTES, MAX_QUOTE_WORDS, MAX_STATEMENTS, NO_ANSWER_TEXT,
@@ -60,16 +62,21 @@ logger = logging.getLogger(__name__)
 # Knobs
 # ---------------------------------------------------------------------------
 
-#: The whole answer ends within this many seconds of its start, under nginx's and gunicorn's 180 (PMVP-24's order,
-#: decision D2; ``core.ANSWER_DEADLINE_SECONDS`` once PMVP-24 is merged).
-ANSWER_DEADLINE_SECONDS = 150.0
-#: A request to Claude is not started with less than this many seconds left (PMVP-24's order).
-MIN_GENERATE_SECONDS = 30.0
+#: The whole answer ends within this many seconds of its start, under nginx's and gunicorn's 180, and a request to
+#: Claude is not started with less than ``MIN_GENERATE_SECONDS`` left: PMVP-24's numbers, taken from ``core``.
+ANSWER_DEADLINE_SECONDS = _core.ANSWER_DEADLINE_SECONDS
+MIN_GENERATE_SECONDS = _core.MIN_GENERATE_SECONDS
 #: The answer's token cap asked for; the provider raises it to ``providers.ANTHROPIC_MIN_MAX_TOKENS``.
 DEFAULT_MAX_TOKENS = 1_536
 #: The most passages read from one answer's tool results (3 searches of 5 results with 2 passages each, and a few
 #: fetched parts, fit well within it); the rest are not read.
 MAX_TOOL_PASSAGES = 60
+#: The most characters of one passage: the gateway's own part (``fetch``'s ``FETCH_PART_CHARS``, 20,000). A longer
+#: text is cut at the last white space before it; a quote beyond the cut is not found.
+MAX_PASSAGE_CHARS = 20_000
+#: The most characters of all passages of one answer together (the check reads each of them): three whole parts and
+#: thirty search passages take about 85,000. What does not fit is not read.
+MAX_TOOL_CHARS = 200_000
 #: The most passages a ``no_answer`` shows (the first passage of each document returned).
 CLOSEST_PASSAGES = 10
 #: How many searches and fetches the instruction allows.
@@ -165,6 +172,9 @@ class ToolResults:
     busy: int = 0
     unreadable: int = 0
     unmatched: int = 0
+    cut: int = 0
+    not_read: int = 0
+    chars: int = 0
 
     @property
     def documents(self) -> int:
@@ -181,16 +191,18 @@ class BrainToolsService:
 
     ``ask(*, system_instruction, messages, max_tokens, deadline_at, min_seconds) -> providers.BrainCall``;
     ``clock`` is ``time.monotonic`` (a test passes its own); ``deadline_seconds`` and ``min_seconds`` default to
-    PMVP-24's numbers.
+    PMVP-24's numbers. ``deadline`` is the answer's ``core.Deadline``, which the route starts with the request
+    (PMVP-24): then the turn ends when it does, whatever ``deadline_seconds`` says.
     """
 
     def __init__(self, *, ask: AskFn, clock: Callable[[], float] = time.monotonic,
                  deadline_seconds: float = ANSWER_DEADLINE_SECONDS, min_seconds: float = MIN_GENERATE_SECONDS,
-                 max_tokens: int = DEFAULT_MAX_TOKENS) -> None:
+                 max_tokens: int = DEFAULT_MAX_TOKENS, deadline: Any = None) -> None:
         if not callable(ask):
             raise TypeError("ask must be a callable")
         self._ask = ask
         self._clock = clock
+        self._deadline = deadline
         self.deadline_seconds = float(deadline_seconds)
         self.min_seconds = float(min_seconds)
         self.max_tokens = int(max_tokens)
@@ -220,7 +232,8 @@ class BrainToolsService:
         system_instruction, messages = compose(question, history)
         stats.history_turns = len(list(history or ()))
         stats.history_sent = len(messages) - 1
-        deadline_at = self._clock() + self.deadline_seconds
+        left = self._deadline.left() if self._deadline is not None else self.deadline_seconds
+        deadline_at = self._clock() + left
         try:
             call = self._ask(system_instruction=system_instruction, messages=messages, max_tokens=self.max_tokens,
                              deadline_at=deadline_at, min_seconds=self.min_seconds)
@@ -294,7 +307,8 @@ def read_tool_results(responses: Sequence[Any], server_name: Optional[str] = Non
     A result is read when it answers an ``mcp_tool_use`` block of that server (by ``tool_use_id``), is not an
     error, and its text is the gateway's JSON: a ``search`` answer's ``results[].passages`` and a ``fetch``
     answer's ``text``, each with the document's title (the Core's pointer) and page. The same text of the same
-    document is one passage. At most ``MAX_TOOL_PASSAGES``.
+    document is one passage. A passage longer than ``MAX_PASSAGE_CHARS`` is cut to it; at most
+    ``MAX_TOOL_PASSAGES`` passages and ``MAX_TOOL_CHARS`` characters in all are read (``cut``, ``not_read``).
     """
     from assistant.providers import BRAIN_MCP_SERVER_NAME
 
@@ -328,12 +342,27 @@ def read_tool_results(responses: Sequence[Any], server_name: Optional[str] = Non
                     found.busy += 1
                     continue
                 for pointer, page, text in _pieces(tool, value):
-                    if (pointer, text) in seen or len(found.passages) >= MAX_TOOL_PASSAGES:
+                    if len(text) > MAX_PASSAGE_CHARS:
+                        text = _cut(text, MAX_PASSAGE_CHARS)
+                        found.cut += 1
+                    if (pointer, text) in seen:
+                        continue
+                    if (len(found.passages) >= MAX_TOOL_PASSAGES
+                            or found.chars + len(text) > MAX_TOOL_CHARS):
+                        found.not_read += 1
                         continue
                     seen.add((pointer, text))
+                    found.chars += len(text)
                     found.passages.append(Passage(number=len(found.passages) + 1, pointer=pointer,
                                                   title=_title(pointer), page=page, text=text))
     return found
+
+
+def _cut(text: str, limit: int) -> str:
+    """``text`` cut to at most ``limit`` characters, at the last white space before the limit when there is one."""
+    head = text[:limit]
+    space = max(head.rfind(" "), head.rfind("\n"), head.rfind("\t"))
+    return (head[:space] if space > limit // 2 else head).rstrip()
 
 
 def _result_values(content: Any) -> List[Optional[Dict[str, Any]]]:
@@ -532,12 +561,13 @@ class _Stats:
         tools = self.tools
         logger.info(
             "Knovas Assistent: brain tools status=%s messages=%s stop=%s tool_calls=%d search=%d fetch=%d other=%d "
-            "tool_results=%d errors=%d busy=%d unreadable=%d unmatched=%d passages=%d documents=%d "
+            "tool_results=%d errors=%d busy=%d unreadable=%d unmatched=%d passages=%d documents=%d cut=%d not_read=%d "
             "question_bytes=%d history_turns=%d history_sent=%d answer_bytes=%d statements=%d removed=%d %s "
             "cited_passages=%d total_ms=%d",
             reply.status, ",".join(self.message_ids) or "-", self.stop, sum(tools.calls.values()),
             tools.calls["search"], tools.calls["fetch"], tools.calls["other"], tools.results, tools.errors,
-            tools.busy, tools.unreadable, tools.unmatched, len(tools.passages), tools.documents,
+            tools.busy, tools.unreadable, tools.unmatched, len(tools.passages), tools.documents, tools.cut,
+            tools.not_read,
             self.question_bytes, self.history_turns, self.history_sent, self.answer_bytes, len(reply.sentences),
             reply.removed, " ".join(f"{reason}={reply.removed_by.get(reason, 0)}" for reason in check.REASONS),
             len(reply.passages), int((time.monotonic() - started) * 1000),

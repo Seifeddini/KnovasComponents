@@ -164,10 +164,10 @@ client.beta.messages.create(..., betas=["server-side-fallback-2026-07-01", "mcp-
 - **The reply** (`brain_tools.ToolsReply`) holds only the cited passages, renumbered; a `no_answer` the first passage
   of each document (at most 10). The page never grants them (`opens_directly` False): a stored chat opens a document
   through its click route after the Core said the person may read it; an unsaved reply shows the title without a link.
-- **The deadline** (PMVP-24's numbers, `brain_tools.ANSWER_DEADLINE_SECONDS` 150 and `MIN_GENERATE_SECONDS` 30): a
+- **The deadline** (PMVP-24: the route's `core.Deadline`, 150 s from the request, and `MIN_GENERATE_SECONDS` 30; `core.call_within`): a
   request runs on a worker thread, its client timeout at most the time left (60 s otherwise), and is waited for only
   until the answer's deadline, then the client is closed. Not started with less than 30 s left. A paused turn
-  (`pause_turn`) is sent back as it came, at most twice. A timeout is busy (PMVP-24, D1); every other error as above.
+  (`pause_turn`) is sent back as it came, at most twice, after the question as one assistant message (the content of every paused response so far), so the roles alternate. A timeout is busy (PMVP-24, D1); every other error as above.
 - **The keys and the logs.** Without either key, or with an address the check refuses, nothing is sent. The gateway
   key is in the request body only. The SDK's DEBUG line of the request options is dropped for requests that carry
   `mcp_servers` (`providers._NoBrainRequestOptions`, on the logger `anthropic._base_client`), whatever its level.
@@ -465,9 +465,9 @@ show two numbers in another order than they are read.
 | time for all reads of a question | `ASSISTANT_CONTEXT_SECONDS` (environment, per question) | 8 s | wall-clock, more than 0 and at most 8; a larger value is cut to 8, anything else gives 8, with such a warning |
 | parts read of one document | `context.MAX_PARTS`, `context.PART_CHARS` | 3 of 20,000 characters | a hit further into a document keeps its snippet |
 | least words of a run that stands for the chunk | `context.MIN_RUN_WORDS` | 8 | when the whole snippet is not in the text |
-| the answer's deadline (brain tools) | `brain_tools.ANSWER_DEADLINE_SECONDS`, `MIN_GENERATE_SECONDS` | 150 s, 30 s | PMVP-24's numbers, under nginx's 180 s |
+| the answer's deadline (brain tools) | the route's `core.Deadline`; `brain_tools.ANSWER_DEADLINE_SECONDS`, `MIN_GENERATE_SECONDS` (= `core`'s) | 150 s, 30 s | the whole turn, its continuations included |
 | searches and fetches allowed (brain tools) | `brain_tools.MAX_SEARCHES`, `MAX_FETCHES` | 3, 3 | told to the model |
-| passages read from tool results (brain tools) | `brain_tools.MAX_TOOL_PASSAGES` | 60 | the rest are not read |
+| passages read from tool results (brain tools) | `brain_tools.MAX_TOOL_PASSAGES`, `MAX_PASSAGE_CHARS`, `MAX_TOOL_CHARS` | 60; 20,000 characters a passage (cut at a word); 200,000 in all | the rest are not read |
 | continuations of a paused turn (brain tools) | `providers.BRAIN_MCP_MAX_CONTINUATIONS` | 2 | |
 | a digit's weight in the history | `service.DIGIT_WEIGHT_BYTES` | 3 | one token per digit at three bytes a token (FU-06) |
 | smallest cut piece of the newest pair | `service.MIN_HISTORY_PIECE_BYTES` | 100 | a history budget below two pieces sends no history (FU-07) |

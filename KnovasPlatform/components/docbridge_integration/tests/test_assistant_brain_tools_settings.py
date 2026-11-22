@@ -148,7 +148,7 @@ def test_the_environment_pins_the_mode_and_the_address(make_resolver):
     "http://mcp.knovas.ch/mcp", "https://mcp.example.com/mcp", "https://mcp.knovas.ch.example.com/mcp",
     "https://xknovas.ch/mcp", "https://someone@mcp.knovas.ch/mcp", "https://mcp.knovas.ch/mcp?k=1",
     "https://mcp.knovas.ch/mcp#x", "https://mcp.knovas.ch%2f.example.com/", "https://mcp.knovas.ch\\@example.com/",
-    "ftp://mcp.knovas.ch/mcp", "mcp.knovas.ch/mcp",
+    "ftp://mcp.knovas.ch/mcp", "mcp.knovas.ch/mcp", "https://mcp.kn\u00f6vas.ch/mcp", "https://mcp.knovas.ch/\u00fc",
 ])
 def test_an_address_outside_knovas_ch_or_without_https_is_refused(resolver, address):
     with pytest.raises(ps.SettingError):

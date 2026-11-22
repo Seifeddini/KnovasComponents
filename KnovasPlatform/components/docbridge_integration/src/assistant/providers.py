@@ -60,7 +60,6 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -265,14 +264,16 @@ BRAIN_MCP_NEEDS_GATEWAY_KEY = (
 def brain_mcp_url_problem(value: Any) -> Optional[str]:
     """Why ``value`` cannot be the gateway's address (a German text for the page), or None when it can.
 
-    Only ``https://`` on ``knovas.ch`` or a name under it, without user, password, query or fragment, and without
-    white space or control characters: Anthropic sends the gateway key to this address.
+    Only ``https://`` on ``knovas.ch`` or a name under it, written in ASCII alone, without user, password, query or
+    fragment, and without white space or control characters: Anthropic sends the gateway key to this address.
     """
     from urllib.parse import urlsplit
 
     text = value.strip() if isinstance(value, str) else ""
     if not text:
         return "Die Adresse des Knovas-Gateways fehlt."
+    if not text.isascii():
+        return "Die Adresse des Knovas-Gateways darf nur ASCII-Zeichen enthalten."
     if (any(char.isspace() or ord(char) < 32 or ord(char) == 127 or char == chr(92) for char in text)
             or len(text) > 500):
         return "Die Adresse des Knovas-Gateways ist keine g\u00fcltige Adresse."
@@ -375,6 +376,8 @@ def make_brain_mcp_ask(*, api_key: Value, model: Value = DEFAULT_ANTHROPIC_MODEL
         _hold_back_brain_request_options()
         factory = client_factory or _sdk_client
         responses: List[Any] = []
+        asked = list(request["messages"])
+        paused: List[Any] = []
         for turn in range(1 + BRAIN_MCP_MAX_CONTINUATIONS):
             left = deadline_at - clock()
             if left < min_seconds:
@@ -387,9 +390,11 @@ def make_brain_mcp_ask(*, api_key: Value, model: Value = DEFAULT_ANTHROPIC_MODEL
             responses.append(response)
             if getattr(response, "stop_reason", None) != "pause_turn":
                 break
-            # A paused turn goes back as it came; the server resumes it (no extra user message).
-            request["messages"] = request["messages"] + [
-                {"role": "assistant", "content": getattr(response, "content", None) or []}]
+            # A paused turn goes back as it came, after the question, and the server resumes it: no extra user
+            # message (claude-api skill, shared/tool-use-concepts.md, "Stop reasons for server-side tools"). After a
+            # second pause the assistant's content so far stays one message, so the roles still alternate.
+            paused.extend(getattr(response, "content", None) or [])
+            request["messages"] = asked + [{"role": "assistant", "content": list(paused)}]
         call = BrainCall(responses, name)
         if call.stop == "refusal":
             raise CoreFailed("anthropic_refusal")
@@ -410,43 +415,34 @@ def unavailable_ask(reason: str) -> AskFn:
 
 def _request_by_deadline(factory: ClientFactory, key: str, request: Dict[str, Any], deadline_at: float,
                          clock: Callable[[], float], anthropic: Any, name: str) -> Any:
-    """One request on a worker thread, waited for until ``deadline_at`` (a wall clock, whatever the socket does)."""
-    timeout = max(0.1, min(ANTHROPIC_TIMEOUT_SECONDS, deadline_at - clock()))
-    box: Dict[str, Any] = {}
-    done = threading.Event()
+    """One request, waited for until ``deadline_at`` by the wall clock whatever the socket does: PMVP-24's
+    ``core.call_within`` (a worker thread; past the time the client is closed and the answer is busy)."""
+    from assistant.core import OutOfTime, call_within
 
-    def run() -> None:
-        client = None
-        try:
-            client = factory(api_key=key, timeout=timeout, max_retries=ANTHROPIC_MAX_RETRIES)
-            box["client"] = client
-            box["response"] = client.beta.messages.create(**request)
-        except BaseException as exc:  # noqa: BLE001 - handed to the caller, which maps it (or has given up)
-            box["error"] = exc
-        finally:
-            _close(client)
-            done.set()
-
+    left = deadline_at - clock()
+    timeout = max(0.1, min(ANTHROPIC_TIMEOUT_SECONDS, left))
     started = time.monotonic()
-    worker = threading.Thread(target=run, name="knovas-brain-tools", daemon=True)
-    worker.start()
-    if not done.wait(max(0.0, deadline_at - clock())):
-        _close(box.get("client"))  # ends the request; the worker stops at its timeout at the latest
+    client: Any = None
+    response: Any = None
+    failure: Optional[CoreError] = None
+    try:
+        client = factory(api_key=key, timeout=timeout, max_retries=ANTHROPIC_MAX_RETRIES)
+        response = call_within(max(0.0, left), lambda: client.beta.messages.create(**request),
+                               on_overrun=lambda: _close(client), name="brain-tools")
+    except OutOfTime:
+        failure = CoreBusy("brain_tools_deadline")
         logger.warning("Knovas Assistent: deadline step=brain_tools ran out of time model=%s ms=%d", name,
                        _ms(started))
-        raise CoreBusy("brain_tools_deadline")
-    error = box.get("error")
-    failure: Optional[CoreError] = None
-    if error is not None:
-        failure = _mapped_brain(error, anthropic)
-        logger.warning("Knovas Assistent: anthropic call failed (%s%s) model=%s ms=%d", type(error).__name__,
+    except Exception as exc:  # noqa: BLE001 - mapped; an error outside the SDK fails with nothing of its text
+        failure = _mapped_brain(exc, anthropic)
+        logger.warning("Knovas Assistent: anthropic call failed (%s%s) model=%s ms=%d", type(exc).__name__,
                        _status_note(failure), name, _ms(started))
-        box.clear()
+    finally:
+        _close(client)
     if failure is not None:
         # Raised here, outside any handler: the SDK's exception (its request holds both keys) is neither cause nor
         # context.
         raise failure
-    response = box.get("response")
     usage = getattr(response, "usage", None)
     logger.info("Knovas Assistent: anthropic model=%s served_by=%s stop=%s input_tokens=%s output_tokens=%s ms=%d",
                 name, _safe_name(getattr(response, "model", None)),
