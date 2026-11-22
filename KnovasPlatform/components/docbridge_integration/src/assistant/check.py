@@ -562,12 +562,22 @@ def _covers_whole_words(words: str, start: int, end: int) -> bool:
 # quote with no number before it, "D" a month or a date, "R" a Roman numeral
 # or the letter of an enumeration, "e" a scale (million).
 
-#: Apostrophes and dashes of any kind as their plain form, and the signs that
-#: look like per cent or per mille as those. Other marks stay as written: a
-#: low quotation mark between digits looks like a comma.
+#: The em dash and its longer kin are never a minus sign: they set words apart
+#: ("Honorarvereinbarung \u2014 2019-031"), and German, French and Italian
+#: write a minus as "-", "\u2212" or "\u2013". As numbers are read they are
+#: one mark, ``_SEPARATOR``, which tells two numbers apart and signs none
+#: (PMVP-20 context, the demo tenant's question 4: "\u2014 2019-031" read as
+#: -2019 took the year from every statement that named the matter).
+_SEPARATOR_DASHES = "\u2014\u2015\u2e3a\u2e3b"
+_SEPARATOR = "\u2014"
+#: Apostrophes and dashes of any kind as their plain form (the separating ones
+#: as ``_SEPARATOR``), and the signs that look like per cent or per mille as
+#: those. Other marks stay as written: a low quotation mark between digits
+#: looks like a comma.
 _NUMBER_PLAIN = str.maketrans({
     **{mark: "'" for mark in _APOSTROPHES},
-    **{dash: "-" for dash in _DASHES},
+    **{dash: "-" for dash in _DASHES if dash not in _SEPARATOR_DASHES},
+    **{dash: _SEPARATOR for dash in _SEPARATOR_DASHES},
     "\uff05": "%", "\ufe6a": "%", "\u066a": "%", "\u0609": "\u2030", "\u060a": "\u2031",
 })
 #: The digits of one number: thousands set off by an apostrophe, by a space
@@ -584,7 +594,7 @@ _PER = "%\u2030\u2031"
 #: What may stand between two numbers that are told apart: white space, the
 #: marks of a list or a sentence, brackets, and a dash ("5-7" is 5 and 7).
 #: Anything else between two numbers makes one of them ("2/3", "14:30").
-_BETWEEN_NUMBERS = " \n,;.()[]{}\"!?-"
+_BETWEEN_NUMBERS = " \n,;.()[]{}\"!?-" + _SEPARATOR
 #: Characters that are written from right to left.
 _RIGHT_TO_LEFT = ("R", "AL", "AN")
 #: White space that ends a line of a passage; a tab too, it can stand where

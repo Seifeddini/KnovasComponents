@@ -229,7 +229,9 @@ What counts as a number, on both sides:
 - **Digits**, with what belongs to them: thousands set off by an apostrophe of any kind or a space (`1'500`,
   `1 500`); what a full stop or a comma between digits ties on (`1.500`, `3,5`, `31.12.2025` are one number
   each); a sign right before them (`-500`, `−500`, `﹣500`, `－500`, `₋500`, `∸500`), the word `minus` (`minus 500`
-  is `-500`), or a dash and a space where no number stands before it (`- 500`, as written); letters, accents and
+  is `-500`), or a dash and a space where no number stands before it (`- 500`, as written; never the em dash `—`
+  or its longer kin `―`, `⸺`, `⸻`, which only tell numbers apart: `Honorarvereinbarung — 2019-031` offers `2019`,
+  PMVP-20 context); letters, accents and
   raised digits right after them (`266a`, `12bis`, `10³`, `10⁶`); a Latin `bis`, `ter`, `quater` … after a space
   or a hyphen (`Art. 12 bis`, `§ 12 bis`, `Art.` + line break + `12 bis` are `12bis`, not `12` and not `12ter`;
     `12-ter` is `12ter`; the German `bis` of `5 bis 7` and `von 3 bis zu 5` stays a word); one letter standing alone
@@ -453,7 +455,8 @@ character per run, a line break where the run held one (the number check reads t
 context no longer than the snippet (a document that is only its chunk) leaves the snippet.
 
 **What changes downstream.** The context is the passage: the model reads it, the quote check (word for word, three
-words at least) and the number check run against it unchanged (`check.py` is not touched), the page and PMVP-21's
+words at least) and the number check run against it unchanged (`check.py` changed only to read the em dash as no minus sign:
+the investigation of the demo tenant's question 4), the page and PMVP-21's
 stored references keep it. Page and sentence stay those of the chunk the search named (rework 1, item 5). The search
 page is unchanged: it never calls `document_text` (a test keeps it the assistant's only caller).
 
