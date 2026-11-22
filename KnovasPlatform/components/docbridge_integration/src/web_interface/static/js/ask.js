@@ -8,6 +8,9 @@
    The ask page (ask.html): without this script every quote stands open under its statement. Here each closes,
    and its reference (a button with aria-controls) opens and closes its own quote, in place.
 
+   A chat's page (PMVP-23): "Gespraech loeschen" asks first, with the form's own data-confirm text; without this
+   script the form deletes at once.
+
    No markup is written from text: only attributes, classes and the hidden property change. */
 (function () {
     'use strict';
@@ -83,4 +86,14 @@
             set(quote.hidden);
         });
     });
+
+    // --- a chat's page: deleting asks first ------------------------------------------------------------------
+    var deleteForm = document.querySelector('form.ask-delete[data-confirm]');
+    if (deleteForm) {
+        deleteForm.addEventListener('submit', function (event) {
+            if (!window.confirm(deleteForm.getAttribute('data-confirm'))) {
+                event.preventDefault();
+            }
+        });
+    }
 })();

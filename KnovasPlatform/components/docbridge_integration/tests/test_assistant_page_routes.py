@@ -7,6 +7,11 @@ docs/platform-mvp/work-orders/PMVP-22a.md.
 
 No model and no Knovas is called: the app's service factory is replaced by a fake that returns a fixed reply.
 This file is ASCII-only: umlauts are \\u escapes.
+
+PMVP-23: an answered or no_answer question is stored as a chat and answered with a 303 to the chat's page.
+``_ask`` follows that redirect by default, so each test below still checks the page the person sees; the hrefs of
+a stored chat go through the click route (``/fragen/<id>/quelle/<turn>/<n>``), which redirects where a search hit
+opens the document; the quote ids are ``zitat-<turn>-<i>``; and the chat's box posts the follow-up.
 """
 from __future__ import annotations
 
@@ -87,10 +92,11 @@ def _token(client):
     return client._token
 
 
-def _ask(client, url, question=QUESTION, **extra):
+def _ask(client, url, question=QUESTION, *, follow=True, **extra):
+    """Ask; a stored reply's 303 is followed to the chat's page (PMVP-23) unless ``follow`` is False."""
     data = {"csrf_token": _token(client), "question": question}
     data.update(extra)
-    return client.post(url, data=data)
+    return client.post(url, data=data, follow_redirects=follow)
 
 
 def _main(page):
@@ -416,10 +422,17 @@ def test_without_javascript_every_quote_is_open(member_client, switch_on, servic
 
 def test_the_quote_card_names_the_document_and_the_page(member_client, switch_on, service, ask_url):
     main = _main(_ask(member_client, ask_url).data.decode("utf-8"))
-    first = re.search(r'<div class="ask-quote" id="zitat-1">(.*?)Im Dokument zeigen', main, flags=re.S).group(1)
+    first = re.search(r'<div class="ask-quote" id="zitat-1-1">(.*?)Im Dokument zeigen', main, flags=re.S).group(1)
     assert "k-card" in first
     assert "Nachtrag_2_2023-03-14.pdf" in first
     assert "Seite 1" in _text(first)
+
+
+def _opened(client, href):
+    """Where the chat's click route sends the browser (PMVP-23)."""
+    response = client.get(href)
+    assert response.status_code in (302, 303), href
+    return response.headers["Location"]
 
 
 def test_the_link_opens_the_pdf_as_a_search_hit_opens_it(workbench_app, member_client, switch_on, service,
@@ -429,7 +442,7 @@ def test_the_link_opens_the_pdf_as_a_search_hit_opens_it(workbench_app, member_c
         pdf = url_for("preview_document", doc_id=PDF, path=PDF, s="3", _anchor="page=1")
         docx = url_for("download_document", doc_id=DOCX, path=DOCX)
     links = re.findall(r'<a class="k-link k-small" href="([^"]+)"[^>]*>Im Dokument zeigen', main)
-    assert [html_lib.unescape(h) for h in links] == [pdf, docx]
+    assert [_opened(member_client, html_lib.unescape(h)) for h in links] == [pdf, docx]
     assert pdf.endswith("#page=1") and "s=3" in pdf
 
 
@@ -461,7 +474,8 @@ def test_every_address_on_the_page_is_built_by_the_app(workbench_app, member_cli
     main = _main(_ask(member_client, ask_url).data.decode("utf-8"))
     for href in _hrefs(main):
         assert href.startswith("/") and not href.startswith("//"), href
-        assert href.startswith("/api/document/"), href
+        assert href.startswith("/fragen/"), href                      # the chat's click route (PMVP-23)
+        assert _opened(member_client, href).startswith("/api/document/"), href
     assert 'href="https://evil.test/"' not in main and 'href="javascript:' not in main
 
 
@@ -530,16 +544,18 @@ def test_a_question_over_the_limit_is_refused_before_the_service(member_client, 
 
 
 def test_an_empty_question_goes_back_to_the_search(member_client, switch_on, service, ask_url):
-    response = _ask(member_client, ask_url, question="   ")
+    response = _ask(member_client, ask_url, question="   ", follow=False)
     assert response.status_code == 303
     assert response.headers["Location"].endswith("/")
     assert service.questions == []
 
 
 def test_the_page_offers_the_box_for_a_new_question(member_client, switch_on, service, ask_url):
-    main = _main(_ask(member_client, ask_url).data.decode("utf-8"))
+    stored = _ask(member_client, ask_url, follow=False)
+    chat = stored.headers["Location"].split("#", 1)[0]
+    main = _main(member_client.get(chat).data.decode("utf-8"))
     form = re.search(r'<form class="ask-again" method="post" action="([^"]+)">(.*?)</form>', main, flags=re.S)
-    assert form and form.group(1) == ask_url
+    assert form and form.group(1) == chat                              # on a chat the box asks on in it (PMVP-23)
     assert f'name="csrf_token" value="{_token(member_client)}"' in form.group(2)
     assert 'name="question"' in form.group(2)
 

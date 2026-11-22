@@ -13,7 +13,8 @@ for the pilot. It is not one component; each rule lives in the part named beside
 - **An administrator** decides whether the assistant is on and which provider answers (the Knovas Core or Anthropic),
   enters the provider's key, and sets access groups and folder rules; she sees the enforcement position and, alone,
   switches it after a confirmation (PMVP-42, built; it acts once the Knovas Core offers it).
-- **An employee** sees and deletes only her own chats; a document opens only if her own search or view handed it to her.
+- **An employee** sees, continues and deletes only her own chats; a document opens only if her own search or view
+  handed it to her, or, from an old chat, after the Knovas Core confirms she may still read it (PMVP-23).
 - **Who may do what is decided by roles** (RB-1, RB-2, built, not yet verified): a person may do what her roles allow,
   and the Platform signs her requests with the access groups she holds directly and through her roles, never more than
   32.
@@ -24,7 +25,7 @@ for the pilot. It is not one component; each rule lives in the part named beside
 
 | To | What | When |
 |---|---|---|
-| The chosen provider: the Knovas Core or Anthropic | the assistant's instruction, the passages this person's search returned, the question and the chat so far | every question, only while the assistant is on |
+| The chosen provider: the Knovas Core or Anthropic | the assistant's instruction, the passages this person's search returned, the question and the chat so far (its questions and the statements of its answers; never an earlier passage or quote) | every question, only while the assistant is on |
 | Anthropic | one invented passage and question, no customer text | an administrator presses "Verbindung testen" |
 | The Knovas Core | searches and per-thing reads as the signed-in person, over the Platform's certificate (as today) | search, dossier |
 | The Knovas Core | the assistant's searches and its generation calls with **the assistant's own signed claim** (its id, the groups and functions of its roles that the person also holds) and "the assistant, for this person" (both ids) | every question, only while the assistant is on (RB-6) |
@@ -78,13 +79,15 @@ provider are passed on without the request that carries it. Without a saved key 
 building are kept outside the repository.
 
 **Chats** stay in the Platform's own database, owner only; the chat store does not encrypt their text itself.
-Decided on 22 November, built with PMVP-23 (not started): a chat keeps **the passages its answers were made from**
-(readable by its owner only, deleted with the chat, never sent to a provider again; a follow-up sends the earlier
-statements only). A chat is **deleted automatically 90 days after its last message**, with its messages and
-passages, by a daily job in the Platform that runs once however many workers there are; the audit log records how
-many chats it deleted, nothing else. The owner can delete a chat at any time, and removing a person removes her
-chats. "90 days after the last message" is the coordinator's reading of the founder's "90 days", so a chat in use
-is not cut off; the founder may correct it.
+Decided on 22 November and built with PMVP-23 (built, not yet verified): a chat keeps **the passages its answers
+were made from** (readable by its owner only, deleted with the chat, never sent to a provider again; a follow-up
+sends the earlier questions and statements only). A chat is **deleted automatically within a day after the 90 days since its last
+message**, with its messages and passages: each web worker of the Platform checks once an hour, and one database
+lock and the day's audit entry make the deletion run once a day for the whole installation, also across restarts.
+The audit log records how many chats it deleted (`assistant.chats.retention`), nothing else: no title, owner or
+id. The owner can delete a chat at any time, and removing a person removes her chats. Another person's chat answers
+exactly like one that does not exist. "90 days after the last message" is the coordinator's reading of the
+founder's "90 days", so a chat in use is not cut off; the founder may correct it.
 
 **Roles** (RB-1, RB-2). Who may do what is now decided by roles, kept in the Platform's own database like accounts.
 The move to roles happens inside the installation when the new version starts: nothing leaves it, nothing is written

@@ -143,9 +143,10 @@ components:
     why: >-
       The Knovas Assistent: its service package (src/assistant/: the service, the check, the switch and, since
       PMVP-25, the provider module that calls Claude when the customer chose it) and its chat storage. chats.py and migration 0026 sit in identity/ because the
-      Platform's migrations run from there, but they exist only for the assistant's past chats (PMVP-21) and nothing
-      else reads them; the rest of identity/ is sign-in, roles and audit. The ask page (PMVP-22a: assistant_routes.py, ask.html,
-      ask.css, ask.js) is here, though in web_interface/, because it exists only for the assistant; the search page
+      Platform's migrations run from there, but they exist only for the assistant's past chats (PMVP-21; since PMVP-23
+      also their deletion after 90 days) and only the assistant's pages read them; the rest of identity/ is sign-in, roles and audit. The ask page (PMVP-22a: assistant_routes.py, ask.html,
+      ask.css, ask.js; since PMVP-23 also the chat pages and the data of the sidebar's chat block, which the shell's
+      partial draws) is here, though in web_interface/, because it exists only for the assistant; the search page
       it is reached from (index.html) and the wiring in app.py stay with the web app. knovas_client.py, which the service calls and which imports its error types, stays with the
       web app, and so does the settings page (settings_routes.py), which shows the assistant's four entries and calls
       its connection test.
@@ -159,7 +160,7 @@ components:
     why: >-
       The members' views (dossier, evidence trail, process line) are a new module (plan § 5.2), written by PMVP-30a
       to PMVP-34: the reading in brain_views/, the pages in their own route file, templates and stylesheet under
-      web_interface/. PMVP-30a added the dossier; PMVP-34 the 25-node limit every view calls (brain_views/limit.py). The web app registers the blueprint (one call in app.py) and keeps
+      web_interface/. PMVP-30a added the dossier; PMVP-34 the 25-node limit every view calls (brain_views/limit.py); PMVP-30b the related things by kind (brain_views/related.py). The web app registers the blueprint (one call in app.py) and keeps
       the switch's registry entry (platform_settings.py); both stay with it. The modellers' views (graph_views/,
       views_routes.py, ontology_graph.py, custom_views/) are not part of it: they read the tenant's whole edge list
       and have no 25-node limit, which this card's promises forbid.

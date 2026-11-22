@@ -162,7 +162,8 @@ def test_the_ask_page_answers_as_the_assistant_for_the_signed_in_person(app, pla
     anna = repo.create(email="anna@kanzlei.ch", display_name="Anna", password=conftest.PASSWORD)
     repo.grant_role(anna.id, "member")
     person = conftest._signed_in(app, anna.email)
-    assert person.post("/fragen", data={"csrf_token": person._token, "question": "Frage?"}).status_code == 200
+    # PMVP-23: a no_answer is stored as the person's chat and answered with a 303 to it.
+    assert person.post("/fragen", data={"csrf_token": person._token, "question": "Frage?"}).status_code == 303
     assistant = AgentStore(platform_db).assistant()
     assert seen.principals == [AgentPrincipal(agent_id=assistant.id, on_behalf_of=anna.id)]
     assert PrincipalClient.current is None                                # the block ended with the answer

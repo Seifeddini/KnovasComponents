@@ -976,6 +976,9 @@ def create_app(config_path: Optional[str] = None):
         'account_password',
         # The ask page's form (PMVP-22a, assistant_routes.py): the same, a hidden csrf_token checked in the handler.
         'assistant.ask',
+        # A chat's two forms (PMVP-23): the follow-up and the delete, each checked in its handler the same way.
+        'assistant.follow_up',
+        'assistant.delete_chat',
     })
 
     @app.before_request
