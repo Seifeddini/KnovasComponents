@@ -8,8 +8,9 @@ parent: L1-WORKSPACE
 source_paths:
 - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_access.py
 - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access.html
-purpose: The console's page «Zugriff» (A-05) - «Was sieht …?» - where an administrator asks what a person, a role, the
-  Knovas Assistent or an external agent reads, whether it may read one document, and what a search finds as it.
+purpose: The console's page «Zugriff» (A-05, A-06) - «Was sieht …?» - where an administrator asks what a person, a role,
+  the Knovas Assistent or an external agent reads, whether it may read one document, and what a search finds as it; and
+  where the enforcement position is shown and one administrator switches it.
 responsible_for:
 - id: L2-PLATFORM-ACCESS-CHECK/R-1
   statement: '«Was sieht …?» (PMVP-41): for a person, a role, the assistant (for a person) or an external agent, with the
@@ -20,10 +21,20 @@ responsible_for:
   code:
   - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_access.py
   - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access.html
+- id: L2-PLATFORM-ACCESS-CHECK/R-2
+  statement: 'The enforcement position (PMVP-42): one sentence for what the Core reports (rbac_posture, CR-R1a) - «Ein»,
+    «Aus», teilweise or unbekannt - and, while it reports not_ready codes, why «Ein» is not possible yet in the page''s
+    words; one administrator switches to the other position after a confirmation (set_rbac_posture brokered or
+    disabled, CR-R8), the Core decides, its refusals in the page''s words; disabled, «wartet auf Knovas», until the Core
+    offers the switch. No approvals, no record of rights runs; audit rows by id.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_access.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access.html
 not_responsible_for:
 - The console's blueprint, its role gates and admin.css (L2-PLATFORM-ADMIN); the menu entry «Zugriff» (app.py, no card).
 - The readers of the Core's groups, folder rules and documents and the reader closure (L2-PLATFORM-ROLE-DATA, imported).
 - Who may read what; the Core decides, for the Platform's claims only under brokered (CR-R1, CR-R1a).
+- Whether «Ein» is allowed - the Core's own preconditions (a broker key, the backfill, two green rights runs; CR-R7, CR-R8).
 terms:
 - 'X (the person, role or agent a question is about; its groups are those its signed claim would carry)'
 operations:
@@ -43,6 +54,10 @@ operations:
   name: 'POST /admin/access/search - a search as X (wer, fuer, query): at most 25 hits, names only'
   entrance: http
   ref: POST /admin/access/search
+- id: http.POST.access.enforcement
+  name: 'POST /admin/access/enforcement - one administrator switches the position (mode ein | aus, bestaetigt=1)'
+  entrance: http
+  ref: POST /admin/access/enforcement
 - id: call.web_interface.admin_access.attach_access_routes
   name: 'attach_access_routes - mounts the page and its three questions on the console''s blueprint behind the gate it is given'
   entrance: call
@@ -74,6 +89,17 @@ contract:
         checks:
         - test_the_page_offers_people_roles_and_agents_and_writes_nothing
         - test_the_menu_offers_zugriff_to_administrators_only
+    - id: L2-PLATFORM-ACCESS-CHECK/http.GET.access/P-2
+      statement: 'One sentence on data-enforcement-position: ein, aus, teilweise or unbekannt as the client reports it;
+        the not_ready reasons in words of their own; the switch to the other position with its checkbox, never Probe.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp42_enforcement_switch_acceptance.py
+        checks:
+        - test_the_page_says_in_one_sentence_which_position_is_active
+        - test_the_page_says_why_ein_is_not_possible_yet_in_its_own_words
+        - test_the_switch_offers_the_other_position_with_a_confirmation_and_never_probe
   http.POST.access.reach:
     needs:
     - id: L2-PLATFORM-ACCESS-CHECK/http.POST.access.reach/N-1
@@ -165,6 +191,56 @@ contract:
         - test_the_assistant_searches_with_its_claim_for_the_person
         - test_at_most_25_hits_are_shown
         - test_no_customer_text_reaches_a_log_line
+  http.POST.access.enforcement:
+    needs:
+    - id: L2-PLATFORM-ACCESS-CHECK/http.POST.access.enforcement/N-1
+      statement: 'require_admin (302, 403), then csrf_token (400): nothing sent to the Core, no audit row.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp42_enforcement_switch_acceptance.py
+        checks:
+        - test_the_switch_admits_administrators_only
+        - test_signed_out_a_member_and_an_approver_cannot_switch
+        - test_the_switch_checks_its_token
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+    promises:
+    - id: L2-PLATFORM-ACCESS-CHECK/http.POST.access.enforcement/P-1
+      statement: 'Nothing sent without bestaetigt=1 or for a mode but ein or aus (400), while the Core does not offer the
+        switch or for the active position (409). Else set_rbac_posture brokered or disabled once, never enforcing; the
+        page shows what the Core reports after; a refusal 409 in the page''s words, no route 409 «wartet auf Knovas»,
+        a failure 502. Every attempt''s row before it is sent (record_or_raise: no row, nothing sent, 503), the PUT
+        sent once, never retried; then its outcome''s row (switched, switch_refused, switch_failed or switch_unknown,
+        the last when the answer is lost); by id; no second administrator, no bypass.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp42_enforcement_switch_acceptance.py
+        checks:
+        - test_one_administrator_switches_to_ein_alone
+        - test_one_administrator_switches_to_aus
+        - test_from_teilweise_both_ways_are_open
+        - test_without_the_confirmation_nothing_is_sent
+        - test_a_bad_mode_is_refused_and_enforcing_is_never_sent
+        - test_the_position_already_active_is_not_sent
+        - test_until_the_core_offers_the_switch_it_waits_for_knovas
+        - test_a_core_without_the_route_also_waits_for_knovas
+        - test_a_refusal_is_shown_in_words_of_its_own_and_changes_nothing
+        - test_a_core_that_fails_is_502_and_changes_nothing
+        - test_audit_rows_and_log_lines_name_people_by_id_only
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_enforcement_routes.py
+        checks:
+        - test_a_switch_without_its_audit_row_answers_500_and_says_so
+        - test_a_switch_whose_answer_is_lost_is_recorded_as_unknown_and_the_page_reads_the_position
+        - test_every_attempt_is_recorded_before_it_is_sent_and_without_its_row_nothing_is_sent
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_knovas_client_posture.py
+        checks:
+        - test_the_switch_is_sent_once_and_never_retried
   call.web_interface.admin_access.attach_access_routes:
     promises:
     - id: L2-PLATFORM-ACCESS-CHECK/call.web_interface.admin_access.attach_access_routes/P-1
@@ -194,7 +270,8 @@ uses:
   expects:
   - EXT-BRAIN-API/access-routes/P-1
   method: 'through the Platform''s own client (client_factory): groups, folder rules, documents by group or prefix, one
-    document''s access; and, as X (asserting_for), the search and document_readable; never a write'
+    document''s access; as X (asserting_for), the search and document_readable; the posture (rbac_posture) and, after an
+    administrator''s confirmation, its one write (set_rbac_posture)'
   protocol: HTTPS with mTLS
 hides:
 - The German words of the page (templates/admin_access.html).
@@ -208,8 +285,8 @@ review:
   why: Live or planned is not read from the code; the console is on main and runs where the Platform runs.
 - at: /source_paths
   why: 'A card of its own (PMVP-41, 2026-11-22), the way RB-5 split «Rollendaten»: with the page L2-PLATFORM-ACCESS would
-    be over the context budget. PMVP-42 adds the enforcement position and its switch to the same page. The lines are new:
-    no aliases. The parent L1-WORKSPACE (KnowledgeBase) does not list this card yet.'
+    be over the context budget. PMVP-42 added the enforcement position and its switch to the same page (R-2). The lines
+    are new: no aliases. The parent L1-WORKSPACE (KnowledgeBase) does not list this card yet.'
 - at: /operations
   why: The code reader shows the routes without the prefix /admin (the blueprint is passed in); the refs name the
     served path.

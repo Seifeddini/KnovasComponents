@@ -30,6 +30,10 @@ carry ``confirm``; with the bypass off they are queued, never sent.
 PMVP-41: the page «Zugriff» and its three questions («Was sieht …?») are here too (FU-17); their behaviour is pinned in
 test_pmvp41_what_sees_acceptance.py. The questions ask about ``{person}``; the fake Core knows one document's rights
 and searches the same for everyone (``asserting_for``). They write nothing to the Core.
+
+PMVP-42: the switch of the enforcement position is here too (FU-17); its behaviour is pinned in
+test_pmvp42_enforcement_switch_acceptance.py. The fake Core reports «Aus» and offers the switch, and answers a switch
+without changing anything; a refused role never reaches it.
 """
 
 from __future__ import annotations
@@ -92,6 +96,7 @@ FORMS = {
     "/admin/access/reach": {"wer": "person:{person}"},
     "/admin/access/check": {"wer": "person:{person}", "pointer": "rc-sync/a.docx"},
     "/admin/access/search": {"wer": "person:{person}", "query": "Frist"},
+    "/admin/access/enforcement": {"mode": "ein", "bestaetigt": "1"},
 }
 
 #: A role id for the routes of one role where no role of the tenant's own is needed (the gate answers first).
@@ -148,6 +153,15 @@ class _Client(DummyKnovasClient):
     def asserting_for(self, user):
         """A search as a person (PMVP-41): this fake searches the same for everyone."""
         yield
+
+    def rbac_posture(self):
+        """«Aus», and the Core offers the tenant its switch (PMVP-42, CR-R1a)."""
+        return {"mode": "disabled", "not_ready": [], "tenant_switch": True}
+
+    def set_rbac_posture(self, mode):
+        """The switch's answer (CR-R8); nothing changes here, so every test starts from «Aus»."""
+        self.posture_switches = getattr(self, "posture_switches", []) + [mode]
+        return {"mode": mode}
 
 
 def _csrf_from(html: str) -> str:

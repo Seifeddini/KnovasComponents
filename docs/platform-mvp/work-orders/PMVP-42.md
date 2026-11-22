@@ -180,4 +180,125 @@ If the work needs one of these, stop and write the reason under "Builder's notes
 
 ## Builder's notes
 
-(the builder writes here: what was decided, what is open, what the verifier should look at)
+Builder session of 2026-11-22 (AGENT-claude-code). `feat/pmvp-42` from `feat/pmvp-41` (PMVP-41 is not integrated
+yet: this branch carries its commits); `origin/feat/platform-mvp` merged in (`e4dca705`, as the coordinator asked), then
+`feat/pmvp-41` again after PMVP-41's audit fix (`9f22b8e6`: every look audited, no row, nothing shown). Test database
+`knovas_platform_test_pmvp4142`.
+
+### What was built
+
+| File | What |
+|---|---|
+| `P/src/knovas_client.py` | `rbac_posture()` (`GET /secured/rbac/posture`, CR-R1a: the five fields of the answer, nothing else; 404 → None; other failures raise) and `set_rbac_posture(mode)` (`PUT`, CR-R8: `brokered` or `disabled` only, anything else ValueError before a request; 200 → `{"mode"}`, 409 → `{"refused": <short error_code or "unknown">}`, 404 → None, others raise); both through `_rbac_request`; the route `/secured/rbac/posture` added to the templates the log lines name (RB-FIX-2) |
+| `P/src/web_interface/admin_access.py` | `Position`, `position_of`, `reason_for`; the route `POST /admin/access/enforcement`; `_page` draws the position as the Core reports it (also after a switch or a refusal) |
+| `P/src/web_interface/templates/admin_access.html` | the part «Durchsetzung» at the top (the mock-up's state line): the sentence (`data-enforcement-position`), the not-ready reasons, «wartet auf Knovas», one `<details>` per offered position with the consequence, the checkbox `bestaetigt` and one button, the fieldset `disabled` while Knovas does not offer the switch |
+| `P/src/web_interface/static/css/admin.css` | the part's rules (brand tokens only) |
+| `P/src/web_interface/builder_routes.py` | the two posture routes answer 410 with the address of Verwaltung › Zugriff and record nothing; the view's posture is `rbac_posture` read only (an error: none); `_zugriff_url` (None where the console is not mounted, as in the Builder's own test app) |
+| `P/src/web_interface/templates/builder/access.html` | «Durchsetzung»: the position read only and the link; no request buttons, no request list |
+| tests (new) | `test_knovas_client_posture.py` (18, no database), `test_web_admin_enforcement_rules.py` (23, no database), `test_web_admin_enforcement_routes.py` (5) |
+| cards | `L2-PLATFORM-ACCESS-CHECK`: R-2, the operation and its contract, `GET`'s P-2; `L2-BRAIN-BUILDER`: the two posture lines retired (N-2 of the approval became its P-1, aliased); `EXT-BRAIN-API`: the access routes' line names CR-R1a and CR-R8; `boundaries.yaml`; pages rendered |
+| management | `administration.md` (a section, the status row, the limits, where the detail is), `data-protection.md` (a paragraph, the status row, the founder's decision), `README.md`'s row |
+
+No migration; `builder/store.py`, `builder/access_backend.py`, `identity/**`, `guarded.py` unchanged.
+
+### What I decided, and why (the verifier should look here first)
+
+1. **A Core without the route** (`set_rbac_posture` → None) writes `enforcement.switch_refused` with `code`
+   `no_route` (outcome `denied`): the attempt reached Knovas, and the frozen test's § 2 says every attempt that reaches
+   the Core is audited. **A Core that fails** (an exception) writes no row (no answer, nothing known), logs the error
+   class and answers 502; the page reads the position again.
+2. **Refusals** are audited with outcome `denied`, a switch with `ok`; `target_id` is the client's `customer_id`
+   (the Platform's tenant id), None when the client has none. `detail` holds the Core's modes and code only.
+3. **The audit row after the Core answered** (`record_or_raise`, as RB-5): if it cannot be written, the Core's answer
+   stands; a switch answers 500 «Knovas hat umgeschaltet. Der Protokolleintrag dazu konnte nicht geschrieben werden.»,
+   a refusal keeps its 409 and adds that sentence. The failure is logged by its error code.
+4. **What is offered while the position is unknown:** both «Ein» and «Aus», disabled (the order says "the switch
+   shown, disabled"); from «teilweise» both, enabled once Knovas offers the switch.
+5. **Each position a `<details>`** («Auf «Ein» schalten»): the consequence, the checkbox and the button stay one
+   click away, as the mock-up's single button; a refused confirmation (400) opens its form again. No script.
+6. **`switchable` only for `tenant_switch is True`** (not a truthy string or 1). The not-ready reasons are shown only
+   while the position is not «Ein», once each, in the Core's order; a code the page does not know is one sentence.
+7. **The position is read twice on a question of PMVP-41** (`tenant_brokered` for the answer, `position_of` for the
+   page): the order forbids changing PMVP-41's questions; one more metadata read per answered question.
+8. **A refusal's words** begin with «Knovas hat nicht umgeschaltet:» and then the reason in the page's words (the
+   frozen test asks only that each code has words of its own and that no code shows).
+9. **The Builder's view** no longer reads the request table; `_platform_tenant()` is no longer called there (it was
+   only for the list). The Builder's script still has its handlers; they find no buttons.
+
+### Existing tests changed
+
+- `tests/test_builder_access.py` (predicted by the order, decision 4): `test_switching_enforcement_takes_a_second_
+  administrator` and `test_enforcing_waits_for_the_backfill` replaced by `test_the_builder_no_longer_records_a_switch_
+  request` (410, nothing recorded) and `test_the_posture_part_shows_the_position_read_only`.
+- `tests/test_web_admin_gates.py` (FU-17, named in the order): the route in `FORMS`; its fake `_Client` reports «Aus»
+  with the switch offered and answers a switch without changing anything, so the administrator's 200 can be shown.
+
+### Checks
+
+- **Tests**, in the pinned environment (`scratchpad\pinned-venv`, `requirements.txt`'s versions: pytest 7.4.3, tenacity 8.2.3, cryptography 42.0.0; FU-50), each file in a pytest process of its own, one after another, on `knovas_platform_test_pmvp4142`, all exit code 0, nothing failed, skipped or errored:
+  - frozen: `test_pmvp42_enforcement_switch_acceptance.py` 18, `test_pmvp41_what_sees_acceptance.py` 31, `test_rb67_agents_acceptance.py` 27, `test_rb5_role_data_acceptance.py` 95, `test_pmvp11_navigation_acceptance.py` 40, `test_rb12_roles_acceptance.py` 66, `test_rb34_roles_page_acceptance.py` 106, `test_pmvp34_view_limit_acceptance.py` 17, `test_pmvp21_chats_acceptance.py` 13, `test_pmvp03_harness_acceptance.py` 29, `test_pmvp10_brand_acceptance.py` 33, `test_pmvp20_statements_acceptance.py` 88, `test_pmvp23_chats_followups_acceptance.py` 33;
+  - mine: `test_knovas_client_posture.py` 18, `test_web_admin_enforcement_rules.py` 23, `test_web_admin_enforcement_routes.py` 5;
+  - the rest the order names: `test_builder_access.py` 23, `test_builder_store.py` 39, `test_knovas_client_assertion.py` 14, `test_knovas_client_doc_fields.py` 164, `test_knovas_client_errors.py` 21, `test_knovas_client_hardening.py` 23, `test_knovas_client_logs.py` 32, `test_knovas_client_rbac.py` 16, `test_knovas_client_secured_api.py` 38, `test_web_admin_access_rules.py` 27, `test_web_admin_access_routes.py` 4, `test_shell_nav_links.py` 31, `test_shell_nav_partial.py` 52, `test_shell_nav_styles.py` 33, `test_shell_parts_css.py` 86, `test_shell_parts_macros.py` 49, `test_shell_parts_styleguide.py` 52, `test_shell_styleguide.py` 13, `test_shell_tokens.py` 88, `test_web_admin_approvals.py` 22, `test_web_admin_doc_fields.py` 124, `test_web_admin_documents.py` 66, `test_web_admin_ingestion.py` 161, `test_web_admin_input_checks.py` 19, `test_web_admin_people.py` 28, `test_web_admin_role_data_rules.py` 25, `test_web_admin_roles_rules.py` 13, `test_web_admin_system_doc_fields.py` 14, `test_web_admin_system_extractor.py` 32, `test_identity_agents_pages.py` 10, `test_web_admin_gates.py` 376.
+  2337 passed in 47 files. None of these files has an id in `baseline-failing-ids.txt`. The whole suite was not run.
+  This full run was made on `3891fb29` + the merge of `origin/feat/platform-mvp` (`0fada1e3`), before PMVP-41's audit
+  fix was merged in.
+- **After merging PMVP-41's fix** (`5743e29b`) and the refusal's words (`6b8bd90e`), again in the pinned environment:
+  `test_pmvp42_enforcement_switch_acceptance.py` 18, `test_web_admin_enforcement_routes.py` 5, `test_web_admin_enforcement_rules.py` 23, `test_knovas_client_posture.py` 18, `test_pmvp41_what_sees_acceptance.py` 31, `test_web_admin_access_routes.py` 7, `test_web_admin_access_rules.py` 27, `test_builder_access.py` 23, `test_rb67_agents_acceptance.py` 27, `test_rb5_role_data_acceptance.py` 95, `test_shell_nav_links.py` 31, `test_shell_nav_partial.py` 52, `test_pmvp11_navigation_acceptance.py` 40, `test_web_admin_gates.py` 376; 773 passed in 14 files, all exit code 0.
+- **After merging `origin/feat/platform-mvp` once more** (`71323e6f`, PMVP-24; `knovas_client.py`'s route list conflicted and keeps both new routes), pinned: `test_pmvp42_enforcement_switch_acceptance.py` 18, `test_knovas_client_posture.py` 18, `test_knovas_client_logs.py` 32, `test_pmvp41_what_sees_acceptance.py` 31, `test_web_admin_enforcement_routes.py` 5.
+- **Frozen check** (header of `frozen-tests.txt`): all 13 OK.
+- **Cards** (KnowledgeBase-worktrees `pmvp-01/scripts`, `py -3 -m brain_runner`, read only; nothing reached a tenant):
+  `card check` on `L2-PLATFORM-ACCESS-CHECK`, `L2-BRAIN-BUILDER`, `EXT-BRAIN-API`: valid, 0 errors, 0 warnings.
+  `card render --root docs/components --check`: 0 not current, 0 problems. `map-check --scope touched --head
+  feat/pmvp-42`, base `origin/feat/platform-mvp`: declared 0; **budget**: every Platform card within 16,000
+  (L2-PLATFORM-ADMIN 15,559, L2-PLATFORM-ACCESS 14,718, L2-PLATFORM-ACCESS-CHECK 12,021, L2-PLATFORM-ROLE-DATA 15,871,
+  EXT-BRAIN-API 2,748), the one finding is L2-BRAIN-BUILDER (271,375, over long before this item); **compatible** 2
+  `statement_changed` (EXT-BRAIN-API's access routes, L2-BRAIN-BUILDER's retired posture request), each with a review
+  entry: a person marks them compatible or not; complete 19.
+
+### Screenshots
+
+Outside the repository, in `C:\Users\siran\AppData\Local\Temp\claude\1838582cff9d51e1\af9716ae-0421-42ac-9fac-6acb192cc6e6\scratchpad\b4142\shots42\`
+(the real app on the test database, a fake Core answering each case; nothing reached a tenant), each at 1440 and 390
+px, beside `00-reference-05-zugriff.png`:
+
+- the position in each value: `42-unbekannt` (no posture call: both positions offered, disabled, «wartet auf
+  Knovas»), `42-aus-wartet` («Aus», the Core not offering the switch), `42-aus-nicht-bereit` («Aus» with two reasons
+  why «Ein» is not possible yet), `42-teilweise` (the exception mark, both positions offered), `42-ein`;
+- the confirmation for «Ein»: `42-ohne-bestaetigung` (sent without the tick: 400, the form open again with the
+  consequence, the checkbox and the button);
+- each refusal: `42-refused-rights_runs_missing`, `42-refused-no_broker_key`, `42-refused-backfill_incomplete`,
+  `42-refused-unknown` (409, «Knovas hat nicht umgeschaltet: …», the position still «Aus»);
+- `42-switched-ein` (200: the page reads the position again and says «Ein»).
+
+Nothing scrolls sideways at 390 px (`facts-42.json`).
+
+### Fix round after the verification (pass with notes, 2026-11-22)
+
+- **MEDIUM, a lost answer.** `set_rbac_posture` sends the PUT **once** (`_rbac_request(..., once=True)`: one attempt,
+  the original error re-raised; the read keeps the usual retries). The route writes `enforcement.switch_attempted`
+  (from, to) with `record_or_raise` **before** it sends; if that row cannot be written, nothing is sent (503, «Der
+  Versuch konnte nicht protokolliert werden. Es wurde nichts an Knovas gesendet.»). The outcome follows in a second
+  row: `enforcement.switched`, `enforcement.switch_refused` (code), `enforcement.switch_failed` (an error status) or
+  `enforcement.switch_unknown` (no answer: timeout, lost connection), the last two with outcome `error`, the error's
+  class and status. An unknown outcome answers 502 with «Die Antwort von Knovas ist ausgeblieben: Ob umgeschaltet
+  wurde, ist unbekannt.» and the position read again. `administration.md` says so.
+- **LOW:** the confirmation checkbox has the button's 2 px focus ring.
+- **Tests:** `test_the_switch_is_sent_once_and_never_retried` (a ReadTimeout and a ConnectionError: one PUT),
+  `test_the_read_keeps_the_usual_retries`, `test_a_switch_whose_answer_is_lost_is_recorded_as_unknown_and_the_page_
+  reads_the_position` (the verifier's repro: the fake switches, then raises ReadTimeout), `test_every_attempt_is_
+  recorded_before_it_is_sent_and_without_its_row_nothing_is_sent`. Two of my earlier route tests follow the new rule:
+  the row-missing test fails only the outcome's row; a failing Core is now recorded as `switch_unknown`.
+- `origin/feat/platform-mvp` merged first (PMVP-41 integrated, the Brain-tools mode). `_rbac_request` gained the
+  keyword `once` (default off): the one change outside the two calls, made for this fix.
+- **Checks, pinned environment, after the fix:** frozen check 13 OK; `test_pmvp42_enforcement_switch_acceptance.py`
+  18, `test_pmvp41_what_sees_acceptance.py` 31, `test_web_admin_*.py` 944, `test_shell_*.py` 404,
+  `test_knovas_client_*.py` 329: 1,726 passed in 33 files, each in a process of its own, nothing failed or skipped.
+
+### Open, for the coordinator, the verifier and management
+
+1. **Critical item**: management approves before `main`. It rides on PMVP-41 (and PMVP-34).
+2. **The Core's routes do not exist yet** (CR-R1a, CR-R7, CR-R8): until they do the page shows «unbekannt» and the
+   switch waits; nothing is sent. Once CR-R1a answers, RB-5's «wirkt mit «Ein»» and PMVP-41's answers switch on
+   `rbac_posture` by themselves, and so does the Builder's read-only line.
+3. **The access card** «Zugriff prüfen» now holds both items; the admin card took the part's CSS.
+4. The founder's decision replaces DEC-0082's point 3 ("a second administrator"); the coordinator records it.

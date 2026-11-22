@@ -37,8 +37,11 @@ the new navigation and look and adds the assistant's and the views' settings.
   Knovas Assistent or an external agent reads; one document yes or no with the reason; a search as that person or
   agent, names only. Section below.
 
-**Planned:** the enforcement position is shown on «Zugriff» and switched by one administrator after a confirmation
-(PMVP-42); the pilot's rights test set (PMVP-43).
+- **The enforcement position on «Zugriff» (PMVP-42, built 22 Nov, not yet verified):** one sentence for the position
+  Knovas reports, and one administrator switching it after a confirmation. Section below. Until the Knovas Core has
+  its two new routes (CR-R1a, CR-R8) the page says «unbekannt» and the switch waits for Knovas.
+
+**Planned:** the pilot's rights test set (PMVP-43).
 
 ## Roles (the role builder, RB-1 and RB-2)
 
@@ -277,6 +280,52 @@ the person it acts for, by id. Never a path, a search, a document's name, a grou
 question writes nothing. The Builder's «Zugriff erklären» stays until a later clean-up (it reads only a person's
 direct grants, not her roles').
 
+## The enforcement position and its switch (PMVP-42)
+
+**What it shows.** At the top of «Zugriff», one sentence for the position the firm's Knovas reports:
+
+| Knovas reports | The page says |
+|---|---|
+| `brokered` | **«Ein»**: Knovas shows each person, the assistant and every agent only what their roles allow |
+| `disabled` | **«Aus»**: Knovas hides nothing from anyone; roles and rules act once «Ein» is on |
+| `enforcing` | **Teilweise** (marked as an exception): Knovas filters by groups but does not check the Platform's requests, so every search on the Platform sees only what is open |
+| nothing, an error, anything else | **Unbekannt**: Knovas does not report the position yet |
+
+While Knovas reports why «Ein» is not possible yet, the page says it in plain words, one sentence per reason: Knovas
+does not know the Platform's key yet; the rights of documents already read in are not complete; the two green rights
+runs Knovas requires for its version are missing; or a reason the page does not know. «Probe» is not shown or offered
+(it needs the Core's CR-R4).
+
+**Who switches.** **One administrator**, alone (founder, 22 November). Under the sentence, «Auf «Ein» schalten» (or
+«Aus», or both while the position is «teilweise» or unknown) opens a short form: what the switch does («Ein»: from
+then on every person, the assistant and every agent read only what their roles allow, and a document no role reaches
+is hidden from everyone; «Aus»: everyone reads everything again), a tick «Ich habe gelesen, was das bewirkt» and one
+button. Without the tick nothing is sent. No second administrator, no approval and no bypass setting take part.
+
+**Knovas decides.** The Platform asks Knovas once; Knovas switches or refuses. Knovas alone checks whether «Ein» is
+allowed: a registered key, a complete backfill, two green end-to-end rights runs under `brokered` for its version
+(CR-R7). The Platform checks none of it and keeps no record of runs. A refusal is shown in the page's words;
+«Aus» is always accepted (switching off must never be blocked). Afterwards the page shows the position Knovas reports,
+never one it assumes.
+
+**Before the Core changes (today).** Knovas has neither route yet: the page says «unbekannt», the switch is shown
+disabled with «wartet auf Knovas», and nothing is sent. After CR-R1a the real position shows (and why «Ein» is not
+possible yet); the switch stays disabled until Knovas says it offers it (`tenant_switch`). After CR-R8 the switch
+works; «Ein» is refused with «die zwei grünen Rechteläufe fehlen» until CR-R7's runs are on Knovas's record. The same
+read makes RB-5's «wirkt mit «Ein»» and «Was sieht …?»'s answers switch to Knovas's own by themselves.
+
+**In the log, by id: every attempt, before it is sent.** Before the Platform asks Knovas, it writes a row
+`enforcement.switch_attempted` (from, to); if that row cannot be written, nothing is sent and the page says so. The
+request is sent **once**, never repeated. Afterwards a second row records the outcome: `enforcement.switched` (from,
+to), `enforcement.switch_refused` (to, Knovas's code; `no_route` when Knovas has no route yet),
+`enforcement.switch_failed` (Knovas answered with an error) or `enforcement.switch_unknown` (Knovas's answer was lost,
+so it may have switched). When the outcome is unknown the page says «Ob umgeschaltet wurde, ist unbekannt» and shows
+the position Knovas reports when it reads it again. Each row holds the administrator and the firm's tenant id; never a
+name.
+
+**The Builder's old request** (a second administrator approving `enforcing`) is retired: its two routes answer that
+the switch is under Verwaltung › Zugriff and record nothing; the Builder's «Durchsetzung» shows the position read only.
+
 ## How it protects data and access
 
 - **Each page checks on the server.** Every Admin route has its own role gate; the menu only reflects it. Signed out
@@ -298,7 +347,7 @@ direct grants, not her roles').
 | PMVP-30a | the Brain views switch | built; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-40 | the three pages in the new look; gate tests; the Admin card split in two (a new card "Zugriff" for the access pages) | in build (work pushed, builder's notes not written) | Jannik or Siran (routine) |
 | PMVP-41 | "Was sieht …?" in Admin: what a person, a role, the Knovas Assistent or an external agent reads; one document yes or no with the reason; a search as that person (names only) | built 22 Nov (branch `feat/pmvp-41`); no verification verdict yet; computed until «Ein», Knovas's own answer after (CR-R1a, with PMVP-42's client call) | Siran (sensitive) |
-| PMVP-42 | enforcement position and switch | work order and acceptance tests drafted 22 Nov and reworked the same day after the founder's answer (not yet frozen): one administrator switches after a confirmation; the Core decides whether «Ein» is allowed (a broker key, a complete backfill, two green rights runs under `brokered`) and the page shows its reason; no migration. Waits for the Core's CR-R1a and CR-R8 (and CR-R7's runs for «Ein») | management (critical) |
+| PMVP-42 | enforcement position and switch | built 22 Nov (branch `feat/pmvp-42`, on top of PMVP-41); no verification verdict yet: one administrator switches after a confirmation; the Core decides whether «Ein» is allowed and the page shows its reason; the Builder's request retired; no migration. Shows «unbekannt» and waits until the Core has CR-R1a and CR-R8 (and CR-R7's runs for «Ein») | management (critical) |
 | PMVP-43 | the pilot's rights test set | not started | Siran (sensitive) |
 | RB-1, RB-2 | roles: tables, the two roles, the move of an existing installation; functions and groups read from roles; the last-administrator rule and the 32-group cap | built; no verification verdict yet | management (critical: a migration) |
 | RB-3, RB-4 | the Rollen page; creating, renaming and deleting roles, their functions and people; the people page offers roles; deactivating waits for removals (the last-administrator race) | verified (with notes); integrated | Siran (sensitive) |
@@ -332,9 +381,13 @@ direct grants, not her roles').
   both would still have been over the budget. RB-5's part of the Rollen page (a role's data) has a card of its own
   («Rollendaten») for the same reason.
 - **"Was sieht …?" and the enforcement position** were the Builder's files (FU-20). «Was sieht …?» is now on «Zugriff»
-  (PMVP-41, built); the Builder's «Zugriff erklären» stays until a clean-up retires it. The enforcement position moves
-  with PMVP-42. Decided by the founder on 22 Nov: one administrator switches enforcement, the Core holds the gate (two
-  green rights runs under `brokered` are its own precondition), and «Was sieht …?» shows names only, every look audited.
+  (PMVP-41, built); the Builder's «Zugriff erklären» stays until a clean-up retires it. The enforcement position is
+  on «Zugriff» too (PMVP-42, built); the Builder only shows it. Decided by the founder on 22 Nov: one administrator
+  switches enforcement, the Core holds the gate (two green rights runs under `brokered` are its own precondition), and
+  «Was sieht …?» shows names only, every look audited.
+- **The switch acts only once Knovas has CR-R1a and CR-R8** (and «Ein» only with CR-R7's two green runs); until then
+  the page says «unbekannt» and «wartet auf Knovas». The Builder's table of old switch requests stays in the database,
+  unused.
 - **«Was sieht …?» before «Ein»** is a computation of Knovas's rule, not Knovas's answer; it may differ from what
   Knovas will do (for example while a new folder rule has not yet reached documents already read in, CR-R3). Whether
   Knovas lists other groups' documents for an administrator once «Ein» is on is to be checked on the demo tenant
@@ -378,6 +431,7 @@ a person has still to confirm it.
 
 **Where the detail is:** `docs/platform-mvp/work-orders/PMVP-11.md`, `PMVP-40.md` (branch `feat/pmvp-40`), `PMVP-25.md`
 (branch `feat/pmvp-25`), `RB-1-2.md` (branch `feat/rb-1-2`), `RB-3-4.md` (branch `feat/rb-3-4`), `RB-6-7.md`
-(branch `feat/rb-6-7`), `RB-FIX-1.md` (branch `maint/rb-fix-1`), `RB-5.md` (branch `feat/rb-5`), `PMVP-41.md` (branch `feat/pmvp-41`); `KnovasPlatform/docs/agents.md`;
+(branch `feat/rb-6-7`), `RB-FIX-1.md` (branch `maint/rb-fix-1`), `RB-5.md` (branch `feat/rb-5`), `PMVP-41.md` (branch `feat/pmvp-41`),
+`PMVP-42.md` (branch `feat/pmvp-42`); `docs/platform-mvp/core-requests.md` (CR-R1a, CR-R7, CR-R8); `KnovasPlatform/docs/agents.md`;
 `docs/platform-mvp/design/role-builder.md`; `docs/components/L2-platform-admin.md`, `L2-platform-roles.md`,
 `L2-platform-role-data.md`, `L2-platform-agents.md`; `docs/platform-mvp/follow-ups.md`.

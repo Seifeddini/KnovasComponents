@@ -335,11 +335,11 @@ operations:
   entrance: http
   ref: POST /builder/api/access/explain
 - id: access-posture
-  name: POST /builder/api/access/posture - ask to switch RBAC enforcement
+  name: POST /builder/api/access/posture - retired (PMVP-42) - 410, the switch is under Verwaltung › Zugriff
   entrance: http
   ref: POST /builder/api/access/posture
 - id: access-posture-approve
-  name: POST /builder/api/access/posture/{request_id}/approve
+  name: POST /builder/api/access/posture/{request_id}/approve - retired (PMVP-42) - 410
   entrance: http
   ref: POST /builder/api/access/posture/{request_id}/approve
 - id: mapping-page
@@ -2072,13 +2072,20 @@ contract:
         - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
     promises:
     - id: L2-BRAIN-BUILDER/access-posture/P-1
-      statement: Records a request to switch the tenant's RBAC enforcement off or on; nothing switches until a second administrator approves.
+      statement: 'Retired by PMVP-42 (FU-20): answers 410 with the address of Verwaltung › Zugriff, where one administrator
+        switches the position, and records nothing (builder/store.py and access_posture_request stay, unused). The
+        window''s part «Durchsetzung» shows the position the Core reports (rbac_posture), read only.'
       risk_class: critical
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
         checks:
-        - TestTheWindow::test_switching_enforcement_takes_a_second_administrator
+        - TestTheWindow::test_the_builder_no_longer_records_a_switch_request
+        - TestTheWindow::test_the_posture_part_shows_the_position_read_only
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp42_enforcement_switch_acceptance.py
+        checks:
+        - test_the_builder_no_longer_records_a_switch_request
   access-posture-approve:
     needs:
     - id: L2-BRAIN-BUILDER/access-posture-approve/N-1
@@ -2089,15 +2096,18 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_team.py
         checks:
         - TestEveryRoute::test_an_endpoint_not_listed_needs_manage
-    - id: L2-BRAIN-BUILDER/access-posture-approve/N-2
-      statement: A second person (not the one who asked); switching to enforcing waits until the Brain's ACL backfill is complete (409).
+    promises:
+    - id: L2-BRAIN-BUILDER/access-posture-approve/P-1
+      aliases:
+      - L2-BRAIN-BUILDER/access-posture-approve/N-2
+      statement: 'Retired by PMVP-42: answers 410 and approves nothing; no second administrator takes part in switching
+        enforcement (founder, 2026-11-22).'
       risk_class: critical
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_builder_access.py
         checks:
-        - TestTheWindow::test_switching_enforcement_takes_a_second_administrator
-        - TestTheWindow::test_enforcing_waits_for_the_backfill
+        - TestTheWindow::test_the_builder_no_longer_records_a_switch_request
   mapping-page:
     needs:
     - id: L2-BRAIN-BUILDER/mapping-page/N-1
@@ -3076,3 +3086,8 @@ review:
   why: 'Not declared because they have no card yet: the Platform''s web app and its client (web_interface/app.py, knovas_client.py) that wire the Builder; the Knovas Connector''s HTTP API (adapter and reader); the language-model API of the views assistant; GitHub (read through brain-runner).'
 - at: /operations
   why: The page scripts (static/js/builder) are not read by the code reader (Python only); what they call is in the routes listed here.
+- at: L2-BRAIN-BUILDER/access-posture/P-1
+  why: 'Changed for PMVP-42 (2026-11-22, founder: one administrator switches, the gate is the Core''s): the Builder''s
+    request for a second administrator is retired (410, records nothing); the switch is on Verwaltung › Zugriff
+    (L2-PLATFORM-ACCESS-CHECK). access-posture-approve''s N-2 became its P-1 for the same reason. A person marks the
+    change compatible or not.'

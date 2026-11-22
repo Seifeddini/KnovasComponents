@@ -158,21 +158,10 @@
     </section>
     <section class="b-op-section" aria-labelledby="b-ax-posture-title">
         <h2 class="b-h3" id="b-ax-posture-title">Durchsetzung</h2>
-        {% if view.posture %}
-        <p>Der Mandant <strong data-ax-mode>{{ 'setzt die Gruppen durch' if view.posture.mode == 'enforcing' else 'setzt die Gruppen noch nicht durch' }}</strong> (<span class="b-mono">{{ view.posture.mode }}</span>).
-            ACL-Nachführung: {{ 'abgeschlossen' if view.posture.backfill_complete else 'noch nicht abgeschlossen' }}.</p>
-        {% else %}
-        <p class="b-small b-muted">Den Modus (disabled oder enforcing) zeigt das Brain heute nur Knovas-intern.</p>
-        {% endif %}
-        <div class="b-button-row">
-            <button type="button" class="b-button b-button--secondary b-button--small" data-ax-posture="enforcing">Durchsetzen anfragen</button>
-            <button type="button" class="b-button b-button--quiet b-button--small" data-ax-posture="disabled">Ausschalten anfragen</button>
-        </div>
-        <p class="b-small b-muted">Umschalten braucht die Freigabe einer zweiten Administratorin oder eines zweiten Administrators.</p>
-        {% if view.posture_requests %}
-        <ul class="b-ax-list">{% for r in view.posture_requests %}<li>{{ 'Durchsetzen' if r.mode == 'enforcing' else 'Ausschalten' }} · angefragt von {{ r.requested_by_name or '–' }}, {{ r.requested_at | b_datetime }}
-            {% if r.approved_at %}<span class="b-tag b-tag--good">freigegeben von {{ r.approved_by_name }}</span>{% elif r.requested_by != view.me %}<button type="button" class="b-button b-button--primary b-button--small" data-ax-posture-approve="{{ r.id }}">Freigeben</button>{% else %}<span class="b-tag">wartet auf eine zweite Person</span>{% endif %}</li>{% endfor %}</ul>
-        {% endif %}
+        {# PMVP-42: read only. One administrator switches it under Verwaltung › Zugriff; the Core decides. #}
+        {% set posture_mode = view.posture.mode if view.posture and view.posture.mode in ('brokered', 'disabled', 'enforcing') else none %}
+        <p data-ax-mode="{{ posture_mode or 'unbekannt' }}">{% if posture_mode == 'brokered' %}Knovas setzt die Rollen durch («Ein»).{% elif posture_mode == 'disabled' %}Knovas setzt die Rollen noch nicht durch («Aus»).{% elif posture_mode == 'enforcing' %}Knovas filtert nach Gruppen, prüft aber die Anfragen der Plattform nicht (eine Ausnahme).{% else %}Knovas meldet die Stellung noch nicht.{% endif %}</p>
+        <p class="b-small b-muted">Umschalten: {% if view.zugriff_url %}<a href="{{ view.zugriff_url }}">Verwaltung › Zugriff</a>{% else %}Verwaltung › Zugriff{% endif %}. Eine Administratorin oder ein Administrator schaltet dort, nach einer Bestätigung; Knovas entscheidet, ob «Ein» möglich ist.</p>
     </section>
 </div>
 {% endif %}

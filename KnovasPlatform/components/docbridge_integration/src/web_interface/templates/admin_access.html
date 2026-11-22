@@ -20,7 +20,10 @@
    document, what does a search find as X, what does X read. The answer stands above them (a POST draws the page
    again at the top, so it is seen first) and says whether it is computed
    («wirkt mit «Ein»») or Knovas's own. Names only, never passage text; every name, prefix and pointer is escaped;
-   every action comes from url_for; the pointer and the query travel in form fields only. #}
+   every action comes from url_for; the pointer and the query travel in form fields only.
+   PMVP-42 (A-06, § 8.1): the part «Durchsetzung» at the top, the mock-up's state line: the position in one sentence
+   as Knovas reports it (data-enforcement-position), why «Ein» is not possible yet in the page's words, and the switch
+   to the other position behind a confirmation; disabled, «wartet auf Knovas», while Knovas does not offer it. #}
 {% set nothing_words = {
     "deaktiviert": "Die Person ist deaktiviert. Die Plattform stellt für sie keinen Ausweis aus: Knovas zeigt ihr nichts, auch nichts Offenes.",
     "widerrufen": "Dieser Agent ist widerrufen. Die Plattform stellt für ihn keinen Ausweis aus: Knovas zeigt ihm nichts, auch nichts Offenes.",
@@ -63,6 +66,63 @@
     {{ parts.page_head("Zugriff", lede="Wer darf was lesen? Prüfen Sie es für eine Person, eine Rolle oder einen Agenten. Sie sehen dabei nur Namen von Dokumenten, nie ihren Inhalt; jede Prüfung wird protokolliert.") }}
 
     {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
+    {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
+
+    {% set pos = position %}
+    {% call parts.section("Durchsetzung") %}
+    <div class="access-state">
+        <p class="access-position" data-enforcement-position="{{ pos.value }}">
+            {%- if pos.value == 'ein' -%}
+            <strong>«Ein»</strong>: Knovas zeigt jeder Person, dem Knovas Assistenten und jedem Agenten nur, was ihre
+            Rollen erlauben.
+            {%- elif pos.value == 'aus' -%}
+            <strong>«Aus»</strong>: Knovas verbirgt niemandem etwas. Rollen und Regeln gelten erst, wenn «Ein»
+            geschaltet ist.
+            {%- elif pos.value == 'teilweise' -%}
+            {{ parts.tag("Ausnahme", "bad") }} <strong>Teilweise</strong>: Knovas filtert nach Gruppen, prüft aber die
+            Anfragen der Plattform nicht. Jede Suche hier sieht darum nur, was offen ist.
+            {%- else -%}
+            <strong>Unbekannt</strong>: Knovas meldet die Stellung der Durchsetzung noch nicht.
+            {%- endif -%}
+        </p>
+        {% if pos.not_ready and pos.value != 'ein' %}
+        <div class="access-not-ready">
+            <p>«Ein» ist noch nicht möglich:</p>
+            <ul>{% for reason in pos.not_ready %}<li>{{ reason }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+        {% if not pos.switchable %}
+        <p class="k-small k-muted access-waits">Die Umschaltung wartet auf Knovas: Knovas bietet sie diesem Mandanten
+            noch nicht an. Bis dahin schaltet Knovas die Durchsetzung selbst.</p>
+        {% endif %}
+        {% for target in pos.offers %}
+        {% set word = "«Ein»" if target == 'ein' else "«Aus»" %}
+        <details class="access-switch"{% if switch_open == target %} open{% endif %}>
+            <summary>Auf {{ word }} schalten</summary>
+            <form method="post" action="{{ url_for('admin.access_enforcement') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="mode" value="{{ target }}">
+                <fieldset{% if not pos.switchable %} disabled{% endif %}>
+                    <legend>Auf {{ word }} schalten</legend>
+                    {% if target == 'ein' %}
+                    <p>Ab dann lesen jede Person, der Knovas Assistent und jeder Agent nur noch, was ihre Rollen
+                        erlauben. Ein Dokument, das keine Rolle erreicht, ist für alle verborgen. Ob «Ein» möglich ist,
+                        entscheidet Knovas.</p>
+                    {% else %}
+                    <p>Ab dann liest wieder jede Person alles: Knovas verbirgt niemandem etwas, auch der Knovas
+                        Assistent und die Agenten lesen alles.</p>
+                    {% endif %}
+                    <label class="access-confirm">
+                        <input type="checkbox" name="bestaetigt" value="1" required>
+                        <span>Ich habe gelesen, was das bewirkt, und schalte auf {{ word }}.</span>
+                    </label>
+                    <button type="submit">Auf {{ word }} schalten</button>
+                </fieldset>
+            </form>
+        </details>
+        {% endfor %}
+    </div>
+    {% endcall %}
 
     {% if answer %}
     {% set x = answer.name %}

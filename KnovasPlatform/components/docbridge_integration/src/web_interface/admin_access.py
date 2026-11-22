@@ -1,4 +1,5 @@
-"""«Zugriff» in Admin: «Was sieht …?» (PMVP-41; plan FEAT-2026-11-19-platform-mvp § 4 A-05, SPEC-platform-mvp-13).
+"""«Zugriff» in Admin: «Was sieht …?» (PMVP-41; plan FEAT-2026-11-19-platform-mvp § 4 A-05, SPEC-platform-mvp-13) and
+the enforcement position with its switch (PMVP-42; A-06, § 8.1, SPEC-platform-mvp-14).
 
 An administrator picks a person, a role, the Knovas Assistent (for a person) or an external agent, and asks three
 questions. The routes, all in the console's blueprint behind its ``require_admin``; every POST reads ``csrf_token``
@@ -10,6 +11,8 @@ first (400, nothing asked, no audit row):
                                                        opens the list page by page (``brain_views.limit``)
     POST /admin/access/check    (admin.access_check)   wer, fuer, pointer: may X read this document, yes or no, why
     POST /admin/access/search   (admin.access_search)  wer, fuer, query: what a search finds as X, names only
+    POST /admin/access/enforcement  (admin.access_enforcement)  mode (ein | aus), bestaetigt=1: one administrator
+                                                       switches the position; the Core decides (CR-R8)
 
 ``wer`` is ``person:<id>``, ``role:<id>`` or ``agent:<id>``; ``fuer`` the person the Knovas Assistent acts for (it
 never acts alone), ignored for everyone else. X's groups are exactly what the Core would receive in X's claim
@@ -28,6 +31,17 @@ Every answered question writes one audit row ``access.what_sees`` by id, in the 
 only the page's own line, with 503. Logs hold ids, counts and error classes only, never a pointer, query, title, name
 or group.
 Work order docs/platform-mvp/work-orders/PMVP-41.md; frozen tests tests/test_pmvp41_what_sees_acceptance.py.
+
+The page also says in one sentence which position the firm's Knovas is in, as the Core reports it
+(``client.rbac_posture()``, CR-R1a): «Ein» (``brokered``), «Aus» (``disabled``), teilweise (``enforcing``, an
+exception) or unbekannt (no such call, an error, anything else); while the Core reports ``not_ready`` codes, why «Ein»
+is not possible yet, in the page's words. One administrator switches it after ticking the confirmation: the Platform
+sends ``set_rbac_posture("brokered")`` for «Ein» or ``("disabled")`` for «Aus», once, and draws the page from what the
+Core reports afterwards. The Core alone decides whether «Ein» is allowed (a broker key, a complete backfill, two green
+rights runs under ``brokered``); the Platform checks no precondition, keeps no record of runs, never sends
+``enforcing`` and never offers Probe. No second administrator, no approvals module, no bypass setting takes part.
+Audit rows ``enforcement.switched`` / ``enforcement.switch_refused`` by id, after the Core answered.
+Work order docs/platform-mvp/work-orders/PMVP-42.md; frozen tests tests/test_pmvp42_enforcement_switch_acceptance.py.
 """
 from __future__ import annotations
 
@@ -79,6 +93,36 @@ _ROLE_SEARCH = "Eine Rolle sucht nicht: Bitte eine Person oder einen Agenten wä
 _NO_QUERY = f"Bitte einen Suchbegriff angeben, 1 bis {QUERY_MAX} Zeichen."
 _UNREADABLE = "Knovas hat nicht geantwortet. Es wird nichts gezeigt; bitte später erneut versuchen."
 _NOT_AUDITED = "Die Abfrage konnte nicht protokolliert werden. Es wird nichts angezeigt."
+
+#: The position the page names, by the mode the Core reports (CR-R1a); every other answer is «unbekannt».
+POSITIONS = {"brokered": "ein", "disabled": "aus", "enforcing": "teilweise"}
+#: What a switch asks the Core for (CR-R8): «Ein» is brokered, «Aus» disabled. Never enforcing, never Probe.
+TO_CORE = {"ein": "brokered", "aus": "disabled"}
+SWITCHED, SWITCH_REFUSED = "enforcement.switched", "enforcement.switch_refused"
+#: Every attempt is recorded before anything is sent; its outcome follows in a row of its own: switched, refused (with
+#: the Core's code), failed (the Core answered with an error) or unknown (its answer was lost: it may have switched).
+SWITCH_ATTEMPTED, SWITCH_FAILED, SWITCH_UNKNOWN = ("enforcement.switch_attempted", "enforcement.switch_failed",
+                                                   "enforcement.switch_unknown")
+#: Why the Core does not (yet) allow «Ein», per its code (CR-R8), in the page's words: never the bare code.
+REASONS = {
+    "no_broker_key": "Knovas kennt den Schlüssel dieser Plattform noch nicht. Ohne ihn kann Knovas nicht prüfen, für "
+                     "wen die Plattform fragt.",
+    "backfill_incomplete": "Knovas hat die Rechte der Dokumente, die schon eingelesen sind, noch nicht vollständig "
+                           "nachgeführt.",
+    "rights_runs_missing": "Für die Version von Knovas, die läuft, fehlen noch die zwei grünen Rechteläufe, die Knovas "
+                           "vor «Ein» verlangt.",
+}
+REASON_OTHER = "Knovas lässt «Ein» noch nicht zu und nennt einen Grund, den diese Seite nicht kennt."
+_BAD_MODE = "Bitte «Ein» oder «Aus» wählen."
+_CONFIRM = "Bitte die Folgen bestätigen (Häkchen setzen) und erneut absenden. Es wurde nichts umgeschaltet."
+_WAITS = ("Die Umschaltung wartet auf Knovas: Knovas bietet sie diesem Mandanten noch nicht an. Es wurde nichts "
+          "umgeschaltet.")
+_ALREADY = "Diese Stellung gilt schon. Es wurde nichts umgeschaltet."
+_SWITCH_FAILED = "Knovas hat das Umschalten mit einem Fehler beantwortet. Die Stellung oben ist die, die Knovas meldet."
+_SWITCH_UNKNOWN = ("Die Antwort von Knovas ist ausgeblieben: Ob umgeschaltet wurde, ist unbekannt. Die Stellung oben ist "
+                   "die, die Knovas jetzt meldet.")
+_NOT_RECORDED = "Der Versuch konnte nicht protokolliert werden. Es wurde nichts an Knovas gesendet."
+_ROW_MISSING = "Der Protokolleintrag dazu konnte nicht geschrieben werden."
 
 
 class Refused(Exception):
@@ -313,6 +357,49 @@ def clean_query(value: Any) -> str:
     return text
 
 
+# -- the enforcement position (PMVP-42) --------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Position:
+    """The firm's enforcement position as the Core reports it now."""
+
+    value: str  # ein | aus | teilweise | unbekannt
+    #: the Core's mode when it reported one the page knows, else None
+    mode: Optional[str] = None
+    #: the Core offers the tenant its own switch (CR-R1a's tenant_switch)
+    switchable: bool = False
+    #: why «Ein» is not possible yet, in the page's words (never the bare code)
+    not_ready: Tuple[str, ...] = ()
+
+    @property
+    def offers(self) -> Tuple[str, ...]:
+        """The positions the switch offers: the other one; both from teilweise or while the position is unknown."""
+        return {"aus": ("ein",), "ein": ("aus",)}.get(self.value, ("ein", "aus"))
+
+
+def reason_for(code: Any) -> str:
+    """The page's words for a code of the Core's (CR-R8); one sentence for every code it does not know."""
+    return REASONS.get(code, REASON_OTHER) if isinstance(code, str) else REASON_OTHER
+
+
+def position_of(client) -> Position:
+    """What the client reports (``rbac_posture``, CR-R1a). No such call, an error or anything but a dict: unbekannt."""
+    getter = getattr(client, "rbac_posture", None)
+    posture = None
+    if callable(getter):
+        try:
+            posture = getter()
+        except Exception as exc:  # noqa: BLE001 - unknown is a position of its own, never a guess
+            logger.info("Knovas did not report the enforcement position: %s", type(exc).__name__)
+    if not isinstance(posture, Mapping):
+        return Position("unbekannt")
+    mode = posture.get("mode") if posture.get("mode") in POSITIONS else None
+    codes = posture.get("not_ready")
+    reasons = tuple(dict.fromkeys(reason_for(c) for c in codes)) if isinstance(codes, (list, tuple)) else ()
+    return Position(POSITIONS.get(mode, "unbekannt"), mode, posture.get("tenant_switch") is True, reasons)
+
+
 # -- the routes --------------------------------------------------------------------------------------------------------
 
 
@@ -332,10 +419,12 @@ def attach_access_routes(bp, gate, *, csrf_valid, csrf_token, page_context, clie
                   for a in AgentStore(conn).list_agents() if not a.revoked]
         return {"people": people, "roles": roles, "agents": agents}
 
-    def _page(*, answer=None, error=None, status=200, chosen=None):
+    def _page(*, answer=None, error=None, status=200, chosen=None, notice=None, switch_open=None):
+        """The page, with the position as the Core reports it now (PMVP-42): also after a switch or a refusal."""
         return render_template(
             "admin_access.html", active_nav="admin", **page_context(), **_offer(), answer=answer, error=error,
-            chosen=chosen or {}, csrf_token=csrf_token(), more_text=more_text,
+            chosen=chosen or {}, csrf_token=csrf_token(), more_text=more_text, notice=notice,
+            position=position_of(client_factory()), switch_open=switch_open,
         ), status
 
     @bp.route("/access")
@@ -440,5 +529,66 @@ def attach_access_routes(bp, gate, *, csrf_valid, csrf_token, page_context, clie
     @require_admin
     def access_search():
         return _ask("search", _Search)
+
+    # -- the switch (PMVP-42) ----------------------------------------------------------------------------------------
+
+    def _switch_row(conn, me, tenant, action: str, detail: dict, outcome: str = "ok") -> bool:
+        """The switch's audit row after the Core answered (``record_or_raise``): False, logged by its code, when it
+        cannot be written. The Core's answer stands either way; the page then says the row is missing."""
+        try:
+            audit.record_or_raise(conn, action=action, actor=me, target_type="enforcement", target_id=tenant,
+                                  outcome=outcome, detail=detail)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Enforcement %s by %s: no audit row, %s", action, me.id, audit._error_code(exc))
+            return False
+
+    @bp.route("/access/enforcement", methods=["POST"])
+    @require_admin
+    def access_enforcement():
+        """One administrator switches «Ein» or «Aus» after the confirmation; the Core decides, the page shows what it
+        reports. Refused before the Core, nothing sent: a bad mode or no confirmation (400); the Core not offering
+        the switch, or the position already active (409)."""
+        if not _csrf_ok():
+            return _page(error=_EXPIRED, status=400)
+        wanted = str(request.form.get("mode", "") or "")
+        target = TO_CORE.get(wanted)
+        if target is None:
+            logger.info("Enforcement switch refused: no such position")
+            return _page(error=_BAD_MODE, status=400)
+        if str(request.form.get("bestaetigt", "") or "") != "1":
+            logger.info("Enforcement switch to %s refused: not confirmed", target)
+            return _page(error=_CONFIRM, status=400, switch_open=wanted)
+        client, conn, me = client_factory(), gate.connection(), gate.current_user()
+        before = position_of(client)
+        if not before.switchable:
+            logger.info("Enforcement switch to %s refused: Knovas does not offer it", target)
+            return _page(error=_WAITS, status=409)
+        if before.mode == target:
+            return _page(error=_ALREADY, status=409)
+        tenant = str(getattr(client, "customer_id", "") or "") or None
+        # The attempt's row first, with a write that raises: without it nothing is sent.
+        if not _switch_row(conn, me, tenant, SWITCH_ATTEMPTED, {"from": before.mode, "to": target}):
+            return _page(error=_NOT_RECORDED, status=503)
+        try:
+            answer = client.set_rbac_posture(target)
+        except Exception as exc:  # noqa: BLE001 - recorded, said in the page's words; the position is read again
+            answered = getattr(getattr(exc, "response", None), "status_code", None)
+            action, words = (SWITCH_FAILED, _SWITCH_FAILED) if answered else (SWITCH_UNKNOWN, _SWITCH_UNKNOWN)
+            logger.warning("Enforcement switch to %s: %s (%s, HTTP %s)", target, action, type(exc).__name__,
+                           answered or "-")
+            written = _switch_row(conn, me, tenant, action, {"to": target, "error": type(exc).__name__,
+                                                            "status": answered}, outcome="error")
+            return _page(error=words if written else f"{words} {_ROW_MISSING}", status=502)
+        if answer is None or (isinstance(answer, Mapping) and answer.get("refused")):
+            code = "no_route" if answer is None else str(answer["refused"])
+            logger.info("Enforcement switch to %s refused by Knovas (%s) for %s", target, code, me.id)
+            written = _switch_row(conn, me, tenant, SWITCH_REFUSED, {"to": target, "code": code}, outcome="denied")
+            words = _WAITS if answer is None else f"Knovas hat nicht umgeschaltet: {reason_for(code)}"
+            return _page(error=words if written else f"{words} {_ROW_MISSING}", status=409)
+        if not _switch_row(conn, me, tenant, SWITCHED, {"from": before.mode, "to": target}):
+            return _page(error=f"Knovas hat umgeschaltet. {_ROW_MISSING}", status=500)
+        logger.info("Enforcement switched from %s to %s by %s", before.mode, target, me.id)
+        return _page(notice="Knovas hat umgeschaltet. Die Stellung oben ist die, die Knovas jetzt meldet.")
 
     return bp

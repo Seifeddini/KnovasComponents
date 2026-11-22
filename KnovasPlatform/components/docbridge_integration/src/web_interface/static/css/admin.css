@@ -2361,3 +2361,33 @@
 .what-sees-groups { overflow-wrap: anywhere; }
 .what-sees-pages { display: flex; flex-wrap: wrap; gap: var(--k-space-xs); margin-top: var(--k-space-xs); }
 .what-sees-pages:empty { display: none; }
+
+/* Zugriff: Durchsetzung (PMVP-42; 05-zugriff.html, the state line): the position, why «Ein» waits, the switch. */
+.access-state {
+    display: grid;
+    gap: var(--k-space-xs);
+    padding: var(--k-space-sm) var(--k-space-md);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-gray-50);
+    overflow-wrap: anywhere;
+}
+.access-position, .access-waits, .access-switch fieldset > p { margin: 0; }
+.access-position strong, .access-not-ready > p { color: var(--k-color-text-strong); }
+.access-not-ready > p { margin: 0; font-weight: var(--k-weight-medium); }
+.access-not-ready > ul { margin: var(--k-space-3xs) 0 0; padding-left: var(--k-space-lg); }
+.access-switch > summary { width: fit-content; cursor: pointer; font-weight: var(--k-weight-medium); color: var(--k-color-accent); }
+.access-switch > summary:focus-visible { outline: 2px solid var(--k-color-accent); outline-offset: 2px; }
+.access-switch fieldset {
+    display: grid;
+    gap: var(--k-space-xs);
+    min-width: 0;
+    margin: var(--k-space-xs) 0 0;
+    padding: var(--k-space-sm) var(--k-space-md);
+    border: 1px solid var(--k-color-border-strong);
+    border-radius: var(--k-radius-md);
+    background: var(--k-color-surface);
+}
+.access-switch legend { font-weight: var(--k-weight-semibold); color: var(--k-color-text-strong); }
+.admin-page .admin .access-confirm { display: flex; gap: var(--k-space-xs); align-items: flex-start; margin: 0; }
+.admin-page .admin .access-confirm input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.access-switch fieldset > button { justify-self: start; }
