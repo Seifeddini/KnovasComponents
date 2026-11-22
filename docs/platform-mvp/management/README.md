@@ -50,7 +50,8 @@ branch reaches main only through a pull request a person reviews and merges; the
 | Agents: one signed claim for every agent; the Knovas Assistent in every role but Administration, answering with its own claim | RB-6 | verified (with notes); not yet integrated | critical (a migration, with RB-7): management |
 | External agents: the Agenten page, agents on the role page, their claims handed to the Core's gateway behind a switch (off) | RB-7 | verified (with notes); the agent rows on the role page added after RB-3/RB-4 were integrated; not yet integrated; acts with the Core's CR-R1, CR-R5, CR-R6 | critical (a migration, signing and claims): management |
 | Cleanup | CLEANUP-1 | in build; nothing pushed | sensitive: Siran |
-| Clean-up after the role builder: no customer text in the Knovas client's log lines; who holds a group counts her roles; the role builder's pages get cards of their own; two bad inputs answered with the page instead of an error | RB-FIX-1 | built; no verification verdict yet | sensitive: Siran |
+| Clean-up after the role builder: no customer text in the Knovas client's log lines; who holds a group counts her roles; the role builder's pages get cards of their own; two bad inputs answered with the page instead of an error | RB-FIX-1 | verified (with notes); integrated | sensitive: Siran |
+| The verifier's notes on RB-FIX-1: no address or Knovas text in the errors the Knovas client raises or in the HTTP library's warnings; how an operator finds Knovas's own message | RB-FIX-2 | built; no verification verdict yet | sensitive: Siran |
 | No customer text in logs (pull request #55) | maintenance | verified (second verification, with notes); not on main, not in the build branch | open: no class named |
 | Not started (no work order) | PMVP-02, 04, 22b, 23, 24, 30b, 31–34, 41–43, 60–62; RB-5, RB-9, RB-10 (RB-8 dropped: "Core gateway only") | not started | as the plan and the role builder's design say |
 
