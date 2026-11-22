@@ -118,7 +118,8 @@ class TestGraphError:
             client.graph_node("n1")
         assert caught.value.status == 422
         assert caught.value.error_code == "identifier_limit_exceeded"
-        assert caught.value.message == "Max 16"
+        # RB-FIX-2: the Core's text is not kept; the code says what happened.
+        assert caught.value.message == "" and "Max 16" not in str(caught.value)
 
     def test_a_503_carries_its_code_so_a_route_can_say_retry(self):
         client = self._client_answering(503, {"error_code": "relevance_calibration_missing"})
