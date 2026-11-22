@@ -290,6 +290,9 @@ Nothing scrolls sideways at 390 px (`facts-42.json`).
   the row-missing test fails only the outcome's row; a failing Core is now recorded as `switch_unknown`.
 - `origin/feat/platform-mvp` merged first (PMVP-41 integrated, the Brain-tools mode). `_rbac_request` gained the
   keyword `once` (default off): the one change outside the two calls, made for this fix.
+- **Checks, pinned environment, after the fix:** frozen check 13 OK; `test_pmvp42_enforcement_switch_acceptance.py`
+  18, `test_pmvp41_what_sees_acceptance.py` 31, `test_web_admin_*.py` 944, `test_shell_*.py` 404,
+  `test_knovas_client_*.py` 329: 1,726 passed in 33 files, each in a process of its own, nothing failed or skipped.
 
 ### Open, for the coordinator, the verifier and management
 
