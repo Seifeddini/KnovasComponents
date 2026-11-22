@@ -19,7 +19,7 @@ source_paths:
 purpose: The frame every Platform page shares - the one navigation, which shows the area a person is in and links to the areas they may enter, and the Knovas look of fonts, logo, shared styles and page parts.
 responsible_for:
 - id: L2-PLATFORM-SHELL/R-1
-  statement: 'The navigation: one partial every page includes, which shows only the area the page is in and marks the current page. In the Workspace that is the search, with the links to Verwaltung and to the Builder at the foot for a person who may open a page there; in Verwaltung it is the way back to the Workspace and the Admin pages the person may open. Its style rules are a stylesheet of their own.'
+  statement: 'The navigation: one partial every page includes, which shows only the area the page is in and marks the current page. In the Workspace that is the search, with the links to Verwaltung and to the Builder at the foot for a person who may open a page there, and, while the assistant is on, the person''s chats under the menu (PMVP-23: «+ Neue Frage», the newest 20 grouped by their last change, the open one marked, «Alle Gespräche»), in a <nav> of its own after the menu; in Verwaltung it is the way back to the Workspace and the Admin pages the person may open. Its style rules are a stylesheet of their own.'
   code:
   - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_sidebar.html
   - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/shell.css
@@ -42,6 +42,7 @@ responsible_for:
   - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/parts.css
 not_responsible_for:
 - Deciding who may enter an area; each area's routes refuse on their own (the console's role gates, the Builder's permissions). The link is presentation.
+- Which chats a person has and whether the assistant is on; the assistant's route hands the block in (assistant_routes.py, assistant_chats, L2-PLATFORM-ASSISTANT) and the partial draws what it is handed.
 - Computing which links a person gets; the Platform's web app does (app.py, _sidebar_context). For Verwaltung it reads the roles each console route's own gate lets in (_admin_pages), for the Builder it asks the Builder's own check (_builder_nav); the partial draws what it is handed and names no role.
 - The Builder's own menu and its way back to the Workspace (templates/builder/_base.html, the Builder's card).
 - The content of the pages.
@@ -122,6 +123,15 @@ uses:
   expects:
   - L2-BRAIN-BUILDER/home/N-1
   method: the link «Builder» (url_for('builder.home')), drawn when the web app's builder_nav says the person may build
+- component: L2-PLATFORM-ASSISTANT
+  operations:
+  - http.GET.fragen._chat_id
+  - http.GET.fragen.verlauf
+  expects:
+  - L2-PLATFORM-ASSISTANT/http.GET.fragen._chat_id/N-1
+  method: 'the Workspace''s chat block (PMVP-23): the links to the person''s chats and to «Alle Gespräche», built by
+    the assistant''s route with url_for and handed in through assistant_chats(open_chat); nothing is drawn when it
+    hands in nothing (the assistant off, nobody signed in, the list unreadable)'
 hides:
 - The navigation's markup and the order of its entries.
 - The style rules behind the shared look.
@@ -146,3 +156,10 @@ review:
   why: 'Founder, 2026-11-20 (work order PMVP-11): Cortex, Experimente, Eigene Ansichten, Einstellungen and Feedback have no entry until a later item places them; their pages answer as before, and the person''s block at the foot still leads to the settings. The web app still computes their switches (cortex_enabled, experiments_nav, custom_views_nav, feedback_url); the partial draws none of them. How the web app reads a gate: each of the console''s gates (admin.py, _require_roles) puts the set of roles it checks on the view it returns, as allowed_roles, and app.py reads that attribute from the registered view. A view without it gives no link (closed, not open); test_shell_nav_links.py holds both and fails when a console route lacks the attribute. The coordinator decided this on 2026-11-21 in place of reading the gate''s closure (inspect.getclosurevars), which a rewritten gate would have broken without a sound, and allowed admin.py for this one attribute.'
 - at: /uses
   why: The templates are not read by the code reader (Python only), so these dependencies are declared, not observed.
+- at: L2-PLATFORM-SHELL/R-1
+  why: 'PMVP-23 added the chat block to the Workspace''s side of the partial and its rules to shell.css. The block
+    uses the partial''s own classes (app-nav-item, app-nav-group) and is styled through its data attributes
+    (data-chats and its parts), so the navigation''s rules, the frozen PMVP-11 test (the first <nav> is the menu, the
+    search alone) and the style tests (the classes the partial draws) stay as they are. In a narrow window the list
+    folds behind «Gespräche» with a checkbox and its label, without a script. The partial names no role; the route
+    decides what is listed (the person''s own chats only).'

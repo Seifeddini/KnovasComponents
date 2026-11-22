@@ -8,6 +8,34 @@
 
 /* --- the answer ------------------------------------------------------------ */
 .ask-main { padding-top: var(--k-space-lg); }
+
+/* --- a chat: one section per turn (PMVP-23) --------------------------------- */
+/* The first question is the page head; a later one is a heading of the next level over its answer. The 303 after a
+   question lands on the newest turn's section (its id), so it keeps a little room above it. */
+.ask-turn { min-width: 0; scroll-margin-top: var(--k-space-md); }
+.ask-turn + .ask-turn {
+    margin-top: var(--k-space-xl);
+    padding-top: var(--k-space-lg);
+    border-top: 1px solid var(--k-color-border);
+}
+.ask-turn-question {
+    margin: 0 0 var(--k-space-md);
+    font-size: var(--k-text-xl);
+    font-weight: var(--k-weight-semibold);
+    line-height: var(--k-leading-snug);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+/* A stored answer that is not in the stored shape: its text as one paragraph. */
+.ask-plain {
+    margin: 0;
+    font-size: var(--k-text-base);
+    line-height: var(--k-leading-normal);
+    color: var(--k-color-text);
+    overflow-wrap: anywhere;
+}
+/* The line under a reply whose chat could not be written. */
+.ask-notice { margin: var(--k-space-sm) 0 0; color: var(--k-color-warning-fg); }
 .ask-answer { display: flex; flex-direction: column; min-width: 0; }
 .ask-statement {
     margin: 0 0 var(--k-space-sm);
@@ -112,6 +140,48 @@
     color: var(--k-color-text);
 }
 .ask-again-input:focus { outline: none; }
+
+/* --- deleting a chat: a quiet button under the box -------------------------- */
+.ask-delete { margin-top: var(--k-space-sm); text-align: right; }
+.ask-delete-button {
+    padding: var(--k-space-3xs) var(--k-space-xs);
+    border: 0;
+    border-radius: var(--k-radius-sm);
+    background: transparent;
+    font: inherit;
+    font-size: var(--k-text-sm);
+    color: var(--k-color-text-muted);
+    cursor: pointer;
+}
+.ask-delete-button:hover { color: var(--k-color-danger-fg); }
+.ask-delete-button:focus-visible { outline: 2px solid var(--k-color-accent); outline-offset: 1px; }
+
+/* --- all chats (GET /fragen/verlauf) ----------------------------------------- */
+.ask-chats {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.ask-chat {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--k-space-3xs) var(--k-space-md);
+    min-width: 0;
+    padding: var(--k-space-xs) 0;
+    border-bottom: 1px solid var(--k-color-border);
+}
+.ask-chat-title { min-width: 0; overflow-wrap: anywhere; }
+.ask-pages {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--k-space-md);
+    margin: var(--k-space-md) 0 0;
+    font-size: var(--k-text-sm);
+}
 
 /* --- the switch in the search page's box: Fragen / Suchen ------------------ */
 /* Its own row above the box, so the box keeps the shape it has without the assistant. Each choice is a radio

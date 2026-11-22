@@ -1,6 +1,6 @@
 # The Knovas Assistent
 
-State on 21 November 2026. Overview and status words: [README.md](README.md).
+State on 22 November 2026. Overview and status words: [README.md](README.md).
 
 ## What it is
 
@@ -19,10 +19,17 @@ name.
   document's title and page and a link that opens the document as a search hit does. All passages are listed below.
 - **See that something was left out** ("2 Aussagen ohne Beleg ausgelassen"), never the removed text.
 - **Get a plain message** when the service is busy ("ausgelastet") or fails; never half an answer.
+- **Ask on in the same chat** (PMVP-23): every answered question becomes her chat, and the box under the answer
+  («Nachfragen oder etwas Neues fragen …») asks a follow-up there. «Und wer hat unterschrieben?» after a question on
+  a contract is searched together with that question, so it finds the same contract.
+- **Find her chats again** (PMVP-23): the sidebar shows «+ Neue Frage» and her newest 20 chats under «Heute»,
+  «Diese Woche» and «Früher», the open one marked; «Alle Gespräche» lists every chat, 50 a page. She opens one and
+  reads it as it was answered, asks on in it, or deletes it («Gespräch löschen», asked first). A document of an old
+  chat opens after the Core confirms she may still read it. On a phone the list folds behind «Gespräche».
 - **An administrator** switches the assistant on, chooses provider and model, enters the key and presses
   "Verbindung testen" (PMVP-25).
-- **Not yet:** follow-up questions and past chats (PMVP-23), the passage opened inside the document (PMVP-22b),
-  waiting states (PMVP-24).
+- **Not yet:** the passage opened inside the document (PMVP-22b), waiting states (PMVP-24), renaming or searching
+  chats (W-10, 12 January).
 
 **The five checks.** A statement is shown only if (1) it is in the agreed form, (2) its source is a passage this
 person's search returned, (3) its quote stands word for word in that passage (three words or more), (4) every number in
@@ -48,8 +55,13 @@ slips.
 - **Documents open** only for this reply's passages and only for this person; the question is kept out of the page
   address, so it does not reach the web server's access log.
 - **The key** is stored encrypted and never shown, logged or put into an error; without a key no call is made.
-- **Chats:** only the owner reads or deletes them; another person's chat looks like a missing one; deleting removes
-  messages and references; removing a person removes her chats.
+- **Chats:** only the owner reads, continues or deletes them; another person's chat, a missing one and a wrong
+  address all answer the same "not found", before anything is asked or opened; deleting removes messages and
+  references; removing a person removes her chats. A stored answer keeps its passages (owner only, deleted with
+  it, never sent to the model again: a follow-up sends the earlier statements only). Chats are **deleted
+  automatically 90 days after their last message**, by a job in each web worker that runs once a day for the whole
+  installation; the audit log records how many, nothing else. A question and its answer are stored together or not
+  at all; if storing fails, the answer is shown once with «Dieses Gespräch konnte nicht gespeichert werden.».
 - **Off by default:** while off, the ask page does not answer and the box only searches.
 
 ## Where it stands
@@ -63,7 +75,7 @@ slips.
 | PMVP-22a | the ask page | built; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-25 | switch, provider and model, key, connection test | built; no verification verdict yet | management (critical: a secret) |
 | PMVP-22b | passage in the document | not started | routine |
-| PMVP-23 | follow-up questions and past chats (list, open, delete; deleted after 90 days) | work order decided 22 Nov; acceptance tests frozen; not started | Siran (sensitive) |
+| PMVP-23 | follow-up questions and past chats (list, open, delete; deleted after 90 days); takes up FU-01, FU-02, FU-03, FU-06, FU-07 | built 22 Nov on `feat/pmvp-23` (33 frozen acceptance tests pass); no verification verdict yet; no migration | Siran (sensitive) |
 | PMVP-24 | waiting line, a time limit under the web server's, failure states | work order decided 22 Nov; after PMVP-23 | Jannik or Siran (routine) |
 | RB-6 | the assistant as a member of roles, answering with its own claim narrowed to the person | built; no verification verdict yet | management (critical: a migration, with RB-7) |
 
@@ -79,6 +91,8 @@ slips.
 | 21 Nov | coordinator | No automatic retry towards Anthropic, so no question outlasts the web server's 180 seconds; the key has no setting in the deployment files |
 | 19 Nov | verification record | Chat storage is critical under the repository's rule for database changes (the plan said sensitive) |
 | 21 Nov | founder | The Platform signs agents' claims, the assistant's too; one rule for every agent (its roles, narrowed to the person) |
+| 22 Nov | founder | A chat keeps its passages (owner only, deleted with it); chats are deleted automatically 90 days after their last message, by a daily job that runs once however many web workers there are |
+| 22 Nov | coordinator | A follow-up searches the chat's last question and the follow-up together (D1); the sidebar shows the newest 20 chats and «Alle Gespräche» (D4) |
 
 ## Known limits and open points
 
@@ -93,11 +107,18 @@ slips.
 - **Provider terms (FU-33):** region, retention and client contracts are open before the first law firm; the decision
   record is not yet written.
 - **Number check too generous** today (it reads the whole passage); the hardening is in build.
-- **Smaller points:** long chats (FU-06, FU-07), a slow Core against the web server's time limit (FU-08), the demo
-  profile (FU-10), input edge cases in chat storage (FU-01 to FU-03).
+- **Smaller points:** a slow Core against the web server's time limit (FU-08, PMVP-24), the demo profile (FU-10).
+  Taken up by PMVP-23: long chats (FU-06: a history of numbers is weighed as tokens; FU-07: the newest question and
+  answer are cut, not dropped), input edge cases in chat storage (FU-01: bad characters and page numbers are
+  cleaned and a failed write answers with a message, not an error; FU-02: a long question is cut to a 200-character
+  title; FU-03: the list comes in pages).
+- **Follow-ups (D1):** a follow-up is searched together with the chat's last question. A follow-up that changes
+  the subject still carries the last question into the search, and "und im ersten Vertrag?" further back is not
+  resolved; a second model call that rewrites the follow-up was not taken (cost, time, a generation slot).
 - **The component card** still says "planned" and names withdrawn test files (FU-18).
-- **Decided by the founder on 22 Nov (PMVP-23):** a stored chat keeps the text of its passages (owner only, deleted
-  with it); chats are deleted automatically 90 days after their last message (the coordinator's reading of "90 days").
+- **Decided by the founder on 22 Nov (PMVP-23), built:** a stored chat keeps the text of its passages (owner only,
+  deleted with it); chats are deleted automatically 90 days after their last message (the coordinator's reading of
+  "90 days").
 
 ## Depends on
 
