@@ -11,7 +11,9 @@
    busy, failed: the plain message and nothing else (POST-06).
    stored:    a stored answer that does not parse, as one plain paragraph without chips.
    Then the box: on a chat it asks a follow-up (POST /fragen/<id>), else a new question (POST /fragen); and on a
-   chat «Gespräch löschen» (static/js/ask.js asks first; without JavaScript it deletes at once).
+   chat «Gespräch löschen» (static/js/ask.js asks first; without JavaScript it deletes at once). Under the box the
+   waiting line (PMVP-24): an empty status line that ask.js fills with its three fixed texts while a question is
+   on its way; its two times are its data- attributes (the form's start tag stays as PMVP-22a's tests read it).
 
    view 'verlauf': all of the person's chats, newest first, 50 a page (GET /fragen/verlauf).
 
@@ -134,6 +136,7 @@
                            placeholder="{% if chat_id %}Nachfragen oder etwas Neues fragen …{% else %}Etwas Neues fragen …{% endif %}" required>
                     <button type="submit" class="btn btn-primary">Fragen</button>
                 </form>
+                <p class="ask-wait" role="status" aria-live="polite" data-wait-slow-ms="20000" data-wait-giveup-ms="170000"></p>
                 {% if chat_id %}
                 <form class="ask-delete" method="post" action="{{ url_for('assistant.delete_chat', chat_id=chat_id) }}"
                       data-confirm="Dieses Gespräch löschen? Das lässt sich nicht rückgängig machen.">

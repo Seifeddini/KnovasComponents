@@ -440,3 +440,11 @@ def test_the_package_is_ascii_only():
     root = Path(svc.__file__).parent
     for path in root.glob("*.py"):
         assert all(b < 128 for b in path.read_bytes()), path.name
+
+
+def test_the_instruction_keeps_numbers_out_of_titles():
+    """PMVP-20 context (the coordinator, 2026-11-22): on the demo tenant question 4 named the matter number of the
+    file name in every statement; the number check reads only the cited passage's text."""
+    assert ("Every number, date and file number in a statement must appear in the text of the passage you cite, "
+            "never only in its title or file name") in SYSTEM_INSTRUCTION
+    assert _size(SYSTEM_INSTRUCTION) <= svc.CORE_MAX_SYSTEM_BYTES

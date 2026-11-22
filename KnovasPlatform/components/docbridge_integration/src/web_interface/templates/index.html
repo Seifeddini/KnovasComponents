@@ -61,6 +61,9 @@
                     {% endif %}
                 </div>
                 {% if ask_on %}
+                {# The waiting line (PMVP-24): ask.js fills it while the question is on its way; its two times are
+                   its data- attributes. #}
+                <p class="ask-wait" role="status" aria-live="polite" data-wait-slow-ms="20000" data-wait-giveup-ms="170000"></p>
                 </form>
                 {% endif %}
                 <!-- Dokumentfelder: nur sichtbar, wenn Knovas die Liste oder

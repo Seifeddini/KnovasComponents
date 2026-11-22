@@ -138,12 +138,18 @@ def chosen_mode(value: Any) -> Optional[str]:
 
 
 def make_anthropic_generate(*, api_key: Value, model: Value = DEFAULT_ANTHROPIC_MODEL,
-                            client_factory: Optional[ClientFactory] = None) -> GenerateFn:
+                            client_factory: Optional[ClientFactory] = None,
+                            time_left: Optional[Callable[[], float]] = None) -> GenerateFn:
     """``generate(*, system_instruction, messages, max_tokens) -> str`` through Claude.
 
     ``api_key`` and ``model`` are values or callables giving them; callables are asked on every call (the
     settings page's values, read through the Resolver). ``client_factory(api_key=..., timeout=...,
-    max_retries=...)`` builds the client; by default ``anthropic.Anthropic``. Tests pass a fake.
+    max_retries=...)`` builds the client; by default ``anthropic.Anthropic``. Tests pass a fake. ``time_left``
+    (PMVP-24): the seconds the answer's deadline leaves; the call then ends within the smaller of
+    ``ANTHROPIC_TIMEOUT_SECONDS`` and that by the wall clock, however slowly Anthropic answers (the client's own
+    timeout bounds each read only): it runs in a worker thread (``assistant.core.call_within``), and past its time
+    the client is closed and the answer fails as a timeout, which the answer's deadline reads as busy. Without
+    ``time_left``, the client waits ``ANTHROPIC_TIMEOUT_SECONDS`` per read, as before.
     """
 
     def generate(*, system_instruction: str, messages: List[Dict[str, str]], max_tokens: int) -> str:
@@ -166,19 +172,29 @@ def make_anthropic_generate(*, api_key: Value, model: Value = DEFAULT_ANTHROPIC_
         }
         import anthropic  # the SDK; imported here so that the settings page does not load it
 
+        from assistant.core import OutOfTime, call_within
+
         factory = client_factory or _sdk_client
         started = time.monotonic()
         response: Any = None
         failure: Optional[CoreError] = None
         client: Any = None
         try:
-            client = factory(api_key=key, timeout=ANTHROPIC_TIMEOUT_SECONDS,
-                             max_retries=ANTHROPIC_MAX_RETRIES)
-            response = client.beta.messages.create(**request)
+            timeout = ANTHROPIC_TIMEOUT_SECONDS if time_left is None else max(
+                1.0, min(ANTHROPIC_TIMEOUT_SECONDS, float(time_left())))
+            client = factory(api_key=key, timeout=timeout, max_retries=ANTHROPIC_MAX_RETRIES)
+            if time_left is None:
+                response = client.beta.messages.create(**request)
+            else:
+                response = call_within(timeout, lambda: client.beta.messages.create(**request),
+                                       on_overrun=lambda: _close(client), name="anthropic")
         except anthropic.AnthropicError as exc:
             failure = _mapped(exc, anthropic)
             logger.warning("Knovas Assistent: anthropic call failed (%s%s) model=%s ms=%d",
                            type(exc).__name__, _status_note(failure), name, _ms(started))
+        except OutOfTime:
+            failure = CoreFailed("anthropic_timeout")
+            logger.warning("Knovas Assistent: anthropic call ran out of time model=%s ms=%d", name, _ms(started))
         finally:
             _close(client)
         if failure is not None:

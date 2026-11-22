@@ -23,7 +23,7 @@ from typing import Any, Iterable, Optional, Tuple
 MAX_DRAWN = 25
 PAGE_SIZE = 50
 
-__all__ = ["MAX_DRAWN", "PAGE_SIZE", "Bounded", "Page", "bounded", "more_text", "page_number", "paged"]
+__all__ = ["FAR_PAGE", "MAX_DRAWN", "PAGE_SIZE", "Bounded", "Page", "bounded", "more_text", "page_number", "paged"]
 
 
 @dataclass(frozen=True)
@@ -102,16 +102,22 @@ def more_text(rest: int) -> str:
     return f"{rest} weitere"
 
 
+FAR_PAGE = 10 ** 9
+
+
 def page_number(value: Any) -> int:
-    """A page number as an address gives it (``?seite=2``): a whole number from 1, anything else is page 1.
-    ``paged`` turns a number past the last page into the last page."""
+    """A page number as an address gives it (``?seite=2``): a whole number from 1, anything else is page 1. A number
+    of more than nine digits is ``FAR_PAGE`` (it is not converted), which ``paged``, like any number past the last
+    page, turns into the last page."""
     if isinstance(value, bool):
         return 1
     if isinstance(value, int):
         return max(value, 1)
     text = str(value).strip() if value is not None else ""
-    if not text.isascii() or not text.isdigit() or len(text) > 9:
+    if not text.isascii() or not text.isdigit():
         return 1
+    if len(text) > 9:
+        return FAR_PAGE
     return max(int(text), 1)
 
 

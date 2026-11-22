@@ -1,0 +1,338 @@
+card: 2
+id: L2-PLATFORM-PROCESS-LINE
+name: Ablauf
+kind: code
+owner: ROLE-ENGINE-OWNER
+status: planned
+level: 2
+parent: L1-WORKSPACE
+source_paths:
+- KnovasPlatform/components/docbridge_integration/src/brain_views/process_line.py
+- KnovasPlatform/components/docbridge_integration/src/web_interface/process_line_routes.py
+- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ablauf.html
+- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ablauf_alle.html
+purpose: 'Shows a Workspace member where one thing stands in its process: the main path with the current step, since when,
+  what is still missing, what comes next, the other ways on request, and the other things in the same process.'
+responsible_for:
+- id: L2-PLATFORM-PROCESS-LINE/R-1
+  statement: 'The process line of one thing (PMVP-32a, plan B-06): the main path as a line of steps (done, current, open;
+    about twelve a row; at most 25 drawn with the thing), «Schritt n von N», the card «Jetzt» with «seit» and who, «Danach»,
+    «Andere Wege» on request; a thing in no process, or in a process not completely described, gets one sentence.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/brain_views/process_line.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/process_line_routes.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ablauf.html
+- id: L2-PLATFORM-PROCESS-LINE/R-2
+  statement: 'The Client Zero convention as the line reads it (decision PMVP-32, option A): a process is a node of kind Process,
+    its steps ProcessStep nodes joined by has_step, each with an order fact; steps are joined by transitions_to and reworks_to;
+    an instance by instance_of and in_state. An edge keeps its ends in id order, so the direction comes from the order: transitions_to
+    from the lower to the higher, reworks_to from the higher to the lower. The main path starts at the lowest order and goes
+    each time to the transitions_to target with the smallest order above its own; every other step and every reworks_to is
+    a variant.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/brain_views/process_line.py
+- id: L2-PLATFORM-PROCESS-LINE/R-3
+  statement: 'What the current step still needs and the others in the process (PMVP-32b): the step''s requires entries over
+    one hop, each with the things the thing has of it and «fehlt noch» when a required one has too few (things, not documents;
+    the hop''s direction is not checked); the count of the process''s instance_of edges, opening the other things as a list
+    that sorts, filters and pages.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/brain_views/process_line.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/process_line_routes.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ablauf.html
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ablauf_alle.html
+not_responsible_for:
+- The Brain views' blueprint, its switch and its gate, the 25-node limit and the stylesheet (L2-PLATFORM-BRAIN-VIEWS); the
+  route here is attached to that blueprint behind its gate.
+- The card «Läuft gerade» on the dossier, which opens this line (L2-PLATFORM-DOSSIER).
+- 'The modellers'' Ablauf view (graph_views/process_views.py): not reused (FU-19, decision PMVP-32); it reads the tenant''s
+  whole edge list.'
+- 'Where a process''s data comes from: the loader that writes the Client Zero convention (KnowledgeBase); a law firm''s processes
+  wait for the data (option C of decision PMVP-32).'
+terms:
+- process line (one process instance - its main path, the current step and what is missing)
+- main path (the chain of transitions_to from the lowest order, each time to the nearest higher order)
+- variant (a step off the main path, or a reworks_to back)
+- fehlt noch (a requirement of the current step the thing does not meet yet)
+operations:
+- id: http.GET.ablauf._node_id
+  name: GET /ablauf/<node_id> - the process line of one thing; ?ansicht=schritte also lists the whole main path
+  entrance: http
+  ref: GET /ablauf/<node_id>
+- id: http.GET.ablauf._node_id.alle
+  name: GET /ablauf/<node_id>/alle - the other things in the same process as a list (by name, ?filter=, ?sort=, ?seite=, 50
+    a page), each opening its own line
+  entrance: http
+  ref: GET /ablauf/<node_id>/alle
+- id: call.web_interface.process_line_routes.attach_process_line_routes
+  name: attach_process_line_routes - attaches the process line's route to the Brain views' blueprint, behind the switch and
+    the gate it is given
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/process_line_routes.py#attach_process_line_routes
+contract:
+  http.GET.ablauf._node_id:
+    needs:
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/N-1
+      statement: 'The Brain views'' gate: signed in (a signed-out caller is sent to sign-in), per-user accounts, brain_views.enabled
+        on; otherwise 404 and the Core is not asked.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
+        checks:
+        - test_a_signed_out_caller_is_sent_to_sign_in
+        - test_switched_off_the_line_answers_404_and_the_core_is_not_asked
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/N-2
+      statement: 'Exactly one starting point (PRE-01): one node id in the address; a malformed id is not sent to the Core;
+        a hidden or missing thing answers the dossier''s 404.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
+        checks:
+        - test_a_hidden_or_missing_thing_answers_404_as_the_dossier_does
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_read.py
+        checks:
+        - test_a_hidden_or_missing_thing_is_not_found
+    promises:
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/P-1
+      statement: 'Per thing, as the person (POST-03), the same calls whatever the number of steps: the thing''s node and neighbours;
+        one round of at most three kind reads (the thing''s, the process''s, the step''s); the process''s neighbours (its
+        steps, the edges among them, its instance_of edges); one facts batch: 7 calls; when the current step requires things
+        over one hop, one more round for the unread kinds of the thing''s neighbours over those relations (at most 20). Never
+        a whole-tenant read, and no read per step or per instance.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_read.py
+        checks:
+        - test_a_line_costs_seven_calls_whatever_the_number_of_steps
+        - test_the_steps_come_from_the_process_neighbours_and_the_edges_route_is_not_asked
+        - test_thirty_steps_are_read_the_same_way
+        - test_a_failed_read_of_the_process_is_unavailable
+        - test_every_read_is_a_per_thing_read
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_missing.py
+        checks:
+        - test_a_requirement_costs_one_kind_read_per_unread_kind
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
+        checks:
+        - test_no_whole_tenant_read_on_any_of_the_pages
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/P-2
+      statement: 'At most 25 drawn (POST-01): the thing and the main path''s steps through limit.bounded, about twelve a row;
+        with more, a window that holds the current step, and the rest a count (data-bv-more) that opens the whole main path
+        as a list.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
+        checks:
+        - test_thirty_main_steps_draw_at_most_25_in_rows_of_about_twelve
+        - test_thirteen_steps_wrap_into_two_even_rows
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp34_view_limit_acceptance.py
+        checks:
+        - test_every_view_page_draws_at_most_25
+        - test_the_rest_is_a_count_that_opens_a_list
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/P-3
+      statement: 'The line follows R-2: the main path in order, «Schritt n von N» (n the current step''s place on it), «Danach»
+        the next main step, «Andere Wege» the current step''s transitions off the main path and its reworks; the same line
+        whichever end an edge stores first. A current step off the main path: no step current, and one line naming it. «seit»
+        from the last open entry of step_history, else the current_step fact''s valid_from; who from the owner fact unless
+        it is a key.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_read.py
+        checks:
+        - test_the_main_path_follows_the_smallest_next_order_and_the_rest_are_variants
+        - test_the_direction_comes_from_the_order_not_from_how_an_edge_is_stored
+        - test_a_step_off_the_main_path_is_where_the_thing_left_it
+        - test_since_comes_from_the_last_open_entry_of_the_step_history
+        - test_without_an_open_history_entry_since_is_the_current_steps_valid_from
+        - test_an_owner_key_is_not_shown_and_a_name_is
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
+        checks:
+        - test_the_line_shows_where_the_thing_stands
+        - test_the_card_now_says_since_when_and_leaves_an_owner_key_out
+        - test_after_the_current_step_comes_the_next_main_step
+        - test_the_other_ways_open_on_request
+        - test_a_thing_off_the_main_path_has_no_current_step_on_it
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/P-4
+      statement: 'No line is drawn for a thing in no process (none or more than one instance_of or in_state, or not of kind
+        Process and ProcessStep) or for a process not completely described (a step without a whole-number order, two steps
+        of one order, an edge that cannot be oriented, a current step outside the process): one sentence (200); the second
+        logs the process''s id and a reason code. A failed read is one plain message (502).'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_read.py
+        checks:
+        - test_a_step_without_an_order_leaves_the_line_undrawn
+        - test_an_order_that_is_no_whole_number_leaves_the_line_undrawn
+        - test_an_edge_that_cannot_be_oriented_leaves_the_line_undrawn
+        - test_a_current_step_outside_the_process_leaves_the_line_undrawn
+        - test_a_thing_without_in_state_or_instance_of_is_in_no_process
+        - test_two_current_steps_or_two_processes_are_no_process
+        - test_a_process_or_step_of_another_kind_is_no_process
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
+        checks:
+        - test_a_process_not_completely_described_draws_no_line
+        - test_a_thing_in_no_process_gets_one_sentence
+        - test_a_failed_read_is_one_plain_message
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/P-5
+      statement: Names from the Brain reach the page as text and every address is built by url_for; no log line carries a
+        name or a fact (the process's id and reason codes only).
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
+        checks:
+        - test_names_holding_mark_up_come_out_as_text
+        - test_no_log_line_carries_a_name_or_a_fact
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_read.py
+        checks:
+        - test_the_module_logs_no_name_or_fact
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/P-6
+      statement: '«fehlt noch»: the current step''s requires entries whose path is one hop, counted among the thing''s neighbours
+        over that relation whose kind is the entry''s to_type; the things present are listed as links to their dossiers (rows),
+        a required entry with fewer than min_count gets «fehlt noch» and its type, a missing optional one is not marked; longer
+        paths are left out with one line; the card says that the direction of a hop is not checked. Nothing is concluded from
+        a kind that was not read: a neighbour over that relation whose kind stays unread (its read failed, or more than 20
+        kinds) makes a short entry «unbekannt», not «fehlt noch».'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_missing.py
+        checks:
+        - test_one_kind_present_and_one_missing
+        - test_a_neighbour_of_another_kind_or_over_another_relation_does_not_count
+        - test_min_count_two_with_one_present_is_missing
+        - test_a_missing_optional_entry_is_not_required
+        - test_a_longer_path_is_left_out_and_said_so
+        - test_the_direction_of_the_hop_is_not_checked
+        - test_the_card_lists_what_is_there_and_marks_what_is_missing
+        - test_min_count_shows_how_many_of_how_many
+        - test_a_longer_path_is_one_line
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_missing.py
+        checks:
+        - test_a_person_beside_twenty_crowded_kinds_is_present
+        - test_a_kind_that_cannot_be_read_is_unknown_not_missing
+        - test_more_kinds_than_are_read_make_the_entry_unknown
+        - test_the_page_says_unbekannt_and_not_fehlt_noch
+        - test_the_page_does_not_say_fehlt_noch_for_a_person_beside_twenty_kinds
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/P-7
+      statement: '«Alle N Einträge in diesem Ablauf →»: N is the count of the process''s instance_of edges (the process''s
+        neighbours), this thing included; the link carries data-bv-more with the others (N - 1) and opens /ablauf/<node_id>/alle;
+        alone in its process, no link.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_missing.py
+        checks:
+        - test_the_instances_are_counted_from_the_process_neighbours
+        - test_the_line_counts_all_and_its_link_carries_the_others
+        - test_alone_in_its_process_there_is_no_link
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp34_view_limit_acceptance.py
+        checks:
+        - test_the_rest_is_a_count_that_opens_a_list
+  http.GET.ablauf._node_id.alle:
+    needs:
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id.alle/N-1
+      statement: 'The line''s gate and starting point: signed in, per-user accounts, brain_views.enabled on, one well-formed
+        id; otherwise sign-in or 404 and the Core is not asked; a hidden or missing thing answers 404.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_missing.py
+        checks:
+        - test_the_list_has_the_lines_gate_and_404
+    promises:
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id.alle/P-1
+      statement: 'Per thing, as the person, never the whole tenant: the thing''s node, neighbours and kinds as the line reads
+        them, then the process''s neighbours (their names): 6 calls; no read per instance. A thing in no process gets one
+        sentence.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_missing.py
+        checks:
+        - test_read_instances_lists_the_others_by_name_without_a_read_per_instance
+        - test_a_thing_in_no_process_has_no_others
+        - test_the_list_has_the_lines_gate_and_404
+    - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id.alle/P-2
+      statement: The others (this thing left out) as rows by name, each a link to its own line; the list sorts (A-Z, Z-A),
+        filters (at most 100 characters) and pages at 50 (brain_views.lists); one drawn thing (the head). Names and the filter
+        text reach the page as text and no log line; every address is built by url_for.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_missing.py
+        checks:
+        - test_the_list_of_the_others
+        - test_the_list_pages_and_filters
+        - test_the_list_keeps_mark_up_as_text
+        - test_no_log_line_carries_a_name
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp34_view_limit_acceptance.py
+        checks:
+        - test_every_view_page_draws_at_most_25
+uses:
+- component: EXT-BRAIN-API
+  operations:
+  - graph-routes
+  method: 'Per-thing reads below /secured/graph/ through the Platform''s client on the Platform''s certificate, each signed
+    as the person: GET /nodes/<id> (graph_node), GET /nodes/<id>/neighbors?depth=1&include_edges=true (graph_neighbors: the
+    thing''s, and its process''s), GET /node-types/<id> (graph_get_many), POST /facts/batch (graph_facts_batch); never the
+    whole-graph export or the edge list'
+  protocol: HTTPS with mTLS
+- component: L2-PLATFORM-BRAIN-VIEWS
+  operations:
+  - call.brain_views.limit.bounded
+  - call.brain_views.limit.more_text
+  - call.brain_views.reads.node_payload
+  - call.brain_views.reads.valid_node_id
+  - call.brain_views.reads.valid_type_id
+  - call.brain_views.reads.NotFound
+  - call.brain_views.reads.Unavailable
+  - call.brain_views.lists.listing
+  - call.brain_views.lists.sort_key
+  expects:
+  - L2-PLATFORM-BRAIN-VIEWS/call.brain_views.limit.bounded/P-1
+  - L2-PLATFORM-BRAIN-VIEWS/call.brain_views.reads.node_payload/P-1
+  method: 'imported: what is drawn (brain_views.limit), the lists (brain_views.lists), and the node read and the id checks
+    (brain_views.reads), so a hidden thing answers as on the dossier'
+  protocol: in-process call
+- component: L2-PLATFORM-DOSSIER
+  operations:
+  - http.GET.dossier._node_id
+  expects: []
+  method: 'a link: the line links back to the thing''s dossier (url_for brain_views.dossier)'
+  protocol: a link on the page
+hides:
+- The mark-up of the line and the class names; the page is built from the shared page parts.
+- How the fallback decides that an edges answer is unusable, and the reason codes it logs.
+review:
+- at: /owner
+  why: Proposed owner, as for every card in this repository; one role per component is confirmed by a person (Software Map
+    K4).
+- at: /status
+  why: 'Live or planned is not read from the code: the process line (PMVP-32a) is built on the Platform MVP''s branch, behind
+    the Brain views'' switch (off by default), and not on main yet.'
+- at: /source_paths
+  why: A card of its own from the start (PMVP-32a, the coordinator's split of L2-PLATFORM-BRAIN-VIEWS for the context budget).
+    The old Ablauf view (graph_views/) is not reused and stays outside (FU-19).
+- at: /operations
+  why: The two routes and the function that attaches them; the call has no line (its one caller is the Brain views' factory).
+- at: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/P-1
+  why: 'Fix round of 2026-11-22 (the verifier: the per-step GET /edges?node_id=&type= reads cost 26 + 3 N calls, 101 at 25
+    steps): the process''s neighbours are the only path; /edges is no longer asked, as it never saved a call. The open question
+    whether production''s /edges filters by node and type therefore no longer matters to this view. One neighbours read of
+    a process brings all its instances; there is no paged read. Until CR-R1 every person sees every step and instance.'

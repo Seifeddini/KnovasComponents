@@ -1,0 +1,39 @@
+{# The lists of the Brain views (B-03), shared by the dossier's kinds and documents (dossier.html) and the process
+   line's list of the others (ablauf_alle.html): the GET form (filter, sort, «Anwenden»; it works without a script)
+   and the pages. `listing` is brain_views.lists.listing's answer, every address in it built with url_for. Use:
+
+       {% import "_brain_views_list.html" as lists %}
+       {{ lists.list_form(listing, "Dokumente") }} ... rows ... {{ lists.list_pages(listing) }}
+#}
+{% import "_parts.html" as parts %}
+{% macro list_form(listing, label) -%}
+<form class="bv-listform" method="get" action="{{ listing.action }}" role="search" aria-label="{{ label }} filtern und sortieren">
+    {%- for key, value in listing.hidden.items() %}
+    <input type="hidden" name="{{ key }}" value="{{ value }}">
+    {%- endfor %}
+    <label class="bv-field bv-field--grow">
+        <span class="bv-field-label k-small k-muted">Filtern</span>
+        <input class="bv-input" type="search" name="filter" value="{{ listing.filter }}" maxlength="100" placeholder="Filtern …" autocomplete="off">
+    </label>
+    <label class="bv-field">
+        <span class="bv-field-label k-small k-muted">Sortieren</span>
+        <select class="bv-input" name="sort">
+            {%- for choice in listing.sorts %}
+            <option value="{{ choice.key }}"{% if choice.key == listing.sort %} selected{% endif %}>{{ choice.label }}</option>
+            {%- endfor %}
+        </select>
+    </label>
+    <button class="bv-button" type="submit">Anwenden</button>
+</form>
+{%- endmacro %}
+{% macro list_pages(listing) -%}
+{% if listing.page.pages > 1 %}
+<nav class="bv-pages" aria-label="Seiten">
+    <span class="k-muted k-small">{{ listing.page.first }}–{{ listing.page.last }} von {{ listing.page.total }} · Seite {{ listing.page.page }} von {{ listing.page.pages }}</span>
+    <span class="bv-pages-links">
+        {%- if listing.previous_href %}{{ parts.link("Zurück", listing.previous_href) }}{% endif -%}
+        {%- if listing.next_href %}{{ parts.link("Weitere " ~ listing.next_count, listing.next_href) }}{% endif -%}
+    </span>
+</nav>
+{% endif %}
+{%- endmacro %}

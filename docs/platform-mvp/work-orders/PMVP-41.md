@@ -123,7 +123,7 @@ The answer sits in one element `data-what-sees="<wer>"` with `data-effect`.
 - One audit row per answered question: action `access.what_sees`, actor the administrator, `target_type` `user`,
   `role` or `agent`, `target_id` the id; `detail` holds `question` (`reach` | `document` | `search`), `effect`, and
   counts or the yes/no (and `fuer` by id for the assistant). **Never a pointer, query, title, name, group id or
-  group name.** A refused question writes none. (`audit.record`, best effort, is enough: the row records a look, not
+  group name.** A refused question writes none. (a write that raises, see decision 6 as amended: the row records a look, not
   a change.)
 - `management/administration.md`: «Was sieht …?» from "Planned" into what exists, with what it shows before and after
   «Ein»; its status row; `management/README.md`'s row; `data-protection.md` (an administrator sees the names of the
@@ -166,7 +166,7 @@ assistant's claim, names only, a role refused, the cap (5); § 6 no whole-tenant
    route). The single-document answer and the search are Knovas's own after «Ein».
 4. **A role has no principal**: its answers stay computed (no claim is ever minted for a role).
 5. **The assistant needs a person** (`fuer`): it never acts alone (RB-6).
-6. **Audit with `audit.record`** (best effort): the row records a look; it must not block the answer.
+6. **Audit with a write that raises** (`record_or_raise` or the RB-5 equivalent), in the same transaction as the answer is produced. *Coordinator's amendment, 2026-11-22, after the first verification (FAIL): the founder's decision is "every look is audited", so no look may be shown without its audit row.* If the row cannot be written, the page shows no rows, no answer and no hits, only its own German line (e.g. «Die Abfrage konnte nicht protokolliert werden. Es wird nichts angezeigt.»), with status 503; a test makes the audit write fail for each of the three questions.
 7. **The page is «Zugriff» (`/admin/access`)**, as in `05-zugriff`; PMVP-42 adds the position and the switch to it.
 
 **Found while drafting** (for the coordinator; not this item's to fix):

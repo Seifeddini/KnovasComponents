@@ -146,4 +146,122 @@ stop and say why), `P/src/identity/**`, every migration, `_sidebar.html`, `app.p
 
 ## Builder's notes
 
-(the builder writes here: what was decided, what is open, what the verifier should look at)
+### Builder A, 2026-11-22 (branch `feat/pmvp-24` from `origin/feat/pmvp-23` `6cbcacdd`; PMVP-23 is not integrated yet)
+
+**What was built**, in the files the order allows:
+
+- `assistant/core.py`: `ANSWER_DEADLINE_SECONDS = 150`, `MIN_GENERATE_SECONDS = 30`, `Deadline` (its clock is
+  `time.monotonic`, a test passes its own); `make_service(..., deadline=None)` hands it to `make_search` and the
+  generate. `make_search` runs the whole search (the document-fields plan and the query) inside
+  `client.within_time(deadline.left)`; a timeout there (requests' own, or tenacity giving up after attempts that each
+  timed out) raises `CoreBusy("search_timeout")`. `make_generate` runs `llm_generate` inside the same bound, so its
+  120 s are at most the time left; `in_time` wraps either generate (the Core's or Claude's): not started with less
+  than 30 s left (`CoreBusy("no_time_to_generate")`), and a `CoreFailed` whose reason is a timeout (`timeout`,
+  `anthropic_timeout`) becomes `CoreBusy("generation_timeout")`. Every mapped error is raised outside its handler,
+  so the timeout is neither its cause nor its context. One log line per deadline: `step=`, `elapsed_ms=`,
+  `left_ms=`, `generate_ms=`.
+- `assistant/providers.py` (Claude's timeout only): `make_anthropic_generate(..., time_left=None)`; the client
+  waits `min(60, time_left())` (at least 1 s), else 60 as before.
+- `knovas_client.py` (the per-thread bound only): `within_time(time_left)`, a context manager like
+  `keeping_snippets()`, off by default. Inside it every request's timeout is at most the time left (in `_send`,
+  which every request passes), with no time left nothing is sent (a `ReadTimeout` at once), and `_make_request`'s
+  tenacity stop gains `_out_of_time`: a retry only when at least `MIN_ATTEMPT_SECONDS` (5) remain after its wait.
+  Outside the block nothing changes: three tries of `http_read_timeout` (a test shows it).
+- `assistant_routes.py`: the route starts the clock (`ask` and `follow_up`, first line: `g.assistant_deadline`),
+  and the service factory builds the service with it. A chat that cannot be read or deleted (anything but
+  `ChatNotFound` from the store) is the plain page «Das Gespräch kann gerade nicht geladen werden. …» with 503, the
+  error's type logged; on the chat page, the follow-up, the delete and the click route.
+- `ask.html`, `index.html`, `ask.js`, `ask.css`: the waiting line. An empty `<p class="ask-wait" role="status"
+  aria-live="polite">` under each box (on the search page inside the box's form, only with the assistant on; on the
+  ask page right after the box's form); `ask.js` writes the three fixed texts into it as text, disables the button,
+  keeps the question, ignores a second submit while waiting, gives up at 170 s and resets on `pageshow`. A small
+  dot before the text pulses quietly, and stops with `prefers-reduced-motion`.
+- The card, its page; `assistant/README.md` (the knobs table gains the constants); `management/assistant.md`, its
+  row in `management/README.md`.
+
+**Nothing of the deployment changed** (nginx, gunicorn, Dockerfile, compose): 150 s hold without them. The service
+(`service.py`) and `check.py` are unchanged; `_sidebar.html`, `app.py` and `identity/**` too.
+
+**Decisions taken here (the verifier may disagree):**
+
+1. **The two times are `data-` attributes of the status line, not of the form** (the order says "on the form").
+   Reason: PMVP-22a's `test_the_page_offers_the_box_for_a_new_question` reads the chat box's start tag exactly
+   (`<form class="ask-again" method="post" action="…">`), and that test is not this item's to change. The line sits
+   in the search page's form and right after the ask page's form; `ask.js` finds it either way. The browser test
+   shortens them there.
+2. **The texts are written by `ask.js`** (allowed: "the fixed texts above"), not held in the page: 22a's busy test
+   asserts that a busy page holds no «Quellen», which the first text contains.
+3. **A retry needs 5 s** (`MIN_ATTEMPT_SECONDS`) after its wait. With the default read timeout of 120 s the worst
+   search is 120 s, a wait of 2 s and a second try of 28 s: busy at 150 s, no third try.
+4. **The bound covers the whole search step**, the document-fields plan included (it can call the Core), and the
+   Core's generation; Claude's timeout is set by its own argument, as the order says.
+5. **The deadline object is handed through `g`**, because the service factory is called without arguments (tests
+   replace it with `lambda: fake`).
+6. **A quiet pulse** on a dot, not on the text: pulsing the text took the muted text well below its 4.5 to 1 at the low point.
+
+**Tests.** New: `test_assistant_waiting_deadline.py` (27; a fake clock moved by the fake Core and by tenacity's
+sleep, nothing waits for real) and `test_assistant_waiting_pages.py` (15; the database, the static checks and the
+browser). The order's groups in one process (`tests/test_assistant_*.py`, `tests/test_knovas_client_*.py`, `test_frontend_static.py`, `test_web_search_doc_fields.py`, `test_search_exact_match.py`, `test_web_open_paths.py`, `test_doc_fields_render.py`, the frozen `test_pmvp20_statements_acceptance.py` and `test_rb67_agents_acceptance.py`, and PMVP-23's frozen file as well): 1,636 passed, 0 failed, 0 skipped (nothing needed the baseline), on the own database `knovas_platform_test_pmvp24` (dropped after); the stylesheet checks once more after the last change to `ask.css` (`test_assistant_page_static.py`, `test_assistant_page_layout.py`, `test_shell_nav_styles.py`, the two style tests of this item): green. Frozen check: all 11 OK. ASCII check `origin/feat/pmvp-23..HEAD`: 0 lines. No existing test changed.
+
+**Screenshots** (headless Chrome over the DevTools protocol, the real app with identity on, a fake service, the
+database `knovas_platform_pmvp24_browser`, dropped after), outside the repository, in
+`C:\Users\siran\AppData\Local\Temp\claude\1838582cff9d51e1\af9716ae-0421-42ac-9fac-6acb192cc6e6\scratchpad\pmvp24\shots\`:
+`wait1-1440.png`, `wait1-390.png` (the first text), `wait2-1440.png`, `wait2-390.png` (the second, the slow time
+shortened to 1 s), `chatwait-*.png` (the chat's box), `busy-*.png` (a busy new question), `busyfollow-*.png` (a busy
+follow-up), `facts.json`. For the two waiting shots the request is held back by a listener that runs after
+`ask.js`'s own (a real request would replace the page while it is photographed); the real request is in
+`test_in_the_browser_the_line_follows_the_question_and_a_second_click_sends_nothing`. Nothing scrolled sideways at
+either width; no request failed or left the installation. The tools (`serve.py`, `shoot.py`, `cdp.py`) are one
+folder up.
+
+**Card checks**: `card check`: valid, 0 errors, 0 warnings; `card render --check`: 21 cards, 0 not current. `map-check --scope touched --settings docs/components/map-check.yaml`, base `origin/feat/pmvp-23`, head `444a76c8`: problems 0; declared equals observed, compatible or breaking and complete: 0 findings in the scope (POST-06 kept its statement and gained evidence; `http.GET.fragen._chat_id/P-3` is a new line); `over_budget` on the assistant's card (66,503 tokens, budget 16,000). Touched without a card: `knovas_client.py` and `index.html` (the web app).
+
+**For the verifier.**
+
+- The browser test reads the page's own record (`sessionStorage`), because DevTools holds a call while a form's
+  navigation is pending; the second click and submit are made by the page itself 1.2 s after the first.
+- The capacity test in the week of 1 December may move 150 and 30 (D2); both are constants in `core.py`.
+- PMVP-20 context was not on `origin/feat/platform-mvp`; nothing of it is merged here. When it lands, its change
+  to `keeping_snippets` sits next to `within_time` in `knovas_client.py`.
+
+### Rework 1, 2026-11-22 (after the first verification's FAIL)
+
+`origin/feat/platform-mvp` merged first (PMVP-23 integrated, `eae92f1d`); one conflict, in the PMVP-23/24 row of
+`management/README.md` (platform-mvp's wording kept, this item's state updated).
+
+**Finding 1 (HIGH): an API the pinned tenacity lacks.** `_out_of_time` read `retry_state.upcoming_sleep`, which
+tenacity 8.2.3 (`requirements.txt`, CI and the image) does not have: inside `within_time` the first timeout raised
+`AttributeError`, a slow search answered `failed` instead of busy and lost its retries. Fixed: `_upcoming_wait` asks
+the retry's own wait strategy (`retry_state.retry_object.wait(retry_state)`), which gives the wait either version is
+about to make. `next_action.sleep` was not used: 8.2.3 asks `stop` before it computes the wait, so there it holds the
+previous attempt's wait. The rest of the change checked for API that 8.2.3 or the pinned set lacks: `stop_any`
+through `|`, `RetryError.last_attempt`, the `sleep` and `wait` of `_make_request.retry` exist in 8.2.3; the tests
+imported `httpx`, which the pinned set does not install (Anthropic's SDK there uses `httpx2`), and now import
+`httpx2`.
+
+**Finding 2 (LOW): the deadline by the wall clock.** `assistant.core.call_within(seconds, call, on_overrun)` runs a
+call in a daemon worker thread and waits for it no longer than `seconds`; past them it asks `on_overrun` to cut the
+call short and raises `OutOfTime`. Inside `within_time` every request of the Knovas client goes through it
+(`_send_in_time`): `stream=True`, the body read with `read1` in the pieces the peer sends and the time checked after
+each, the caller waiting no longer than the request's read timeout or the time left. Past it the caller gets a
+`ReadTimeout` (busy; the search makes no retry without time for it) and the worker stops at the peer's next byte and
+closes the connection. Claude's call, with the answer's deadline, goes through it as well (`min(60 s, time left)`;
+past it the client is closed and the answer fails as `anthropic_timeout`, which the deadline reads as busy). PMVP-20
+context's helper is not on `feat/platform-mvp` (its branch is not merged), so this is the only one; when it lands,
+one of the two should go (for the coordinator).
+
+Left open: a peer that trickles even its headers keeps the worker thread, never the person, until it stops or the
+connection drops; it is a daemon thread and holds one connection. With a trickled body the worker stops right after
+the deadline (tested: the server sees the connection dropped).
+
+New: `tests/test_assistant_waiting_trickle.py` (8): the search, the Core's generation and Claude through Anthropic's
+real SDK, each against a real socket server on 127.0.0.1 that trickles its body or its headers (a byte every 0.2 s,
+a deadline of 2 s); each gives up by the deadline and makes one request; the control shows the same search outside
+the bound still waiting. `test_outside_the_bound_the_stop_never_cuts_a_retry` now hands the stop the state both
+tenacity versions hand it.
+
+**Under the pinned versions.** A venv in the scratchpad (`pmvp24\venv-pinned`), `pip install -r
+requirements.txt` after CI's knovas-extract pin (git `2c95cbc0`): tenacity 8.2.3, requests 2.32.0, urllib3 2.8.0,
+anthropic 2.12.0 with httpx2 2.16.2, Flask 3.0.0, pytest 7.4.3, on Python 3.13 (the only Python on this machine; CI
+uses 3.11). The frozen check: all 13 OK. In one process, the frozen PMVP-23, 20, 21, 11 and RB-67 files, `tests/test_assistant_*.py`, `tests/test_web_*.py` and `tests/test_shell_*.py`: 2,744 tests, 0 failed, 0 errors, 1 skipped, on the own database `knovas_platform_test_pmvp24`. The browser test needs `websockets`, which `requirements.txt` does not pin: it skips in the
+pinned venv and passes in the development environment.
