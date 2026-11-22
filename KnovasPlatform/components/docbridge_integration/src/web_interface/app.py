@@ -68,9 +68,44 @@ logger = logging.getLogger(__name__)
 #: whatever LOG_LEVEL says.
 QUIET_LOGGERS = ('anthropic', 'httpx', 'httpx2', 'httpcore', 'httpcore2', 'urllib3')
 
+#: urllib3's own loggers, one per module. Its WARNINGs still pass the INFO hold above, and two of them name the
+#: address: "Failed to parse headers (url=<the whole URL>)", with the unparsed header text as the exception, and
+#: "Retrying ... : <path and query>". A filter on a logger sees only the records of that logger, so each gets one.
+URLLIB3_LOGGERS = ('urllib3', 'urllib3.connection', 'urllib3.connectionpool', 'urllib3.poolmanager',
+                   'urllib3.response', 'urllib3.util.retry', 'urllib3.contrib.pyopenssl')
+_URL_OR_PATH = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"<>()]+|(?<![\w.])/[^\s'\"<>()]*")
+
+
+class RedactUrls(logging.Filter):
+    """Keeps urllib3's warnings and takes the addresses out of them (RB-FIX-2).
+
+    Chosen over raising urllib3 to ERROR: its warnings are what an operator needs to see about the connection to
+    Knovas (an answer whose headers do not parse, a pool that is full, a certificate that does not match, a retry),
+    and at ERROR they would be gone. What they must not carry is an address: a URL or a path, with its ids and its
+    query string, becomes ``<url>``; an exception, as an argument of the message or as the record's own (the
+    unparsed header text, a broken connection's details), is named by its class only.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        named = False
+        if isinstance(args, tuple):
+            named = any(isinstance(a, BaseException) for a in args)
+            args = tuple(f"<{type(a).__name__}, not logged>" if isinstance(a, BaseException) else a for a in args)
+        try:
+            text = str(record.msg) % args if args else str(record.msg)
+        except Exception:  # noqa: BLE001 - a record whose arguments do not fit its message
+            text = str(record.msg)
+        clean = _URL_OR_PATH.sub("<url>", text)
+        if record.exc_info and record.exc_info[0] is not None and not named:
+            clean += f" (<{record.exc_info[0].__name__}, not logged>)"
+        record.msg, record.args = clean, ()
+        record.exc_info, record.exc_text, record.stack_info = None, None, None
+        return True
+
 
 def _hold_quiet_loggers(level: int) -> None:
-    """Hold QUIET_LOGGERS at ``level``, but never below INFO."""
+    """Hold QUIET_LOGGERS at ``level``, but never below INFO; urllib3's loggers redact addresses."""
     try:
         # The SDK sets its loggers' level from ANTHROPIC_LOG when it is first imported: import it first, so the
         # levels set here are the last word.
@@ -79,6 +114,10 @@ def _hold_quiet_loggers(level: int) -> None:
         pass
     for name in QUIET_LOGGERS:
         logging.getLogger(name).setLevel(max(level, logging.INFO))
+    for name in URLLIB3_LOGGERS:
+        target = logging.getLogger(name)
+        if not any(isinstance(f, RedactUrls) for f in target.filters):
+            target.addFilter(RedactUrls())
 
 
 def _configure_logging_for_wsgi(config) -> None:
@@ -2097,7 +2136,7 @@ def create_app(config_path: Optional[str] = None):
                 'upstream_status': status,
             }), 502
         except Exception as e:
-            logger.error(f"Search error: {e}", exc_info=True)
+            logger.error("Search error: %s", type(e).__name__, exc_info=True)
             return jsonify({
                 'success': False,
                 'error': _GENERIC_ERROR_MESSAGE
@@ -2851,6 +2890,8 @@ def create_app(config_path: Optional[str] = None):
                             'types': payload['types'],
                             'relations': payload['relations']})
         except Exception:
+            # The traceback names no URL, query or id of a failed Knovas call: the client raises its errors with the
+            # route's template only (RB-FIX-2); the routes below log no path id of their own either.
             logger.error("Ontology summary error", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
@@ -2883,7 +2924,7 @@ def create_app(config_path: Optional[str] = None):
                     detail['doc_field_links'] = links
             return jsonify({'success': True, **detail})
         except Exception:
-            logger.error("Ontology entity detail error for %s", entity_id, exc_info=True)
+            logger.error("Ontology entity detail error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     # Kuratieren: Der Wissensgraph wird vom Anwender gepflegt, Knovas leitet
@@ -3027,7 +3068,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Typ nicht gespeichert'}), 404
             return jsonify({'success': True, 'type': updated})
         except Exception:
-            logger.error("Ontology type update error for %s", type_id, exc_info=True)
+            logger.error("Ontology type update error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/types/<type_id>', methods=['DELETE'])
@@ -3037,7 +3078,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Typ nicht gefunden'}), 404
             return jsonify({'success': True})
         except Exception:
-            logger.error("Ontology type delete error for %s", type_id, exc_info=True)
+            logger.error("Ontology type delete error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['PATCH'])
@@ -3054,7 +3095,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Entität nicht gespeichert'}), 404
             return jsonify({'success': True, 'entity': updated})
         except Exception:
-            logger.error("Ontology entity update error for %s", entity_id, exc_info=True)
+            logger.error("Ontology entity update error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['DELETE'])
@@ -3064,7 +3105,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
             return jsonify({'success': True})
         except Exception:
-            logger.error("Ontology entity delete error for %s", entity_id, exc_info=True)
+            logger.error("Ontology entity delete error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     # Filter (Req 2.2): echtes Passagen-Matching + permanente Rejection-
@@ -3101,7 +3142,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Filter nicht gefunden'}), 404
             return jsonify({'success': True, **detail})
         except Exception:
-            logger.error("Ontology filter detail error for %s", filter_id, exc_info=True)
+            logger.error("Ontology filter detail error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/filters/<filter_id>/decision', methods=['POST'])
@@ -3119,7 +3160,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Vorschlag nicht gefunden'}), 404
             return jsonify({'success': True, 'proposal': proposal})
         except Exception:
-            logger.error("Ontology filter decision error for %s", filter_id, exc_info=True)
+            logger.error("Ontology filter decision error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     return app

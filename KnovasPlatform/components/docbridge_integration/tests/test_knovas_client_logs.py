@@ -124,9 +124,11 @@ def test_a_core_failure_logs_no_body_and_raises_an_error_without_the_url(caplog)
     message = str(raised.value)
     for secret in SECRETS + (POINTER,):
         assert secret not in message
-    assert message == "Knovas API POST /secured/access_groups -> HTTP 500"
+    # RB-FIX-2: the message also names the Core's request id, and the error is raised outside the handler, so the
+    # original is not even its hidden context.
+    assert message == f"Knovas API POST /secured/access_groups -> HTTP 500 (request_id={REQUEST_ID})"
     assert raised.value.response.status_code == 500          # the caller still reads the answer
-    assert raised.value.__cause__ is None and raised.value.__suppress_context__
+    assert raised.value.__cause__ is None and raised.value.__context__ is None
 
 
 def test_the_debug_line_names_the_route_not_the_path(caplog):

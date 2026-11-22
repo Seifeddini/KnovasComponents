@@ -98,6 +98,36 @@ def _short_code(value: Any) -> str:
     return value if isinstance(value, str) and _SHORT_CODE.fullmatch(value) else '-'
 
 
+def _code_or_none(value: Any) -> Optional[str]:
+    """An error code the client's own errors may carry: a short identifier, else None (RB-FIX-2)."""
+    return value if isinstance(value, str) and _SHORT_CODE.fullmatch(value) else None
+
+
+def _transport_error(exc: requests.exceptions.RequestException, method: str,
+                     endpoint: str) -> requests.exceptions.RequestException:
+    """The same kind of error ``requests`` raised for no answer, saying only the route and the kind (RB-FIX-2).
+
+    The original's text quotes the whole URL -- the path's ids and the query string (``?q=<a name>``) -- and its
+    ``request`` holds the URL and the body; a caller that logs the exception, or a route that logs its traceback,
+    would write them. The new error has neither, keeps the class (so retries and ``except Timeout`` stay as they
+    were) and is raised outside the handler, so nothing of the original is chained.
+    """
+    kind = type(exc)
+    text = f"Knovas API {method} {_route_name(endpoint)}: no answer ({kind.__name__})"
+    try:
+        clean = kind(text)
+        if type(clean) is kind and str(clean) == text:
+            return clean
+    except Exception:  # noqa: BLE001 - a class that takes other arguments: its nearest plain base below
+        pass
+    for base in (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout,
+                 requests.exceptions.Timeout, requests.exceptions.SSLError,
+                 requests.exceptions.ConnectionError):
+        if isinstance(exc, base):
+            return base(text)
+    return requests.exceptions.RequestException(text)
+
+
 def _error_code(response: Any) -> str:
     """The Core's ``error_code`` of an answer when it is a short identifier, else ``-``. Never raises."""
     try:
@@ -134,10 +164,14 @@ def _raise_for_status(response: Any, method: str, endpoint: str) -> None:
         response.raise_for_status()
     except requests.exceptions.HTTPError as exc:
         answer = exc.response if exc.response is not None else response
-        raise requests.exceptions.HTTPError(
-            f"Knovas API {method} {_route_name(endpoint)} -> HTTP {getattr(answer, 'status_code', '?')}",
-            response=answer,
-        ) from None
+    else:
+        return
+    # Raised outside the handler: the original is not even the hidden context (RB-FIX-2).
+    raise requests.exceptions.HTTPError(
+        f"Knovas API {method} {_route_name(endpoint)} -> HTTP {getattr(answer, 'status_code', '?')} "
+        f"(request_id={_request_id(answer)})",
+        response=answer,
+    )
 
 
 def _normalize_semantix_similarity_value(raw: Any) -> float:
@@ -1062,14 +1096,24 @@ class GraphError(Exception):
     that. What callers cannot currently distinguish is a 422 they should show
     the user from a 503 that means "retry once the operator finishes", which is
     what error_code carries.
+
+    It carries the status, the Core's error code when it is a short
+    identifier, and the Core's request id (RB-FIX-2) -- never the Core's
+    text. ``message`` is accepted for the callers that pass one and not
+    kept: the Core's text can quote what was sent (a name, a value), and
+    this error reaches logs and tracebacks. A page says what happened in its
+    own words, from the code; an operator finds the Core's full message in
+    the Core's own logs by the request id.
     """
 
-    def __init__(self, status: int, error_code: Optional[str], message: str,
-                 *, details: Optional[Dict[str, Any]] = None):
-        super().__init__(f"{status} {error_code or ''}: {message}".strip())
+    def __init__(self, status: int, error_code: Optional[str], message: str = "",
+                 *, details: Optional[Dict[str, Any]] = None, request_id: Optional[str] = None):
         self.status = status
-        self.error_code = error_code
-        self.message = message
+        self.error_code = _code_or_none(error_code)
+        self.request_id = request_id if request_id and request_id != '-' else None
+        self.message = ""
+        super().__init__(f"Knovas graph call failed: HTTP {status}, error_code {self.error_code or '-'}, "
+                         f"request_id {self.request_id or '-'}")
         # Only what says WHERE the request went wrong (a JSON path, field
         # keys, a version) -- never anything that could carry a value.
         self.details = _error_details(details)
@@ -1129,7 +1173,7 @@ class DocFieldsUnavailable(RuntimeError):
                  status: int = 404, error_code: Optional[str] = "HTTP_404"):
         super().__init__(message)
         self.status = status
-        self.error_code = error_code
+        self.error_code = _code_or_none(error_code)   # a short code only (RB-FIX-2)
 
 
 class DocFieldsError(GraphError):
@@ -1152,10 +1196,11 @@ class QueryRejected(Exception):
     """
 
     def __init__(self, status: int, error_code: Optional[str],
-                 details: Optional[Dict[str, Any]] = None):
-        super().__init__(f"{status} {error_code or ''}".strip())
+                 details: Optional[Dict[str, Any]] = None, *, request_id: Optional[str] = None):
         self.status = status
-        self.error_code = error_code
+        self.error_code = _code_or_none(error_code)   # a short code only (RB-FIX-2)
+        self.request_id = request_id if request_id and request_id != '-' else None
+        super().__init__(f"{status} {self.error_code or ''}".strip())
         self.details = _error_details(details)
 
 
@@ -1198,7 +1243,7 @@ def _query_rejection(exc: requests.exceptions.HTTPError, *,
     # A query with ``where`` is always relevance-gated (QP:1085-1096), so a
     # missing relevance calibration is part of what ``where`` asked for.
     if _is_doc_fields_code(code) or (where_sent and code == "relevance_mode_calibration_missing"):
-        return QueryRejected(response.status_code, code, body)
+        return QueryRejected(response.status_code, code, body, request_id=_request_id(response))
     return None
 
 
@@ -1858,8 +1903,8 @@ class KnovasAPIClient:
         data = self._with_principal(data, method)
         params = self._actor_params(method, params)
 
-        response = self._session.request(
-            method=method,
+        response = self._send(
+            method, endpoint,
             url=url,
             json=data,
             params=params,
@@ -1903,8 +1948,8 @@ class KnovasAPIClient:
         if as_person:
             data = self._with_principal(data, method)
             params = self._actor_params(method, params)
-        response = self._session.request(
-            method=method,
+        response = self._send(
+            method, endpoint,
             url=url,
             json=data,
             params=params,
@@ -1912,6 +1957,16 @@ class KnovasAPIClient:
             timeout=self.http_read_timeout if timeout is None else timeout,
             allow_redirects=False,
         )
+        status = getattr(response, 'status_code', None)
+        if isinstance(status, int) and status >= 400:
+            # The caller logs what the failure means; this line keeps the Core's code and request id, by which an
+            # operator finds the Core's own message in the Core's logs (RB-FIX-2). INFO: the caller's line is the
+            # warning, and some of these answers are expected (a feature off, a route the Core lacks yet).
+            logger.info(
+                "Knovas API %s %s -> %s (error_code=%s, request_id=%s; body %d chars, not logged)",
+                method, _route_name(endpoint), status,
+                _error_code(response), _request_id(response), _body_size(response),
+            )
         _raise_for_status(response, method, endpoint)
         return response
 
@@ -1942,8 +1997,8 @@ class KnovasAPIClient:
             extra['params'] = params
         self._rate_limit()
         self._ensure_certificate_freshness()
-        return self._session.request(
-            method=method,
+        return self._send(
+            method, endpoint,
             url=f"{self.base_url}{endpoint}",
             json=data,
             headers=self._get_headers(),
@@ -1951,6 +2006,19 @@ class KnovasAPIClient:
             allow_redirects=False,
             **extra,
         )
+
+    def _send(self, method: str, endpoint: str, **kwargs: Any) -> requests.Response:
+        """``self._session.request(method=method, **kwargs)``; no answer raises ``_transport_error`` (RB-FIX-2).
+
+        Every request path of the client goes through here, so an error for no answer (no connection, a timeout, a
+        TLS failure) never carries the URL -- the path's ids and the query string -- into a caller's log line or a
+        route's traceback. ``endpoint`` is the path the route's name is read from.
+        """
+        try:
+            return self._session.request(method=method, **kwargs)
+        except requests.exceptions.RequestException as exc:
+            failure = _transport_error(exc, method, endpoint)
+        raise failure
 
     def secured_mode(self) -> bool:
         """Whether this client speaks the secured API over mTLS (client
@@ -2328,16 +2396,14 @@ class KnovasAPIClient:
                     failure = {}
                 if not isinstance(failure, dict):
                     failure = {}
+                # The status, a short code and the request id; not the Core's
+                # text, which can quote what was sent (RB-FIX-2). _make_request
+                # logged the route; the Core's own log has the text by the id.
                 raise GraphError(
                     response.status_code,
                     failure.get('error_code'),
-                    # Knovas puts its fixed text under "error" (the doc-fields
-                    # envelope) or "message"; either is better than nothing.
-                    # getattr, because a response double in the tests carries no
-                    # reason and an AttributeError here would hide the real status.
-                    failure.get('message') or failure.get('error')
-                    or getattr(response, 'reason', '') or '',
                     details=failure,
+                    request_id=_request_id(response),
                 ) from exc
             body: Dict[str, Any] = {}
             try:
@@ -2444,7 +2510,8 @@ class KnovasAPIClient:
             payload = None
         if response.status_code >= 400:
             code = payload.get('error_code') if isinstance(payload, dict) else None
-            raise GraphError(response.status_code, code if isinstance(code, str) else None, '')
+            raise GraphError(response.status_code, code if isinstance(code, str) else None,
+                             request_id=_request_id(response))
         node = payload.get('node') if isinstance(payload, dict) else None
         if not isinstance(node, dict):
             node = payload if isinstance(payload, dict) else {}
@@ -2527,8 +2594,8 @@ class KnovasAPIClient:
                 if acquire is not None:
                     acquire()
                 try:
-                    response = self._session.request(
-                        method='GET', url=url, json=bodies[index], params=params,
+                    response = self._send(
+                        'GET', f"/secured/graph{path}", url=url, json=bodies[index], params=params,
                         headers=headers, timeout=self.http_read_timeout,
                         allow_redirects=False,
                     )
@@ -2567,8 +2634,8 @@ class KnovasAPIClient:
         self._ensure_certificate_freshness()
         body = self._with_principal({"node_ids": ids}, 'POST')
         try:
-            response = self._session.request(
-                method='POST', url=f"{self.base_url}/secured/graph/facts/batch",
+            response = self._send(
+                'POST', '/secured/graph/facts/batch', url=f"{self.base_url}/secured/graph/facts/batch",
                 json=body, headers=self._get_headers(),
                 timeout=self.http_read_timeout, allow_redirects=False,
             )
@@ -2818,12 +2885,10 @@ class KnovasAPIClient:
                     raise DocFieldsUnavailable(status=404, error_code=code) from exc
             if code is None and status == 429:
                 code = 'too_many_requests'  # the rate-limit body has no error_code
-            raise DocFieldsError(
-                status, code,
-                body.get('message') or body.get('error')
-                or getattr(response, 'reason', '') or '',
-                details=body,
-            ) from exc
+            # No Core text (RB-FIX-2): the page says it in its own words from
+            # the code; the operator finds the text by the request id.
+            raise DocFieldsError(status, code, details=body,
+                                 request_id=_request_id(response)) from exc
         except (requests.exceptions.RequestException, RetryError) as exc:
             raise DocFieldsError(
                 503, 'transport_error', type(exc).__name__) from exc
