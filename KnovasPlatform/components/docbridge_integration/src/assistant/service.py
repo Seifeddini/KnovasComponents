@@ -22,8 +22,11 @@ One question, one reply:
    (cut to fit if it must, FU-07), and weighed with every digit as one token
    (FU-06).
 3. **Generate.** ``generate(system_instruction=..., messages=...,
-   max_tokens=...)`` is called exactly once, and only when there is at least
-   one passage.
+   max_tokens=...)`` is called exactly once. Also when the search found
+   nothing (PMVP-20 conversation, the coordinator's re-pin of 2026-11-22):
+   then the prompt holds no passage, every statement is dropped as
+   ``unknown_source``, and only a valid reply can be shown, a greeting or a
+   question back; else the no-answer sentence, without passages.
 4. **Check.** The model answers in statements, one JSON object per line,
    each with one source and a word-for-word quote. ``assistant.check`` shows
    a statement only if its form, its source, its quote, its numbers and its
@@ -173,8 +176,9 @@ SYSTEM_INSTRUCTION = (
     "\n"
     "A reply, your own words to the person, shown without a source:\n"
     '{"reply": "...", "kind": "chat"}\n'
-    "A reply is one or two short sentences. It holds no digit and no number, states no fact from the passages and "
-    "names no document, person, firm, place or matter of the passages; otherwise it is discarded. "
+    "A reply is one or two short sentences. It holds no digit and no number, states no fact from the passages, "
+    "does not say what they contain and names no document, person, firm, place or matter of the passages; "
+    "otherwise it is discarded. "
     '"kind" is "chat" for a greeting, thanks or what you can do, and "clarify" when you ask the person to be more '
     "specific or say that nothing fits.\n"
     "\n"
@@ -214,6 +218,9 @@ SYSTEM_INSTRUCTION = (
 )
 
 _PASSAGES_INTRO = "Numbered passages:"
+#: The last message's head when the search found nothing: only a reply can be shown.
+_NO_PASSAGES = ("Numbered passages: none. The search found nothing for this question, so write no statement; "
+                "answer with one reply.")
 _QUESTION_LABEL = "Question: "
 #: The last words the model reads: after a long chat in plain sentences they
 #: keep the answer in the form.
@@ -410,10 +417,10 @@ class AssistantService:
         stats.rows = len(rows) if isinstance(rows, list) else 0
         passages = passages_from_rows(rows)
         stats.passages = len(passages)
-        if not passages:
-            return Reply(status="no_answer", message=NO_ANSWER_TEXT)
+        # Nothing found: the model is still asked, once, with no passage (PMVP-20 conversation): a greeting or a
+        # question back needs none, and no statement can stand without one (``unknown_source``).
         # 1b. The context around each hit (PMVP-20 context): only these passages' documents, never raises.
-        if self._read_text is not None:
+        if passages and self._read_text is not None:
             passages = widen_passages(passages, self._read_text)
 
         # 2. Compose.
@@ -579,6 +586,8 @@ def _passage_head(p: Passage) -> str:
 
 
 def _final_message(question: str, heads: Sequence[str], texts: Sequence[str]) -> str:
+    if not heads:  # the search found nothing (PMVP-20 conversation): the model is told so
+        return _NO_PASSAGES + "\n\n" + _QUESTION_LABEL + question + "\n\n" + _FORM_REMINDER
     blocks = [f"{head}\n{text}" for head, text in zip(heads, texts)]
     return (_PASSAGES_INTRO + "\n\n" + "\n\n".join(blocks) + "\n\n" + _QUESTION_LABEL + question
             + "\n\n" + _FORM_REMINDER)

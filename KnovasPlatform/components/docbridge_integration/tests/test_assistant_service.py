@@ -351,7 +351,8 @@ def test_the_no_answer_reply_says_why_nothing_was_left():
 
 def test_a_reply_without_a_check_has_every_reason_at_zero():
     replies = [
-        AssistantService(search=_Search(rows=[]), generate=_Generate()).answer("Frist?"),
+        # PMVP-20 conversation: with no passage the model is asked once; a no-answer line is checked, nothing counted
+        AssistantService(search=_Search(rows=[]), generate=_Generate('{"no_answer": true}')).answer("Frist?"),
         AssistantService(search=_Search(), generate=_Generate(exc=CoreBusy())).answer("Frist?"),
         AssistantService(search=_Search(exc=CoreFailed()), generate=_Generate()).answer("Frist?"),
         AssistantService(search=_Search(), generate=_Generate()).answer("   "),

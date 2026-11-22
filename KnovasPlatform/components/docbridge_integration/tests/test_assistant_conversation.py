@@ -142,11 +142,55 @@ def test_the_no_answer_sentence_comes_only_without_statements_and_without_a_repl
     assert _answer(GREETING).message != NO_ANSWER_TEXT
 
 
-def test_no_passages_means_no_generation_even_for_a_greeting():
-    """The frozen PMVP-20 file pins it: nothing retrieved, nothing generated, the no-answer sentence."""
-    generate = FakeGenerate(lines(GREETING))
-    reply = AssistantService(search=FakeSearch([]), generate=generate).answer("wagwan")
-    assert generate.calls == [] and reply.message == NO_ANSWER_TEXT and reply.reply_text == ""
+def _nothing_found(*values, question="wagwan", history=()):
+    generate = FakeGenerate(lines(*values))
+    reply = AssistantService(search=FakeSearch([]), generate=generate).answer(question, list(history))
+    return reply, generate
+
+
+def test_nothing_found_the_model_is_asked_once_with_no_passage():
+    """The coordinator's re-pin of 2026-11-22: with no passages the model may be asked once."""
+    reply, generate = _nothing_found(GREETING)
+    assert len(generate.calls) == 1
+    last = generate.calls[0]["messages"][-1]["content"]
+    assert last.startswith("Numbered passages: none.") and "[1]" not in last and "Question: wagwan" in last
+    assert reply.status == "no_answer" and reply.reply_text == reply.message == GREETING["reply"]
+    assert reply.reply_kind == KIND_CHAT and reply.passages == [] and reply.sentences == []
+
+
+def test_nothing_found_a_clarifying_reply_lists_no_passage():
+    reply, _ = _nothing_found(CLARIFY, question="document")
+    assert reply.reply_text == CLARIFY["reply"] and reply.reply_kind == KIND_CLARIFY and reply.passages == []
+
+
+def test_nothing_found_every_statement_is_an_unknown_source():
+    reply, _ = _nothing_found(FRIST, FORM, {"statement": "Die Frist ist kurz.", "source": "1", "quote": "a b c"})
+    assert reply.status == "no_answer" and reply.message == NO_ANSWER_TEXT and reply.sentences == []
+    assert reply.passages == [] and reply.removed_by == _counts(unknown_source=3)
+
+
+def test_nothing_found_without_a_valid_reply_the_no_answer_sentence_and_no_passage():
+    for values, counts in [((), _counts()), (({"no_answer": True},), _counts()),
+                           (({"reply": "Ich sehe 3 Dokumente.", "kind": "chat"},), _counts(reply_dropped=1)),
+                           (({"reply": "Dazu habe ich das gefunden:"}, FRIST), _counts(unknown_source=1,
+                                                                                         reply_dropped=1))]:
+        reply, generate = _nothing_found(*values)
+        assert len(generate.calls) == 1
+        assert reply.status == "no_answer" and reply.message == NO_ANSWER_TEXT and reply.reply_text == ""
+        assert reply.passages == [] and reply.removed_by == counts, values
+
+
+def test_nothing_found_the_chat_so_far_still_goes_along():
+    reply, generate = _nothing_found(GREETING, question="Danke!",
+                                     history=[Turn("user", "document"), Turn("assistant", CLARIFY["reply"])])
+    assert [m["role"] for m in generate.calls[0]["messages"]] == ["user", "assistant", "user"]
+    assert reply.reply_text == GREETING["reply"]
+
+
+def test_an_empty_question_is_still_neither_searched_nor_generated():
+    search, generate = FakeSearch(), FakeGenerate(lines(GREETING))
+    reply = AssistantService(search=search, generate=generate).answer("   ")
+    assert search.calls == [] and generate.calls == [] and reply.message == NO_ANSWER_TEXT
 
 
 # --- the rules: a reply that breaks one is dropped ----------------------------------------------------------------
@@ -272,6 +316,18 @@ def test_one_reply_a_turn():
 def test_white_space_and_unseen_characters_are_taken_out_of_a_reply():
     reply = _answer({"reply": "  Hallo!\u200b\n\n  Wie kann ich\thelfen?  ", "kind": "chat"})
     assert reply.reply_text == "Hallo! Wie kann ich helfen?"
+
+
+def test_the_english_i_is_a_word_and_a_roman_one_a_number():
+    """The demo tenant, 2026-11-22 ("wagwan", Claude answered in English): "I'm" read as the Roman numeral one."""
+    said = ("Hey, not much, all good here! I'm the Knovas Assistent, so just ask me anything about the firm's "
+            "documents and I'll dig in.")
+    reply, _ = _nothing_found({"reply": said, "kind": "chat"})
+    assert reply.reply_text == said
+    for text in ("I can help with that.", "What can I do for you?", "I found nothing. Which matter is it?"):
+        assert not holds_a_number(text), text
+    for text in ("Gilt Teil I?", "Is it part I of the contract?", "Es geht um Kategorie C."):
+        assert holds_a_number(text), text
 
 
 # --- a document question still needs quotes ---------------------------------------------------------------------

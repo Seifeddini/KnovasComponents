@@ -312,7 +312,9 @@ def test_no_passages_means_no_read():
     reader = Reader({DOC_A: TEXT_A})
     reply, generate = _answer([{"doc_id": "x.pdf", "document_uuid": DOC_A}], reader, "")
     assert reply.status == "no_answer" and reply.message == NO_ANSWER_TEXT
-    assert reader.calls == [] and generate.calls == []
+    # PMVP-20 conversation (the coordinator's re-pin): with no passage the model is asked once, for a reply only;
+    # still nothing is read
+    assert reader.calls == [] and len(generate.calls) <= 1
 
 
 # --- bounded --------------------------------------------------------------------------------------------------------

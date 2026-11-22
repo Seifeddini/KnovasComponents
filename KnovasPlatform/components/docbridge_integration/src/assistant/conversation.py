@@ -145,11 +145,15 @@ def holds_a_number(text: str) -> bool:
         return True
     if check._odd_characters(text):
         return True
-    # "E-Mail": the number check reads a capital letter standing alone as a number ("Kategorie C").
-    return bool(check.claimed_numbers(_E_MAIL.sub("Email", text)))
+    # The number check reads a capital letter standing alone as a number ("Kategorie C", "Teil I"): "E-Mail" and the
+    # English "I" before a contraction or a verb (the demo tenant, 2026-11-22: "I'm the Knovas Assistent") are words.
+    return bool(check.claimed_numbers(_ENGLISH_I.sub("me", _E_MAIL.sub("Email", text))))
 
 
 _E_MAIL = re.compile("(?<![^\\W_])[Ee]-[Mm]ail")
+_ENGLISH_I = re.compile("(?<![^\\s\"'(\u201c\u201e\u00ab])I(?=['\u2019](?:m|ll|ve|d)\\b|\\s+(?:am|can|cannot|"
+                        "could|would|will|have|had|do|did|don|found|looked|searched|see|think|help|need|was|only|just|"
+                        "also|couldn|didn|haven|wasn)\\b)")
 
 
 # ---------------------------------------------------------------------------
