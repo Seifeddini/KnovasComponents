@@ -27,6 +27,8 @@ for the pilot. It is not one component; each rule lives in the part named beside
 |---|---|---|
 | The chosen provider: the Knovas Core or Anthropic | the assistant's instruction, the passages this person's search returned (each up to 1,200 characters of the text around the hit, PMVP-20 context), the question and the chat so far (its questions and the statements of its answers; never an earlier passage or quote) (DEC-0086) | every question, only while the assistant is on |
 | Anthropic | one invented passage and question, no customer text | an administrator presses "Verbindung testen" |
+| Anthropic, with «Brain-Werkzeuge» (`brain_mcp`) | the assistant's instruction, the question and the chat so far (as above), **and the company's gateway key and the gateway's address**: Anthropic uses the key to call the Knovas MCP gateway itself. What the gateway returns (search passages and up to 20,000 characters of each document Claude fetches) is read by Claude at Anthropic, and the passages Claude cites come back to the Platform | every question, only while the assistant is on and the mode is «Brain-Werkzeuge» (off by default; PMVP-20 brain-mcp) |
+| The Knovas MCP gateway (from Anthropic, not from the Platform) | Claude's searches (`search`, a short query) and reads (`fetch`, a grant the search handed out), with the company's gateway key | the same; the gateway reads in the key's tenant **with no access groups and no person**: what a caller without groups may read, whatever the asking person's roles |
 | The Knovas Core | searches and per-thing reads as the signed-in person, over the Platform's certificate (as today) | search, dossier |
 | The Knovas Core | the assistant's searches and its generation calls with **the assistant's own signed claim** (its id, the groups and functions of its roles that the person also holds) and "the assistant, for this person" (both ids) | every question, only while the assistant is on (RB-6) |
 | The Knovas Core | the assistant's reads of a document's text (`GET /secured/document/<id>/text`): only the documents this question's search returned, at most 8, with the same claim and "the assistant, for this person"; the document's id and where to read from, no text | every question, only while the assistant is on (PMVP-20 context) |
@@ -35,7 +37,20 @@ for the pilot. It is not one component; each rule lives in the part named beside
 The pilot (Knovas GmbH) chose Anthropic on 21 November, so its passages may be sent there. Fonts and styles load from
 the installation itself.
 
-**Access rights through the Brain's search.** The assistant finds documents only through the person's search (FU-14).
+**«Brain-Werkzeuge»: a second way to read, with the company's key** (PMVP-20 brain-mcp, built 22 Nov, not yet
+verified). With the answer mode `brain_mcp` the assistant does not search as the person: Claude calls the Knovas MCP
+gateway with the company's gateway key, and the gateway reads **everything that key sees, whatever the asking person's
+roles** (all documents under `disabled`, open ones under `enforcing`). The settings page says so in one line under the
+mode («Brain-Werkzeuge lesen alles, was der Schlüssel Ihres Unternehmens sieht, unabhängig von den Rollen der Person.
+Nur ohne «Ein» verwenden.»). **It must stay off under «Ein»** and wherever the people of one firm may not all read
+everything; Core requests CR-R5 and CR-R6 (a gateway key bound to an agent's signed claims) would let the gateway read
+as the person. The gateway key is stored encrypted like the Claude API key, never shown, logged or put into the audit
+log ("geändert"); a gateway address outside `knovas.ch` or without https is refused, because Anthropic sends the key
+there. The Platform never grants a document of such an answer: a stored chat opens it only after the Core confirms, as
+the person, that she may read it; an unsaved answer shows the title alone. One log line per answer counts the tool
+calls and results by id and number only.
+
+**Access rights through the Brain's search.** In the passages mode (the default) the assistant finds documents only through the person's search (FU-14).
 Since the founder's decision of 22 November it also reads, for the hits that search returned and only those, the text
 around each hit from the Core's document text, under five limits, each tested: only documents this question's search
 just returned; the Core decides every read and any refusal keeps the search's short text; as the person, with the same
@@ -177,7 +192,8 @@ reaches the Core is in the audit log by id (who, from, to, or the Core's reason 
 | The client's errors and the HTTP library's warnings without addresses or Knovas text (RB-FIX-2) | built; no verification verdict yet | Siran (sensitive) |
 | Second log sweep (FU-22, FU-31) | not started; waits for #55 | its web-server part is deployment: sensitive |
 | Key handling (PMVP-25) | built; no verification verdict yet | management (critical) |
-| Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | PMVP-42 built 22 Nov, no verification verdict yet: one administrator switches after a confirmation, recorded by id; Knovas switches only when its own prerequisites hold (two green rights runs under `brokered` among them); PMVP-43 not started | management (critical); Siran (sensitive) |
+| «Brain-Werkzeuge»: Claude reads through the Knovas MCP gateway with the company's key (PMVP-20 brain-mcp) | built 22 Nov on `feat/pmvp-20-brain-mcp`; no verification verdict yet; off by default | management (critical: a secret) |
+| Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | PMVP-42 built 22 Nov, verified with notes; a fix round on the notes (every switch attempt recorded before it is sent): one administrator switches after a confirmation, recorded by id; Knovas switches only when its own prerequisites hold (two green rights runs under `brokered` among them); PMVP-43 not started | management (critical); Siran (sensitive) |
 | «Was sieht …?» (PMVP-41): an administrator sees the names of the documents another person, a role or an agent reads, never passage text; every look audited by id | built 22 Nov; no verification verdict yet; names only, every look audited (founder, 22 Nov) | Siran (sensitive) |
 | Roles: the move to roles, functions and groups read from roles, the 32-group cap (RB-1, RB-2) | built; no verification verdict yet | management (critical: a migration) |
 | Agents: one signed claim for every agent; external agents' claims handed to the Core behind a switch (RB-6, RB-7) | built; no verification verdict yet; acts with the Core's CR-R1, CR-R5, CR-R6 | management (critical: a migration, signing and claims) |
@@ -198,13 +214,17 @@ reaches the Core is in the audit log by id (who, from, to, or the Core's reason 
 | 22 Nov | founder | «Was sieht …?» shows document names only, never content, and every look is audited (PMVP-41) |
 | 22 Nov | founder | One administrator alone switches enforcement, with a confirmation and an audit row; the gate for «Ein» is the Core's (CR-R7, CR-R8); the Platform keeps no record of rights runs (PMVP-42) |
 | 22 Nov | founder | A chat keeps its passages (owner only, deleted with it); chats are deleted automatically after 90 days, read by the coordinator as 90 days after the last message (PMVP-23) |
+| 22 Nov | founder | «Brain-Werkzeuge»: Claude may answer through the Knovas MCP gateway with the company's key, now; only without «Ein» (PMVP-20 brain-mcp) |
 
 ## Known limits and open points
 
 - **Enforcement is off for every tenant.** The Core's last real end-to-end run (10 August) showed a document to a person
   without the right; the repair is outside this plan (Jira SS-664, SS-665, SS-572). Tripwire: no green run by 1 December.
 - **Provider terms (FU-33):** region, retention and what a client contract says about sending passages: open before the
-  first law firm.
+  first law firm. With «Brain-Werkzeuge» Anthropic also holds the company's gateway key for each request and reads
+  whole fetched documents, not only passages.
+- **«Brain-Werkzeuge» read beyond the person's rights** until the gateway reads as the person (CR-R5, CR-R6): only for
+  a firm whose people may all read everything, and never under «Ein».
 - **Older log lines on the build branch:** a document address (FU-25), until the sweep reaches main and main is
   merged into the build branch. The two lines of FU-09 (the Knovas client) are rewritten on the build branch by
   RB-FIX-1; the sweep changes the same lines, so that merge keeps RB-FIX-1's.

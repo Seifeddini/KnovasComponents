@@ -1739,6 +1739,8 @@ mark.context-snippet-match,
 .platform-settings-role { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .platform-settings-ok { color: var(--success-color, #1a6b4a); }
 .platform-settings-error { color: var(--error-color, #be123c); }
+/* The warning under the assistant's answer mode (PMVP-20 brain-mcp): one line, always shown. */
+.platform-settings-warning { font-size: 12px; font-weight: 600; color: var(--warning-color, #92400e); margin: 2px 0; }
 .platform-settings-actions { display: flex; gap: 12px; align-items: center; }
 
 /* Sync von GitHub (KC-0.2): counts per mapping and the history. */

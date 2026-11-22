@@ -94,6 +94,14 @@ def _repo_path(value: str) -> None:
         raise SettingError(f"{value!r}: ein Pfad im Repository zur brain-config.yaml (relativ, ohne ..).")
 
 
+def _gateway_url(value: str) -> None:
+    from assistant.providers import brain_mcp_url_problem
+
+    problem = brain_mcp_url_problem(value)
+    if problem:
+        raise SettingError(problem)
+
+
 def _bundle_source(value: str) -> None:
     from graph_views.bundle import BundleError, parse_source
 
@@ -190,6 +198,24 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
             "Nur mit anthropic. Ein eigener Schlüssel, nicht der des Ansichten-Assistenten: Dieser hier bekommt "
             "Textstellen aus den Dokumenten des Mandanten. Wird nur geschrieben, nie angezeigt. „Verbindung testen“ "
             "schickt eine erfundene Frage, nie einen Text des Mandanten.",
+            "secret", "installation"),
+    # \u00abBrain-Werkzeuge\u00bb (PMVP-20 brain-mcp): Claude reads the Brain itself through the Knovas MCP gateway, with the
+    # company's gateway key (src/assistant/brain_tools.py). Only with anthropic; the settings page warns under the mode.
+    Setting("assistant.mode", "Antwortweise des Knovas Assistenten",
+            "passages (Standard): Der Knovas Assistent sucht mit den Rechten der fragenden Person und gibt dem "
+            "Sprachmodell die gefundenen Textstellen. brain_mcp (\u00abBrain-Werkzeuge\u00bb): Claude sucht und liest selbst "
+            "\u00fcber das MCP-Gateway von Knovas, mit dem Gateway-Schl\u00fcssel unten; nur mit anthropic.",
+            "choice", "installation", env=("ASSISTANT_MODE",), choices=("passages", "brain_mcp"),
+            fallback="passages"),
+    Setting("assistant.brain_mcp_url", "Adresse des Knovas-Gateways (Brain-Werkzeuge)",
+            "Nur mit brain_mcp. Das MCP-Gateway von Knovas, das Claude f\u00fcr Sie aufruft (Standard: "
+            "https://mcp.knovas.ch/mcp). Nur https und nur Adressen unter knovas.ch: Anthropic schickt den "
+            "Gateway-Schl\u00fcssel an diese Adresse.",
+            "text", "installation", env=("ASSISTANT_BRAIN_MCP_URL",), check=_gateway_url,
+            fallback="https://mcp.knovas.ch/mcp"),
+    Setting("assistant.brain_mcp_key", "Schl\u00fcssel des Knovas-Gateways (Brain-Werkzeuge)",
+            "Nur mit brain_mcp. Der Gateway-Schl\u00fcssel Ihres Unternehmens (knovas_gw_\u2026), von Knovas ausgegeben. "
+            "Anthropic bekommt ihn mit jeder Frage, um das Gateway aufzurufen. Wird nur geschrieben, nie angezeigt.",
             "secret", "installation"),
     # External agents (RB-7): the Platform hands the Core's MCP gateway each external agent's signed claims
     # (identity/agent_delivery.py), read through the Resolver on every push. Off until the Core has CR-R5 and, on a
