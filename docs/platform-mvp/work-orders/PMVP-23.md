@@ -1,7 +1,6 @@
 # Work order PMVP-23: follow-up questions and past chats
 
-**Draft for the coordinator** (2026-11-22). Everything under "Decisions this order takes" is a proposal until the
-coordinator (and, where marked, the founder) confirms it.
+**Decided on 2026-11-22** by the coordinator and the founder (see "Decisions"); its acceptance tests are frozen.
 
 | | |
 |---|---|
@@ -13,7 +12,8 @@ coordinator (and, where marked, the founder) confirms it.
 | Visual contract | `docs/platform-mvp/reference-screens/01-assistent.html` and `out/01-assistent.png`, with `shell.js` for the Workspace's sidebar: «+ Neue Frage»; the person's own chats under «Heute» and «Diese Woche», the open one marked; under the answer the box «Nachfragen oder etwas Neues fragen …» with «Fragen» |
 | Card | `docs/components/L2-platform-assistant.card.yaml` (its page, `boundaries.yaml`); `L2-platform-shell.card.yaml` for the sidebar's new block |
 | Core requests | None needed. Before **CR-1** lands, follow-ups work and their answers are as thin as first answers (FU-37: short passages). **CR-2** is not used. The rights requests (CR-R1 and later) change nothing here: the follow-up's search is the person's own, as today |
-| Frozen tests | None written with this draft. The class is sensitive: the coordinator decides whether to freeze acceptance tests before the start (decision D5) |
+| Frozen tests | `P/tests/test_pmvp23_chats_followups_acceptance.py`, blob `3fd3e660755cb9f26d366a029f675b424917c053` in `docs/platform-mvp/frozen-tests.txt` (33 tests: SPEC-05 and SPEC-06's examples, the owner checks on the four chat addresses, signed out, the form's token, the switch, the list and the sidebar's 20, delete, D2, D3 with two workers, no customer text in a log line at DEBUG). Proven by the drafting session against a throwaway reference in its scratchpad (not committed): 33 pass; on today's branch 31 fail (the two that pass: `busy` and `failed` store nothing); 16 of 16 mutants killed |
+| Points | 5, one item (D6) |
 
 `P` = `KnovasPlatform/components/docbridge_integration`.
 
@@ -22,7 +22,7 @@ coordinator (and, where marked, the founder) confirms it.
 A person asks, reads the answer, and asks on in the same chat: «Und wer hat unterschrieben?» after a question on a
 contract answers about the same contract. Every question and its answer are kept as that person's chat. The
 Workspace's sidebar lists her own chats, newest first; she opens one and reads it as it was answered, asks on in it,
-or deletes it. Nobody else sees, opens or deletes it.
+or deletes it. Nobody else sees, opens or deletes it. A chat is deleted by itself 90 days after its last message.
 
 ## What PMVP-23 does not do
 
@@ -77,13 +77,15 @@ to a dossier (PMVP-33).
    there are more, «Alle Gespräche» to `GET /fragen/verlauf` (every chat of hers, 50 a page, newest first, «Ältere»
    and «Neuere»). `ChatStore.list_chats(*, owner, limit=None, offset=0)`: without the new arguments it lists as
    today.
-   - The block stands **after** the sidebar's main `<nav>`, in an element of its own (for example `<nav
-     aria-label="Gespräche">`): PMVP-11's frozen navigation test reads the first `<nav>` of the sidebar as the menu,
-     and that must stay «Suche» alone. Nothing in the block is marked current on the search page.
+   - The block stands **after** the sidebar's main `<nav>` **and after the `<script>` that follows it** (that script
+     finds the menu as its previous sibling), in an element of its own (for example `<nav aria-label="Gespräche">`):
+     PMVP-11's frozen navigation test reads the first `<nav>` of the sidebar as the menu, and that must stay «Suche»
+     alone. Nothing in the block is marked current on the search page.
    - Titles are the person's text: escaped, `dir="auto"`, one line, cut by CSS.
    - A failed read draws no list and never breaks the page (the error's type is logged).
-   - At 390 px nothing scrolls sideways (the shell turns the sidebar into a row there). If 20 entries do not fit that
-     row, show «+ Neue Frage» and «Gespräche» (to the list page) instead, and say so in your notes.
+   - At 390 px nothing scrolls sideways (the shell turns the sidebar into a row there). The mark-up always holds the
+     newest 20 (the frozen test reads them); if they do not fit the row, fold them with CSS behind «Gespräche» and
+     say so in your notes.
 8. **Opening a document from a stored answer.** Every document link on the chat page goes to
    `GET /fragen/<chat_id>/quelle/<turn>/<number>`. That route reads the chat as the owner, takes that turn's
    reference, asks `document_readable(pointer)` as the person, grants that one document and redirects where 22a's
@@ -101,7 +103,25 @@ to a dossier (PMVP-33).
     handler refuses a missing or wrong field with the form's usual 400 before it reads the chat.
 11. **Logs** (POST-04): one line per request with the status and counts (turns, history turns sent, statements); ids
     at most. Never a question, a title, a statement, a quote, a pointer or a passage.
-12. **The cards.** `L2-platform-assistant.card.yaml`: the operations `GET /fragen/<id>`, `POST /fragen/<id>`,
+12. **Deletion after 90 days** (D3). In `P/src/identity/chats.py`: `RETENTION_DAYS = 90` and
+    `purge_expired_chats(conn, *, days=RETENTION_DAYS) -> Optional[int]`. In **one transaction** it takes
+    `pg_try_advisory_xact_lock(hashtextextended('knovas.assistant.chats.retention', 0))`; if another worker holds
+    it, it returns None. Under the lock, if an `audit_log` row `assistant.chats.retention` exists for today (UTC),
+    it returns None. Otherwise it deletes every chat whose `updated_at` (which every new message moves: the last
+    message) is more than 90 days old, its messages and references by the existing cascade, writes one audit row
+    (`identity.audit.record`, action `assistant.chats.retention`, target type `assistant_chats`, detail
+    `{"deleted": n}`: no id, title, owner or actor) and returns n. One log line with the count.
+    **How it runs** (coordinator's question, answered here): a thread in each gunicorn worker, `ChatRetentionJob`,
+    built like RB-7's `AgentSyncJob` (`identity/agent_delivery.py`): it ticks every hour on a connection of its own
+    (`gate.open_connection`), calls `purge_expired_chats`, and never raises. `install_assistant` starts it whenever
+    personal accounts are on, **whatever the assistant's switch says** (chats stored earlier still expire), and
+    not under `app.testing`. The first tick is one interval after the start. Why this and not a CLI or a
+    scheduler: the deployment has none (one container, gunicorn with `--workers ${DOCBRIDGE_WEB_WORKERS:-2}`; no
+    cron, no compose job), a CLI would need one outside the Platform (a deployment change: sensitive), and the
+    thread pattern exists and was verified with RB-7. The transaction's lock makes one worker do the work; the
+    audit row makes it once a day, also across restarts. **It must run once even with several workers**: the
+    frozen test runs it from two connections at the same moment.
+13. **The cards.** `L2-platform-assistant.card.yaml`: the operations `GET /fragen/<id>`, `POST /fragen/<id>`,
     `POST /fragen/<id>/loeschen`, `GET /fragen/<id>/quelle/<turn>/<n>` and `GET /fragen/verlauf`, with their lines
     (POST-01 for a stored turn, POST-02 for a follow-up's passages, POST-03 and POST-04 with your tests as evidence);
     the `review` entries that name FU-06 and FU-07 replaced by evidence; `chats.py` now has callers.
@@ -125,27 +145,32 @@ to a dossier (PMVP-33).
    accounts too.
 7. New `.py` files ASCII-only (`scripts/check_ascii_py.py`); German words as `\u` escapes, as in 22a.
 
-## Decisions this order takes (draft: for the coordinator to confirm)
+## Decisions (2026-11-22)
 
 - **D1, what a follow-up searches for:** the chat's last question and the follow-up together. It is deterministic
   and costs no second model call. The alternative, a model call that rewrites the follow-up into a question of its
   own, doubles the cost and the time, takes a second of the Core's four generation slots, and can fail on its own.
   Without one of the two, SPEC-05's example cannot pass: the assistant's README lists "a follow-up is searched as
-  typed" as a known limit. (coordinator)
+  typed" as a known limit. **Decided (coordinator): the last question plus the follow-up.**
 - **D2, passage text kept with the chat:** the reference's `text` column (PMVP-21 made it for this) holds the
   passage as search returned it, so PMVP-22b can show it under the sentence later without a read the Core does not
   offer (CR-2). It is never sent to the model again, is read by its owner only, and is deleted with the chat. The
-  alternative is to keep only the quotes. (**founder**: it is a copy of document text in the Platform's database)
-- **D3, how long chats are kept:** until the owner deletes the chat or the person is removed (`ON DELETE CASCADE`);
-  no automatic expiry in the MVP. (**founder**; `data-protection.md` says it either way)
-- **D4, the list in the sidebar**, as the reference draws it: the newest 20 and «Alle Gespräche». (coordinator)
-- **D5, frozen tests:** the class is sensitive; PMVP-21, PMVP-20 and PMVP-11 had frozen tests. Proposed: freeze
-  SPEC-05 and SPEC-06's examples and the four owner checks before the builder starts. (coordinator)
-- **D6, size:** the plan scores 3 points; this scope (storing, the chat page, follow-ups, the list, delete, the
-  click route) is nearer 5. If the coordinator wants it smaller: PMVP-23a (items 1 to 5 and 8 to 12) and PMVP-23b
-  (items 6 and 7: delete and the list). (coordinator)
+  alternative is to keep only the quotes. **Decided (founder): keep it; owner only; deleted with the chat.**
+- **D3, how long chats are kept. Decided (founder): deleted automatically after 90 days.** The coordinator reads
+  this as 90 days after the chat's **last message**, so a chat in use is not cut off; `data-protection.md` says so,
+  and the founder may correct it. A daily job deletes them with their messages and references (item 12); owner
+  deletion and `ON DELETE CASCADE` stay.
+- **D4, the list in the sidebar**, as the reference draws it: the newest 20 and «Alle Gespräche». **Decided
+  (coordinator).**
+- **D5, frozen tests. Decided (coordinator):** frozen before the build (see the table at the top). The class stays
+  sensitive.
+- **D6, size. Decided (coordinator):** one item of 5 points.
 
 ## Your tests (`P/tests/test_assistant_chats_*.py`)
+
+The frozen file pins the addresses, the service's call, `list_chats`'s arguments and the retention function. Your
+own tests cover the rest of the order, in particular FU-01, FU-02, FU-06, FU-07, the 303's anchor, «Alle
+Gespräche»'s pages, the store failure and `ChatRetentionJob` (one tick, never raises, not started under testing).
 
 With a fake service (it records the question, the history and the search text it was given) and the store on your
 test database:
@@ -192,17 +217,19 @@ page. Change those that pin it to follow the `303`, keep what each one checks, a
 - `P/src/web_interface/app.py`: the `_CSRF_EXEMPT_ENDPOINTS` entries only
 - `P/src/assistant/service.py`: item 5 only; `P/src/assistant/README.md` (the service's API, the known limit on
   follow-ups, FU-06 and FU-07)
-- `P/src/identity/chats.py`: `list_chats`'s `limit` and `offset` only
+- `P/src/identity/chats.py`: `list_chats`'s `limit` and `offset`; `RETENTION_DAYS`, `purge_expired_chats` and
+  `ChatRetentionJob` (item 12); nothing else
 - `P/tests/test_assistant_chats_*.py` (new); `P/tests/test_assistant_page_routes.py` as said above
 - the two cards, their pages, `docs/components/boundaries.yaml`
 - `docs/platform-mvp/management/assistant.md`, its row in `management/README.md`, and
-  `management/data-protection.md` (chats are now written: what is kept, D2; for how long, D3; what goes to the
-  provider again: earlier statements)
+  `management/data-protection.md` (the decisions of 22 November are there already: say what was built, and keep it
+  true)
 - this order's "Builder's notes"
 
 ## Files you must not change
 
-The frozen files (`docs/platform-mvp/frozen-tests.txt`; among them `test_pmvp21_chats_acceptance.py`,
+The frozen files (`docs/platform-mvp/frozen-tests.txt`; among them **`test_pmvp23_chats_followups_acceptance.py`**,
+`test_pmvp21_chats_acceptance.py`,
 `test_pmvp20_statements_acceptance.py`, `test_pmvp11_navigation_acceptance.py`, `test_rb67_agents_acceptance.py`),
 `P/tests/conftest.py`, every migration, `P/src/assistant/check.py`, `core.py`, `providers.py` (PMVP-24's),
 `P/src/knovas_client.py`, `P/src/identity/agents.py`, the parts (`_parts.html`, `parts.css`), `P/src/brain_views/**`
@@ -211,8 +238,9 @@ the reason under "Builder's notes".
 
 ## Done when
 
-1. Your tests green; `tests/test_assistant_*.py`, `tests/test_identity_chats_store.py`, `tests/test_shell_*.py` and
-   the frozen files `test_pmvp21_chats_acceptance.py`, `test_pmvp20_statements_acceptance.py`,
+1. The frozen `tests/test_pmvp23_chats_followups_acceptance.py` green and unchanged (its blob id); your tests,
+   `tests/test_assistant_*.py`, `tests/test_identity_chats_store.py`, `tests/test_shell_*.py` and the frozen files
+   `test_pmvp21_chats_acceptance.py`, `test_pmvp20_statements_acceptance.py`,
    `test_pmvp11_navigation_acceptance.py`, `test_rb67_agents_acceptance.py` green; the frozen check all OK. **Do not
    run the whole suite.** Own test database `knovas_platform_test_pmvp23`, one pytest process at a time, dropped at
    the end.

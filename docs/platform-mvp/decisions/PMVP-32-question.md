@@ -1,8 +1,24 @@
 # Decision request PMVP-32: where a matter's process line comes from
 
-**For the coordinator, and through the coordinator for the founder** (2026-11-22). No work order is written for
-PMVP-32 yet. What the plan asks for exists in the Knovas GmbH tenant, but in no law firm's data. How it is read today
-breaks the views' contract.
+**For the coordinator, and through the coordinator for the founder** (2026-11-22). What the plan asks for exists in
+the Knovas GmbH tenant, but in no law firm's data. How it is read today breaks the views' contract.
+
+## Decided (2026-11-22)
+
+- **Founder: option A.** The process line is built on the Client Zero convention, per thing, and **measured on Knovas
+  GmbH's own processes** (feature lifecycle, release, sales …), not on law-firm matters. The reference screen's
+  law-firm words stay the look, not the data.
+- **Founder: option C is asked separately** of the demo law firm's plan and of the Builder's bet (a law-firm process
+  in the legal pack, matters' state written into the Brain, a convention for "a step needs a document of kind X").
+  It is not this plan's code.
+- **Coordinator, points 2 to 4 as recommended:** the main path is the `transitions_to` chain and the variants are
+  `reworks_to`; «fehlt noch» means the step's requirements one hop from the instance, things only (SPEC-11's "missing
+  document" waits for C).
+- **Coordinator, point 5:** nobody calls production. The work order makes the builder use
+  `GET /secured/graph/edges?node_id=&type=` as the fake Core's contract says, and fall back to the instance's or the
+  process's neighbours when the route answers 404.
+- **FU-19 closes:** the existing Ablauf code is not reused and needs no owner on the views' card.
+- The work order is `work-orders/PMVP-32.md` (routine; builder B after PMVP-30b).
 
 | | |
 |---|---|

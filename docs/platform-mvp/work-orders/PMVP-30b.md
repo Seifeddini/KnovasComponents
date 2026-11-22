@@ -1,7 +1,6 @@
 # Work order PMVP-30b: the dossier's related things by kind, as counts and lists
 
-**Draft for the coordinator** (2026-11-22). Everything under "Decisions this order takes" is a proposal until the
-coordinator confirms it.
+**Decided by the coordinator on 2026-11-22** (see "Decisions").
 
 | | |
 |---|---|
@@ -41,7 +40,8 @@ thing's own dossier. Nothing is drawn as a graph. Everything is read for this on
 2. **The tabs.** The dossier's tabs become «Überblick», then one tab per kind with its count (by count, highest
    first, then by name), then «Dokumente» with its count. A kind's tab is `?art=<key>`: the type's uuid, or `ohne`
    for «Weitere Einträge». An `art` the thing does not have shows the «Überblick». The key is never echoed into the
-   page as text. A tab shows the kind's name **as the Brain names it**, for example «Mandat 7» (decision D2).
+   page as text. A tab shows the kind's name **in the plural** with its count, «Mandate 7», «Dokumente 12»
+   (decision D2).
 3. **A kind's list** (B-03), through `limit.paged`:
    - rows: the thing's name, a link to its dossier (`url_for('brain_views.dossier', …)`), with the relation under it
      in the muted style, each row marked `data-bv-row`;
@@ -76,14 +76,20 @@ thing's own dossier. Nothing is drawn as a graph. Everything is read for this on
 5. **Logs**: counts and error types only; never a name, a relation, a filter text or an id beyond the route's own.
 6. The switch, the sign-in and the 404 for a hidden thing stay as PMVP-30a built them.
 
-## Decisions this order takes (draft: for the coordinator to confirm)
+## Decisions (coordinator, 2026-11-22)
 
 - **D1, tabs only, as the reference.** The «Überblick» draws no related things (02-dossier draws none). The related
   things are counted in the tabs and listed behind them. The neighbourhood view with circles (04-umgebung) is the
   plan's «Umgebung», which follows only if G3 is met early.
-- **D2, kind names as the Brain has them** (singular, «Mandat 7»), not the reference's plurals («Mandate 7»): the
-  Platform cannot make German plurals by rule. Olymp's CTO sees this difference with the screens (D-A5).
+- **D2, kind names in the plural** («Mandate 7», «Dokumente 12»), as German interfaces show them. The Brain has no
+  plural (a node type has a name and a description only), and no rule makes German plurals («Vertrag» →
+  «Verträge»). So the plurals come from **one table** in `brain_views/related.py`: the kinds of the legal pack
+  (`builder/packs/legal/pack.json`) and of the pilot's tenant (Knovas GmbH; its kind names are in KnowledgeBase
+  `docs/ModernDocs/client-zero/ontology/`, read with `git show`, and they are English). A kind not in the table
+  keeps the name the Brain gives it. List in your notes the pilot's kinds and the plurals you chose, for the
+  coordinator to check.
 - **D3, at most 20 named kinds.** One round of 20 reads is bounded; a thing with more kinds is unusual.
+- **Lists are exempt from the 25 cap** (coordinator): they are paged at 50 (PMVP-34's D1).
 - **D4, the list's sort and filter run over what was read**, on the Platform; the Core has no paged neighbours
   read. For a hub with thousands of neighbours the page reads them all each time. That is accepted for the MVP and
   noted on the card.
@@ -93,7 +99,7 @@ thing's own dossier. Nothing is drawn as a graph. Everything is read for this on
 With the shared `FakeGraphApi` (its `neighbours` map; extend it only in your own test file):
 
 - Signed out 302; switch off 404; a hidden or missing thing 404 (as in PMVP-30a); without accounts 404.
-- Counts per kind; the tab order; «Weitere Einträge» for things without a kind and beyond 20 kinds; the starting
+- Counts per kind; the tab order; a kind in the table shown in its plural, one outside it with its own name; «Weitere Einträge» for things without a kind and beyond 20 kinds; the starting
   thing never counted.
 - A kind's list: sorted A–Z and Z–A; the filter; page 2; a page out of range; an unknown `art` shows the
   «Überblick»; a name, relation or filter holding `<script>` comes out as text.

@@ -1,7 +1,6 @@
 # Work order PMVP-24: waiting and failure states of the assistant
 
-**Draft for the coordinator** (2026-11-22). Everything under "Decisions this order takes" is a proposal until the
-coordinator confirms it.
+**Decided by the coordinator on 2026-11-22** (see "Decisions").
 
 | | |
 |---|---|
@@ -84,12 +83,12 @@ line says what is happening.
 6. The constants live in `core.py` and are documented. No new setting.
 7. `ask.js` writes no markup from text: only attributes, classes, `hidden`, and the fixed texts above.
 
-## Decisions this order takes (draft: for the coordinator to confirm)
+## Decisions (coordinator, 2026-11-22)
 
 - **D1, slow reads as «ausgelastet»:** a timeout means the Core or the provider is overloaded far more often than
   broken, and plan § 8.2 names that word. The alternative is a third text («hat zu lange gebraucht»).
 - **D2, 150 s for the whole answer and 30 s at least for the generation**, set before the capacity test in the week
-  of 1 December (§ 11). The coordinator revisits both numbers after that test.
+  of 1 December (§ 11). **Decided: the 150 s deadline holds**; the coordinator revisits both numbers after that test.
 - **D3, no queue in the Platform.** The Core's 429 and 503, and Claude's 429 and 529, read as «ausgelastet» at once,
   as PMVP-25 decided. The plan's "waiting line" is read as a line of text, not a queue.
 
@@ -128,7 +127,7 @@ Use a fake clock (patch the monotonic time); no test waits for real:
 
 ## Files you must not change
 
-The frozen files, `P/tests/conftest.py`, `P/src/assistant/service.py` and `check.py` (if the service must change,
+The frozen files (PMVP-23's `test_pmvp23_chats_followups_acceptance.py` among them), `P/tests/conftest.py`, `P/src/assistant/service.py` and `check.py` (if the service must change,
 stop and say why), `P/src/identity/**`, every migration, `_sidebar.html`, `app.py`, the parts, the nginx files, the
 `Dockerfile`, compose files, `P/src/brain_views/**`.
 

@@ -1,7 +1,6 @@
 # Work order PMVP-34: the 25-node limit as one shared function, with its test
 
-**Draft for the coordinator** (2026-11-22). Everything under "Decisions this order takes" is a proposal until the
-coordinator confirms it.
+**Decided by the coordinator on 2026-11-22** (see "Decisions"); its acceptance test is frozen.
 
 | | |
 |---|---|
@@ -13,7 +12,7 @@ coordinator confirms it.
 | Visual contract | none of its own. `reference-screens/04-umgebung.html` shows what a drawn view looks like: one circle per kind with a count, a card listing what is in it |
 | Card | `docs/components/L2-platform-brain-views.card.yaml` (its page, `boundaries.yaml`) |
 | Core requests | none. CR-1 and CR-2 change nothing here |
-| Frozen tests | none (routine); the verifier checks "Done when". See decision D3 |
+| Frozen tests | `P/tests/test_pmvp34_view_limit_acceptance.py`, blob `7cb498315670e30a4369e945515c05a0deab98b0` in `docs/platform-mvp/frozen-tests.txt` (17 tests). Proven by the drafting session against a throwaway reference: 17 pass; on today's branch 15 fail (2 pass with no view drawing anything); 12 of 12 mutants killed. The routine class stays; the test is frozen because § 11 names it as the measure |
 
 `P` = `KnovasPlatform/components/docbridge_integration`.
 
@@ -43,15 +42,16 @@ neighbourhood and counts what it draws. A view added later is checked without an
 
    Put the marks into `dossier.html`: the page head of the thing (`data-bv-node`), and the rows of «Angaben» and
    «Dokumente» (`data-bv-row`). Change nothing else on the page.
-3. **The test** `P/tests/test_brain_views_node_limit.py` (new):
+3. **The test is frozen**: `P/tests/test_pmvp34_view_limit_acceptance.py` pins all of this. Make it pass; never edit
+   it. It checks:
    - Unit tests of `bounded`, `more_text` and `paged`: the edges (0, 1, 24, 25, 26, 140), `reserved`, the errors.
    - **The page test.** Build the app with a fake Core holding one thing with a very large neighbourhood: 140
      neighbours of six kinds, 140 documents, 140 facts, 40 of them of kind `entity_ref`. Then start from every GET
      route of the `brain_views` blueprint that takes a `<node_id>` (read from `app.url_map`, so a new view route is
      checked without editing the test). Put that thing's id in, and follow, to a depth of two, every link on the page
      that goes to another `brain_views` GET route (tabs, lists, «weitere»). On every page that answers 200 with HTML:
-     at most 25 `data-bv-node`; and wherever a `data-bv-more` stands, its number equals the total minus what is
-     drawn, and its link answers 200. A route that redirects (a document opening) is skipped. The dossier must be
+     at most 25 `data-bv-node`; and wherever a `data-bv-more` stands, it holds a positive count and its link
+     answers 200 (that the count equals the total minus what is drawn is each view's own test). A route that redirects (a document opening) is skipped. The dossier must be
      among the pages checked, or the test fails.
    - The fake raises on every whole-tenant call (`graph_export`, `graph_edges` without a node, `graph_nodes`,
      `graph_node_types`), as PMVP-30a's tests do (POST-03).
@@ -65,37 +65,37 @@ neighbourhood and counts what it draws. A view added later is checked without an
 3. No view's behaviour changes in this item, except for the marks on `dossier.html`.
 4. The test reads the marks only, never the pages' wording, so a later builder can reword a page freely.
 
-## Decisions this order takes (draft: for the coordinator to confirm)
+## Decisions (coordinator, 2026-11-22)
 
-- **D1, drawn versus listed.** "Drawn" are the things a view shows as nodes. The rows of the list that a count opens
+- **D1, drawn versus listed** (decided: lists are exempt from the 25 cap). "Drawn" are the things a view shows as nodes. The rows of the list that a count opens
   are not drawn. Plan B-01 says "everything beyond is a count that opens a list", and B-03 says sets are lists that
   can be sorted and filtered. Lists are paged at 50 rows. The stricter reading (every page at most 25 things,
   lists included) would page every list at 25 rows; say so if you want that.
 - **D2, the dossier's facts are rows.** A fact of kind `entity_ref` links to another thing's dossier, but it stands
   in the list «Angaben», so it is a row, not a drawn node.
-- **D3, freezing.** § 11 names this test as the measure for "never more than 25". The coordinator may freeze it
-  after the verdict (its blob id into `frozen-tests.txt`). Because it finds the routes by itself, later views do not
-  need to edit it.
+- **D3, frozen before the build.** § 11 names this test as the measure for "never more than 25". Because it finds
+  the routes by itself, later views (PMVP-30b, PMVP-32) do not edit it.
 
 ## Your tests
 
-As in item 3 above. Use the existing fakes (`FakeGraphApi`, `workbench_app`, `member_client` in `tests/conftest.py`)
+The frozen file, plus your own unit tests if you want more (`P/tests/test_brain_views_limit_*.py`). Use the existing fakes (`FakeGraphApi`, `workbench_app`, `member_client` in `tests/conftest.py`)
 and extend a fake only in your own test file.
 
 ## Files you may change
 
 `P/src/brain_views/limit.py` (new); `P/src/web_interface/templates/dossier.html` (the three marks only);
-`P/tests/test_brain_views_node_limit.py` (new); the card, its page, `docs/components/boundaries.yaml`;
+`P/tests/test_brain_views_limit_*.py` (new, your own); the card, its page, `docs/components/boundaries.yaml`;
 `docs/platform-mvp/management/brain-views.md` and its row in `management/README.md`; this order's "Builder's notes".
 
 ## Files you must not change
 
-The frozen files, `P/tests/conftest.py`, `P/src/brain_views/dossier.py`, `brain_views_routes.py`, the parts,
+The frozen files (`test_pmvp34_view_limit_acceptance.py` among them), `P/tests/conftest.py`, `P/src/brain_views/dossier.py`, `brain_views_routes.py`, the parts,
 `_sidebar.html`, `app.py`, `knovas_client.py`, everything under `P/src/assistant/` and `P/src/identity/`.
 
 ## Done when
 
-1. Your tests green; `tests/test_brain_views_*.py`, `tests/test_shell_*.py` and
+1. The frozen `tests/test_pmvp34_view_limit_acceptance.py` green and unchanged (its blob id); your tests,
+   `tests/test_brain_views_*.py`, `tests/test_shell_*.py` and
    `tests/test_pmvp11_navigation_acceptance.py` green; the frozen check all OK. **Do not run the whole suite.** Own
    test database `knovas_platform_test_pmvp34`.
 2. A deliberate break shows the test works: a view that draws 26 marks, or a `data-bv-more` with a wrong number,

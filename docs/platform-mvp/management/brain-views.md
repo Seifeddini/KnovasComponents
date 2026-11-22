@@ -23,11 +23,11 @@ and turns the rest into a count that opens a list. Unlike the existing views mad
 
 | Item | What | Note |
 |---|---|---|
-| PMVP-30b | related things by kind, as counts and lists | work order drafted 22 Nov; after PMVP-34 |
+| PMVP-30b | related things by kind, as counts and lists | work order decided 22 Nov; after PMVP-34 |
 | PMVP-31 | the evidence trail ("Beleg-Spur") from a reference in an answer | third on the plan's cut list |
-| PMVP-32 | the process line for one matter: main path, current step, what is missing | second on the cut list. Decision request of 22 Nov (`decisions/PMVP-32-question.md`): the Core has no process; Knovas GmbH's Brain holds processes, steps and each plan's current step as nodes and edges, no law firm's data does; today's Ablauf reads the whole tenant |
+| PMVP-32 | the process line for one matter: main path, current step, what is missing | decided 22 Nov (`decisions/PMVP-32-question.md`): built per thing on Knovas GmbH's own processes (the Core has none; no law firm's data holds one; the old Ablauf reads the whole tenant and is not reused); law-firm process data asked of the demo plan and the Builder's bet |
 | PMVP-33 | names in search results and answers link to the dossier | |
-| PMVP-34 | the 25-thing limit as one shared function with its test | work order drafted 22 Nov |
+| PMVP-34 | the 25-thing limit as one shared function with its test | work order decided 22 Nov; its test frozen |
 
 ## How it protects data and access
 
@@ -49,8 +49,8 @@ and turns the rest into a count that opens a list. Unlike the existing views mad
 | Item | State | Approves before main |
 |---|---|---|
 | PMVP-30a dossier | built; no verification verdict yet | Jannik or Siran (routine) |
-| PMVP-34, PMVP-30b | work orders drafted 22 Nov, waiting for the coordinator; one builder, 34 first | Jannik or Siran (routine) |
-| PMVP-32 | decision request to the coordinator and the founder (22 Nov) | Jannik or Siran (routine) |
+| PMVP-34, PMVP-30b | work orders decided 22 Nov (PMVP-34's test frozen); one builder, 34 first | Jannik or Siran (routine) |
+| PMVP-32a, PMVP-32b | decided 22 Nov: the line on Knovas GmbH's own processes; work order written; same builder after 30b | Jannik or Siran (routine) |
 | PMVP-31, 33 | not started | Jannik or Siran (routine) |
 
 Gate G3 (Tuesday 8 December) asks that the dossier and the process line open from an answer.
@@ -73,8 +73,7 @@ Gate G3 (Tuesday 8 December) asks that the dossier and the process line open fro
 - **No 25-thing limit yet** (PMVP-34); the dossier draws no graph today.
 - **Marks for derived or uncertain facts** are not built; a field that refers to another thing shows its id, not its
   name (PMVP-33).
-- **Owner of the existing Ablauf code** must be decided if PMVP-32 falls back to it (FU-19); PMVP-32's decision
-  request recommends not falling back (it reads the whole tenant).
+- **The existing Ablauf code** is not reused by PMVP-32 (decided 22 Nov), so it needs no owner here (FU-19).
 - **Page parts' link check (FU-34)** was planned with PMVP-30a but its order forbade touching the parts: still open.
 - **Rights enforcement** is off for every tenant today; the dossier shows what the Core hands this person (see
   [data-protection.md](data-protection.md)).
