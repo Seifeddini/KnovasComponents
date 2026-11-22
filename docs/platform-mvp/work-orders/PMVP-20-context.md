@@ -209,3 +209,132 @@ the same lengths both times. Characters per passage in search order, the snippet
 - The contexts go to the provider the customer chose (DEC-0086); FU-33 (Anthropic's terms) is still open.
 - The demo documents are all shorter than one context; the cut around a chunk inside a long document is tested with
   fakes only.
+
+## Builder's notes, verification fixes and question 4
+
+Builder session, 2026-11-22, same branch, after the verification passed with notes. Commits `d3a5d796` (merge of
+`origin/feat/platform-mvp`: PMVP-23's follow-ups and chat retention kept beside the context in the README,
+`assistant.md` and `data-protection.md`; the card page re-rendered), `d19f5e32` (fixes 1 and 2), `bc7a97e9` (the em
+dash, from the investigation), `edab509d` (the coordinator's two decisions after question 4: no numbers from titles,
+`ein` only before a unit) and the commit of these notes. Nothing here is verified.
+
+**Fix 1: a wall-clock deadline.** `KnovasAPIClient.document_text` reads through `_get_by_deadline`. The rate limit, the
+certificate check, the principal and the actor run on the caller's thread (`asserting_for` is per thread). The request
+and its streamed body (`stream=True`, 1,024-byte pieces) run on a worker thread, and the caller waits for it only until
+the deadline (`Thread.join`), then raises `ReadTimeout` naming the route; the hit keeps its snippet and no further read
+starts. A socket timeout restarts with every packet, so only the caller's wait is a hard bound: neither trickled headers
+nor a trickled body can hold the question. The worker stops at its next piece after the deadline (or at its socket
+timeout, the time left when it began), closes an answer it did not finish (the caller never closes it under the
+worker: that waited on the reader's lock and doubled the wait in a first try), reads at most 1,000,000 bytes, and
+nothing it reads late is used or logged. `make_read_text` passes `deadline=now + time left`. Tests with a real local
+server that trickles (`test_assistant_context_deadline.py`): 64 bytes every 0.5 s in the body, or one byte every 0.3 s
+of the headers, given up at 1.0 s (measured 1.00 to 1.02 s); through the whole widening with 1 and 2 s budgets, three
+trickled documents: one read started, the question ends within the budget plus 0.02 s, every hit keeps its snippet.
+The verifier's repro took 47.6 s.
+
+**Fix 2: the settings capped.** `ASSISTANT_CONTEXT_DOCS` 0 to 8, `ASSISTANT_CONTEXT_SECONDS` more than 0 and at most 8,
+`ASSISTANT_PASSAGE_CHARS` 100 to 2,000 (the client's `MAX_PASSAGE_CHARS`; `context` mirrors it, a test keeps them
+equal). A larger value is cut to the most; another wrong value gives the default; either with one warning that names
+the setting and never the value (the client's invalid-value warning printed the value; it no longer does). README,
+`assistant.md` (a paragraph «The context's three settings»), `data-protection.md` and the card say so. Measured: at
+2,000 characters the prompt budget cuts every context from its end even without history (to about 1,310 characters)
+and with history to about 775, before a centred chunk begins; the pages say to keep the default.
+
+**Fix 3: DEC-0086** in `assistant.md`, `data-protection.md` and these notes (the coordinator's `bec6f65e` fixed the
+order's line).
+
+**Tests changed, with reasons** (fixes 1 and 2: this branch's own files only): `test_assistant_context_docs_sets_
+how_many` now expects 50 to read 8 (fix 2); two timeouts in `test_assistant_context_core.py` are now the deadline's
+(connect, read) pair at most the time given, and the read streams (fix 1). The passages round's
+`test_assistant_passage_chars_sets_the_limit` passes unchanged. The decisions' changes to `test_assistant_check.py`
+are listed below.
+
+**Question 4 on the demo tenant** ("Wie hoch ist das vereinbarte Honorar?"; formats as shapes, `9` a digit, `a` a
+letter). Two model calls (Anthropic, `claude-opus-5-5`, the key read into the process only), one search and reads
+without a model between them; only the two routes, 2.05 s apart.
+
+- *What the model writes.* Every statement (6 in the first call, 5 in the second) names the matter as `9999-999` and
+  a rate as `999` (francs). In the second call every statement also has `ein` before a noun (`ein Ansatz`), in the
+  first 2 of 6 (`ein` + a noun). The rate's format matches the passages (`CHF 999`, found every time); no
+  `1'500`/`1500`, date or `§`/`Art.` mismatch occurred in this question.
+- *Where the matter number stands.* In every hit's title (the file name `<id>_9999-999_<Dokumentart>`, shown to the
+  model in the passage's head), in no snippet, and in 7 of the 10 documents' text: 3 write it after white space, **4
+  after an em dash** (`<Überschrift> — 9999-999`), and 3 not at all.
+- *What the check rejected, and whether rightly.*
+  1. **The em dash read as a minus** (4 documents): `— 9999` was the signed number `- 9999`, so the statement's year
+     was not found. **Wrong**: German, French and Italian never write a minus as an em dash. Fixed in `bc7a97e9`
+     (`check.py`, `_NUMBER_PLAIN` and `_BETWEEN_NUMBERS` only): the em dash and its longer kin tell numbers apart and
+     sign none; every other dash reads as before. With it the second call found the year in both statements that cited
+     such a document.
+  2. **The matter number taken from the title** (3 documents whose text does not hold it; and, in the base's run and
+     in my first call where the passages were snippets, every statement): **right by the design**, the check reads
+     only the passage text. Remedies are decisions: tell the model to take numbers only from a passage's text, not its
+     title (the instruction, `service.py`), or let the check offer the numbers of the passage's title.
+  3. **`ein Ansatz`** (every statement; the passages write the rate without `ein`, e.g. `Stundenansatz`): the strict
+     `ein` of the hardening rework, which the coordinator chose and the README lists as a cost («eine Kaution» against
+     «Kaution»). With the em-dash fix in, this is the reason **every** remaining statement is removed: second call, 5
+     of 5 removed, 2 of them for `ein` alone. Not changed here: it is a design decision, not a format.
+- *Runs.* First call (8 s budget, so 3 of 10 passages widened at the 2 s spacing): 6 of 6 removed, number not found.
+  Second call (the investigation's budget of 60 s, set in my script only; 8 widened; the em-dash fix in): 5 of 5
+  removed, all for `ein`, 3 of them also for the matter number. The third call was not needed.
+- *Proposal*, decided by the coordinator the same day and built in `edab509d` (next section). One model call of three
+  is left.
+
+**The two decisions after question 4** (`edab509d`; the frozen PMVP-20 file unchanged and green).
+
+1. *Numbers not from titles.* The instruction's rule 2 adds: «Every number, date and file number in a statement must
+   appear in the text of the passage you cite, never only in its title or file name.» 2,498 bytes (limit 4,000; the
+   prompt with 8 contexts and 2 snippets is now 13,171 of 14,000 bytes, nothing cut; with history each context is cut
+   to about 765 characters). The check is unchanged for it. Pinned in `test_assistant_service.py` (a new test).
+2. *`ein` only before a unit.* `ein`, `eine`, `einer`, `eines`, `einem`, `einen` (and the English `a`, `an`) count as
+   1 only when the word they count (`_noun_after`: the first capitalised word of the next three, as before) is a unit
+   or a quantity (`check._ONE_UNITS`): the coordinator's examples plus `Jahrzehnt`, `Jahrhundert`, `Sekunde`,
+   `Quartal`, `Semester`, `Promille`, `Fr.`, `Rappen`, `Dollar`, `Achtel`, `halb` and the quantities already read
+   (`paar`, `Dutzend`, …), English kin after `a`/`an`; every inflected form through the stem. Otherwise the article,
+   not checked. Read as before: `eins`, `one`, `ein` before a scale (`eine Million`) and a bare `ein`. *Decided
+   beyond the order:* `Jahrzehnt`, `Jahrhundert` are units (else «ein Jahrzehnt» against «ein Jahr», an attack of the
+   hardening, would pass); and a word with `ein` before a unit inside it (`Mindesteinjahresfrist`) now stands for
+   itself, as `einjährig` does: with the article unchecked, «eine Mindesteinjahresfrist» against
+   «Mindestzweijahresfrist» (an attack of the hardening) would otherwise pass. That closes the same gap without the
+   article («die Mindesteinjahresfrist»), which was open before.
+   - Pins (`test_assistant_check_ein.py`, 33 tests): «ein Ansatz» passes; «ein Monat» against «drei Monate» is
+     removed; «einen Monat» against «einen Monat» passes; each unit in another form against another number removed;
+     `ein`/`1` support each other; the article cases pass; «a month» against «two months» removed.
+   - *The cost:* a count of a thing that is no unit is no longer checked: the hardening's verifier input «Es genügt
+     eine Unterschrift» against «Es braucht zwei Unterschriften» is shown now (pinned as the cost).
+   - *Existing tests changed by the decision* (`test_assistant_check.py`): `test_what_counts_as_a_number_since_the_
+     hardening` (four cases lose an article token: `eine Zweidrittelmehrheit`, `einen Teil`, `eine dreimonatige`, `ein
+     unbefristetes`), `test_what_a_passage_offers` (`eine dreimonatige Frist` offers no `ein` token), and three
+     `test_what_the_hardening_costs` cases plus the `eine Unterschrift` case of `test_the_verifiers_inputs_are_removed`
+     moved to the new file, where they now pass.
+
+**Question 4 after the decisions, by reasoning only** (no further model call). The second call's 5 statements:
+the 2 that cited a widened document with the matter number after an em dash were removed only for `ein Ansatz`;
+with the em dash fixed and `ein Ansatz` no longer checked, both would be shown. The other 3 cited passages without the
+matter number in their text (one document holds it only in its file name, two were snippets beyond the 8-document
+limit) and stay removed while the model writes it; the new sentence tells it not to, and their remaining numbers (the
+rates, `CHF 999`) stand in those passages, so they would be shown too. Expected: an answer instead of «Dazu finde ich
+nichts», up to 5 statements; measuring it takes the one call left.
+
+**Evidence** (from `P`, Windows; **in the pinned venv** `scratchpad\pinned-venv` with `requirements.txt`'s versions,
+FU-50: requests 2.32.0, tenacity 8.2.3, pytest 7.4.3, cryptography 42.0.0; my code uses no tenacity; own database,
+dropped afterwards):
+
+- At `bc7a97e9` (fixes 1 to 3 and the em dash): the 13 frozen files, `test_assistant_*`, `test_knovas_client_*`,
+  `test_web_*`: **3,120 passed, 49 failed**: `test_pmvp41_what_sees_acceptance.py` 30 and
+  `test_pmvp42_enforcement_switch_acceptance.py` 18 (frozen with the merge, their items are not built on this branch),
+  and one RB-3/4 frozen test, `test_everybody_but_an_administrator_is_refused_every_form_and_nothing_changes[member]`,
+  whose request could not reach the database: `psycopg.OperationalError ... Address already in use (10048)`, the
+  machine's ports used up (the coordinator: an environment issue). 26 min.
+- At `edab509d` (the two decisions): the frozen files, `test_assistant_*` (1,228, the new files with them) and
+  `test_knovas_client_*` (308): **2,084 passed, 48 failed**, the same 30 + 18 of PMVP-41/42 and nothing else; the
+  frozen PMVP-20 file (88) and PMVP-21 (13) pass. `test_web_*` (1,067) passed at `bc7a97e9`; `edab509d` changes
+  only `check.py` and the instruction, which the web tests do not reach. The whole suite was not run.
+- New tests: `test_assistant_context_deadline.py` 9, `test_assistant_check_em_dash.py` 13 (6 fail on the old check),
+  `test_assistant_check_ein.py` 33, two more settings tests in `test_assistant_context_text.py`, one instruction test
+  in `test_assistant_service.py`.
+- The frozen check: OK for all 13 files. `check_ascii_py.py eae92f1d..HEAD` (my commits after the merge): 0 lines.
+  `brain-runner card check`: valid; `card render --check`: 21 cards, 0 not current.
+- Mutations (in the pinned venv): 36 single changes, 35 make a new test fail; the one left is equivalent (the reader
+  passing `timeout=` instead of `deadline=` is the same deadline in `document_text`).
+- Demo tenant: two model calls, three searches, 21 text reads (3, 10 without a model, 8), all 200, 2.05 s apart; one model call left.

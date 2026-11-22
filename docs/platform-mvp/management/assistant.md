@@ -113,6 +113,7 @@ default.
 | 22 Nov | founder | "Yes, with limits": the assistant may read the Core's document text for the hits its search returned, under five limits; POST-02 is amended to them; the Core's change for longer passages (CR-1) is not needed for the pilot |
 | 22 Nov | founder | A chat keeps its passages (owner only, deleted with it); chats are deleted automatically 90 days after their last message, by a daily job that runs once however many web workers there are |
 | 22 Nov | coordinator | A follow-up searches the chat's last question and the follow-up together (D1); the sidebar shows the newest 20 chats and «Alle Gespräche» (D4) |
+| 22 Nov | coordinator | After the demo tenant's question 4 lost every statement: the model is told to take numbers, dates and file numbers only from a passage's text, never from its title or file name; «ein/eine/einen…» counts as the number 1 only before a unit or quantity word (Tag, Monat, Jahr, Franken, Prozent, Hälfte, Seite, …), otherwise it is the article and not checked; an em dash before a number is no minus sign |
 
 ## Known limits and open points
 
@@ -128,7 +129,8 @@ default.
 - **Provider terms (FU-33):** region, retention and client contracts are open before the first law firm; the decision
   record is not yet written.
 - **Numbers** are checked against the whole cited passage, now up to 1,200 characters: a number that stands elsewhere
-  in the context supports a statement (the coordinator's design of 21 November).
+  in the context supports a statement (the coordinator's design of 21 November). Since 22 November «ein» before a
+  noun that is no unit is not checked: «eine Unterschrift» against «zwei Unterschriften» passes (the accepted cost).
 - **Smaller points:** a slow Core against the web server's time limit (FU-08, PMVP-24), the demo profile (FU-10).
   Taken up by PMVP-23: long chats (FU-06: a history of numbers is weighed as tokens; FU-07: the newest question and
   answer are cut, not dropped), input edge cases in chat storage (FU-01: bad characters and page numbers are
