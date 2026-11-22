@@ -6,7 +6,13 @@ One question, one reply:
    (``assistant.core.make_search``: ``/api/search``'s path, the person's
    principal assertion attached by the client). A row is a passage only when
    it carries passage text (``"snippet"``) and a pointer: the assistant cites
-   only what it can show.
+   only what it can show. With a ``read_text`` (PMVP-20 context, the
+   founder's limits of 2026-11-22), each passage then becomes the text
+   around its hit, read from its document's text
+   (``assistant.context.widen_passages``): only the documents these passages
+   come from, as the same person, bounded; any refusal or failure keeps the
+   search's snippet. That context is the passage from here on: the model
+   reads it and the check checks against it.
 2. **Compose.** The passages are numbered 1..n in search order and go into
    the last user message together with the question; the system instruction
    holds the rules and the form of the answer. Everything is cut to the
@@ -44,6 +50,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 # NO_ANSWER_TEXT is defined beside the check that must recognise it; the page
 # and the tests take it from this module.
 from assistant.check import MIN_QUOTE_WORDS, NO_ANSWER_TEXT, REASONS, check_answer
+from assistant.context import widen_passages
 from assistant.errors import CoreBusy
 
 logger = logging.getLogger(__name__)
@@ -202,8 +209,12 @@ class Passage:
     """A retrieved passage, numbered 1..n in search order.
 
     ``pointer`` is the Knovas pointer of the row (``doc_id``); ``text`` is the
-    Core's verbatim snippet as search returned it (the prompt may hold a cut
-    copy when it had to be shortened).
+    Core's verbatim snippet as search returned it, or the context around it
+    read from the document's text (PMVP-20 context); the prompt may hold a
+    cut copy when it had to be shortened. ``page`` and ``sentence`` are those
+    of the chunk the search named, also for a context. ``document_uuid`` is
+    the Core's id of the row's document (``None`` when the row has none): the
+    only id a context read may take.
     """
 
     number: int
@@ -213,6 +224,7 @@ class Passage:
     text: str
     sentence: Optional[int] = None
     score: Optional[float] = None
+    document_uuid: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -252,6 +264,8 @@ class Reply:
 
 SearchFn = Callable[[str, int], List[Mapping[str, Any]]]
 GenerateFn = Callable[..., str]
+#: ``read_text(document_uuid, offset, timeout) -> part`` (``assistant.core.make_read_text``).
+ReadTextFn = Callable[[str, int, float], Mapping[str, Any]]
 
 # ---------------------------------------------------------------------------
 # The service
@@ -263,7 +277,10 @@ class AssistantService:
 
     ``search(question, limit) -> rows`` and ``generate(*, system_instruction,
     messages, max_tokens) -> str`` are injected; ``assistant.core`` builds
-    them from ``KnovasAPIClient``.
+    them from ``KnovasAPIClient``. ``read_text(document_uuid, offset,
+    timeout)`` is optional: with it the passages are widened to the context
+    around each hit (``assistant.context``); without it they stay the
+    search's snippets and no document is read.
     """
 
     def __init__(
@@ -274,9 +291,12 @@ class AssistantService:
         passage_limit: int = DEFAULT_PASSAGE_LIMIT,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         prompt_budget_bytes: int = DEFAULT_PROMPT_BUDGET_BYTES,
+        read_text: Optional[ReadTextFn] = None,
     ) -> None:
         if not callable(search) or not callable(generate):
             raise TypeError("search and generate must be callables")
+        if read_text is not None and not callable(read_text):
+            raise TypeError("read_text must be a callable or None")
         if not 1 <= int(passage_limit) <= 50:
             raise ValueError("passage_limit must be between 1 and 50")
         if not 1 <= int(max_tokens) <= CORE_MAX_TOKENS:
@@ -290,6 +310,7 @@ class AssistantService:
             raise ValueError("SYSTEM_INSTRUCTION exceeds the Core's limit")
         self._search = search
         self._generate = generate
+        self._read_text = read_text
         self.passage_limit = int(passage_limit)
         self.max_tokens = int(max_tokens)
         self.prompt_budget_bytes = int(prompt_budget_bytes)
@@ -337,6 +358,9 @@ class AssistantService:
         stats.passages = len(passages)
         if not passages:
             return Reply(status="no_answer", message=NO_ANSWER_TEXT)
+        # 1b. The context around each hit (PMVP-20 context): only these passages' documents, never raises.
+        if self._read_text is not None:
+            passages = widen_passages(passages, self._read_text)
 
         # 2. Compose.
         turns = list(history or ())
@@ -368,7 +392,7 @@ class AssistantService:
             return _failed()
         stats.answer_bytes = _size(text)
 
-        # 4. Check -- against the passages as search returned them.
+        # 4. Check -- against the passages as search returned them (or their context).
         statements, removed_by = check_answer(text, {p.number: p.text for p in passages})
         sentences = [Sentence(text=s.text, refs=(s.source,), quote=s.quote) for s in statements]
         removed = sum(removed_by.values())
@@ -394,7 +418,7 @@ def passages_from_rows(rows: Any) -> List[Passage]:
     those of the chunk the text was cut from (``snippet_page_number``,
     ``snippet_sentence_number``, set by ``KnovasAPIClient.keeping_snippets``;
     None when unknown); only a row without those keys falls back to its own
-    ``page_number``.
+    ``page_number``. ``document_uuid`` is the row's, when it has one.
     """
     out: List[Passage] = []
     if not isinstance(rows, (list, tuple)):
@@ -424,6 +448,7 @@ def passages_from_rows(rows: Any) -> List[Passage]:
             text=text.strip(),
             sentence=sentence,
             score=_as_float(row.get("score")),
+            document_uuid=_first_text(row.get("document_uuid")) or None,
         ))
     return out
 

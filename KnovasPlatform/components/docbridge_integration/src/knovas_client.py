@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import time
 import os
 import threading
+import uuid as _uuid
 from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -60,7 +61,7 @@ _ROUTE_TEMPLATES = (
     '/secured/agents/{id}/claims',
     '/secured/access_groups', '/secured/access_groups/{id}',
     '/secured/document_access', '/secured/document_readable', '/secured/documents',
-    '/secured/folder_rules', '/secured/folder_rules/{id}',
+    '/secured/folder_rules', '/secured/folder_rules/{id}', '/secured/document/{id}/text',
     '/secured/graph', '/secured/graph/node-types', '/secured/graph/node-types/{id}',
     '/secured/graph/node-types/{id}/schema', '/secured/graph/node-types/{id}/schema/{id}',
     '/secured/graph/nodes', '/secured/graph/nodes/{id}', '/secured/graph/nodes/{id}/neighbors',
@@ -491,6 +492,36 @@ def _snippet_from_hit(item: Dict[str, Any]) -> Optional[str]:
     """
     found = _snippet_with_location(item)
     return found[0] if found else None
+
+
+#: The most characters one part of ``GET /secured/document/<uuid>/text`` holds (KnowledgeBase ``secure_api.py``,
+#: ``DOCUMENT_TEXT_MAX_PART_CHARS``); a larger ``max_chars`` is the Core's ``422 invalid_paging``.
+DOCUMENT_TEXT_MAX_PART_CHARS = 20_000
+
+
+def _whole_number(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _document_text_part(payload: Any) -> Optional[Dict[str, Any]]:
+    """``{"text", "offset", "next_offset", "total_chars", "truncated"}`` of a document-text answer, or None.
+
+    The Core merges the part into its success envelope (``text``, ``offset``, ``next_offset``, ``total_chars``,
+    ``page_from``, ``page_to``, ``source``, ``truncated``, with ``document_uuid``, ``pointer`` and ``title``); an
+    envelope that nests it under ``data`` is read too. Only the paging and the text are kept: the pointer and the
+    title are not needed, the search row has them.
+    """
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    text, offset, next_offset, total = (data.get("text"), data.get("offset"), data.get("next_offset"),
+                                        data.get("total_chars"))
+    if not isinstance(text, str) or not _whole_number(offset) or not _whole_number(total):
+        return None
+    if next_offset is not None and not (_whole_number(next_offset) and next_offset > offset):
+        return None
+    return {"text": text, "offset": offset, "next_offset": next_offset, "total_chars": total,
+            "truncated": data.get("truncated") is True}
 
 
 #: The most characters of the passage one hit gives the Knovas Assistent
@@ -2340,6 +2371,69 @@ class KnovasAPIClient:
                     response.status_code, elapsed_ms(),
                     result['prompt_tokens'], result['completion_tokens'])
         return result
+
+    def document_text(
+        self,
+        document_uuid: Any,
+        *,
+        offset: int = 0,
+        max_chars: int = DOCUMENT_TEXT_MAX_PART_CHARS,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """GET /secured/document/<uuid>/text: one part of a document's indexed text (PMVP-20 context).
+
+        For the Knovas Assistent only (``assistant.core.make_read_text``), under the founder's limits of 2026-11-22
+        (``assistant/context.py``): it reads the documents the person's own search just returned, to give the model
+        the text around each hit. The Core answers the text in reading order, at most 20,000 characters a part
+        (``offset``, ``max_chars``); the tenant is the certificate's, and a document the principal may not see
+        answers the 404 of a missing one.
+
+        As the person: the principal in force is attached as on every call (``_with_principal``; inside
+        ``asserting_for`` the assistant's claim, and ``?actor=``), through the same client as the search. The Core
+        takes no claim on this GET yet (Core request CR-1c). One request, never retried (``_request_no_retry``): the
+        caller has a time budget, and every read is billed. ``timeout`` replaces ``http_read_timeout``.
+
+        ``document_uuid`` must be a UUID; the path holds its canonical form only, so no other value reaches the
+        address. A failure is logged as every call's is (RB-FIX-1, RB-FIX-2): the route as a template, the status,
+        the Core's short code, its request id and the body's size -- never the document's id, the text or the body.
+
+        Returns ``{"text", "offset", "next_offset", "total_chars", "truncated"}`` (``next_offset`` None on the last
+        part).
+
+        Raises:
+            ValueError: ``document_uuid`` is not a UUID or the paging is out of range (nothing was sent); or the
+                answer is not a document-text part.
+            RuntimeError: the secured API is not configured (nothing was sent).
+            PermissionError: nobody is signed in (nothing was sent).
+            requests.exceptions.HTTPError: any status of 400 or more (the error names the route, not the id).
+            requests.exceptions.RequestException: no answer (a timeout, no connection), without the address.
+        """
+        try:
+            document = str(_uuid.UUID(document_uuid)) if isinstance(document_uuid, str) else None
+        except ValueError:
+            document = None
+        if document is None:
+            raise ValueError("document_uuid is not a UUID")
+        if not _whole_number(offset) or not (_whole_number(max_chars)
+                                             and 1 <= max_chars <= DOCUMENT_TEXT_MAX_PART_CHARS):
+            raise ValueError("offset must be a whole number and max_chars from 1 to 20000")
+        if not self.mtls_enabled:
+            raise RuntimeError("mTLS cert paths are not configured; the document text is read on the secured API only")
+        endpoint = f"/secured/document/{document}/text"
+        response = self._request_no_retry(
+            'GET', endpoint, params={'offset': offset, 'max_chars': max_chars}, timeout=timeout)
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        part = _document_text_part(payload)
+        if part is None:
+            logger.info(
+                "Knovas API GET %s -> %s but no document text part (request_id=%s; body %d chars, not logged)",
+                _route_name(endpoint), response.status_code, _request_id(response), _body_size(response),
+            )
+            raise ValueError(f"Knovas API GET {_route_name(endpoint)}: the answer is not a document text part")
+        return part
 
     def health_check(self) -> bool:
         """

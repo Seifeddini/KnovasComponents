@@ -1,8 +1,9 @@
-"""The assistant's two callables, built from ``KnovasAPIClient`` (PMVP-20).
+"""The assistant's callables, built from ``KnovasAPIClient`` (PMVP-20).
 
-PMVP-22a only wires them, per request or once per app::
+PMVP-22a only wires them, per request or once per app (``make_service`` below
+does it for the app)::
 
-    from assistant.core import make_generate, make_search
+    from assistant.core import make_generate, make_read_text, make_search
     from assistant.service import AssistantService
 
     service = AssistantService(
@@ -12,6 +13,7 @@ PMVP-22a only wires them, per request or once per app::
             user_key=lambda: doc_fields_routes.user_key_for(identity_gate),
         ),
         generate=make_generate(api_client),
+        read_text=make_read_text(api_client),
     )
 
 **search** is ``/api/search``'s own path and no other (POST-02):
@@ -29,6 +31,14 @@ them may learn they exist, and their rows here would carry Knovas text.
 The assistant needs the secured API (mTLS): the legacy GET search logs the
 question and the Core's generation route exists only there. Outside it,
 ``search`` fails closed with ``CoreFailed``.
+
+**read_text** (PMVP-20 context; the founder's limits of 2026-11-22) reads one
+part of a document's indexed text through ``KnovasAPIClient.document_text``
+(``GET /secured/document/<uuid>/text``, never retried, no text logged), for
+``assistant.context.widen_passages``: only the documents of the passages
+this question's search returned, as the same person, within the limits that
+module keeps. Every failure becomes ``CoreBusy`` or ``CoreFailed`` (a status
+and a reason, nothing of the answer), and the passage keeps its snippet.
 
 **generate** is ``KnovasAPIClient.llm_generate`` (``POST
 /secured/llm/generate``, never retried, no body logged); it returns the
@@ -114,6 +124,42 @@ def make_search(client: Any, *, split: SplitFn, user_key: UserKey = None,
     return search
 
 
+def make_read_text(client: Any) -> Optional[Callable[[str, int, float], Mapping[str, Any]]]:
+    """``read_text(document_uuid, offset, timeout) -> part`` for ``AssistantService``, or None when ``client``
+    cannot read a document's text (then no passage is widened).
+
+    One ``client.document_text`` call of ``PART_CHARS`` characters at ``offset``, with ``timeout`` as its time
+    limit: the client attaches the principal in force (the assistant's claim inside ``asserting_for``, and the
+    declared actor) as for the search. HTTP 429 and 503 become ``CoreBusy``, any other HTTP error, a timeout, no
+    connection, nobody signed in or a malformed answer ``CoreFailed`` with a short reason; nothing of the original
+    error is kept (``from None``), so no address, body or text travels further.
+    """
+    from assistant.context import PART_CHARS
+
+    read = getattr(client, "document_text", None)
+    if not callable(read):
+        return None
+
+    def read_text(document_uuid: str, offset: int, timeout: float) -> Mapping[str, Any]:
+        try:
+            return read(document_uuid, offset=offset, max_chars=PART_CHARS, timeout=timeout)
+        except requests.exceptions.HTTPError as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            failure: Exception = (CoreBusy(status=status) if status in BUSY_STATUSES
+                                  else CoreFailed("http_error", status=status))
+        except requests.exceptions.Timeout:
+            failure = CoreFailed("timeout")
+        except requests.exceptions.RequestException:
+            failure = CoreFailed("transport")
+        except PermissionError:
+            failure = CoreFailed("no_principal")
+        except ValueError:
+            failure = CoreFailed("malformed")
+        raise failure from None
+
+    return read_text
+
+
 def make_generate(client: Any, *, temperature: float = DEFAULT_TEMPERATURE,
                   timeout: Optional[float] = None) -> Callable[..., str]:
     """``generate(*, system_instruction, messages, max_tokens) -> str`` for
@@ -144,7 +190,8 @@ def make_service(settings: Any, client: Any, *, split: SplitFn, user_key: UserKe
     ``settings`` is the installation's ``platform_settings.Resolver`` (``app.extensions["platform_settings"]``);
     build the service per request, so a change on the settings page applies without a restart. Off
     (``assistant.enabled``), nothing is built and nothing is searched. On, the search is ``make_search`` whatever
-    the provider (POST-02), and ``assistant.provider`` chooses the generate: ``knovas`` is ``make_generate``, the
+    the provider (POST-02), with ``make_read_text``'s reader for the context around each hit (PMVP-20 context),
+    and ``assistant.provider`` chooses the generate: ``knovas`` is ``make_generate``, the
     Core's call exactly as before; ``anthropic`` is ``providers.make_anthropic_generate`` on the key and the model
     of the settings, read on every call. A provider that is not offered fails every answer (``failed``).
     ``anthropic_client`` replaces the SDK's client factory (tests).
@@ -165,7 +212,8 @@ def make_service(settings: Any, client: Any, *, split: SplitFn, user_key: UserKe
         )
     else:
         generate = providers.unavailable_generate("provider_unknown")
-    return AssistantService(search=make_search(client, split=split, user_key=user_key), generate=generate)
+    return AssistantService(search=make_search(client, split=split, user_key=user_key), generate=generate,
+                            read_text=make_read_text(client))
 
 
 def _secured(client: Any) -> bool:
