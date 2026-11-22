@@ -311,6 +311,13 @@ uses:
   method: 'imported in create_admin_blueprint: the Agenten routes and a role''s agent forms are attached to this blueprint
     with its require_admin, after the Rollen routes'
   protocol: in-process call
+- component: L2-PLATFORM-ACCESS-CHECK
+  operations:
+  - call.web_interface.admin_access.attach_access_routes
+  expects:
+  - L2-PLATFORM-ACCESS-CHECK/call.web_interface.admin_access.attach_access_routes/P-1
+  method: 'imported in create_admin_blueprint: the page «Zugriff» and its questions, with this blueprint''s require_admin'
+  protocol: in-process call
 - component: EXT-BRAIN-API
   operations:
   - access-routes

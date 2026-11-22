@@ -59,7 +59,7 @@ branch reaches main only through a pull request a person reviews and merges; the
 | Related things by kind: tabs with counts, lists that sort, filter and page | PMVP-30b | verified 22 Nov (pass with notes) and integrated | routine: Jannik or Siran |
 | Process line: main path, current step, since when, what next | PMVP-32a | verified 22 Nov (pass with notes); fix round on the notes in build | routine: Jannik or Siran |
 | Process line: «fehlt noch», all instances | PMVP-32b | verified 22 Nov (pass with notes); fix round on the notes in build | routine: Jannik or Siran |
-| «Was sieht …?» in Admin | PMVP-41 | work order and acceptance tests drafted (22 Nov), not yet frozen; names only, every look audited (founder, 22 Nov) | sensitive: Siran |
+| «Was sieht …?» in Admin: what a person, a role or an agent reads, one document yes or no, a search as them (names only) | PMVP-41 | built 22 Nov (its frozen test green); first verification FAIL (an unwritten audit row did not stop the answer), fixed the same day: no row, nothing shown (503); second verification pending; computed until «Ein», Knovas's own answer after (CR-R1a); every look audited by id | sensitive: Siran |
 | Enforcement position and switch | PMVP-42 | reworked 22 Nov after the founder's answer: one administrator switches with a confirmation; the Core refuses «Ein» until its own prerequisites hold; acceptance tests drafted, not yet frozen; the switch waits for the Core's CR-R1a, CR-R7 and CR-R8 | critical: management |
 | Not started (no work order) | PMVP-02, 04, 22b, 31, 33, 43, 60–62; RB-9, RB-10 (RB-8 dropped: "Core gateway only") | not started | as the plan and the role builder's design say |
 

@@ -421,6 +421,12 @@ def create_admin_blueprint(
     attach_agent_routes(bp, gate, csrf_valid=csrf_valid, csrf_token=csrf_token, page_context=page_context,
                         require_admin=require_admin, role_page=role_page)
 
+    # «Zugriff» (PMVP-41): «Was sieht …?», the page and its three questions, behind the same require_admin.
+    from web_interface.admin_access import attach_access_routes
+
+    attach_access_routes(bp, gate, csrf_valid=csrf_valid, csrf_token=csrf_token, page_context=page_context,
+                         client_factory=client_factory, require_admin=require_admin)
+
     from web_interface.admin_doc_fields import attach_doc_field_routes
 
     attach_doc_field_routes(

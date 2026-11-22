@@ -188,6 +188,7 @@ card_hash: sha256:6b2a9580726a32bf
 
 | Component | Operations | Expects |
 |---|---|---|
+| `L2-PLATFORM-ACCESS-CHECK` |  |  |
 | `L2-PLATFORM-DOSSIER` | `call.brain_views.lists.listing`; `call.brain_views.lists.sort_key`; `call.brain_views.reads.node_payload`; `call.brain_views.reads.valid_node_id`; `call.brain_views.reads.valid_type_id`; `call.brain_views.reads.NotFound`; `call.brain_views.reads.Unavailable` | `L2-PLATFORM-BRAIN-VIEWS/call.brain_views.lists.listing/P-1`; `L2-PLATFORM-BRAIN-VIEWS/call.brain_views.reads.node_payload/P-1` |
 | `L2-PLATFORM-PROCESS-LINE` | `call.brain_views.limit.bounded`; `call.brain_views.limit.more_text`; `call.brain_views.reads.node_payload`; `call.brain_views.reads.valid_node_id`; `call.brain_views.reads.valid_type_id`; `call.brain_views.reads.NotFound`; `call.brain_views.reads.Unavailable`; `call.brain_views.lists.listing`; `call.brain_views.lists.sort_key` | `L2-PLATFORM-BRAIN-VIEWS/call.brain_views.limit.bounded/P-1`; `L2-PLATFORM-BRAIN-VIEWS/call.brain_views.reads.node_payload/P-1` |
 

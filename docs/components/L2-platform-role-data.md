@@ -199,6 +199,7 @@ card_hash: sha256:da05cb622f4cdac4
 | Component | Operations | Expects |
 |---|---|---|
 | `L2-PLATFORM-ACCESS` | `call.web_interface.admin_role_data.execute_role_data` | `L2-PLATFORM-ROLE-DATA/call.web_interface.admin_role_data.execute_role_data/P-1` |
+| `L2-PLATFORM-ACCESS-CHECK` |  |  |
 | `L2-PLATFORM-ROLES` | `call.web_interface.admin_role_data.attach_role_data_routes`; `call.web_interface.admin_role_data.role_data_part` | `L2-PLATFORM-ROLE-DATA/call.web_interface.admin_role_data.attach_role_data_routes/P-1`; `L2-PLATFORM-ROLE-DATA/call.web_interface.admin_role_data.role_data_part/P-1` |
 
 ## Hides

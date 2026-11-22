@@ -26,9 +26,15 @@ test_rb5_role_data_acceptance.py. ``{grouped}`` in a path is a role of the tenan
 ``g-lit``: a role's data need one. The fake Core lists one folder rule of that group (``rc-sync/rolle/``) and one more
 group (``g-team``) that a role may adopt. Adding an open folder and removing the rule's only group warn, so their forms
 carry ``confirm``; with the bypass off they are queued, never sent.
+
+PMVP-41: the page «Zugriff» and its three questions («Was sieht …?») are here too (FU-17); their behaviour is pinned in
+test_pmvp41_what_sees_acceptance.py. The questions ask about ``{person}``; the fake Core knows one document's rights
+and searches the same for everyone (``asserting_for``). They write nothing to the Core.
 """
 
 from __future__ import annotations
+
+import contextlib
 
 import pytest
 
@@ -52,6 +58,7 @@ PAGES = [
     "/admin/access-groups",
     "/admin/roles",
     "/admin/roles/{role}",
+    "/admin/access",
 ]
 
 #: The forms: the route and the smallest form it accepts ({person} is the id of the account the form acts on).
@@ -82,6 +89,9 @@ FORMS = {
     "/admin/roles/{role}/adopt": {"group_id": "g-team"},
     "/admin/roles/direct-grants/preview": {},
     "/admin/roles/direct-grants/move": {},
+    "/admin/access/reach": {"wer": "person:{person}"},
+    "/admin/access/check": {"wer": "person:{person}", "pointer": "rc-sync/a.docx"},
+    "/admin/access/search": {"wer": "person:{person}", "query": "Frist"},
 }
 
 #: A role id for the routes of one role where no role of the tenant's own is needed (the gate answers first).
@@ -129,6 +139,15 @@ class _Client(DummyKnovasClient):
     def folder_rules(self):
         """One rule of g-lit, the group of the role {grouped} (RB-5 removes it from the role's data)."""
         return [{"rule_id": "r-rolle", "pointer_prefix": "rc-sync/rolle/", "access_groups": ["g-lit"]}]
+
+    def document_access(self, pointer):
+        """One document's rights («Was sieht …?», PMVP-41, asks for the document it checks)."""
+        return {"pointer": pointer, "access_groups": ["g-lit"], "acl_epoch": 1}
+
+    @contextlib.contextmanager
+    def asserting_for(self, user):
+        """A search as a person (PMVP-41): this fake searches the same for everyone."""
+        yield
 
 
 def _csrf_from(html: str) -> str:
