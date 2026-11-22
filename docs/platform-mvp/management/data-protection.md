@@ -135,7 +135,8 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 **«Was sieht …?»** (PMVP-41, built 22 Nov, not yet verified). On the page «Zugriff» an administrator sees what
 another person, a role or an agent reads: **the names and paths of documents and folders, never their content** - no
 passage, summary or excerpt, also from a search run as that person (founder, 22 November). She may so see the names
-of documents she cannot read herself. Each answered question writes one audit row with the administrator, the person,
+of documents she cannot read herself. Each answered question writes one audit row, and nothing is shown when the row
+cannot be written: the administrator, the person,
 role or agent by id, the question and counts or the yes or no (and, for the assistant, the person it acts for, by id);
 never a path, a search, a name or a group. Its log lines hold ids, counts and error classes only. Until «Ein» the
 answers are computed from Knovas's rules and say so; after «Ein» the yes or no and the search are Knovas's own, asked as

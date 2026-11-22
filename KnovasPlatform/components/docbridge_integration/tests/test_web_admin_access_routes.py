@@ -8,7 +8,10 @@ against the real app and the identity database, with a small fake Core:
    the assistant for a deactivated person reads nothing;
 3. the answer keeps X (and the assistant's person) chosen in all three forms, and the reach's «weitere» posts X and
    the next page in form fields: no form of the page puts a value into its address;
-4. the page offers no revoked agent, and marks a deactivated person.
+4. the page offers no revoked agent, and marks a deactivated person;
+5. every look is audited (founder, 2026-11-22; the order's decision 6 as amended after the first verification): when
+   the row cannot be written, each of the three questions answers 503 with the page's own line and shows nothing -
+   no row, no answer, no hit.
 """
 from __future__ import annotations
 
@@ -154,3 +157,23 @@ def test_the_page_offers_no_revoked_agent_and_marks_a_deactivated_person(world):
     assert f"agent:{world.bot.id}" in offered and f"agent:{world.old.id}" not in offered
     assert re.search(rf'value="person:{world.erik.id}"[^>]*>\s*Erik Eich \(deaktiviert\)', html)
     assert str(world.erik.id) not in offered                             # nobody acts for a deactivated person
+
+
+@pytest.mark.parametrize("path, fields", [("/admin/access/reach", {}),
+                                          ("/admin/access/check", {"pointer": "Akten/000.pdf"}),
+                                          ("/admin/access/search", {"query": "Frist"})])
+def test_a_look_whose_audit_row_cannot_be_written_shows_nothing(world, path, fields):
+    Core.docs = [f"Akten/{n:03d}.pdf" for n in range(3)]
+    DummyKnovasClient.last_instance.search_results = [{"doc_id": "Akten/001.pdf", "title": "001.pdf"}]
+    for wer in (f"person:{world.anna.id}", f"agent:{world.bot.id}"):          # it answers while the row is written
+        assert _post(world, path, wer=wer, fuer="", **fields).status_code == 200
+    before = _audit(world)
+    world.conn.execute("ALTER TABLE audit_log ADD CONSTRAINT no_look CHECK (action <> 'access.what_sees') NOT VALID")
+    response = _post(world, path, wer=f"person:{world.anna.id}", fuer="", **fields)
+    assert response.status_code == 503
+    html = response.data.decode("utf-8")
+    assert "Die Abfrage konnte nicht protokolliert werden. Es wird nichts angezeigt." in html
+    for attribute in ("data-what-sees", "data-reads", "data-answer", "data-hit", "data-more", "data-reads-nothing"):
+        assert _values(html, attribute) == [], attribute
+    assert "Akten/" not in html and "001.pdf" not in html
+    assert _audit(world) == before

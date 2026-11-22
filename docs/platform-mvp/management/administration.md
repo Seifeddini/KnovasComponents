@@ -269,7 +269,9 @@ and so does every answer about a role (a role has no claim of its own).
 subject's groups and the groups below them (at most 5 pages of 200 a group; a longer list says it may be incomplete),
 one document's rights. Never the whole firm. It writes nothing to Knovas.
 
-**In the log, by id.** Every answered question writes one row (`access.what_sees`): the administrator, the subject
+**In the log, by id, or not at all.** Every answered question writes one row (`access.what_sees`) before it is shown;
+if the row cannot be written, the page shows nothing but «Die Abfrage konnte nicht protokolliert werden» (every look is
+audited, founder, 22 Nov). The row holds the administrator, the subject
 (person, role or agent) by id, the question, before or after «Ein», the counts or the yes or no, and for the assistant
 the person it acts for, by id. Never a path, a search, a document's name, a group or a person's name. A refused
 question writes nothing. The Builder's «Zugriff erklären» stays until a later clean-up (it reads only a person's

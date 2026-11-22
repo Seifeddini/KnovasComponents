@@ -265,7 +265,7 @@ database `knovas_platform_test_pmvp4142`.
    Knovas found when there are more.
 7. **A Core that cannot be read** (groups, rules, documents, the search, the document's rights): 502 with the page's
    own words and **no audit row** (no question was answered). A refusal writes none either.
-8. **The audit row's `detail`:** `question`, `effect`, and for the reach `rows`, `page`, `partial`; for a document
+8. **The audit row's `detail`** (written with `record_or_raise` since the fix below): `question`, `effect`, and for the reach `rows`, `page`, `partial`; for a document
    `answer` and `source`; for a search `hits`; `reads_nothing` (the code) when X reads nothing; `fuer` (an id) for
    the assistant. Ids and counts only.
 9. **A card of its own** («Zugriff prüfen», the way RB-5 split «Rollendaten»): with the page, `L2-PLATFORM-ACCESS`
@@ -316,6 +316,26 @@ tenant), each at 1440 and 390 px, beside `00-reference-05-zugriff.png`:
 
 Nothing scrolls sideways at 390 px (`facts-41.json`). After a question the answer stands above the forms, so it is
 the first thing on the page.
+
+### Fix after the first verification (FAIL, 2026-11-22)
+
+The finding: the audit row was written with `audit.record`, which swallows a failed write, so a look could be shown
+without its row (repro: `CHECK (action <> 'access.what_sees')` on `audit_log`). The order's decision 6 was amended:
+every look is audited. What changed:
+
+- `admin_access._ask`: X, the answer and its row are made in **one transaction** (`conn.transaction()`), the row with
+  `audit.record_or_raise`; the answer is drawn only after the row is written. If the row cannot be written, the page
+  shows nothing of the look (no row, no answer, no hit, no count) but «Die Abfrage konnte nicht protokolliert werden.
+  Es wird nichts angezeigt.», with **503**; the log line names the question and the error's code only. A failure
+  before the row (a refusal, an unreadable Core) is handled as before (400, 502) and writes no row.
+- `tests/test_web_admin_access_routes.py`: `test_a_look_whose_audit_row_cannot_be_written_shows_nothing`, one case for
+  each of the three questions, with the verifier's repro (a `NOT VALID` check constraint on `audit_log`, so the rows
+  already written stay): each answers 200 while the row can be written, then 503 with the line and no
+  `data-what-sees`, `data-reads`, `data-answer`, `data-hit`, `data-more`, no document name, and no new row.
+- `origin/feat/platform-mvp` merged first (the amended order, PMVP-23, 30b, 32, 34); the card's reach line, its
+  evidence and the two management pages say it.
+- **Pinned environment**, after the merge: `test_pmvp41_what_sees_acceptance.py` 31 passed,
+  `test_web_admin_access_routes.py` 7, `test_web_admin_access_rules.py` 27.
 
 ### Open, for the coordinator and the verifier
 

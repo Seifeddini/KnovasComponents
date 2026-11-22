@@ -23,8 +23,10 @@ tenant as ``brokered`` (``tenant_brokered``), the yes or no and the search are K
 ``client.asserting_for(X)``; the reach stays computed (Knovas has no such route), and so does everything about a role
 (a role has no claim). The computation explains and previews; nothing is filtered or hidden on its strength.
 
-Every answered question writes one audit row ``access.what_sees`` by id (best effort: it records a look, not a
-change); logs hold ids, counts and error classes only, never a pointer, query, title, name or group.
+Every answered question writes one audit row ``access.what_sees`` by id, in the transaction that produces the answer
+(``record_or_raise``): every look is audited (founder, 2026-11-22), so a row that cannot be written shows nothing,
+only the page's own line, with 503. Logs hold ids, counts and error classes only, never a pointer, query, title, name
+or group.
 Work order docs/platform-mvp/work-orders/PMVP-41.md; frozen tests tests/test_pmvp41_what_sees_acceptance.py.
 """
 from __future__ import annotations
@@ -76,6 +78,7 @@ _UNKNOWN_DOCUMENT = "Dieses Dokument kennt Knovas nicht."
 _ROLE_SEARCH = "Eine Rolle sucht nicht: Bitte eine Person oder einen Agenten wählen."
 _NO_QUERY = f"Bitte einen Suchbegriff angeben, 1 bis {QUERY_MAX} Zeichen."
 _UNREADABLE = "Knovas hat nicht geantwortet. Es wird nichts gezeigt; bitte später erneut versuchen."
+_NOT_AUDITED = "Die Abfrage konnte nicht protokolliert werden. Es wird nichts angezeigt."
 
 
 class Refused(Exception):
@@ -346,32 +349,42 @@ def attach_access_routes(bp, gate, *, csrf_valid, csrf_token, page_context, clie
 
     def _ask(question: str, answer_of):
         """The steps every question shares: the token, X, the question's own fields, «Ein» or not, the answer, its
-        audit row. A refusal draws the page with its reason and writes nothing; nothing is asked before X is known."""
+        audit row. A refusal draws the page with its reason and writes nothing; nothing is asked before X is known.
+        The answer and its row are made in one transaction, and the answer is shown only once the row is written:
+        a row that cannot be written leaves the page with its own line and nothing else (503)."""
         if not _csrf_ok():
             return _page(error=_EXPIRED, status=400)
         chosen = _chosen()
         conn, client = gate.connection(), client_factory()
+        stage = "ask"
         try:
-            subject = resolve(conn, gate.users(), request.form.get("wer"), request.form.get("fuer"))
-            fields = answer_of.fields(subject)
-            ein = tenant_brokered(client)
-            answer, detail = answer_of.answer(client, subject, fields, ein)
+            with conn.transaction():
+                subject = resolve(conn, gate.users(), request.form.get("wer"), request.form.get("fuer"))
+                fields = answer_of.fields(subject)
+                ein = tenant_brokered(client)
+                answer, detail = answer_of.answer(client, subject, fields, ein)
+                effect = EIN if ein else VORSCHAU
+                detail = {"question": question, "effect": effect, **detail}
+                if subject.nothing:
+                    detail["reads_nothing"] = subject.nothing
+                if subject.fuer:
+                    detail["fuer"] = subject.fuer
+                stage = "audit"  # from here on a failure means the look has no row: nothing is shown
+                audit.record_or_raise(conn, action=WHAT_SEES, actor=gate.current_user(),
+                                      target_type=subject.target_type, target_id=subject.id, detail=detail)
         except Refused as exc:
             logger.info("What-sees %s refused (%s)", question, exc.status)
             return _page(error=str(exc), status=exc.status, chosen=chosen)
         except CoreUnreadable:
             logger.warning("What-sees %s not answered: Knovas did not answer", question)
             return _page(error=_UNREADABLE, status=502, chosen=chosen)
-        effect = EIN if ein else VORSCHAU
+        except Exception as exc:  # noqa: BLE001 - only once the row is being written; anything earlier is raised
+            if stage != "audit":
+                raise
+            logger.error("What-sees %s not shown: its audit row was not written, %s", question, audit._error_code(exc))
+            return _page(error=_NOT_AUDITED, status=503, chosen=chosen)
         answer.update(question=question, wer=subject.wer, kind=subject.kind, name=subject.label,
                       nothing=subject.nothing, effect=effect, fuer=subject.fuer)
-        detail = {"question": question, "effect": effect, **detail}
-        if subject.nothing:
-            detail["reads_nothing"] = subject.nothing
-        if subject.fuer:
-            detail["fuer"] = subject.fuer
-        audit.record(conn, action=WHAT_SEES, actor=gate.current_user(), target_type=subject.target_type,
-                     target_id=subject.id, detail=detail)
         logger.info("What-sees %s for %s %s answered (%s)", question, subject.kind, subject.id, effect)
         if subject.fuer:
             chosen["fuer"] = subject.fuer
