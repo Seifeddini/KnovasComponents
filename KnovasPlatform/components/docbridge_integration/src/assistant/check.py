@@ -651,10 +651,9 @@ _ENGLISH = {"zero": 0, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "se
 #: English words for an order or a count that are no number word: each its own token.
 _ENGLISH_WORDS = frozenset({"first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth",
                             "ninth", "tenth", "once", "twice", "thrice", "double", "triple", "half"})
-#: "ein" and its forms: the article or the number 1. A statement's "ein" is
-#: supported by "ein" with the same word after it in the quote, or by that
-#: word in the quote with no number before it; a passage's "ein" is never the
-#: digit 1.
+#: "ein" and its forms: the article or the number 1 (the number only before a
+#: word of ``_ONE_UNITS``). A statement's "ein X" is supported by "ein X" or
+#: "1 X" in the passage; a passage's "ein" is never the digit 1.
 _ONE = frozenset({"ein", "eine", "einen", "einem", "einer", "eines", "eins", "one"})
 #: The English article: read like "ein", but only in an English text ("an" is also German) and only with
 #: the word it counts ("u.a.", "a.a.O." are no article).
@@ -705,6 +704,20 @@ _ENDINGS = ("en", "er", "es", "em", "e", "n", "s")
 _LONGEST_GAP_AFTER_ONE = 12
 #: Words after "ein" that are a quantity of their own: "ein paar Tage" is no "ein Tag".
 _QUANTITIES = frozenset({"paar", "bisschen", "wenig", "weniges", "dutzend", "few", "couple"})
+#: "ein" and its forms (and the English "a", "an") are the number 1 only before one of these words, as ``_stem``
+#: leaves them: a unit of time, money, share or count, or a quantity ("ein Monat", "einen Franken", "eine
+#: H\u00e4lfte", "ein Exemplar", "ein paar"). Before any other word it is the article and is not checked: "ein
+#: Ansatz", "eine Kaution" (PMVP-20 context, the coordinator's decision of 2026-11-22, after the demo tenant's
+#: question 4 lost every statement to "ein Ansatz"). "eins" and "one" are always the number.
+_ONE_UNITS = frozenset({
+    "tag", "woch", "monat", "jahr", "jahrzehnt", "jahrhundert", "dekad", "stund", "minut", "sekund", "quartal",
+    "semester",
+    "prozent", "promill", "frank", "chf", "fr", "rapp", "euro", "eur", "dollar", "usd",
+    "mal", "drittel", "viertel", "achtel", "haelft", "halb", "seit", "exemplar",
+    "day", "week", "month", "year", "hour", "percent", "franc", "tim", "third", "quart", "half", "pag", "copy",
+    "copi",
+}) | _QUANTITIES
+_ALWAYS_ONE = frozenset({"eins", "one"})
 #: Markdown emphasis in a statement: left out before its numbers are read ("zw**ei**").
 _MARKDOWN = re.compile("[*_]+")
 
@@ -1247,13 +1260,15 @@ def _word_numbers(plain: str, cased: str, spans: List[Tuple[int, int]], words: L
             continue
         if word in _ONE:
             noun = _noun_after(plain, cased, spans, words, current)
-            found.append(_Item(start, end, "ein", noun, word=word))
+            if word in _ALWAYS_ONE or not noun or noun in _ONE_UNITS:  # else the article: not checked
+                found.append(_Item(start, end, "ein", noun, word=word))
             continue
         if word in _ARTICLES and english and not _enumerates(plain, cased, spans, words, current, listing_end,
                                                              passage=passage, article=True):
             noun = _noun_after(plain, cased, spans, words, current)
             if noun:  # "a month"; "u.a." is no article
-                found.append(_Item(start, end, "ein", noun, word=word))
+                if noun in _ONE_UNITS:  # "a month"; "a tenant" is the article: not checked
+                    found.append(_Item(start, end, "ein", noun, word=word))
                 continue
         value = _number_word(word)
         if value is None:
@@ -1622,6 +1637,10 @@ def _inner_number(word: str) -> Optional[Tuple[str, str]]:
             continue
         for start in range(max(1, at - _LONGEST_INNER), at - 2):
             head = word[start:at]
+            if head in ("ein", "eins") and rest.startswith(_ONE_COUNTED):
+                # "Mindesteinjahresfrist": the word stands for itself, as "einjaehrig" does; the article
+                # before it is not checked since "ein" counts only before a unit (PMVP-20 context).
+                return _stem(word), ""
             value = _number_word(head)
             if value is not None and head != "acht":
                 return _stem(word), _counted_value(value, rest)
