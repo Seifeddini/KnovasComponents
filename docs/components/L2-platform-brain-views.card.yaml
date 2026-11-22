@@ -7,50 +7,100 @@ status: planned
 level: 2
 parent: L1-WORKSPACE
 source_paths:
-- KnovasPlatform/components/docbridge_integration/src/brain_views
+- KnovasPlatform/components/docbridge_integration/src/brain_views/__init__.py
+- KnovasPlatform/components/docbridge_integration/src/brain_views/limit.py
+- KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py
+- KnovasPlatform/components/docbridge_integration/src/brain_views/lists.py
+- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_brain_views_list.html
 - KnovasPlatform/components/docbridge_integration/src/web_interface/brain_views_routes.py
-- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/dossier.html
 - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/brain_views.css
-purpose: Shows a Workspace member what the Brain knows about one thing, where one statement comes from, or where one process instance stands, each as a bounded view with one starting point.
+purpose: Holds the members' Brain views together (one blueprint behind one switch and one gate, the 25-node limit every view
+  draws through, their stylesheet), so that each view shows one thing, one statement's evidence or one process instance as
+  a bounded view with one starting point.
 responsible_for:
 - id: L2-PLATFORM-BRAIN-VIEWS/R-1
   aliases:
   - RESP-01
   statement: Shows one thing, one statement's evidence, or one process instance as a bounded view.
   code:
-  - KnovasPlatform/components/docbridge_integration/src/brain_views
-- id: L2-PLATFORM-BRAIN-VIEWS/R-2
-  statement: 'The dossier (PMVP-30a): one thing''s name and kind, its facts - each with the document its source passage is in, or the mark «ohne Beleg» - and its documents, read as the person signed in, behind the switch brain_views.enabled; and opening one of those documents, checked with the Core per click, the way a search hit opens.'
-  code:
-  - KnovasPlatform/components/docbridge_integration/src/brain_views/dossier.py
+  - KnovasPlatform/components/docbridge_integration/src/brain_views/limit.py
+  - KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py
+  - KnovasPlatform/components/docbridge_integration/src/brain_views/lists.py
   - KnovasPlatform/components/docbridge_integration/src/web_interface/brain_views_routes.py
-  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/dossier.html
-  - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/brain_views.css
+- id: L2-PLATFORM-BRAIN-VIEWS/R-4
+  statement: 'The 25-node limit as one shared function (PMVP-34): brain_views/limit.py (bounded, more_text, paged) and the
+    marks a view''s mark-up carries (data-bv-node, data-bv-row, data-bv-more); the Brain views'' blueprint, the switch brain_views.enabled
+    and the gate every view''s route stands behind; the reads every view makes the same way (brain_views/reads.py: the id
+    checks, the node read as the person, NotFound and Unavailable; moved from dossier.py by PMVP-32a); the lists'' sort, filter
+    and pages (brain_views/lists.py; moved from related.py and the routes by PMVP-32a). And the lists'' shared mark-up (templates/_brain_views_list.html:
+    the form and the pages, which the dossier and the process line''s list import).'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/brain_views/limit.py
+  - KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py
+  - KnovasPlatform/components/docbridge_integration/src/brain_views/lists.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/brain_views_routes.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_brain_views_list.html
 not_responsible_for:
-- 'The modellers'' views of the Platform: Ansichten (Graph, Ablauf, Baum, Board, Liste, Matrix, Definitionen, Dokumentation, Lücken), Cortex and the custom views. They read the tenant''s whole edge list (graph_views/topology.py) and stay outside this card (graph_views/, views_routes.py, ontology_graph.py, custom_views/).'
+- 'The dossier and its lists (L2-PLATFORM-DOSSIER) and the process line (L2-PLATFORM-PROCESS-LINE): their routes are attached
+  to this card''s blueprint, behind its switch and gate.'
+- 'The modellers'' views of the Platform: Ansichten (Graph, Ablauf, Baum, Board, Liste, Matrix, Definitionen, Dokumentation,
+  Lücken), Cortex and the custom views. They read the tenant''s whole edge list (graph_views/topology.py) and stay outside
+  this card (graph_views/, views_routes.py, ontology_graph.py, custom_views/).'
 - A whole-graph screen for members; a member reaches a view from a result, an answer or a name typed into the box (B-02, B-05).
-- The links from names in search results and answers to the dossier; the search page (the web app) and the assistant draw them (PMVP-33).
-- 'Who may read a node, a fact or a document: the Core decides, and answers 404 for what the person may not see (graph_api.py, document_readable). Serving a document''s file: the web app''s file routes and their gate (app.py, document_grants.py); the dossier hands them the one document a person clicks, after the Core''s check, through the web app''s grant, as the search page does with its rows.'
-- 'How a document opens: the search''s own enrichment and settings (app.py: _enhance_listing_rows, pdf_inline_in_browser, _download_open_enabled) and the file routes; the dossier picks among them in the order a search hit does. What an experiment document is: the Experimente module''s split (experiments/search.py), which the dossier calls.'
-- The switch's place on the settings page and its storage (platform_settings.py, settings_routes.py); this card holds what the one registry entry means.
+- The switch's place on the settings page and its storage (platform_settings.py, settings_routes.py); this card holds what
+  the one registry entry means.
 terms:
-- dossier (the page for one thing - what the Brain knows about it)
 - Beleg-Spur (evidence trail - the way from a statement to its passage and document)
-- process line (one process instance - its main path, the current step and what is missing)
-- ohne Beleg (the mark of a fact that has no source passage the person can open from the dossier)
 operations:
-- id: http.GET.dossier._node_id
-  name: 'GET /dossier/<node_id> - the dossier of one thing: Überblick (its facts with their source) and, with ?tab=dokumente, its documents'
-  entrance: http
-  ref: GET /dossier/<node_id>
-- id: http.GET.dossier._node_id.dokument._position
-  name: 'GET /dossier/<node_id>/dokument/<int:position> - opens the document at this place of the dossier''s list: checked with the Core as the person, handed over to that person alone, then where a search hit opens it'
-  entrance: http
-  ref: GET /dossier/<node_id>/dokument/<int:position>
 - id: call.web_interface.brain_views_routes.create_brain_views_blueprint
-  name: create_brain_views_blueprint - builds the Brain views' blueprint; the web app registers it with its identity gate, its one Knovas client, the settings, its document grant and the frame's values
+  name: create_brain_views_blueprint - builds the Brain views' blueprint; the web app registers it with its identity gate,
+    its one Knovas client, the settings, its document grant and the frame's values
   entrance: call
   ref: KnovasPlatform/components/docbridge_integration/src/web_interface/brain_views_routes.py#create_brain_views_blueprint
+- id: call.brain_views.limit.bounded
+  name: 'bounded(items, limit, reserved) - what a view draws: at most limit - reserved of the items'
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/brain_views/limit.py#bounded
+- id: call.brain_views.limit.more_text
+  name: more_text(rest) - the words beside the count that opens the rest
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/brain_views/limit.py#more_text
+- id: call.brain_views.limit.paged
+  name: paged(items, page, size) - one page of a list, 50 rows by default
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/brain_views/limit.py#paged
+- id: call.brain_views.limit.page_number
+  name: page_number(value) - a page number as an address gives it
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/brain_views/limit.py#page_number
+- id: call.brain_views.reads.node_payload
+  name: 'node_payload(client, node_id) - GET /nodes/<id> as the person: the answer and its node'
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py#node_payload
+- id: call.brain_views.reads.valid_node_id
+  name: valid_node_id(id) - whether a node id may go into an address
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py#valid_node_id
+- id: call.brain_views.reads.valid_type_id
+  name: valid_type_id(id) - whether a node type id may go into an address
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py#valid_type_id
+- id: call.brain_views.lists.listing
+  name: 'listing(items, args, href, keep, name, relation) - one list: sorted, filtered, 50 a page'
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/brain_views/lists.py#listing
+- id: call.brain_views.lists.sort_key
+  name: sort_key(text) - a name as the lists sort it
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/brain_views/lists.py#sort_key
+- id: call.brain_views.reads.NotFound
+  name: NotFound - the answer for a thing that does not exist or that the person may not see
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py#NotFound
+- id: call.brain_views.reads.Unavailable
+  name: Unavailable - the answer when the Core did not answer a read
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py#Unavailable
 contract:
   '*':
     needs:
@@ -65,6 +115,19 @@ contract:
         checks:
         - test_there_is_no_dossier_without_exactly_one_node
         - test_a_malformed_id_is_not_sent_to_the_core
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_related_page.py
+        checks:
+        - test_a_hidden_or_missing_thing_answers_404_and_its_neighbours_are_not_read
+        - test_the_starting_thing_and_what_is_two_hops_away_are_never_counted
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_related_read.py
+        checks:
+        - test_a_malformed_start_is_not_sent
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
+        checks:
+        - test_a_hidden_or_missing_thing_answers_404_as_the_dossier_does
     promises:
     - id: L2-PLATFORM-BRAIN-VIEWS/*/P-1
       aliases:
@@ -81,11 +144,17 @@ contract:
         - test_every_view_page_draws_at_most_25
         - test_the_rest_is_a_count_that_opens_a_list
         - test_the_dossier_draws_its_thing_and_lists_its_facts
-    - id: L2-PLATFORM-BRAIN-VIEWS/*/P-2
-      aliases:
-      - POST-02
-      statement: A fact shown without a mark has at least one source passage that opens on click.
-      risk_class: standard
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_related_page.py
+        checks:
+        - test_the_overview_draws_nothing_but_the_thing
+        - test_one_tab_per_kind_with_its_count_in_the_plural
+        - test_a_list_has_pages_of_50
+        - test_documents_are_sorted_filtered_and_paged
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
+        checks:
+        - test_thirty_main_steps_draw_at_most_25_in_rows_of_about_twelve
     - id: L2-PLATFORM-BRAIN-VIEWS/*/P-3
       aliases:
       - POST-03
@@ -97,133 +166,204 @@ contract:
         checks:
         - test_every_read_is_a_per_thing_read_made_as_the_person_signed_in
         - test_no_whole_tenant_read_even_without_a_kind
-  http.GET.dossier._node_id:
-    needs:
-    - id: L2-PLATFORM-BRAIN-VIEWS/http.GET.dossier._node_id/N-1
-      statement: The caller is signed in (a signed-out caller is sent to sign-in), the installation has per-user accounts, and brain_views.enabled is on («an», or BRAIN_VIEWS_ENABLED=true); otherwise the address answers 404 and the Core is not asked.
-      risk_class: standard
-      evidence:
       - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_page.py
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_related_page.py
         checks:
-        - test_a_signed_out_caller_is_sent_to_sign_in
-        - test_switched_off_the_address_answers_404_and_the_core_is_not_asked
-        - test_the_switch_reads_the_page_word_and_the_environment_word
-        - test_without_per_user_accounts_nothing_answers
+        - test_one_neighbours_read_and_one_round_of_kind_reads_per_page_as_the_person
+        - test_no_whole_tenant_read_on_any_tab
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_related_read.py
+        checks:
+        - test_one_neighbours_read_and_one_round_of_kind_reads
+        - test_at_most_twenty_kinds_are_named_and_the_rest_fall_under_the_others
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
+        checks:
+        - test_no_whole_tenant_read_on_any_of_the_pages
+  call.brain_views.limit.bounded:
     promises:
-    - id: L2-PLATFORM-BRAIN-VIEWS/http.GET.dossier._node_id/P-1
-      statement: Every read is made as the person signed in, through the web app's one Knovas client; a node the person may not see answers exactly as a node that does not exist (404).
+    - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.limit.bounded/P-1
+      statement: At most limit - reserved of the items, in the order given, with the rest and the total; a limit above 25,
+        a negative number or a reserved above the limit is refused (ValueError).
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp34_view_limit_acceptance.py
+        checks:
+        - test_bounded_shows_at_most_25_in_the_order_given
+        - test_bounded_counts_what_the_view_draws_anyway
+        - test_bounded_refuses_more_than_25_and_negative_numbers
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_limit_unit.py
+        checks:
+        - test_a_view_that_draws_more_than_its_limit_anyway_is_refused
+  call.brain_views.limit.more_text:
+    promises:
+    - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.limit.more_text/P-1
+      statement: «» for none, «1 weiterer Eintrag», «<n> weitere»; a negative or non-whole count is refused.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp34_view_limit_acceptance.py
+        checks:
+        - test_more_text_says_how_many_more
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_limit_unit.py
+        checks:
+        - test_more_text_refuses_what_is_no_count
+  call.brain_views.limit.paged:
+    promises:
+    - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.limit.paged/P-1
+      statement: The rows of that page, its number, the pages and the total; a page out of range gives the nearest one.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp34_view_limit_acceptance.py
+        checks:
+        - test_paged_gives_pages_of_50_and_the_nearest_page_when_out_of_range
+  call.brain_views.limit.page_number:
+    promises:
+    - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.limit.page_number/P-1
+      statement: A whole number from 1; anything else is page 1; a number of more than nine digits is not converted but taken
+        as far past the last page, which paged turns into the last page.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_limit_unit.py
+        checks:
+        - test_a_page_number_as_an_address_gives_it
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_related_page.py
+        checks:
+        - test_a_page_number_too_long_to_read_is_the_last_page
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_limit_unit.py
+        checks:
+        - test_paged_takes_the_page_as_an_address_gives_it
+  call.brain_views.reads.node_payload:
+    promises:
+    - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.reads.node_payload/P-1
+      statement: One per-thing read through the client handed in; NotFound for an id that is malformed, unknown, hidden from
+        the person or when the graph is off (the same for all), Unavailable when the read fails.
       risk_class: standard
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_page.py
         checks:
-        - test_every_read_is_a_per_thing_read_made_as_the_person_signed_in
+        - test_a_malformed_id_is_not_sent_to_the_core
         - test_a_node_the_person_may_not_see_answers_as_a_node_that_does_not_exist
-        - test_the_same_node_is_shown_to_the_person_the_core_shows_it_to
-    - id: L2-PLATFORM-BRAIN-VIEWS/http.GET.dossier._node_id/P-2
-      statement: 'Showing the dossier hands over no document. The node''s documents are the ones the Core listed for this person, less experiment documents (taken out by the function search uses); every address on the page is built by the Platform (url_for), never taken from the Brain or a document.'
+        - test_a_failed_read_is_one_plain_message
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_read.py
+        checks:
+        - test_a_hidden_or_missing_thing_is_not_found
+  call.brain_views.reads.valid_node_id:
+    promises:
+    - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.reads.valid_node_id/P-1
+      statement: True only for a word of letters, digits and _.:- that starts with a letter or digit, at most 128 long.
       risk_class: standard
       evidence:
       - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_open.py
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_page.py
         checks:
-        - test_showing_the_dossier_hands_over_nothing
-        - test_an_experiment_document_is_not_listed_not_a_source_and_never_handed_over
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_facts.py
-        checks:
-        - test_showing_the_dossier_hands_over_no_document
-        - test_every_address_on_the_page_is_one_the_platform_built
-        - test_the_documents_tab_lists_each_document_once_with_its_address
-    - id: L2-PLATFORM-BRAIN-VIEWS/http.GET.dossier._node_id/P-3
-      statement: Names, values and pointers from the Brain reach the page as text, and no log line carries them; a failed read is one plain message (502).
+        - test_a_malformed_id_is_not_sent_to_the_core
+  call.brain_views.reads.valid_type_id:
+    promises:
+    - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.reads.valid_type_id/P-1
+      statement: True only for a uuid.
       risk_class: standard
       evidence:
       - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_facts.py
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_page.py
         checks:
-        - test_mark_up_from_the_brain_comes_out_as_text
-        - test_no_log_line_carries_a_name_a_value_or_a_pointer
+        - test_a_type_id_that_is_not_a_uuid_goes_into_no_address
+  call.brain_views.lists.listing:
+    promises:
+    - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.lists.listing/P-1
+      statement: Filters and sorts what was read (name A-Z, Z-A, by relation when there are relations; the filter cleaned
+        and cut at 100 characters) and gives one page with the form's fields and the page links; only a known sort key and
+        the cleaned filter go into an address. Drawn by the shared part templates/_brain_views_list.html.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_related_page.py
+        checks:
+        - test_a_list_has_pages_of_50
+        - test_the_page_links_keep_the_sort_and_the_filter
+        - test_the_filter_is_cut_at_100_characters
+        - test_every_address_on_the_pages_is_one_the_platform_built
+  call.brain_views.lists.sort_key:
+    promises:
+    - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.lists.sort_key/P-1
+      statement: Case, accents and spacing ignored; ß as ss.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_related_read.py
+        checks:
+        - test_the_sort_key_ignores_case_accents_and_spacing
+  call.brain_views.reads.NotFound:
+    promises:
+    - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.reads.NotFound/P-1
+      statement: One answer for both; the views turn it into the same 404.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_page.py
+        checks:
+        - test_a_node_the_person_may_not_see_answers_as_a_node_that_does_not_exist
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
+        checks:
+        - test_a_hidden_or_missing_thing_answers_404_as_the_dossier_does
+  call.brain_views.reads.Unavailable:
+    promises:
+    - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.reads.Unavailable/P-1
+      statement: Carries the error's type name only, never the Core's text; the views show one plain message (502).
+      risk_class: standard
+      evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_page.py
         checks:
         - test_a_failed_read_is_one_plain_message
-    - id: L2-PLATFORM-BRAIN-VIEWS/http.GET.dossier._node_id/P-4
-      statement: 'A fact shown without a mark opens its source document on click: the document''s name and folder, and the address that opens it. Not the passage (its text and page): no per-thing route of the Core returns one.'
-      risk_class: standard
-      evidence:
       - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_facts.py
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
         checks:
-        - test_a_fact_with_a_source_passage_opens_its_document
-        - test_a_fact_without_a_source_is_marked
-        - test_a_fact_whose_source_the_person_was_not_handed_is_marked_and_its_document_stays_closed
-        - test_a_fact_whose_passage_is_not_there_is_marked
-        - test_no_fact_is_shown_with_a_source_unless_it_has_one
-  http.GET.dossier._node_id.dokument._position:
-    needs:
-    - id: L2-PLATFORM-BRAIN-VIEWS/http.GET.dossier._node_id.dokument._position/N-1
-      statement: The same as the dossier's (signed in, per-user accounts, the switch on); otherwise sign-in or 404, and the Core is not asked.
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_page.py
-        checks:
-        - test_the_address_that_opens_a_document_has_the_same_gate
-        - test_without_per_user_accounts_nothing_answers
-    promises:
-    - id: L2-PLATFORM-BRAIN-VIEWS/http.GET.dossier._node_id.dokument._position/P-1
-      statement: 'The node''s documents are read again as the person, and the Core is asked whether the person may read the chosen one (document_readable, as the person); only then is that one document handed to the file routes, for that person alone. Not readable, a place outside the list, an experiment document or a failed read: the same 404 as a document that is not there, and nothing handed over.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_open.py
-        checks:
-        - test_a_click_hands_over_exactly_that_document_to_that_person
-        - test_the_click_reads_the_node_and_asks_the_core_as_the_person
-        - test_another_persons_click_hands_the_first_person_nothing
-        - test_a_stale_assignment_is_not_handed_over_and_answers_as_a_missing_document
-        - test_a_place_outside_the_list_is_a_404_and_asks_nothing_more
-        - test_a_failed_read_is_a_404_and_hands_over_nothing
-        - test_an_experiment_document_is_not_listed_not_a_source_and_never_handed_over
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_page.py
-        checks:
-        - test_a_document_of_a_node_the_person_may_not_see_answers_as_one_of_a_missing_node
-    - id: L2-PLATFORM-BRAIN-VIEWS/http.GET.dossier._node_id.dokument._position/P-2
-      statement: 'The document opens where a search hit opens it: at its OneDrive or SharePoint address when it has one, a PDF in the browser''s viewer while the installation shows PDFs inline, otherwise the file handed over when the installation offers downloads; a document none of these reaches gets a plain message (409), and nothing is handed over.'
-      risk_class: standard
-      evidence:
-      - kind: test
-        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_dossier_open.py
-        checks:
-        - test_a_click_hands_over_exactly_that_document_to_that_person
-        - test_a_document_that_is_not_a_pdf_is_handed_over
-        - test_without_inline_pdfs_a_pdf_is_handed_over_as_a_search_hit_offers_it
-        - test_what_the_browser_cannot_open_is_a_plain_message_and_hands_over_nothing
+        - test_a_failed_read_is_one_plain_message
 uses:
-- component: EXT-BRAIN-API
+- component: L2-PLATFORM-DOSSIER
   operations:
-  - graph-routes
-  method: 'Per-thing reads below /secured/graph/ through the Platform''s client (knovas_client.py) on the Platform''s certificate, each signed as the person: GET /nodes/<id> (graph_node - the node, its assignments and its facts), GET /node-types/<id> and GET /node-types/<id>/schema (graph_get_many - the kind and the field names, for a type id that is a uuid); never the whole-graph export. And, per click on a document, GET /secured/document_readable (document_readable), as the person'
-  protocol: HTTPS with mTLS
+  - call.web_interface.dossier_routes.attach_dossier_routes
+  expects: []
+  method: the factory attaches the dossier's routes to its blueprint, with its gate
+  protocol: in-process call
+- component: L2-PLATFORM-PROCESS-LINE
+  operations:
+  - call.web_interface.process_line_routes.attach_process_line_routes
+  expects: []
+  method: the factory attaches the process line's route to its blueprint, with its gate
+  protocol: in-process call
 hides:
-- How a fact's value is written as text, and the order of the facts.
-- 'How a view keeps to the 25-node limit: one shared function (brain_views/limit.py: bounded, more_text, paged) and the marks in the mark-up that the frozen test counts (data-bv-node on what a view draws, data-bv-row on the rows of a list, which are paged at 50 and not drawn, data-bv-more on the link that opens the rest).'
-- The mark-up and the class names of the dossier; the page is built from the shared page parts.
+- 'How a view keeps to the 25-node limit: one shared function (brain_views/limit.py: bounded, more_text, paged) and the marks
+  in the mark-up that the frozen test counts (data-bv-node on what a view draws, data-bv-row on the rows of a list, which
+  are paged at 50 and not drawn, data-bv-more on the link that opens the rest).'
 review:
 - at: /owner
-  why: Proposed owner, as for every card in this repository; one role per component is confirmed by a person (Software Map K4).
+  why: Proposed owner, as for every card in this repository; one role per component is confirmed by a person (Software Map
+    K4).
 - at: /status
-  why: 'Live or planned is not read from the code: the dossier (PMVP-30a) is built on the Platform MVP''s branch, behind a switch that is off by default, and not on main yet.'
+  why: 'Live or planned is not read from the code: the dossier (PMVP-30a) is built on the Platform MVP''s branch, behind a
+    switch that is off by default, and not on main yet.'
 - at: /source_paths
-  why: 'The plan builds the views as a new module, src/brain_views/ (§ 5.2); PMVP-30a added the dossier (brain_views/dossier.py, its route file, its template and its stylesheet). The existing views the plan''s state table lists under "Brain views" (Ansichten, Cortex, custom views) are left out: they read the tenant''s whole edge list once per person (graph_views/topology.py) and have no 25-node limit (plan § 3), so they could not keep P-1 and P-3. If PMVP-32 takes the plan''s cut (2) - the process line becomes the existing Ablauf view (graph_views/process_views.py and its page) in the new look - that code joins this card or gets one of its own; the coordinator decides then. The wiring (one register_blueprint call in app.py) and the switch''s registry entry (platform_settings.py) stay in files no card holds.'
+  why: 'PMVP-32a split the views into three cards for the context budget (together 17,839 tokens of 16,000 before the process
+    line): this one keeps the blueprint, the switch and gate, the limit and the stylesheet; the dossier (L2-PLATFORM-DOSSIER)
+    and the process line (L2-PLATFORM-PROCESS-LINE) hold their own code. Moved lines keep their old ids as aliases there.
+    The wiring (one register_blueprint call in app.py) and the switch''s registry entry (platform_settings.py) stay in files
+    no card holds. The modellers'' views (Ansichten, Cortex, custom views) are left out: they read the tenant''s whole edge
+    list (graph_views/topology.py) and could not keep P-1 and P-3.'
 - at: /operations
-  why: 'The three the code reader shows. create_brain_views_blueprint has no line: the plan''s contract deltas (section 7) give none, and its one caller is the web app''s wiring. PMVP-30b to PMVP-34 add theirs.'
-- at: /uses
-  why: 'Declared, as the code reader does not follow the client''s methods to the routes they call. /secured/document_readable is on no operation of EXT-BRAIN-API yet (FU-15). Used from the web app as well, which has no card: the file routes (document_external_open, preview_document, download_document), the grant (_grant_for_current_user), the search''s enrichment of a row (_enhance_listing_rows) and its open settings (pdf_inline_in_browser, _download_open_enabled), and the Experimente module''s split (experiments_search.split).'
-- at: L2-PLATFORM-BRAIN-VIEWS/*/P-2
-  why: 'Does not hold yet, so it has no evidence: a fact''s source is the Core''s provenance_pointer (the document), provenance_chunk_id (the passage) and provenance_status, and no per-thing route returns a passage''s text or its page. What holds is http.GET.dossier._node_id/P-4: a fact without a mark opens its source document. Follow-up FU-38; the Core request CR-2 (docs/platform-mvp/core-requests.md, one chunk read by its id) would close it. A fact whose document the Core did not list among the node''s documents for this person is marked «ohne Beleg» even when it has a passage: the Core shows a fact when any one of its evidence chunks is readable (graph_access.visible_fact_ids), so its provenance document is not known to be readable.'
+  why: 'create_brain_views_blueprint has no line: the plan''s contract deltas (section 7) give none, and its one caller is
+    the web app''s wiring. PMVP-30b to PMVP-34 add theirs.'
 - at: L2-PLATFORM-BRAIN-VIEWS/*/P-3
-  why: 'The evidence covers the dossier (PMVP-30a); PMVP-30b to PMVP-32 bring theirs. The whole-graph export answers an error for the Knovas tenant (inbox IN-2026-11-10-03, plan § 3).'
+  why: The evidence covers the dossier, its related things and the process line (PMVP-30a, 30b, 32a). The whole-graph export
+    answers an error for the Knovas tenant (inbox IN-2026-11-10-03, plan § 3).

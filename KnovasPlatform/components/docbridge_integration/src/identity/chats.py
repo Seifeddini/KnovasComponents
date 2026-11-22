@@ -23,19 +23,37 @@ references of a message by their number. A message and its references are writte
 chat's row, so two writers on one chat queue rather than collide.
 
 Rows are tuples, mapped by position, like the rest of identity/.
+
+Deletion after 90 days (PMVP-23, founder's decision D3 of 2026-11-22): a chat is deleted with its messages and
+references ``RETENTION_DAYS`` after its last message (``updated_at``, which every new message moves).
+``purge_expired_chats`` does it once a day for the whole installation, however many gunicorn workers call it: one
+transaction holds the advisory lock ``RETENTION_LOCK`` (a second worker returns at once), and the audit row
+``RETENTION_ACTION`` it writes with the count makes every later call of that day (UTC) return without deleting.
+``ChatRetentionJob`` calls it every hour in each worker, on a connection of its own.
 """
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
 ROLES = ("user", "assistant")
 TITLE_MAX = 200
+
+#: A chat is deleted this many days after its last message (D3).
+RETENTION_DAYS = 90
+#: The audit row of one deletion run: its action and target type; the detail holds the count only.
+RETENTION_ACTION = "assistant.chats.retention"
+RETENTION_TARGET_TYPE = "assistant_chats"
+#: The transaction advisory lock that makes one worker do the run.
+RETENTION_LOCK = "knovas.assistant.chats.retention"
+#: How often ``ChatRetentionJob`` calls ``purge_expired_chats``; the audit row keeps it to once a day.
+RETENTION_INTERVAL_SECONDS = 3600.0
 
 
 class ChatNotFound(LookupError):
@@ -196,11 +214,27 @@ class ChatStore:
 
     # -- reading -------------------------------------------------------------------------------------------------
 
-    def list_chats(self, *, owner: Any) -> List[ChatSummary]:
-        """The owner's chats, the one with the latest message first."""
-        rows = self._conn.execute(
-            "SELECT id, title, created_at, updated_at FROM assistant_chats WHERE owner_user_id = %s "
-            "ORDER BY updated_at DESC, created_at DESC, id", (_owner(owner),)).fetchall()
+    def list_chats(self, *, owner: Any, limit: Optional[int] = None, offset: int = 0) -> List[ChatSummary]:
+        """The owner's chats, the one with the latest message first.
+
+        ``limit`` (1 or more) and ``offset`` (0 or more) page the list (FU-03): the sidebar asks for the newest 20,
+        the page of all chats for 50 at a time. Without them, every chat of the owner, as before.
+        """
+        owner_id = _owner(owner)
+        if limit is not None and (not _int(limit) or limit < 1):
+            raise ValueError("limit ist eine ganze Zahl ab 1.")
+        if not _int(offset) or offset < 0:
+            raise ValueError("offset ist eine ganze Zahl ab 0.")
+        sql = ("SELECT id, title, created_at, updated_at FROM assistant_chats WHERE owner_user_id = %s "
+               "ORDER BY updated_at DESC, created_at DESC, id")
+        params: List[Any] = [owner_id]
+        if limit is not None:
+            sql += " LIMIT %s"
+            params.append(limit)
+        if offset:
+            sql += " OFFSET %s"
+            params.append(offset)
+        rows = self._conn.execute(sql, params).fetchall()
         return [ChatSummary(id=r[0], title=r[1], created_at=r[2], updated_at=r[3]) for r in rows]
 
     def get_chat(self, chat_id: Any, *, owner: Any) -> Chat:
@@ -230,3 +264,94 @@ class ChatStore:
         return Chat(id=head[0], title=head[1], created_at=head[2], updated_at=head[3],
                     messages=[Message(id=r[0], role=r[1], text=r[2], created_at=r[3], references=refs.get(r[0], []))
                               for r in messages])
+
+
+# -- deletion after RETENTION_DAYS -----------------------------------------------------------------------------------
+
+
+def purge_expired_chats(conn: Any, *, days: int = RETENTION_DAYS) -> Optional[int]:
+    """Delete every chat whose last message is more than ``days`` days old, once a day. Returns how many.
+
+    One transaction: it takes the advisory lock ``RETENTION_LOCK`` without waiting (another worker holds it: None);
+    under the lock, a ``RETENTION_ACTION`` audit row of today (UTC) means the run is done (None); otherwise it
+    deletes the chats (their messages and references go by the cascade) and writes that row, with the detail
+    ``{"deleted": n}`` and no id, title, owner or actor, in the same transaction: a row that cannot be written undoes
+    the deletion, and the next tick tries again. One log line with the count.
+    """
+    from identity import audit
+
+    if not _int(days) or days < 1:
+        raise ValueError("days ist eine ganze Zahl ab 1.")
+    with conn.transaction():
+        locked = conn.execute("SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0))",
+                              (RETENTION_LOCK,)).fetchone()
+        if not (locked and locked[0]):
+            logger.debug("Chats: the retention run is held by another worker")
+            return None
+        if conn.execute(
+                "SELECT 1 FROM audit_log WHERE target_type = %s AND action = %s "
+                "AND occurred_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') LIMIT 1",
+                (RETENTION_TARGET_TYPE, RETENTION_ACTION)).fetchone() is not None:
+            logger.debug("Chats: the retention run has been done today")
+            return None
+        deleted = conn.execute("DELETE FROM assistant_chats WHERE updated_at < now() - make_interval(days => %s)",
+                               (days,)).rowcount
+        deleted = max(0, int(deleted or 0))
+        audit.record_or_raise(conn, action=RETENTION_ACTION, target_type=RETENTION_TARGET_TYPE,
+                              detail={"deleted": deleted})
+    logger.info("Chats: %d deleted %d days after their last message", deleted, days)
+    return deleted
+
+
+class ChatRetentionJob:
+    """Calls ``purge_expired_chats`` every ``interval`` seconds (an hour), in each gunicorn worker, on a connection
+    of its own; ``purge_expired_chats`` makes one worker do it, once a day. Built like RB-7's ``AgentSyncJob``.
+
+    A tick opens a connection (``connect``: the gate's ``open_connection``), purges, closes it, and never raises:
+    a failure is logged by its type and the next tick starts afresh. The first tick is one interval after
+    ``start``. ``keep_running()`` false ends the thread at its next tick (a test app).
+    """
+
+    def __init__(self, *, connect: Callable[[], Any], interval: float = RETENTION_INTERVAL_SECONDS,
+                 purge: Callable[[Any], Optional[int]] = purge_expired_chats,
+                 keep_running: Callable[[], bool] = lambda: True,
+                 wait: Optional[Callable[[float], bool]] = None) -> None:
+        self._connect = connect
+        self._purge = purge
+        self.interval = float(interval)
+        self._keep_running = keep_running
+        self._halt = threading.Event()
+        self._wait = wait or self._halt.wait
+        self._thread: Optional[threading.Thread] = None
+
+    def run_once(self) -> Optional[int]:
+        """One tick: the number of chats deleted, or None (another worker, done today, or a failure)."""
+        conn = None
+        try:
+            conn = self._connect()
+            if not getattr(conn, "autocommit", True):
+                conn.autocommit = True
+            return self._purge(conn)
+        except Exception as exc:  # noqa: BLE001 - the job must not die; the next tick starts afresh
+            logger.warning("Chats: the retention tick failed (%s)", type(exc).__name__)
+            return None
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def run(self) -> None:
+        while not self._wait(self.interval):
+            if self._halt.is_set() or not self._keep_running():
+                break
+            self.run_once()
+
+    def start(self) -> "ChatRetentionJob":
+        self._thread = threading.Thread(target=self.run, name="chat-retention", daemon=True)
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._halt.set()

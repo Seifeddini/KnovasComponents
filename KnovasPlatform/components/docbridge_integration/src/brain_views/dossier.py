@@ -36,28 +36,19 @@ Nothing here logs: a node's name, a fact's value and a pointer are the firm's te
 from __future__ import annotations
 
 import math
-import re
-import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import quote
 
-from knovas_client import KnowledgeGraphDisabled
+# The id checks, the node read and the two answers moved to brain_views/reads.py (PMVP-32a), unchanged; the names
+# stay importable from here.
+from brain_views.reads import NotFound, Unavailable, valid_node_id, valid_type_id  # noqa: F401
+from brain_views.reads import node_payload as _node_payload
 
-# A node id as it may go into an address: the Core's are uuids; a few test and core ids are shorter words.
-_NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 # What a fact may say about its passage and still count as sourced (None: the store records no status).
 _SOURCE_OK = (None, "ok")
 UNNAMED_FACT = "Angabe"
 UNNAMED_NODE = "Ohne Namen"
-
-
-class NotFound(Exception):
-    """No such node, or one this person may not see: the same answer for both (GI-GRAPH-11)."""
-
-
-class Unavailable(Exception):
-    """The Core did not answer the node read; the message is the error's type name only."""
 
 
 @dataclass(frozen=True)
@@ -96,38 +87,6 @@ Listable = Callable[[str], bool]
 
 def _every(pointer: str) -> bool:
     return True
-
-
-def valid_node_id(node_id: Any) -> bool:
-    return isinstance(node_id, str) and bool(_NODE_ID.match(node_id))
-
-
-def valid_type_id(type_id: Any) -> bool:
-    """A node type id that may go into an address: a uuid, as the Core's tenant types are."""
-    if not isinstance(type_id, str) or len(type_id) != 36:
-        return False
-    try:
-        return str(uuid.UUID(type_id)) == type_id.lower()
-    except ValueError:
-        return False
-
-
-def _node_payload(client: Any, node_id: str) -> Tuple[Mapping[str, Any], Mapping[str, Any]]:
-    """``GET /nodes/<id>`` as the person: (the answer, its node). NotFound or Unavailable as read_dossier says."""
-    if not valid_node_id(node_id):
-        raise NotFound()
-    try:
-        payload = client.graph_node(node_id)
-    except KnowledgeGraphDisabled:
-        raise NotFound() from None
-    except Exception as exc:  # noqa: BLE001 - every other failure is one plain message on the page
-        raise Unavailable(type(exc).__name__) from None
-    if payload is None:
-        raise NotFound()
-    node = payload.get("node") if isinstance(payload, Mapping) else None
-    if not isinstance(node, Mapping):
-        raise Unavailable("no node in the answer")
-    return payload, node
 
 
 def node_documents(client: Any, node_id: str, *, listable: Listable = _every) -> Tuple[Document, ...]:

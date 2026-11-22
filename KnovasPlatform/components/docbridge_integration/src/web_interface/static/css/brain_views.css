@@ -63,3 +63,207 @@
 .bv-doc-folder { overflow-wrap: anywhere; }
 
 .bv-note { margin: var(--k-space-sm) 0 0; }
+
+/* PMVP-30b: a list's form (filter, sort), its rows of related things and its pages. Without a script: a GET form. */
+.bv-unavailable { margin: 0; }
+.bv-listform {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--k-space-xs) var(--k-space-sm);
+    margin: 0 0 var(--k-space-md);
+}
+.bv-field { display: flex; flex-direction: column; gap: var(--k-space-3xs); min-width: 0; }
+.bv-field--grow { flex: 1 1 12rem; }
+.bv-field-label { line-height: var(--k-leading-snug); }
+.bv-input,
+.bv-button { box-sizing: border-box; min-height: 2.5rem; }
+.bv-input {
+    width: 100%;
+    min-width: 0;
+    padding: var(--k-space-xs) var(--k-space-sm);
+    border: 1px solid var(--k-color-border-strong);
+    border-radius: var(--k-radius-sm);
+    background: var(--k-color-surface);
+    color: var(--k-color-text);
+    font: inherit;
+    font-size: var(--k-text-sm);
+}
+.bv-button {
+    padding: var(--k-space-xs) var(--k-space-md);
+    border: 1px solid var(--k-color-border-strong);
+    border-radius: var(--k-radius-sm);
+    background: var(--k-color-surface);
+    color: var(--k-color-text-strong);
+    font: inherit;
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    cursor: pointer;
+}
+.bv-button:hover { background: var(--k-color-surface-hover); }
+.bv-input:focus-visible,
+.bv-button:focus-visible {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: 2px;
+}
+
+/* A related thing: its name (a link to its dossier), its relation under it. */
+.bv-thing { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.bv-thing-relation { overflow-wrap: anywhere; }
+
+/* The list's pages: where it stands, and the way back and on. */
+.bv-pages {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--k-space-xs) var(--k-space-md);
+    margin-top: var(--k-space-md);
+    padding-top: var(--k-space-sm);
+    border-top: 1px solid var(--k-gray-100);
+}
+.bv-pages-links { display: flex; gap: var(--k-space-md); }
+.bv-empty { margin: 0; }
+
+/* PMVP-32a: the card «Läuft gerade» on the dossier. */
+.bv-running { display: flex; justify-content: space-between; align-items: center; gap: var(--k-space-md); min-width: 0; }
+.bv-running > div { min-width: 0; overflow-wrap: anywhere; }
+.bv-running-head { margin: 0 0 var(--k-space-3xs); }
+
+/* PMVP-32a: the process line. A row of steps, about twelve; each a circle and its name, joined by a line. */
+.bv-steps { display: flex; flex-direction: column; gap: var(--k-space-lg); }
+/* Equal columns, but never narrower than a step's longest word: a word is not broken in the middle. A browser with
+   German hyphenation (the page is lang="de") breaks long words with a hyphen; without it the column grows, and a row
+   that no longer fits scrolls in itself, as a row of tabs does. */
+.bv-line {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(min-content, 1fr);
+    align-items: start;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+.bv-step {
+    position: relative;
+    min-width: 0;
+    padding: 0 var(--k-space-2xs);
+    text-align: center;
+    font-size: var(--k-text-xs);
+    line-height: var(--k-leading-snug);
+    color: var(--k-color-text-muted);
+    overflow-wrap: normal;
+    word-break: normal;
+    -webkit-hyphens: auto;
+    hyphens: auto;
+}
+/* The line between two circles, drawn as two halves: from a cell's edge to its circle, and on to the other edge, so
+   the halves of two cells meet whatever their widths. Green where it leaves a step that is done. */
+.bv-step::before,
+.bv-step::after {
+    content: "";
+    position: absolute;
+    top: 15px;
+    width: 50%;
+    height: 2px;
+    background: var(--k-gray-200);
+}
+.bv-step::before { left: 0; }
+.bv-step::after { right: 0; }
+.bv-step:first-child::before,
+.bv-step:last-child::after { display: none; }
+.bv-step--done::after,
+.bv-step--done + .bv-step::before { background: var(--k-success); }
+.bv-step-mark {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    margin: 0 auto var(--k-space-xs);
+    box-sizing: border-box;
+    border: 2px solid var(--k-gray-300);
+    border-radius: var(--k-radius-full);
+    background: var(--k-color-surface);
+    color: var(--k-color-text-muted);
+    font-size: var(--k-text-xs);
+    font-weight: var(--k-weight-semibold);
+}
+.bv-step--done .bv-step-mark { background: var(--k-success); border-color: var(--k-success); color: var(--k-white); }
+.bv-step--now .bv-step-mark {
+    background: var(--k-color-accent);
+    border-color: var(--k-color-accent);
+    color: var(--k-color-accent-contrast);
+    box-shadow: 0 0 0 6px var(--k-color-accent-soft);
+}
+.bv-step--now { color: var(--k-color-text-strong); font-weight: var(--k-weight-semibold); }
+.bv-step-name { display: block; }
+.bv-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+.bv-steps-more { margin: 0; }
+.bv-left { margin: 0; }
+@media (max-width: 640px) {
+    /* on a phone the line stands upright: one step a row, circle left, name right */
+    .bv-line { display: flex; flex-direction: column; gap: var(--k-space-xs); overflow-x: visible; }
+    .bv-step { display: flex; align-items: center; gap: var(--k-space-sm); text-align: left; font-size: var(--k-text-sm); }
+    .bv-step-mark { margin: 0; flex: none; }
+    .bv-step::before,
+    .bv-step::after { display: none; }
+}
+
+/* The card «Jetzt»: the step, since when and who; the other ways on request. */
+.bv-now-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--k-space-2xs) var(--k-space-md);
+}
+.bv-now-title { margin: 0; font-size: var(--k-text-lg); color: var(--k-color-text-strong); overflow-wrap: anywhere; }
+.bv-ways { margin-top: var(--k-space-sm); }
+.bv-ways-summary { cursor: pointer; color: var(--k-color-accent); font-weight: var(--k-weight-medium); }
+.bv-ways-summary:focus-visible { outline: 2px solid var(--k-color-accent); outline-offset: 2px; border-radius: var(--k-radius-xs); }
+.bv-ways .bv-list { margin-top: var(--k-space-xs); }
+.bv-way { min-width: 0; overflow-wrap: anywhere; }
+.bv-after {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--k-space-xs) var(--k-space-md);
+}
+.bv-after p { margin: 0; }
+
+/* PMVP-32b: what the current step needs: a check for what is there, an empty ring for what is missing. */
+.bv-checks { margin-top: var(--k-space-sm); }
+.bv-check { display: flex; align-items: center; gap: var(--k-space-sm); min-width: 0; overflow-wrap: anywhere; }
+.bv-check-mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 20px;
+    height: 20px;
+    box-sizing: border-box;
+    border: 2px dashed var(--k-gray-300);
+    border-radius: var(--k-radius-full);
+    font-size: var(--k-text-2xs);
+    font-weight: var(--k-weight-bold);
+}
+.bv-check-mark--ok { border: 0; background: var(--k-success-bg); color: var(--k-color-success-fg); }
+.bv-checks-note { margin: var(--k-space-xs) 0 0; }
+
+/* The tabs of a view wrap instead of scrolling (fix round 2026-11-22, FU-49): with many kinds the current tab
+   («Dokumente», the last) would otherwise sit off the screen of a phone. */
+.bv-main .k-tabs { flex-wrap: wrap; row-gap: var(--k-space-2xs); }
+
+/* «unbekannt»: a requirement whose things' kind could not be read. */
+.bv-check--unknown .bv-check-mark { border-style: dotted; color: var(--k-color-text-muted); }

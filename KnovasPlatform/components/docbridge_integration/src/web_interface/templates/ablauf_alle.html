@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="de">
+{# The other things in one thing's process (PMVP-32b): a list, by name, filterable, 50 a page; each row opens that
+   thing's own line. process_line_routes.py hands in `found` (brain_views.process_line.Instances), `listing`
+   (brain_views.lists.listing: the page, the form's fields, the page links) and `line_href`, every address built with
+   url_for. Without `found` the page is one message. The form and the pages are the shared part
+   _brain_views_list.html, as on the dossier's lists. The marks of PMVP-34:
+   data-bv-node on the head (the process this list belongs to), data-bv-row on each row. #}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if found and found.in_process %}{{ found.process_name }} · Alle Einträge{% else %}Ablauf{% endif %} · {{ brand }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/brain_views.css') }}?v={{ asset_version }}">
+</head>
+<body>
+{% import "_parts.html" as parts %}
+{% import "_brain_views_list.html" as lists %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+
+    <div class="app-content">
+        <main class="bv-main">
+        {% call parts.page() %}
+            {% if not found %}
+            {{ parts.page_head("Ablauf nicht geladen", lede="Der Brain hat gerade nicht geantwortet. Bitte versuchen Sie es in einem Moment noch einmal.") }}
+            {% elif not found.in_process %}
+            <div data-bv-node>{{ parts.page_head(found.name, eyebrow=found.kind, lede="Für diesen Eintrag ist kein Ablauf hinterlegt.") }}</div>
+            {% else %}
+            <div data-bv-node>{{ parts.page_head("Alle Einträge in diesem Ablauf", eyebrow="Ablauf «" ~ found.process_name ~ "»", lede=(listing.total ~ " weitere neben «" ~ found.name ~ "»")) }}</div>
+            {% call parts.section("Einträge") %}
+            {{ lists.list_form(listing, "Einträge") }}
+            {% if listing.rows %}
+            <div class="bv-list">
+                {% for row in listing.rows %}
+                {% call parts.rowline() %}
+                <div class="bv-thing" data-bv-row>{{ parts.link(row.name, row.href, dotted=True) }}</div>
+                <span class="bv-thing-open k-muted" aria-hidden="true">→</span>
+                {% endcall %}
+                {% endfor %}
+            </div>
+            {{ lists.list_pages(listing) }}
+            {% elif listing.total %}
+            <p class="bv-empty k-muted k-small">Kein Eintrag passt zu diesem Filter.</p>
+            {% else %}
+            <p class="bv-empty k-muted k-small">In diesem Ablauf ist sonst kein Eintrag.</p>
+            {% endif %}
+            {% endcall %}
+            {% endif %}
+            {% if found %}<p class="k-small">{{ parts.link("Zurück zum Ablauf", line_href) }}</p>{% endif %}
+        {% endcall %}
+        </main>
+    </div>
+</div>
+</body>
+</html>
