@@ -59,7 +59,9 @@ branch reaches main only through a pull request a person reviews and merges; the
 | Related things by kind: tabs with counts, lists that sort, filter and page | PMVP-30b | built 22 Nov; no verification verdict yet | routine: Jannik or Siran |
 | Process line: main path, current step, since when, what next | PMVP-32a | built 22 Nov on Knovas GmbH's own processes (founder); no verification verdict yet | routine: Jannik or Siran |
 | Process line: «fehlt noch», all instances | PMVP-32b | built 22 Nov; no verification verdict yet | routine: Jannik or Siran |
-| Not started (no work order) | PMVP-02, 04, 22b, 31, 33, 41–43, 60–62; RB-9, RB-10 (RB-8 dropped: "Core gateway only") | not started | as the plan and the role builder's design say |
+| «Was sieht …?» in Admin | PMVP-41 | work order and acceptance tests drafted (22 Nov), not yet frozen; names only, every look audited (founder, 22 Nov) | sensitive: Siran |
+| Enforcement position and switch | PMVP-42 | reworked 22 Nov after the founder's answer: one administrator switches with a confirmation; the Core refuses «Ein» until its own prerequisites hold; acceptance tests drafted, not yet frozen; the switch waits for the Core's CR-R1a, CR-R7 and CR-R8 | critical: management |
+| Not started (no work order) | PMVP-02, 04, 22b, 31, 33, 43, 60–62; RB-9, RB-10 (RB-8 dropped: "Core gateway only") | not started | as the plan and the role builder's design say |
 
 "Management" approves critical items (DEC-0081); who exactly is **open**. Updating the pilot instance (PMVP-62) needs
 both founders.
