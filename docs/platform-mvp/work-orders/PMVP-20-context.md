@@ -57,7 +57,7 @@ KnowledgeBase `origin/master`, `knovas-software/app/src/api/secure_api.py` ~2362
    budget (say what is cut first if 8 contexts do not fit), PMVP-21's stored references (PMVP-23's D2 keeps the
    passage text: the context is what is kept).
 5. **Docs**: `management/assistant.md` and `management/data-protection.md` (what is read, under which limits, what
-   goes to the chosen provider: the context, as passages did; DEC-0084); the assistant's card.
+   goes to the chosen provider: the context, as passages did; DEC-0086); the assistant's card.
 
 ## Your tests (`P/tests/test_assistant_context_*.py`, a recording fake Core)
 
