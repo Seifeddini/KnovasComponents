@@ -117,6 +117,16 @@ operations:
     key'
   entrance: call
   ref: KnovasPlatform/components/docbridge_integration/src/assistant/providers.py#settings_problems
+- id: call.assistant.providers.settings_warnings
+  name: settings_warnings() - the line the settings page always shows under the answer mode («Brain-Werkzeuge lesen
+    alles, ...»; PMVP-20 brain-mcp)
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/assistant/providers.py#settings_warnings
+- id: call.assistant.providers.brain_mcp_refusal
+  name: brain_mcp_refusal(settings, values) - why the settings page refuses a save that would leave «Brain-Werkzeuge»
+    without the provider anthropic, the Claude API key or the gateway key (PMVP-20 brain-mcp)
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/assistant/providers.py#brain_mcp_refusal
 - id: call.assistant.errors.CoreBusy
   name: CoreBusy - the Core or the provider is busy (HTTP 429, 503 from the Core; 429, 529 from Claude); the Platform's
     client (knovas_client.py) raises it
@@ -347,6 +357,58 @@ contract:
         - test_the_client_gets_the_settings_key_60_seconds_and_no_retry_and_is_closed
         - test_the_client_is_built_without_a_retry
         - test_the_service_answers_through_claude_unchanged
+    - id: L2-PLATFORM-ASSISTANT/*/P-9
+      statement: The company's gateway key (assistant.brain_mcp_key) is kept sealed by the settings registry and is in
+        no log line, exception, page, response or audit entry (the audit says geändert); it goes only into the
+        authorization_token of the MCP connector's request to Anthropic, and only to a gateway address on knovas.ch
+        over https. Without it, or without the Claude API key, nothing is sent and the answer fails.
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_brain_tools_settings.py
+        checks:
+        - test_the_gateway_key_is_sealed_at_rest_and_never_comes_back
+        - test_through_the_app_the_key_is_sealed_in_the_database_audited_as_changed_and_never_shown
+        - test_an_address_outside_knovas_ch_or_without_https_is_refused
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_brain_tools.py
+        checks:
+        - test_nothing_is_sent_without_both_keys_or_with_a_refused_address
+        - test_through_the_real_sdk_the_wire_carries_the_connector_and_the_beta_header
+        - test_the_mapped_error_carries_nothing_of_the_sdks
+        - test_no_question_answer_passage_key_or_grant_in_any_log_line_at_debug
+    - id: L2-PLATFORM-ASSISTANT/*/P-10
+      statement: 'With assistant.mode brain_mcp («Brain-Werkzeuge», only with anthropic and both keys; passages by
+        default) Claude calls the Knovas MCP gateway''s search and fetch itself through the MCP connector, and the
+        answer is checked as before: the passages are the texts of the gateway''s tool results in that same answer, a
+        statement names one returned document and check.py, unchanged, shows it only if its quote and numbers stand
+        in one passage of it; no tool result is no_answer. The page never grants such an answer''s documents; the
+        answer ends within 150 seconds.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_brain_tools.py
+        checks:
+        - test_the_request_carries_the_mcp_server_the_toolset_and_the_beta
+        - test_the_passages_are_the_texts_the_tool_results_returned
+        - test_a_quote_outside_the_tool_results_is_removed
+        - test_a_quote_is_never_put_together_from_two_passages
+        - test_no_tool_result_means_no_answer
+        - test_provider_errors_map_as_in_the_passages_mode
+        - test_the_wall_clock_deadline_ends_a_call_that_does_not_come_back
+        - test_brain_mcp_pinned_without_what_it_needs_fails_and_sends_nothing
+        - test_the_passages_requests_carry_no_connector
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_brain_tools_settings.py
+        checks:
+        - test_brain_mcp_is_refused_without_anthropic_or_a_key_and_nothing_is_saved
+        - test_the_warning_stands_under_the_mode_always
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_brain_tools_pages.py
+        checks:
+        - test_a_reply_of_the_brains_tools_becomes_a_chat_with_its_cited_passages_and_nothing_is_granted
+        - test_its_document_opens_through_the_click_route_after_the_core_said_yes
+        - test_shown_unsaved_its_passages_show_the_title_without_a_link
     limits:
     - id: L2-PLATFORM-ASSISTANT/*/L-1
       statement: 'The prompt keeps the Core''s limits for /secured/llm/generate (plan § 5.2, step 3): at most 32 messages with the question last, and the passages and the chat''s earlier turns cut to the byte limits per message.'
@@ -861,11 +923,21 @@ uses:
     the composed messages only (POST-02); one call per answer, and one per «Verbindung testen» with invented text
     (src/assistant/providers.py, PMVP-25)'
   protocol: HTTPS
+- component: EXT-MCP-GATEWAY
+  operations:
+  - mcp
+  method: 'not called by the Platform itself: with «Brain-Werkzeuge» (assistant.mode brain_mcp) Anthropic''s MCP
+    connector calls the gateway''s search and fetch for Claude, with the company''s gateway key the Platform puts into
+    the request (assistant.brain_mcp_key, to assistant.brain_mcp_url on knovas.ch); the gateway reads with that key,
+    without the person''s groups (src/assistant/providers.py, brain_tools.py; PMVP-20 brain-mcp)'
+  protocol: HTTPS (from Anthropic)
 hides:
 - The layout of the tables assistant_chats, assistant_messages and assistant_references (migration 0026).
 - How an answer is kept in its message (one JSON object, version 1) and drawn again from it.
 - How the prompt is worded and how an answer is split into statements before the check.
 - Which provider writes the answer; the service and the check take the same generate either way.
+- How «Brain-Werkzeuge» turn the gateway's tool results into passages and a document's title into a passage number
+  before the unchanged check.
 decisions:
 - id: FU-14
   statement: 'No Alloy model for POST-02 (the founder, 2026-11-19): the assistant gets document content only through the Brain''s search, which enforces access.'
@@ -879,6 +951,14 @@ risks:
 - id: L2-PLATFORM-ASSISTANT/RISK-03
   statement: 'With anthropic chosen (the founder, 2026-11-21: the Platform calls the language model itself and the customer chooses the provider; the pilot chose Anthropic), the passages the person''s search returned, the question and its history leave the installation for Anthropic; while enforcement is off (RISK-02) they may hold passages beyond the person''s rights. The key is a secret of the installation.'
   mitigation: Off and knovas by default; only an administrator chooses anthropic and enters the key; the key is sealed with the deployment's settings key and never shown or logged; PMVP-25 is critical under the repository's CLAUDE.md, so management approves it before main.
+- id: L2-PLATFORM-ASSISTANT/RISK-04
+  statement: 'With «Brain-Werkzeuge» (assistant.mode brain_mcp; the founder, 2026-11-22) the Knovas MCP gateway reads
+    with the company''s key, without the person''s groups: Claude may read and cite documents the asking person may not
+    see, whatever enforcement says; the company''s gateway key and whole fetched documents pass through Anthropic.'
+  mitigation: Off by default (passages); only an administrator chooses it, with anthropic and both keys; the settings
+    page shows the warning «… Nur ohne «Ein» verwenden.» under the mode; the page never grants such an answer's
+    documents (a stored chat opens one after the Core's check as the person); critical, so management approves before
+    main. CR-R5/CR-R6 would let the gateway read as the person.
 review:
 - at: /owner
   why: Proposed owner, as for every card in this repository; one role per component is confirmed by a person (Software Map K4).
@@ -900,6 +980,18 @@ review:
     route (http.GET.fragen._chat_id.quelle._turn._number); a reply that is not stored is drawn here as before.'
 - at: /uses/1
   why: 'EXT-ANTHROPIC-API is new with PMVP-25; the Brain Builder''s views assistant calls the same API with its own key, and its card does not name the dependency yet.'
+- at: L2-PLATFORM-ASSISTANT/*/P-9
+  why: 'Critical (a secret of a whole company). PMVP-20 brain-mcp (work order
+    docs/platform-mvp/work-orders/PMVP-20-brain-mcp.md), built 2026-11-22, not yet verified. The SDK''s own DEBUG line
+    of the request options (the body, the key in it) is dropped for requests that carry mcp_servers
+    (providers._NoBrainRequestOptions), beside the app''s hold on the SDK''s loggers (FU-39).'
+- at: L2-PLATFORM-ASSISTANT/*/P-10
+  why: 'PMVP-20 brain-mcp, not yet verified. The deadline takes PMVP-24''s numbers (150 s, 30 s, a timeout busy) in
+    brain_tools.py because PMVP-24 and the context work''s deadline are not merged; once PMVP-24 is, the constants
+    should be core''s. Evidence of the real gateway (demo tenant) is in the work order''s builder''s notes, not a test.'
+- at: /uses/2
+  why: 'EXT-MCP-GATEWAY''s promise P-1 is about agent-bound keys (CR-R6), which do not exist yet; «Brain-Werkzeuge» use
+    a company key per tenant (manage_mcp_keys), so no promise of that card is expected here.'
 - at: L2-PLATFORM-ASSISTANT/*/P-7
   why: Critical (a secret). The key's sealing and the audit entry are the settings registry's (KC-0.1, platform_settings.SecretBox and SettingStore); the evidence shows them for this key.
 - at: L2-PLATFORM-ASSISTANT/*/P-1

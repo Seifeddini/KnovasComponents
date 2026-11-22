@@ -43,6 +43,7 @@ branch reaches main only through a pull request a person reviews and merges; the
 | Chat storage | PMVP-21 | verified 19 Nov (with notes); integrated | critical: management |
 | Ask page | PMVP-22a | built; no verification verdict yet | routine: Jannik or Siran |
 | Switch and provider choice | PMVP-25 | built; no verification verdict yet | critical: management |
+| «Brain-Werkzeuge»: Claude answers through the Knovas MCP gateway with the company's key (off by default; only without «Ein») | PMVP-20 brain-mcp | built 22 Nov; no verification verdict yet | critical (a secret): management |
 | Dossier | PMVP-30a | built; no verification verdict yet | routine: Jannik or Siran |
 | Admin in the new look | PMVP-40 | in build (pushed; builder's notes not written) | routine: Jannik or Siran |
 | Roles: tables, the two roles, the move of an existing installation; functions and groups read from roles | RB-1, RB-2 | built; no verification verdict yet | critical (a migration): management |

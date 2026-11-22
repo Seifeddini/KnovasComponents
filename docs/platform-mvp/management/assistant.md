@@ -28,6 +28,11 @@ name.
   chat opens after the Core confirms she may still read it. On a phone the list folds behind «Gespräche».
 - **An administrator** switches the assistant on, chooses provider and model, enters the key and presses
   "Verbindung testen" (PMVP-25).
+- **An administrator chooses «Brain-Werkzeuge»** (PMVP-20 brain-mcp, built 22 Nov, not yet verified): the answer
+  mode `brain_mcp` and the company's gateway key. Claude then searches and reads the Knovas Brain itself, through the
+  Knovas MCP gateway, instead of the person's own search; every statement is still checked word for word against
+  what the gateway returned in that answer, and the page and the chats look the same. A warning line stands under the
+  mode on the settings page; the page refuses the mode without the provider Anthropic and both keys.
 - **Not yet:** the passage opened inside the document (PMVP-22b), waiting states (PMVP-24), renaming or searching
   chats (W-10, 12 January).
 
@@ -39,6 +44,16 @@ statements found no way past. Trade-off: 10 of 10 realistic answers with exact q
 slips.
 
 ## How it protects data and access
+
+**With «Brain-Werkzeuge» (`brain_mcp`) the first point below does not hold:** the gateway reads with the company's
+key, so Claude may read and cite documents the asking person may not see. What goes to Anthropic then: the
+instruction, the question and the chat so far, **plus the company's gateway key and the gateway's address**, which
+Anthropic uses to call the gateway; the gateway returns search passages and fetched document text to Claude at
+Anthropic. Use the mode only while every person of the firm may read everything, and never under «Ein»; CR-R5/CR-R6
+would let the gateway read as the person. The Platform never grants such an answer's documents: a stored chat opens one
+after the Core confirms the person may read it; an unsaved answer shows the title only. The gateway key is stored
+encrypted, never shown or logged; an address outside `knovas.ch` is refused. An answer ends within 150 seconds
+(PMVP-24's numbers; a timeout reads "ausgelastet").
 
 - **One way in:** documents are read only through the person's own search; what search would not show her, the
   assistant never sees or sends on.
@@ -74,6 +89,7 @@ slips.
 | PMVP-21 | chat storage: three new tables, owner only | verified 19 Nov (with notes); integrated; no page uses it yet | management (critical: database change) |
 | PMVP-22a | the ask page | built; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-25 | switch, provider and model, key, connection test | built; no verification verdict yet | management (critical: a secret) |
+| PMVP-20 brain-mcp | «Brain-Werkzeuge»: Claude answers through the Knovas MCP gateway (search, fetch) with the company's key; the same check; off by default | built 22 Nov on `feat/pmvp-20-brain-mcp`; no verification verdict yet | management (critical: a secret) |
 | PMVP-22b | passage in the document | not started | routine |
 | PMVP-23 | follow-up questions and past chats (list, open, delete; deleted after 90 days); takes up FU-01, FU-02, FU-03, FU-06, FU-07 | built 22 Nov on `feat/pmvp-23` (33 frozen acceptance tests pass); no verification verdict yet; no migration | Siran (sensitive) |
 | PMVP-24 | waiting line, a time limit under the web server's, failure states | work order decided 22 Nov; after PMVP-23 | Jannik or Siran (routine) |
@@ -93,6 +109,7 @@ slips.
 | 21 Nov | founder | The Platform signs agents' claims, the assistant's too; one rule for every agent (its roles, narrowed to the person) |
 | 22 Nov | founder | A chat keeps its passages (owner only, deleted with it); chats are deleted automatically 90 days after their last message, by a daily job that runs once however many web workers there are |
 | 22 Nov | coordinator | A follow-up searches the chat's last question and the follow-up together (D1); the sidebar shows the newest 20 chats and «Alle Gespräche» (D4) |
+| 22 Nov | founder | «Brain-Werkzeuge»: the LLM with access to the Brain's MCP tools, as an answer mode now; only without «Ein» |
 
 ## Known limits and open points
 
@@ -122,7 +139,8 @@ slips.
 
 ## Depends on
 
-The Knovas Core's search and its access rules; a language model, the Core's generation route or Anthropic's Claude API,
+The Knovas Core's search and its access rules; with «Brain-Werkzeuge», the Knovas MCP gateway (`mcp.knovas.ch`),
+the company's gateway key and Anthropic's MCP connector (a beta); a language model, the Core's generation route or Anthropic's Claude API,
 chosen per installation; the Platform's database (PostgreSQL) for chats and settings; the settings store and the
 installation's settings key; the shell.
 
@@ -130,6 +148,6 @@ installation's settings key; the shell.
 
 The engine owner role, proposed on the card; a person has still to confirm it.
 
-**Where the detail is:** `docs/platform-mvp/work-orders/PMVP-20*.md`, `PMVP-21.md`, `PMVP-22a.md`, `PMVP-25.md`
+**Where the detail is:** `docs/platform-mvp/work-orders/PMVP-20*.md` (`PMVP-20-brain-mcp.md` for «Brain-Werkzeuge»), `PMVP-21.md`, `PMVP-22a.md`, `PMVP-25.md`
 (builder's notes on `feat/pmvp-22a`, `feat/pmvp-25`); `docs/components/L2-platform-assistant.md`;
 `docs/platform-mvp/follow-ups.md`.
