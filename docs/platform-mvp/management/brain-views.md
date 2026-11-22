@@ -30,6 +30,16 @@ and turns the rest into a count that opens a list. Unlike the existing views mad
   order or the page.
 - If the related things cannot be read, the dossier still opens and says so in one line.
 
+**Built: the process line (PMVP-32a).**
+
+- Open where one thing stands in its process (`/ablauf/<id>`), from the card «Läuft gerade» on its dossier: the main
+  path as a line (done, current, open; about twelve steps a row), «Schritt 6 von 10», since when and who, what comes
+  next («Danach»), and on request the other ways from here (a branch off the main path, a way back).
+- Built on Knovas GmbH's own processes (the Client Zero convention: process and steps in the Brain, an instance in a
+  step). A thing in no process says so in one sentence; a process not completely described too, and the reason goes
+  to the log (no names).
+- What is still missing in a step («fehlt noch») and the list of all instances of a process come with PMVP-32b.
+
 **Built: the 25-thing limit (PMVP-34).** Every view takes what it draws through one shared function; what does not
 fit is a count («115 weitere») that opens a list of 50 rows a page. The dossier draws one thing (the thing itself);
 its facts and documents are rows of a list.
@@ -39,7 +49,7 @@ its facts and documents are rows of a list.
 | Item | What | Note |
 |---|---|---|
 | PMVP-31 | the evidence trail ("Beleg-Spur") from a reference in an answer | third on the plan's cut list |
-| PMVP-32 | the process line for one matter: main path, current step, what is missing | decided 22 Nov (`decisions/PMVP-32-question.md`): built per thing on Knovas GmbH's own processes (the Core has none; no law firm's data holds one; the old Ablauf reads the whole tenant and is not reused); law-firm process data asked of the demo plan and the Builder's bet |
+| PMVP-32b | the process line's «fehlt noch» and «Alle N … in diesem Ablauf» | work order written (`work-orders/PMVP-32.md`); same builder, after 32a. Law-firm process data asked of the demo plan and the Builder's bet (`decisions/PMVP-32-question.md`, option C) |
 | PMVP-33 | names in search results and answers link to the dossier | |
 
 ## How it protects data and access
@@ -68,7 +78,8 @@ its facts and documents are rows of a list.
 | PMVP-30a dossier | built; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-34 the 25-thing limit | built 22 Nov (its frozen test green); no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-30b related things by kind | built 22 Nov; no verification verdict yet | Jannik or Siran (routine) |
-| PMVP-32a, PMVP-32b | decided 22 Nov: the line on Knovas GmbH's own processes; work order written; same builder after 30b | Jannik or Siran (routine) |
+| PMVP-32a process line | built 22 Nov; no verification verdict yet | Jannik or Siran (routine) |
+| PMVP-32b «fehlt noch», all instances | in build (same builder) | Jannik or Siran (routine) |
 | PMVP-31, 33 | not started | Jannik or Siran (routine) |
 
 Gate G3 (Tuesday 8 December) asks that the dossier and the process line open from an answer.
@@ -80,6 +91,9 @@ Gate G3 (Tuesday 8 December) asks that the dossier and the process line open fro
 | 19 Nov | founder | The views belong to the new domain "Workspace" (DEC-0083) |
 | 19 Nov | plan, approved by the founder | If a gate is missed: the process line becomes the existing Ablauf view (cut 2), then the evidence trail is dropped and the numbered references stay (cut 3) |
 | 20 Nov and 21 Nov | founder | The existing modelling views stay, hidden from the menu ("Hide, place later"; cleanup decision) |
+| 22 Nov | coordinator | The process line: main path = the transitions_to chain, variants = reworks_to; «fehlt noch» = the step's requirements one hop away; nobody calls production to learn whether the Core's edges route filters (PMVP-32) |
+| 22 Nov | coordinator | The views' component card split in three for its size: «Brain views» (the switch, the gate, the limit), «Dossier», «Ablauf» (PMVP-32a) |
+| 22 Nov | coordinator | «Weitere Einträge» is the last tab; the key Claim is «Aussagen» for the pilot (a law firm's Claim would be «Forderung»: follow-up) |
 | 22 Nov | coordinator | Related things only as tabs with counts and lists (no circles on the Überblick, as the reference draws none); kind names in the plural from one table; at most 20 named kinds (PMVP-30b, D1 to D4) |
 | 22 Nov | coordinator | What a view draws is capped at 25; the rows of a list a count opens are not drawn things, and lists are paged at 50 (PMVP-34, D1) |
 | 21 Nov | builder of PMVP-30a, for the verifier to judge | One read per thing; the section "Verbunden" left out (it needs PMVP-30b's reads); only the mark "ohne Beleg" built |
@@ -101,6 +115,12 @@ Gate G3 (Tuesday 8 December) asks that the dossier and the process line open fro
 - **Marks for derived or uncertain facts** are not built; a field that refers to another thing shows its id, not its
   name (PMVP-33).
 - **The existing Ablauf code** is not reused by PMVP-32 (decided 22 Nov), so it needs no owner here (FU-19).
+- **Whether production's Core filters its edge list** by thing and relation is not known (master does). The process
+  line asks that way first and throws away an answer that is not filtered, but such an answer would still travel once
+  per view; someone with production access checks it before the pilot.
+- **Who** in the process line is the owner fact only when it is a name; Knovas GmbH stores a person's key (`PERS-…`),
+  which is left out, so the pilot shows no name there.
+- **A law firm's matters have no process line** until their data exists in the Brain (option C of the decision).
 - **Page parts' link check (FU-34)** was planned with PMVP-30a but its order forbade touching the parts: still open.
 - **Rights enforcement** is off for every tenant today; the dossier shows what the Core hands this person (see
   [data-protection.md](data-protection.md)).
@@ -115,5 +135,7 @@ parts and the navigation; the settings store (the switch); personal accounts (no
 
 The engine owner role, proposed on the card; a person has still to confirm it.
 
-**Where the detail is:** `docs/platform-mvp/work-orders/PMVP-30a.md` (builder's notes on `feat/pmvp-30a`);
-`docs/components/L2-platform-brain-views.md`; `docs/platform-mvp/follow-ups.md` (FU-19, FU-34, FU-37, FU-38).
+**Where the detail is:** the work orders `PMVP-30a.md`, `PMVP-30b.md`, `PMVP-32.md`, `PMVP-34.md` in
+`docs/platform-mvp/work-orders/` (with the builders' notes); the component cards `docs/components/L2-platform-brain-views.md`
+(the switch, the gate, the limit), `L2-platform-dossier.md` and `L2-platform-process-line.md`;
+`docs/platform-mvp/follow-ups.md` (FU-19, FU-34, FU-37, FU-38).

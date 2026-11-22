@@ -57,7 +57,8 @@ branch reaches main only through a pull request a person reviews and merges; the
 | Follow-up questions and past chats; waiting and failure states | PMVP-23, PMVP-24 | work orders decided 22 Nov (PMVP-23's acceptance tests frozen); not started (24 after 23) | 23 sensitive: Siran; 24 routine: Jannik or Siran |
 | The 25-thing limit: one shared function, the marks its frozen test counts | PMVP-34 | built 22 Nov (its frozen test green); no verification verdict yet | routine: Jannik or Siran |
 | Related things by kind: tabs with counts, lists that sort, filter and page | PMVP-30b | built 22 Nov; no verification verdict yet | routine: Jannik or Siran |
-| Process line | PMVP-32a, PMVP-32b | decided 22 Nov: built on Knovas GmbH's own processes (founder); work order written; not started (after 30b) | routine |
+| Process line: main path, current step, since when, what next | PMVP-32a | built 22 Nov on Knovas GmbH's own processes (founder); no verification verdict yet | routine: Jannik or Siran |
+| Process line: «fehlt noch», all instances | PMVP-32b | in build (after 32a) | routine: Jannik or Siran |
 | Not started (no work order) | PMVP-02, 04, 22b, 31, 33, 41–43, 60–62; RB-9, RB-10 (RB-8 dropped: "Core gateway only") | not started | as the plan and the role builder's design say |
 
 "Management" approves critical items (DEC-0081); who exactly is **open**. Updating the pilot instance (PMVP-62) needs
