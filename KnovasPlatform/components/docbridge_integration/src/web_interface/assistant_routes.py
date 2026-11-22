@@ -65,7 +65,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from flask import Blueprint, Flask, abort, current_app, redirect, render_template, request, url_for
+from flask import Blueprint, Flask, abort, current_app, g, make_response, redirect, render_template, request, url_for
 
 from assistant.service import (MAX_QUESTION_BYTES, NO_ANSWER_TEXT, QUESTION_TOO_LONG_TEXT, STATUSES, Passage, Reply,
                                Sentence, Turn, cut_to_bytes)
@@ -84,6 +84,10 @@ EXPIRED_TEXT = "Formular ist abgelaufen. Bitte erneut versuchen."
 NOT_SAVED_TEXT = "Dieses Gespr\u00e4ch konnte nicht gespeichert werden."
 #: The page of all chats when the store cannot be read.
 LIST_UNAVAILABLE_TEXT = ("Die Gespr\u00e4che k\u00f6nnen gerade nicht geladen werden. "
+                         "Bitte versuchen Sie es in einem Moment noch einmal.")
+
+#: A chat's page when the chat cannot be read (the database is down; PMVP-24): status 503, never a 500.
+CHAT_UNAVAILABLE_TEXT = ("Das Gespr\u00e4ch kann gerade nicht geladen werden. "
                          "Bitte versuchen Sie es in einem Moment noch einmal.")
 
 #: The sidebar lists the newest this many chats (D4); "Alle Gespraeche" when there are more.
@@ -450,13 +454,24 @@ def create_assistant_blueprint(*, csrf_valid: Callable[[str], bool], grant: Call
         logger.info("Fragen: no such chat of this person")
         abort(404)
 
+    def unavailable(exc: BaseException):
+        """The plain page for a chat that cannot be read or deleted now (PMVP-24): 503, the error's type logged,
+        nothing of it on the page."""
+        logger.warning("Fragen: the chat is not readable (%s)", type(exc).__name__)
+        page, _ = render([ShownTurn(question="", status="failed", message=CHAT_UNAVAILABLE_TEXT)])
+        abort(make_response(page, 503))
+
     def read_chat(chat_id: str, person: Any):
         from identity.chats import ChatNotFound
 
+        failure: Optional[BaseException] = None
         try:
             return store().get_chat(chat_id, owner=person.id)
         except ChatNotFound:
             not_found()
+        except Exception as exc:  # noqa: BLE001 - the database is down: a plain 503, never a 500
+            failure = exc
+        unavailable(failure)
 
     def token_refused() -> bool:
         return not csrf_valid(str(request.form.get("csrf_token", "") or ""))
@@ -558,6 +573,12 @@ def create_assistant_blueprint(*, csrf_valid: Callable[[str], bool], grant: Call
             return None
         return str(chat_id)
 
+    def start_the_clock() -> None:
+        """The answer's deadline starts with the request (PMVP-24): the service built for it reads it from ``g``."""
+        from assistant.core import Deadline
+
+        g.assistant_deadline = Deadline()
+
     def service_or_404():
         from assistant.core import OFF
 
@@ -574,6 +595,7 @@ def create_assistant_blueprint(*, csrf_valid: Callable[[str], bool], grant: Call
 
     @bp.route("/fragen", methods=["POST"])
     def ask():
+        start_the_clock()
         if not assistant_enabled():
             abort(404)
         if token_refused():
@@ -632,6 +654,7 @@ def create_assistant_blueprint(*, csrf_valid: Callable[[str], bool], grant: Call
 
     @bp.route("/fragen/<chat_id>", methods=["POST"])
     def follow_up(chat_id: str):
+        start_the_clock()
         person = refuse_unless_open()
         if token_refused():
             logger.info("Fragen: follow-up status=expired")
@@ -675,10 +698,15 @@ def create_assistant_blueprint(*, csrf_valid: Callable[[str], bool], grant: Call
         if token_refused():
             logger.info("Fragen: delete status=expired")
             return render([ShownTurn(question="", status="failed", message=EXPIRED_TEXT)], code=400)
+        failure: Optional[BaseException] = None
         try:
             store().delete_chat(chat_id, owner=person.id)
         except ChatNotFound:
             not_found()
+        except Exception as exc:  # noqa: BLE001 - the database is down: a plain 503, never a 500
+            failure = exc
+        if failure is not None:
+            unavailable(failure)
         logger.info("Fragen: chat deleted")
         return redirect(url_for("index"), code=303)
 
@@ -772,7 +800,8 @@ def install_assistant(app: Flask, *, client: Any, identity_gate: Any, split: Cal
         from web_interface import doc_fields_routes
 
         service = make_service(app.extensions["platform_settings"], client, split=split,
-                               user_key=lambda: doc_fields_routes.user_key_for(identity_gate))
+                               user_key=lambda: doc_fields_routes.user_key_for(identity_gate),
+                               deadline=g.get("assistant_deadline"))
         if service is OFF:
             return OFF
         return AsTheAssistant(service, client=client, identity_gate=identity_gate)

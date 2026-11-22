@@ -97,9 +97,10 @@ client.beta.messages.create(model=..., max_tokens=max(max_tokens, 8000), system=
   has no server-side fallback): a decline stays a decline.
 - The provider receives the system instruction and the messages, each reduced to its role and its content: the
   passages the person's search returned, the question and its history. Nothing else (POST-02).
-- The client: the key of the resolved setting, `timeout` 60 seconds, `max_retries` 0 (the coordinator,
-  2026-11-21: a 429 or 529 is "ausgelastet" at once and the person asks again; the SDK would otherwise wait whatever
-  `retry-after` it names, past nginx's 180 seconds, FU-08), built per call and closed after it. Without a key no client is built (the SDK would
+- The client: the key of the resolved setting, `timeout` 60 seconds or the answer's time left if that is less
+  (PMVP-24; with the answer's deadline the whole call ends by the wall clock within that time, `core.call_within`), `max_retries` 0 (the coordinator, 2026-11-21: a 429 or 529 is "ausgelastet" at once and the person asks
+  again; the SDK would otherwise wait whatever `retry-after` it names, past nginx's 180 seconds, FU-08), built per
+  call and closed after it. Without a key no client is built (the SDK would
   otherwise take `ANTHROPIC_API_KEY` from the environment, which pins the Brain Builder's own key); the answer fails.
 - The answer is the `text` blocks joined (thinking and fallback blocks are not text). `stop_reason` `refusal` ->
   `CoreFailed`; `max_tokens` -> the text as it is (the check drops a cut last line).
@@ -399,7 +400,10 @@ show two numbers in another order than they are read.
 | temperature | `core.DEFAULT_TEMPERATURE` | 0.2 | low, so the model copies; the Core's model only (`knovas`): Claude refuses a temperature |
 | Claude's least `max_tokens` | `providers.ANTHROPIC_MIN_MAX_TOKENS` | 8,000 | thinking counts against it |
 | Claude's effort | `providers.ANTHROPIC_EFFORT` | `medium` | |
-| Claude's timeout and retries | `providers.ANTHROPIC_TIMEOUT_SECONDS`, `ANTHROPIC_MAX_RETRIES` | 60 s, 0 | under nginx's 180 s (FU-08): no retry, so no `retry-after` wait |
+| Claude's timeout and retries | `providers.ANTHROPIC_TIMEOUT_SECONDS`, `ANTHROPIC_MAX_RETRIES` | 60 s, 0 | no retry, so no `retry-after` wait; the timeout is at most the answer's time left (PMVP-24) |
+| the answer's deadline | `core.ANSWER_DEADLINE_SECONDS` | 150 s | the search with its retries and the generation end within it, counted from the route's start; under nginx's and gunicorn's 180 s (FU-08, PMVP-24) |
+| least time to start the generation | `core.MIN_GENERATE_SECONDS` | 30 s | with less left the generation is not started and the answer is busy |
+| least time for a retry of the search | `knovas_client.MIN_ATTEMPT_SECONDS` | 5 s | inside `within_time`, a retry needs this much left after its wait |
 | passages asked for | `service.DEFAULT_PASSAGE_LIMIT` | 10 | |
 | prompt budget | `service.DEFAULT_PROMPT_BUDGET_BYTES` | 14,000 | system instruction (2,498 bytes) plus all messages |
 | a passage's length | `ASSISTANT_PASSAGE_CHARS` (environment, per question) | 1,200 | the snippet's cut and the context's length; 100 to 2,000; a larger value is cut to 2,000, anything else gives 1,200, either with one warning that names the setting, never its value |
@@ -522,7 +526,16 @@ is before a centred chunk begins: the model would see the text before the hit bu
    50,000 bytes, whatever the titles. When the heads and the question alone fill the prompt budget, the passage
    texts are cut to nothing.
 5. **Failures** (POST-06): `CoreBusy` from search or generation -> `busy` ("ausgelastet"); anything else ->
-   `failed`. Never a partial answer, never an exception out of `answer()`. `llm_generate` maps HTTP 429/503 to
+   `failed`. **One deadline per answer** (PMVP-24, FU-08): the route starts `core.Deadline` (150 s) and
+   `make_service` hands it to the search and the generate. The search runs inside `client.within_time`, so each
+   attempt ends by the wall clock within the time left and a retry happens only with time left for it; the
+   generation is not started with less than 30 s left and ends within the time left. "By the wall clock": a read
+   timeout bounds each read only, and a peer that sends its headers and then a byte every few seconds would hold
+   the person indefinitely; so each request inside the bound, and Claude's call, runs in a worker thread
+   (`core.call_within`) whose caller waits no longer than the time left, with the body streamed and read in the
+   pieces the peer sends so the worker stops soon after too (`tests/test_assistant_waiting_trickle.py`). A timeout of either is `CoreBusy` (decided
+   2026-11-22, D1: slow reads as "ausgelastet"), mapped in `core.py`; the service itself is unchanged. Nothing is
+   streamed and the generation is never retried, so no reply arrives after the page has given up. Never a partial answer, never an exception out of `answer()`. `llm_generate` maps HTTP 429/503 to
    `CoreBusy` and timeouts, connection errors, other HTTP errors and malformed envelopes to `CoreFailed`; it is one
    request (`_request_no_retry`), never retried. `make_search` maps the search's 429/503 the same way and refuses
    to run without the secured API (the legacy GET search logs the question text).

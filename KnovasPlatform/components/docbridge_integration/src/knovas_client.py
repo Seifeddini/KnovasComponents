@@ -104,6 +104,86 @@ def _code_or_none(value: Any) -> Optional[str]:
     return value if isinstance(value, str) and _SHORT_CODE.fullmatch(value) else None
 
 
+#: Inside ``KnovasAPIClient.within_time`` a retry is made only when at least this many seconds remain after its wait
+#: (PMVP-24): an attempt with less would only use up the answer's deadline.
+MIN_ATTEMPT_SECONDS = 5.0
+
+
+def _upcoming_wait(retry_state: Any) -> float:
+    """The wait tenacity makes before the next attempt, computed by the retry's own ``wait`` strategy.
+
+    tenacity 8 (the pinned 8.2.3) asks ``stop`` before it computes the wait and has no ``upcoming_sleep``; 9 computes
+    it first. Both call the same strategy with the same state (``wait_exponential`` reads the attempt number), so
+    asking it here gives the wait either version is about to make. Anything unreadable counts as no wait.
+    """
+    wait = getattr(getattr(retry_state, "retry_object", None), "wait", None)
+    try:
+        return max(0.0, float(wait(retry_state))) if callable(wait) else 0.0
+    except Exception:  # noqa: BLE001 - a strategy that cannot say counts as no wait
+        return 0.0
+
+
+def _out_of_time(retry_state: Any) -> bool:
+    """tenacity's second stop for ``_make_request``: inside ``within_time``, no retry without ``MIN_ATTEMPT_SECONDS``
+    after its wait. Outside it (no bound on the thread) it never stops anything: three tries, as before."""
+    client = retry_state.args[0] if getattr(retry_state, "args", None) else None
+    left_of = getattr(client, "_time_left", None)
+    left = left_of() if callable(left_of) else None
+    return left is not None and left - _upcoming_wait(retry_state) < MIN_ATTEMPT_SECONDS
+
+
+def _read_part(timeout: Any) -> float:
+    """The read part of a request's timeout (a number or a (connect, read) pair); none is no limit."""
+    if isinstance(timeout, tuple):
+        timeout = timeout[-1]
+    return float("inf") if timeout is None else float(timeout)
+
+
+def _read_body(response: requests.Response, time_left: Any) -> None:
+    """Read a streamed answer's body in the pieces the peer sends, and stop once no time is left (PMVP-24).
+
+    ``read1`` returns whatever one read of the socket brought, so a peer that sends one byte at a time is looked at
+    after every byte. The body ends up where ``requests`` keeps it (``content``, ``json()``). urllib3's errors
+    become the ``requests`` errors ``iter_content`` would raise, a read that times out a ``ReadTimeout``. A body
+    already in hand (a test's prepared answer) is left as it is.
+    """
+    import urllib3.exceptions as u3
+
+    raw = getattr(response, "raw", None)
+    if raw is None or getattr(response, "_content", False) is not False:
+        return
+    read1 = getattr(raw, "read1", None)
+    pieces: List[bytes] = []
+    try:
+        while True:
+            if time_left() <= 0:
+                raise requests.exceptions.ReadTimeout("no time left while the answer was read")
+            piece = read1(65536, decode_content=True) if callable(read1) else raw.read(1, decode_content=True)
+            if not piece:
+                break
+            pieces.append(piece)
+    except u3.ReadTimeoutError as exc:
+        raise requests.exceptions.ReadTimeout(str(exc)) from None
+    except u3.ProtocolError as exc:
+        raise requests.exceptions.ChunkedEncodingError(str(exc)) from None
+    except u3.DecodeError as exc:
+        raise requests.exceptions.ContentDecodingError(str(exc)) from None
+    except u3.SSLError as exc:
+        raise requests.exceptions.SSLError(str(exc)) from None
+    response._content = b"".join(pieces)
+    response._content_consumed = True
+    release = getattr(raw, "release_conn", None)
+    if callable(release):
+        release()
+
+
+def _capped(timeout: Any, left: float) -> Any:
+    """``timeout`` (a number, a (connect, read) pair or None) no longer than ``left`` seconds."""
+    if isinstance(timeout, tuple):
+        return tuple(left if part is None else min(float(part), left) for part in timeout)
+    return left if timeout is None else min(float(timeout), left)
+
+
 def _transport_error(exc: requests.exceptions.RequestException, method: str,
                      endpoint: str) -> requests.exceptions.RequestException:
     """The same kind of error ``requests`` raised for no answer, saying only the route and the kind (RB-FIX-2).
@@ -1797,6 +1877,32 @@ class KnovasAPIClient:
             local.user = previous
 
     @contextlib.contextmanager
+    def within_time(self, time_left):
+        """Every request in this block ends in time (PMVP-24, FU-08): ``time_left()`` gives the seconds that remain.
+
+        For the Knovas Assistent, whose search with its retries and generation together have a deadline under the
+        web server's (``assistant.core.ANSWER_DEADLINE_SECONDS``). Each request's timeout is the smaller of its own
+        and the time left; with no time left nothing is sent and the request times out at once
+        (``requests.exceptions.ReadTimeout``). ``_make_request`` (the search) retries only when, after its wait, at
+        least ``MIN_ATTEMPT_SECONDS`` remain. Per thread, like ``keeping_snippets``. Off by default: outside the
+        block a request waits ``http_read_timeout`` and a search tries three times, exactly as before.
+        """
+        local = getattr(self, "_time_local", None)
+        if local is None:
+            local = self._time_local = threading.local()
+        previous = getattr(local, "left", None)
+        local.left = time_left
+        try:
+            yield
+        finally:
+            local.left = previous
+
+    def _time_left(self) -> Optional[float]:
+        """The seconds ``within_time`` leaves this thread, or None outside it."""
+        left = getattr(getattr(self, "_time_local", None), "left", None)
+        return None if left is None else float(left())
+
+    @contextlib.contextmanager
     def keeping_snippets(self):
         """Searches in this block keep each hit's passage text in its row as ``"snippet"``.
 
@@ -1914,7 +2020,8 @@ class KnovasAPIClient:
         self._last_request_time = time.time()
     
     @retry(
-        stop=stop_after_attempt(3),
+        # PMVP-24: inside within_time a retry also needs MIN_ATTEMPT_SECONDS left after its wait.
+        stop=(stop_after_attempt(3) | _out_of_time),
         wait=wait_exponential(multiplier=2, min=1, max=30),
         retry=retry_if_exception_type(_RETRYABLE_REQUEST_EXCEPTIONS)
     )
@@ -2058,11 +2165,51 @@ class KnovasAPIClient:
         TLS failure) never carries the URL -- the path's ids and the query string -- into a caller's log line or a
         route's traceback. ``endpoint`` is the path the route's name is read from.
         """
+        left = self._time_left()
+        if left is not None:  # within_time (PMVP-24): no longer than the time left, and nothing sent without any
+            if left <= 0:
+                raise _transport_error(requests.exceptions.ReadTimeout("no time left"), method, endpoint)
+            kwargs["timeout"] = _capped(kwargs.get("timeout"), left)
+            return self._send_in_time(method, endpoint, left, kwargs)
         try:
             return self._session.request(method=method, **kwargs)
         except requests.exceptions.RequestException as exc:
             failure = _transport_error(exc, method, endpoint)
         raise failure
+
+    def _send_in_time(self, method: str, endpoint: str, left: float, kwargs: Dict[str, Any]) -> requests.Response:
+        """A request inside ``within_time``: it ends by the wall clock, however slowly the peer answers (PMVP-24).
+
+        A read timeout bounds each read only: a peer that sends its headers and then a byte every few seconds would
+        keep the request, and the person, waiting past the deadline. So the request runs in a worker thread
+        (``assistant.core.call_within``) with its body streamed and read in the pieces the peer sends
+        (``_read_body``), and the caller waits no longer than the request's own read timeout or the time left,
+        whichever is smaller. Past it the caller gets a ``ReadTimeout`` (the assistant reads it as busy, and the
+        search makes no retry without time for it); the worker stops at the peer's next byte and closes the answer.
+        A peer that trickles even its headers keeps only that worker, never the caller.
+        """
+        from assistant.core import OutOfTime, call_within
+
+        time_left = self._time_local.left
+        session = self._session
+        kwargs = {k: v for k, v in kwargs.items() if k != "stream"}
+
+        def request() -> requests.Response:
+            response = session.request(method=method, stream=True, **kwargs)
+            try:
+                _read_body(response, time_left)
+            except BaseException:
+                response.close()
+                raise
+            return response
+
+        try:
+            return call_within(min(left, _read_part(kwargs.get("timeout"))), request, name="request")
+        except OutOfTime:
+            failure: requests.exceptions.RequestException = requests.exceptions.ReadTimeout("past the deadline")
+        except requests.exceptions.RequestException as exc:
+            failure = exc
+        raise _transport_error(failure, method, endpoint)
 
     def secured_mode(self) -> bool:
         """Whether this client speaks the secured API over mTLS (client

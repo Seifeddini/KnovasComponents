@@ -20,6 +20,18 @@ name.
   document's title and page and a link that opens the document as a search hit does. All passages are listed below.
 - **See that something was left out** ("2 Aussagen ohne Beleg ausgelassen"), never the removed text.
 - **Get a plain message** when the service is busy ("ausgelastet") or fails; never half an answer.
+- **See what is happening while she waits** (PMVP-24): when she sends a question, the button is disabled, her
+  question stays in the box and a line under it says «Der Knovas Assistent sucht in Ihren Quellen und prüft die
+  Antwort …»; after 20 seconds «Das dauert länger als sonst. Die Antwort kommt, sobald sie geprüft ist.»; after
+  170 seconds «Keine Antwort erhalten. Bitte versuchen Sie es noch einmal.», and the button works again. A second
+  click while waiting sends nothing.
+- **The states she can meet** (PMVP-24), on the search page's box and in a chat alike: the answer; «Dazu finde ich
+  nichts in Ihren Quellen» with the closest passages; "ausgelastet" (the Core or the model is busy, or took too
+  long: every answer ends within 150 seconds, under the web server's 180, so she never sees its error page); "konnte
+  gerade keine Antwort erstellen" (anything else). Busy or failed, nothing is stored and her question stays in the
+  box; in a chat the message stands under the last answer. A chat that cannot be loaded right now says so («Das
+  Gespräch kann gerade nicht geladen werden …») instead of an error page; an expired form says «Formular ist
+  abgelaufen».
 - **Ask on in the same chat** (PMVP-23): every answered question becomes her chat, and the box under the answer
   («Nachfragen oder etwas Neues fragen …») asks a follow-up there. «Und wer hat unterschrieben?» after a question on
   a contract is searched together with that question, so it finds the same contract.
@@ -29,7 +41,7 @@ name.
   chat opens after the Core confirms she may still read it. On a phone the list folds behind «Gespräche».
 - **An administrator** switches the assistant on, chooses provider and model, enters the key and presses
   "Verbindung testen" (PMVP-25).
-- **Not yet:** the passage opened inside the document (PMVP-22b), waiting states (PMVP-24), renaming or searching
+- **Not yet:** the passage opened inside the document (PMVP-22b), renaming or searching
   chats (W-10, 12 January).
 
 **The five checks.** A statement is shown only if (1) it is in the agreed form, (2) its source is a passage this
@@ -95,7 +107,7 @@ default.
 | PMVP-25 | switch, provider and model, key, connection test | built; no verification verdict yet | management (critical: a secret) |
 | PMVP-22b | passage in the document | not started | routine |
 | PMVP-23 | follow-up questions and past chats (list, open, delete; deleted after 90 days); takes up FU-01, FU-02, FU-03, FU-06, FU-07 | built 22 Nov on `feat/pmvp-23` (33 frozen acceptance tests pass); no verification verdict yet; no migration | Siran (sensitive) |
-| PMVP-24 | waiting line, a time limit under the web server's, failure states | work order decided 22 Nov; after PMVP-23 | Jannik or Siran (routine) |
+| PMVP-24 | waiting line, a time limit under the web server's, failure states; takes up FU-08 | built 22 Nov on `feat/pmvp-24` (from `feat/pmvp-23`); no verification verdict yet | Jannik or Siran (routine) |
 | RB-6 | the assistant as a member of roles, answering with its own claim narrowed to the person | built; no verification verdict yet | management (critical: a migration, with RB-7) |
 
 ## Decisions taken
@@ -131,7 +143,9 @@ default.
 - **Numbers** are checked against the whole cited passage, now up to 1,200 characters: a number that stands elsewhere
   in the context supports a statement (the coordinator's design of 21 November). Since 22 November «ein» before a
   noun that is no unit is not checked: «eine Unterschrift» against «zwei Unterschriften» passes (the accepted cost).
-- **Smaller points:** a slow Core against the web server's time limit (FU-08, PMVP-24), the demo profile (FU-10).
+- **Smaller points:** the demo profile (FU-10). Taken up by PMVP-24: a slow Core against the web server's time limit
+  (FU-08: one deadline of 150 seconds per answer; a timeout reads as "ausgelastet"). The 150 and 30 seconds are set
+  before the capacity test in the week of 1 December; the coordinator revisits them after it.
   Taken up by PMVP-23: long chats (FU-06: a history of numbers is weighed as tokens; FU-07: the newest question and
   answer are cut, not dropped), input edge cases in chat storage (FU-01: bad characters and page numbers are
   cleaned and a failed write answers with a message, not an error; FU-02: a long question is cut to a 200-character
