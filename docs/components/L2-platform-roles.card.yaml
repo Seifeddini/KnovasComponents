@@ -29,7 +29,8 @@ not_responsible_for:
 - The agents of a role, their rows and forms on this page (L2-PLATFORM-AGENTS); the page draws the rows it is given.
 - The roles as stored, their audit rows and the claim's groups (identity/roles.py); the Platform's identity package, which
   has no card.
-- 'A role''s data (sources, folders, documents; RB-5): the Rollen page leaves room for it.'
+- 'A role''s data, its dry runs, adopting a group and moving direct grants (RB-5): L2-PLATFORM-ROLE-DATA; the page draws
+  its parts (templates/_role_data.html) and the part «Darf lesen» from its role_data_part.'
 terms:
 - role (a name, functions and people, and a Core group of its own; what a person may do comes from her roles' functions,
   what she may read from their groups)
@@ -390,6 +391,16 @@ contract:
         checks:
         - test_linking_refused_by_the_cap_links_nothing_and_deletes_mitglieds_new_group
 uses:
+- component: L2-PLATFORM-ROLE-DATA
+  operations:
+  - call.web_interface.admin_role_data.attach_role_data_routes
+  - call.web_interface.admin_role_data.role_data_part
+  expects:
+  - L2-PLATFORM-ROLE-DATA/call.web_interface.admin_role_data.attach_role_data_routes/P-1
+  - L2-PLATFORM-ROLE-DATA/call.web_interface.admin_role_data.role_data_part/P-1
+  method: 'imported: attach_role_routes mounts RB-5''s routes with its page; the page asks role_data_part for «Darf
+    lesen» and imports templates/_role_data.html'
+  protocol: in-process call
 - component: L2-PLATFORM-AGENTS
   operations:
   - call.web_interface.admin_agents.role_agents

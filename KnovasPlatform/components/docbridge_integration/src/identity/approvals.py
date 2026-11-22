@@ -197,9 +197,11 @@ class ApprovalService:
                 **dict(detail or {}),
             },
         )
+        # The administrator by id, never by address (RB-5 rule 1, FU-14): the
+        # audit row above keeps her address for the auditor.
         logger.info(
             "Four-eyes bypassed by administrator %s for %s on %s",
-            getattr(actor, "email", "?"), kind, target_ref,
+            getattr(actor, "id", "?"), kind, target_ref,
         )
 
     # ── the workflow ───────────────────────────────────────────────────────

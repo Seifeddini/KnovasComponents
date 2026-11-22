@@ -76,6 +76,18 @@ is only recorded until RB-4 links it in the Core on an administrator's action, s
 may read. No role name, description, person's name or address is written to a log. A request is never signed with more
 than 32 access groups (the Core's limit): a change that would give a 33rd is refused, and nothing is dropped silently.
 
+**A role's data** (RB-5, verified with notes, not yet integrated). What a role may read is a folder rule or a document's own rights
+at the Knovas Core naming the role's group; the Platform keeps no copy and reads them back on every page. An
+administrator adds or removes them on the role page, always after a dry run that names who will gain and who will lose
+sight once enforcement is «Ein»; walling an open folder or document, or opening a walled one, needs an explicit tick.
+The change takes the four-eyes path of the «Zugriff» pages (with the installation's bypass on, an administrator acts
+alone and it is recorded; off, a second person confirms); only an administrator carries it out. **Until «Ein»
+(CR-R1, CR-R2) the rules are stored at Knovas and hide nothing.** Moving direct group grants into roles changes nobody's
+groups or functions (compared inside the move) and writes nothing to Knovas. Audit rows and logs hold ids and counts
+only: never a path, a document's or group's name or a person; the approval request keeps the path for the approver's
+page, and its log lines and audit rows name the role by id. The approvals' bypass line in the log names the
+administrator by id, no longer by address.
+
 **Agents** (RB-6, RB-7, built, not yet verified). An agent is a member of roles that is not a person: the Knovas
 Assistent, or an external agent (Claude Code, Copilot) an administrator registers.
 
@@ -116,6 +128,7 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 | Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | not started; PMVP-42 waits for the Core's rights test | management (critical); Siran (sensitive) |
 | Roles: the move to roles, functions and groups read from roles, the 32-group cap (RB-1, RB-2) | built; no verification verdict yet | management (critical: a migration) |
 | Agents: one signed claim for every agent; external agents' claims handed to the Core behind a switch (RB-6, RB-7) | built; no verification verdict yet; acts with the Core's CR-R1, CR-R5, CR-R6 | management (critical: a migration, signing and claims) |
+| A role's data: folder rules and document rights written to Knovas after a dry run, four eyes, adopting a group, moving direct grants (RB-5) | verified (with notes); not yet integrated; hides nothing until CR-R1, CR-R2 and «Ein» | Siran (sensitive) |
 
 ## Decisions taken
 

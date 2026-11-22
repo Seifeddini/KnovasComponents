@@ -47,6 +47,7 @@ from identity.roles import (
     check_grantable,
 )
 from web_interface.admin_agents import role_agents
+from web_interface.admin_role_data import attach_role_data_routes, role_data_part
 
 logger = logging.getLogger(__name__)
 
@@ -101,9 +102,14 @@ def attach_role_routes(bp, gate, *, csrf_valid, csrf_token, page_context, client
     # -- the page (RB-3) ------------------------------------------------------------------------------------------
 
     def _page(role_id: Any = None, *, error: Optional[str] = None, notice: Optional[str] = None,
-              status: int = 200, create: Optional[dict] = None):
+              status: int = 200, create: Optional[dict] = None, dry_run: Optional[dict] = None,
+              grants: Optional[dict] = None, data_form: Optional[dict] = None):
         """The page on ``role_id`` (on the first role without one). An unknown role is 404 for a page that is asked
-        for, and the first role for a form's answer (a refusal's message must still be shown somewhere)."""
+        for, and the first role for a form's answer (a refusal's message must still be shown somewhere).
+
+        RB-5: the part «Darf lesen» is read from the Core on every page (``admin_role_data.role_data_part``, nothing
+        written); ``dry_run`` is a data or adopt dry run to draw in it, ``grants`` the dry run of moving direct grants,
+        ``data_form`` what a refused «+ Daten hinzufügen» held (the form opens with it)."""
         roles = _store().list_roles()
         shown = roles[0] if roles else None
         if role_id is not None:
@@ -119,6 +125,8 @@ def attach_role_routes(bp, gate, *, csrf_valid, csrf_token, page_context, client
         by_kind = {r.kind: r for r in roles}
         # RB-6, RB-7: the role's agents under «Mitglieder» and the agents «+ Agent hinzufügen» offers.
         agents = role_agents(gate.connection(), shown, {p.id: p.display_name or p.email for p in people})
+        # RB-5: what the role reads, as the Core holds it now; the move offer of direct grants.
+        role_data = role_data_part(client_factory(), gate.connection(), shown, roles)
         return render_template(
             "admin_roles.html",
             active_nav="admin",
@@ -133,10 +141,18 @@ def attach_role_routes(bp, gate, *, csrf_valid, csrf_token, page_context, client
             unlinked=[r for r in (by_kind.get("administration"), by_kind.get("mitglied"))
                       if r is not None and r.core_group_id is None],
             create=create,
+            role_data=role_data,
+            dry_run=dry_run,
+            grants=grants,
+            data_form=data_form,
             error=error,
             notice=notice,
             csrf_token=csrf_token(),
         ), status
+
+    # RB-5: «Darf lesen», its dry runs, adopting a group and moving direct grants, behind the same require_admin.
+    attach_role_data_routes(bp, gate, csrf_valid=csrf_valid, client_factory=client_factory,
+                            require_admin=require_admin, page=_page)
 
     @bp.route("/roles")
     @require_admin

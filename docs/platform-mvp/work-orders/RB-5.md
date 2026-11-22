@@ -419,3 +419,224 @@ If the work needs one of these, stop and write the reason under "Builder's notes
 ## Builder's notes
 
 (the builder writes here: what was decided, what is open, what the verifier should look at)
+
+**Built** (`feat/rb-5` from `origin/feat/platform-mvp` @ `127fe2f5`; builder session of 2026-11-21): `81bc357c` (code and tests), `917d1b98` (cards, management pages), `38153495` (map-check: the Builder's tree declared, the executor's promise), `2941a631` (no k- class in admin.css), `783c1155` (two texts) and the commit of these notes. No
+migration, no new guarded kind, no gate or decorator change, no change to `knovas_client.py`, `users.py`,
+`principal.py`, `assertion.py`, `agents.py`, `_parts.html`, `_sidebar.html`, `parts.css`, `shell.css`, `conftest.py`,
+the design, the reference screens, `core-requests.md` or any frozen file. RB-FIX-1: **not merged in**: `origin/feat/platform-mvp` was still at `127fe2f5` at the last check (2026-11-22, before pushing), so this branch carries none of RB-FIX-1's changes; the merge (card «Rollen», `clean_name`, the client's logging, the group readers) is the integrator's or a follow-up of this branch.
+
+| File | What |
+|---|---|
+| new `P/src/web_interface/admin_role_data.py` | `attach_role_data_routes(bp, gate, *, csrf_valid, client_factory, require_admin, page)` with the seven routes (endpoints `admin.preview_role_data`, `admin.add_role_data`, `admin.remove_role_data`, `admin.preview_adopt_group`, `admin.adopt_group`, `admin.preview_direct_grants`, `admin.move_direct_grants`); `plan_data` (§ 3, § 4), `execute_role_data` (§ 5), `plan_adopt` (§ 7), `plan_move` and the move (§ 8), `role_data_part` (§ 2), `tenant_brokered` (§ 6), `Sight` (who reads what under «Ein») |
+| `P/src/web_interface/admin_roles.py` | `_page` takes `dry_run`, `grants`, `data_form` and hands the template `role_data` (read from the Core on every page); `attach_role_routes` attaches RB-5's routes. Nothing in RB-3/RB-4's or RB-6/RB-7's routes |
+| `P/src/web_interface/templates/admin_roles.html` | the part «Darf lesen» (rows, «+ Daten hinzufügen», the dry run, «Gruppe übernehmen», «wirkt mit «Ein»»), the move offer and its dry run above the row of roles, one sentence on the connect line (FU-45); nothing in the agents' region |
+| `P/src/web_interface/admin_documents.py` | `execute_acl_change` hands `role_data_add` / `role_data_remove` to `execute_role_data`; its other actions unchanged |
+| `P/src/web_interface/admin_approvals.py` | `_summary`: one line for the two role actions (kind, path, whether the warning was confirmed, "only Administration carries it out") |
+| `P/src/identity/approvals.py` | the bypass log line names the administrator by id (rule 1) |
+| `P/src/identity/roles.py` | addition only: `active_claim_groups(conn)` (every active person's claim groups in one query, for the dry runs) |
+| `P/src/web_interface/static/css/admin.css` | one new section at the end, «Rollen: Darf lesen» |
+| new `P/tests/test_web_admin_role_data_rules.py` | own tests, 21 (below) |
+| `P/tests/test_web_admin_gates.py` | the seven routes (FU-17); see "Existing tests changed" |
+| cards | `L2-platform-admin.card.yaml`: `admin_role_data.py`, R-7, the seven routes with N-1 and P lines, `execute_role_data` with a promise, the term «dry run», uses L2-BRAIN-BUILDER (`builder.access.Tree`), the EXT-BRAIN-API method, a review entry; `L2-platform-access.card.yaml`: `execute_acl_change`'s hand-off and its use of `execute_role_data`; `boundaries.yaml`; pages rendered (`L2-brain-builder.md` re-rendered for the new consumer) |
+| management | `administration.md` («Was eine Rolle lesen darf», status row, decision row, open points), `README.md` (status row; RB-5 out of "not started"), `data-protection.md` (a paragraph and a status row) |
+
+**Decisions beyond the order** (all two-way, in new code unless said):
+
+1. **"No change" covers what the role already reads through a rule above.** Adding a subfolder (or a document) whose
+   governing rule already names the role's group sends nothing and writes no row (a notice says the role reads it through
+   the folder above), instead of creating a rule identical to the one above. Adding a folder whose own rule names the
+   group is the order's "no change".
+2. **A document's "before"**: when the Core's listing says a live rule governs the document (`acl_folder_id` is a live
+   rule), that rule's groups (the Core's own "groups governing it today", `secure_api.py` PUT); otherwise
+   `document_access(pointer)`'s groups (own rights; for a tombstoned rule id too). With the frozen fake both agree.
+3. **"Own rights"** is the Core's backfill definition (`acl_backfill_worker._is_explicit_override`): `acl_folder_id`
+   none and a non-empty group set. A document opened by a removal (own rights set to `[]`) is therefore no row any more.
+4. **`already-read-in`** counts a document under the prefix that has no own rights and is not governed by a rule deeper
+   than the new one (those keep their deeper rule for good). An unfinished walk warns (it only informs).
+5. **Walking the Core's document list** is bounded: 50 pages of 200 for one question (a document's entry, the backfill
+   warning, adopt's "the Core lists a document for it"), 5 pages for the part on every page view, which then says that
+   not every own-rights document may be listed. Adopt's check that cannot finish is 502 (the Core could not say); a
+   listing that answers `unavailable` (the client's 404 on the inventory) counts as unreadable.
+6. **Adopting**: the role's own group again is "no change" (200, notice); the adopt holds every role's row
+   (`lock_all`) and checks again that the role still has the group the dry run saw and that no other role took the new
+   one; the previous group's deletion reuses RB-4's `role.core_group_abandoned` with `after_adopt: true`. The audit row
+   also carries `gains` (a count).
+7. **The move**: holds the roles (`lock_all`), then every person with a direct grant (`FOR NO KEY UPDATE`, id order),
+   then plans; writes `role.created` (with `from_direct_grants: true`), a `role.member_added` row per new member (as
+   RB-4's form does) and `role.direct_grants_moved` with a `grants` list (person, group, role: ids) beside the pinned
+   keys. A deactivated person's open-ended grant moves like any other (the claim is compared all the same). A role name
+   taken meanwhile (`RoleError`) is 400 and nothing moved; any other failure 500. Role names: the group's name without
+   control characters, white space collapsed, at most 80 characters, «Gruppe» when empty, " (2)" … when taken
+   (case-insensitive, as citext).
+8. **The dry run on the page**: a panel in the part «Darf lesen» (the move's above the row of roles): title, the counts in
+   a sentence, each warning in its words with `data-warning`, notes (a document leaves its folder rule; a rule is deleted
+   and the one above governs), the people in a `<details>` per side (open up to six), and the form. The confirmation is
+   an unticked checkbox with `required`, so a browser does not send the form without it; the server checks anyway.
+   «Entfernen …» on a row posts to the dry run; «+ Daten hinzufügen» is a `<details>` at the part's corner, a refused
+   preview opens it again with what was typed.
+9. **The approver's path**: an approver who is not an administrator confirms; `admin_approvals._execute` then shows its
+   generic "Freigegeben, aber die Ausfuehrung ist fehlgeschlagen" (only `_summary` may change there), and the summary
+   line says that only Administration carries it out. The summary names the kind and the path, not the role's name (the
+   payload is pinned and has none; the target column shows `role:<id>`).
+10. **The rows show no document count per folder** (the mock-up's «Ordner · N Dokumente»): one more Core read per row on
+    every page view, and under «Ein» it would be the administrator's own count.
+11. **The part when the Core cannot be read** says so in plain text (no `role="alert"`: it is not the answer to a form);
+    the adopt form then says Knovas did not name its groups.
+12. **`builder.access.Tree`** (as the order names it) is imported for the reader closure; the card declares the use of
+    L2-BRAIN-BUILDER (map-check `declared` asked for it).
+
+**What is written to the Core before «Ein»** (decision 3): on an administrator's data form with the bypass on (the
+default), or on a request a second person confirmed and an administrator carried out, exactly one call through the
+client's existing calls and never with `acting_as`: `update_folder_rule` (never with an empty set), `create_folder_rule`,
+`delete_folder_rule` or `set_document_access`; after an adopt, `delete_access_group` of the role's previous group (best
+effort). Nothing at start, on a GET, by a dry run, by the move or with the bypass off before the second person. Under
+`disabled` it hides nothing; under `enforcing` the Core refuses the Platform's writes (no assertion) and the page says
+Knovas refused (502); under `brokered` before CR-R2 the folder-rule writes are refused the same way.
+
+**Existing tests changed** (one file; each change because the order asks for the seven routes in its lists, FU-17):
+
+- `tests/test_web_admin_gates.py`: the seven routes in `FORMS` with the smallest form each accepts; a new placeholder
+  `{grouped}` (a role of the tenant's own with the Core group `g-lit`, made by `_ids`) for the three data routes, whose
+  forms need a role with a group; `NO_ROLES` fills both placeholders where the test used `_fill(path, role=NO_ROLE)`
+  (four places: the paths now carry `{grouped}`); the test's fake Core lists one folder rule of `g-lit`
+  (`rc-sync/rolle/`, for the removal) and one more group (`g-team`, for the adopt). Adding an open folder and removing a
+  rule's only group warn, so those two forms carry `confirm=1`; with the bypass off they are queued, never sent. The
+  docstring says so. No other existing test changed.
+
+**Own tests** (`tests/test_web_admin_role_data_rules.py`, 21, 25 after the fixes below; they reuse the frozen file's fake Core, world and scene):
+`active_claim_groups` equals `claim_groups` for every active person (ended and running windows, a deactivated person);
+a subfolder read through its folder's rule is no change; a deleted rule leaves the rule above governing (no `opens`, its
+gains and losses); a deeper rule's documents do not count for the backfill warning; a pointer of 1,025 characters, a
+C1 control character and DEL are refused, 1,024 is planned; the executor refuses when the role's group changed after
+the request; a change whose row cannot be written says so (500) with the Core changed; the page after a change is read
+back; adopting the role's own group is no change; a failed adopt (the 33rd group) deletes no old group; role names from
+group names; a group named like a role becomes «Bau (2)»; a move whose claims would differ is undone; the page renders
+when folder rules, documents or groups cannot be read (three); no speaking group id or pointer in a log line; the
+Freigaben summary.
+
+**Checks** (own database `knovas_platform_test_rb5`, `PLATFORM_DB_REQUIRED=true`, one pytest process at a time):
+
+- **Frozen file `test_rb5_role_data_acceptance.py`: 95 passed, 0 skipped**, on the first commit and again on the final
+  code (`783c1155`, 5.4 min). RB-1/RB-2's 66, RB-3/RB-4's 106 and RB-6/RB-7's 27 passed (one process, first commit);
+  on the final code again RB-3/RB-4's 106, the own 21 and `test_web_admin_approvals.py` 22.
+  `test_pmvp11_navigation_acceptance.py` 40, `test_pmvp21_chats_acceptance.py` 13 passed.
+- Each file in its own process, one after the other: `tests/test_identity_*.py` (20 files) all passed but
+  `test_identity_broker_key.py::test_private_key_is_created_readable_only_by_its_owner` (failed) and one skip there
+  (POSIX mode bits on Windows); `tests/test_shell_*.py` (8 files) passed, after one fix: the first run failed
+  `test_shell_parts_css.py::test_no_other_stylesheet_has_a_k_class[admin.css]` (a selector `.role-part > p.k-small` of
+  mine; now `.role-part[data-role-part="data"] > p`; 86 passed on the rerun); `tests/test_web_admin_*.py` (10 files):
+  approvals 22, doc_fields 124, documents 66, **gates 331**, ingestion 161, people 28, roles_rules 13, system_doc_fields
+  14, system_extractor 32, own 21; `tests/test_web_guarded.py` 5. The files that name `execute_acl_change`,
+  `acl_change`, `record_bypass` or `/admin/roles` (search over `tests/`): `test_identity_agents_pages.py`,
+  `test_identity_approvals.py`, `test_identity_audit_recent.py`, `test_web_admin_approvals.py`,
+  `test_web_admin_documents.py`, `test_web_admin_gates.py`, `test_web_admin_roles_rules.py`, `test_web_guarded.py`
+  and the four frozen role files: all in the runs above. The one failing id is in `baseline-failing-ids.txt`: no
+  failing id the base does not have.
+- Frozen check from `frozen-tests.txt`: all nine OK.
+- `card check`: 18 cards valid, 0 errors, 0 warnings. `card render --root docs/components --check`: 18 cards, 0 not
+  current. `map-check --scope touched` (base `origin/feat/platform-mvp`, settings `docs/components/map-check.yaml`,
+  head `38153495`): problems 0; declared 0 findings (the first run found `admin_role_data.py` pulling in
+  L2-BRAIN-BUILDER undeclared: now declared); compatible 7 (`need_added`: the seven new routes' N-1); complete 5
+  `no_contract` (`create_admin_blueprint`, `run_guarded`, and L2-PLATFORM-ACCESS's `attach_document_routes`,
+  `execute_acl_change`, `execute_corpus_purge`, all as before; `execute_role_data` has its promise); touched without a
+  card: `src/identity` (`approvals.py`, `roles.py`), as for RB-1 to RB-4; **budget: L2-PLATFORM-ADMIN 53,280 tokens
+  against 16,000** (open 5).
+- **Screenshots**, outside the repository, in
+  `C:\Users\siran\AppData\Local\Temp\claude\1838582cff9d51e1\af9716ae-0421-42ac-9fac-6acb192cc6e6\scratchpad\rb5\shots\`:
+  `rb5-<page>-<1440|390>.png` for `roles-bau` (a role with two folders and a document), `dry-walled` (adding a walled
+  folder), `dry-open` (adding an open folder: `walls-open` and `already-read-in`), `dry-remove-opens` (removing a
+  rule's only group: `opens`), `adopt-mitglied` (Mitglied adopting the Core's «Mitglied»), `grants-dry` (the move's dry
+  run) and `freigaben-queued` (a change queued with the bypass off, seen by a second administrator); `beside-*` puts
+  each beside `07-rollen.png`; `rb5-facts.json` what the browser measured. The real app (headless Chrome), invented
+  people, groups, folders and documents, an in-memory fake Core (tools in `..\rb5\tools\`); its schema was dropped.
+  At 390 px no Rollen page scrolls sideways (the row of roles scrolls inside itself, as `parts.tabs` does); lowest text
+  contrast 4.76 to 1; a keyboard walk shows a ring on every control of `<main>` (14 to 25 per page, none without); no
+  request left the installation; the fake Core recorded no write (dry runs only, and the queued change). **The
+  Freigaben page scrolls sideways at 390 px** (863 px): it is the old approvals page, not reworked by PMVP-40 (FU-23);
+  its empty tables already overflow, and the target column (`role:<id>`, monospace) is as wide as a pointer was. The
+  server's own log over all of this (INFO) holds no path, name, group id or address of RB-5's (one bootstrap line of
+  the app's own start).
+
+**Fixes after the verification** (coordinator, 2026-11-22; the verification passed with notes):
+
+- **F1 (low):** a request stored `confirm=1` whenever the form sent it, also when its dry run gave no warning; a folder
+  that became open before the second person confirmed was then walled without anyone having seen a warning, and the
+  Freigaben line said «Warnung bestaetigt». Now `_change` stores `confirm` only when the plan needed it
+  (`confirm and plan.needs_confirm`); the executor plans again as before and refuses (`_WARNS_NOW`, the page's words)
+  when the new plan needs a confirmation the request lacks. Tests: `test_a_confirmation_counts_only_for_the_warning_it_answered`
+  (bypass off, `confirm=1` on a walled folder, the rule emptied, a second administrator approves: nothing sent, the
+  request stays approved, no «bestaetigt» on the page) and `test_a_confirmation_the_dry_run_asked_for_is_stored`.
+- **Adopting checks for data under the lock:** the adopt now takes every role's row (`lock_all`) first and runs all
+  its checks (the group, another role's group, the present group's data at the Core) inside that transaction; the Core
+  is read while the rows are held. For the lock to protect anything, a data change now holds its role's row too:
+  `execute_role_data` takes it in share mode (`RoleStore.share`, an addition to `roles.py`) from the check of the
+  role's group to its audit row, the Core call in between; a refusal's `error` row is written after that transaction
+  is undone. Two-connection tests, both ways: `test_an_adopt_checks_for_data_only_once_it_holds_the_rows` (a data
+  change in flight writes a rule for the present group: the adopt waits, then refuses, nothing changed) and
+  `test_a_data_change_waits_for_an_adopt_and_then_refuses` (an adopt holds the row and switches the group: the data
+  change, bypass on, waits, then sends nothing). The three new tests fail on the code before the fix (tried).
+- Cost: an adopt holds every role's row while it reads the Core (other role changes wait up to that long); a data
+  change holds one role's row while it writes (an adopt or a change of that role waits).
+
+**Merge of RB-FIX-1** (coordinator, 2026-11-22; `origin/feat/platform-mvp` at `d655226f`, merged in `68da849f`):
+
+- Conflicts resolved keeping both sides. `roles.py`: RB-FIX-1's `CLAIM_GROUP_ROWS` (the claim's rows for the readers
+  of many people) and its NUL refusal in `clean_name` stay; RB-5's `active_claim_groups` now reads `CLAIM_GROUP_ROWS`, so
+  the claim's rule has one SQL definition (its own test still holds it to `claim_groups`); `RoleStore.share` stays. The
+  move's role names already drop control characters (NUL included) before `create_role`. `administration.md`: both
+  status rows and both work orders. RB-FIX-1's `knovas_client.py` logging comes in unchanged.
+- **Cards:** the admin card and `boundaries.yaml` take RB-FIX-1's split; RB-5's lines moved to
+  **L2-PLATFORM-ROLES** (`L2-platform-roles.card.yaml`) with `admin_role_data.py`: R-2 (was R-7 on my branch), the
+  seven routes and `execute_role_data` with their lines, the term «dry run», the hides line, the Core method, the
+  review entry, and uses of L2-PLATFORM-ADMIN (`run_guarded`, which this card's code now imports) and L2-BRAIN-BUILDER
+  (`builder.access.Tree`). They were never on the base, so they carry no aliases. L2-PLATFORM-ACCESS's
+  `execute_acl_change` now uses L2-PLATFORM-ROLES's `execute_role_data` (expecting its P-1). The admin card holds
+  nothing of RB-5 and is within its budget.
+- **Open (for the coordinator):** map-check reports **L2-PLATFORM-ROLES over budget, 33,953 tokens against 16,000**
+  (card 13,877, code 19,934: `admin_roles.py`, its page and `admin_role_data.py`). A card of its own for a role's data
+  would hold about 18,000 (the module alone is about 10,000) and still be over unless the module is cut down or split
+  (the planning, which needs no Flask, could leave the routes' module). Not split here: the order was "the Rollen card",
+  and a split is a decision of its own. Every other map-check line in scope is as before: problems 0, declared 0,
+  compatible 7 (`need_added`: the seven routes' N-1), complete 6 `no_contract` (the five known ones and RB-FIX-1's
+  `attach_role_routes`), touched without a card `src/identity`.
+- **Checks after the merge** (one process per file, own database):
+  the nine frozen files 497 passed, 0 skipped (PMVP-03 29, PMVP-10 33, PMVP-11 40, PMVP-20 88, PMVP-21 13, RB-1/2 66,
+  RB-3/4 106, **RB-5 95**, RB-6/7 27); `tests/test_web_admin_*.py` (11 files) 835 passed (gates 331, own 25, RB-FIX-1's
+  input checks 19); `tests/test_identity_*.py` (21 files) 334 passed, 1 failed, 1 skipped (the failure is
+  `test_identity_broker_key.py::test_private_key_is_created_readable_only_by_its_owner`, in the baseline; the skip is
+  POSIX mode bits on Windows); `tests/test_shell_*.py` (8 files) 403 passed; `tests/test_knovas_client_*.py` (6 files)
+  287 passed. Frozen check: all nine OK. `card check` 20 cards valid, 0 errors, 0 warnings; `card render --check` 0 not
+  current.
+
+**Split «Rollendaten»** (coordinator, 2026-11-22): RB-5's part has a card of its own,
+**L2-PLATFORM-ROLE-DATA** (`docs/components/L2-platform-role-data.card.yaml`), the way RB-FIX-1 split Rollen and
+Agenten: `admin_role_data.py` and a new template `templates/_role_data.html` (RB-5's parts of the Rollen page and their
+words, which `admin_roles.html` imports with its context and calls: the move offer above the row of roles, the content of
+`<section data-role-part="data">`). R-1, the seven routes and three calls (`attach_role_data_routes`, `role_data_part`,
+`execute_role_data`), each with a gate line (routes) and a promise; uses of L2-PLATFORM-ADMIN (`run_guarded`),
+L2-BRAIN-BUILDER (`builder.access.Tree`) and EXT-BRAIN-API; L2-PLATFORM-ROLES uses its two calls, L2-PLATFORM-ACCESS
+its executor; `boundaries.yaml` has the component. The Rollen card is back to the base plus that use and a pointer. To fit
+the budget, `admin_role_data.py` was made shorter (53,573 to 39,790 characters: the invariants live on the card, the
+page's words in the template; behaviour unchanged, the views pass codes the template words) and the card's evidence
+lists name at most five checks each. **Sizes (map-check, `--worktree` on the final tree):** L2-PLATFORM-ROLE-DATA
+15,700 tokens (card 5,603, code 9,947), L2-PLATFORM-ROLES about 13,000, the admin and access cards within the budget;
+budget 0 findings in scope, declared 0, compatible 0, complete 6 `no_contract` (the five known ones and RB-FIX-1's
+`attach_role_routes`), problems 0. `card check` 21 cards valid, `card render --check` 0 not current.
+
+**Open, for the coordinator and the verifier:**
+
+1. **Founder to check (decision 2):** with the bypass on (the default) an administrator changes a role's data alone,
+   recorded as `approval.bypassed`. Four eyes even with the bypass on is one change in `requires_approval`; a firm with
+   one administrator could then not change a role's data at all.
+2. **Direct grants that stay** after the move (end dates, the administrator group, groups the Core does not list,
+   groups of roles the person is not in) reach no agent under «Ein»; whether they must be handled first is the
+   founder's or coordinator's (decision 5). The people page still grants groups directly (decision 9).
+3. **A Core filter for own-rights documents would help**: the part finds them by walking the group's listing (which
+   also holds every folder-governed document and those of groups below), bounded at 5 pages per page view. A
+   `GET /secured/documents?…explicit=true` (or similar) is a candidate Core request.
+4. **The real client puts a pointer in a query string** (`document_access(pointer)`, `documents(prefix=pointer)`), as
+   the «Zugriff» pages do; urllib3 logs a request line with its query at DEBUG when its logger is at DEBUG (the app
+   holds it quiet). Not RB-5's to change (`knovas_client.py`, FU-43).
+5. **The cards' budget:** resolved by the split «Rollendaten» above (every card in scope within 16,000).
+6. Verifier: the frozen file takes about 9 minutes; run in a database of your own. A killed run leaves schemas behind
+   (recreate the database).

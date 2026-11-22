@@ -2196,3 +2196,98 @@
     .role-part > h3 { padding-right: 0; }
     .role-part > .role-edit > summary { position: static; display: inline-block; margin-top: var(--k-space-2xs); }
 }
+
+/* ── Rollen: Darf lesen (RB-5; mock-up 07-rollen.html, «Darf lesen» with «+ Daten hinzufügen») ─────────────────
+   One row per folder or document as Knovas holds it, with «Entfernen …» (its dry run first); the dry run as a
+   panel in the part (counts, warnings, the people on request, the form that carries the change out); «Gruppe
+   übernehmen» as a link in the flow (the part's corner holds «+ Daten hinzufügen»); the offer to move direct grants
+   above the row of roles. Brand tokens only; nothing wider than the column, so nothing scrolls sideways at 390 px. */
+
+.role-data-rows { margin: 0; padding: 0; list-style: none; }
+.role-data-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-space-2xs) var(--k-space-md);
+    padding: var(--k-space-xs) 0;
+    border-top: 1px solid var(--k-gray-100);
+}
+.role-data-row:first-child { border-top: 0; }
+.role-data-text {
+    display: flex;
+    flex: 1 1 14rem;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--k-space-3xs) var(--k-space-xs);
+    min-width: 0;
+}
+.role-data-name {
+    min-width: 0;
+    font-family: var(--k-font-mono);
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+.role-data-row > form { flex: none; }
+.role-data-error { margin: var(--k-space-xs) 0 0; color: var(--k-color-danger-fg); }
+.role-part[data-role-part="data"] > p { margin: var(--k-space-xs) 0 0; overflow-wrap: anywhere; }
+
+/* The dry run: a panel in the flow of its part (or above the row of roles, for the move). */
+.role-dry-run {
+    display: grid;
+    gap: var(--k-space-xs);
+    min-width: 0;
+    margin-top: var(--k-space-sm);
+    padding: var(--k-space-sm) var(--k-space-md);
+    border: 1px solid var(--k-color-border-strong);
+    border-radius: var(--k-radius-md);
+    background: var(--k-color-surface);
+    color: var(--k-color-text);
+    overflow-wrap: anywhere;
+}
+.role-dry-run > p { margin: 0; }
+.role-dry-title { color: var(--k-color-text-strong); }
+.role-dry-head { margin: 0; font-weight: var(--k-weight-medium); color: var(--k-color-text-strong); }
+.role-dry-warning {
+    padding: var(--k-space-xs) var(--k-space-sm);
+    border-left: 3px solid var(--k-color-warning-fg);
+    border-radius: var(--k-radius-xs);
+    background: var(--k-color-surface-sunken);
+    color: var(--k-color-text-strong);
+    font-size: var(--k-text-sm);
+}
+.role-dry-list {
+    margin: var(--k-space-2xs) 0 0;
+    padding-left: var(--k-space-lg);
+    font-size: var(--k-text-sm);
+}
+.role-dry-list > li { margin: var(--k-space-3xs) 0; }
+.role-dry-people > summary,
+.role-adopt > summary {
+    width: fit-content;
+    cursor: pointer;
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-accent);
+}
+.role-dry-people > summary:hover,
+.role-adopt > summary:hover { color: var(--k-color-accent-hover); text-decoration: underline; }
+.role-dry-people > summary:focus-visible,
+.role-adopt > summary:focus-visible {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: 2px;
+    border-radius: var(--k-radius-xs);
+}
+.role-dry-run > .role-form { margin-top: var(--k-space-2xs); }
+.admin-page .admin .role-dry-confirm { align-items: flex-start; }
+
+/* «Gruppe übernehmen»: a link in the part's flow, its form below it. */
+.role-adopt { margin-top: var(--k-space-sm); }
+.role-adopt > summary { list-style: none; }
+.role-adopt > summary::-webkit-details-marker { display: none; }
+.role-adopt > .role-form { margin-top: var(--k-space-xs); }
+
+/* The offer to move direct grants: the line of «Mit Knovas verbinden», above the row of roles. */
+.role-grants-offer { margin-top: var(--k-space-sm); }

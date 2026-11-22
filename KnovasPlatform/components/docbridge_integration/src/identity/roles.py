@@ -231,6 +231,23 @@ CLAIM_GROUP_ROWS = (
 )
 
 
+def active_claim_groups(conn: Any) -> dict:
+    """Every active person's claim groups, ``{user id (str): set of group ids}``: what ``claim_groups`` answers for each
+    of them, in one query over ``CLAIM_GROUP_ROWS`` (RB-5's dry runs ask it for everyone at once). A person without a
+    group is in the answer with an empty set. tests/test_web_admin_role_data_rules.py keeps it to ``claim_groups``.
+    """
+    rows = conn.execute(
+        f"SELECT u.id, c.group_id FROM users u LEFT JOIN ({CLAIM_GROUP_ROWS}) c ON c.user_id = u.id "
+        "WHERE u.status = 'active'"
+    ).fetchall()
+    out: dict = {}
+    for user_id, group_id in rows:
+        held = out.setdefault(str(user_id), set())
+        if group_id is not None:
+            held.add(group_id)
+    return out
+
+
 @contextmanager
 def group_cap(conn: Any, user_ids: Iterable[Any]) -> Iterator[None]:
     """Refuse the change made inside this block if it gives one of ``user_ids`` more than 32 groups.
@@ -539,6 +556,20 @@ class RoleStore:
         """
         ident, _ = self._lock(role_id)
         return self.get_role(ident)
+
+    def share(self, role_id: Any) -> Role:
+        """Hold the role's row in share mode until the transaction ends, and read the role. Use inside a transaction.
+
+        For a change that relies on the role staying as it is without changing the role itself (RB-5's data change:
+        the role's Core group must not change while it writes to the Core). Changes of the role (``_lock``,
+        ``lock_all``) wait for it; other share holders do not. Missing, foreign or malformed: ``RoleNotFound``.
+        """
+        ident = _uuid(role_id)
+        row = None if ident is None else self._conn.execute(
+            "SELECT id FROM tenant_roles WHERE id = %s FOR SHARE", (ident,)).fetchone()
+        if row is None:
+            raise RoleNotFound()
+        return self.get_role(row[0])
 
     def check_new(self, *, name: Any, functions: Iterable[str] = (),
                   description: Any = "") -> Tuple[str, frozenset, str]:

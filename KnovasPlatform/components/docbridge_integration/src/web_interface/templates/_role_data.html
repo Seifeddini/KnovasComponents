@@ -1,0 +1,198 @@
+{#- «Rollendaten» (RB-5; card L2-PLATFORM-ROLE-DATA): what the Rollen page draws of a role's data. admin_roles.html
+    imports it with its context (role_data, dry_run, grants, data_form, shown, csrf_token) and calls grants_offer() above
+    the row of roles and data_part() inside <section data-role-part="data"> (no <section> here). Every pointer, name and
+    id is escaped; every action comes from url_for or the view (url_for); the words of the page live here. -#}
+{% set kind_words = {'source': 'Quelle', 'folder': 'Ordner', 'document': 'Dokument'} %}
+{% set warning_words = {
+    'walls-open': 'Heute offen: mit «Ein» sehen es danach nur noch die Mitglieder der Rolle und wer eine Gruppe darüber hat. Alle anderen verlieren die Sicht.',
+    'opens': 'Danach hat es keine Gruppe mehr: mit «Ein» sieht es danach jede Person im Mandanten.',
+    'already-read-in': 'Unter diesem Ordner sind schon Dokumente eingelesen. Die neue Regel erreicht sie erst, wenn Knovas sie nachträgt; bis dahin gilt für sie die bisherige Regel.'} %}
+{% set note_words = {
+    'leaves-rule': 'Das Dokument verlässt dabei seine Ordnerregel: spätere Änderungen an der Regel des Ordners gelten für dieses Dokument nicht mehr.',
+    'rule-deleted': 'Die Regel nennt nur diese Rolle; sie wird gelöscht, und es gilt die Regel des Ordners darüber (keine: offen).',
+    'old-group-deleted': 'Die bisherige Gruppe der Rolle hat keine Daten; Knovas löscht sie danach.',
+    'no-group-created': 'Knovas wird keine Gruppe angelegt. Die Mitglieder lesen die Gruppe ab ihrer nächsten Anfrage.'} %}
+{% set left_words = {
+    'ends_on': 'mit Enddatum (ein Zugriffsfenster; eine Rolle hat kein Enddatum)',
+    'admin_group': 'die Administratorgruppe (sie berechtigt zum Ändern, nicht zum Lesen)',
+    'unknown_group': 'eine Gruppe, die Knovas nicht nennt',
+    'not_a_member': 'die Gruppe einer Rolle, in der die Person nicht ist (die Rolle gäbe ihr auch deren Funktionen)'} %}
+{% set why_words = {
+    'administration': 'Die Administration hat keine Daten: ihre Gruppe ist die Administratorgruppe des Mandanten, die zum Ändern berechtigt, nicht zum Lesen.',
+    'no-group': 'Die Rolle hat noch keine Gruppe bei Knovas. Mitglied erhält sie mit «Mit Knovas verbinden»; jede Rolle kann eine bestehende Gruppe übernehmen.'} %}
+
+{#- The people of a dry run, one list per side; a long list opens on request. The id rides in the attribute, the name
+    is the text: both for the page only, never a log. -#}
+{% macro dry_people(people, attribute, label) -%}
+{%- if people %}
+<details class="role-dry-people"{% if people|length <= 6 %} open{% endif %}>
+    <summary>{{ label }} ({{ people|length }})</summary>
+    <ul class="role-dry-list">
+        {%- for id, name in people %}<li {{ attribute }}="{{ id }}">{{ name }}</li>{% endfor -%}
+    </ul>
+</details>
+{%- endif %}
+{%- endmacro %}
+
+{#- FU-41: people who hold groups directly, not through a role (under «Ein» the Knovas Assistent reads only what roles
+    give): the offer to move them, and the move's dry run. -#}
+{% macro grants_offer() -%}
+    {% if role_data.open_grants %}
+    <div class="role-connect role-grants-offer">
+        <p class="k-small">
+            {{ role_data.open_grant_people }} {{ 'Person hat' if role_data.open_grant_people == 1 else 'Personen haben' }}
+            Gruppen direkt, nicht über eine Rolle. Mit «Ein» liest der Knovas Assistent nur, was Rollen geben.
+        </p>
+        <form method="post" action="{{ url_for('admin.preview_direct_grants') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="secondary compact">In Rollen übernehmen …</button>
+        </form>
+    </div>
+    {% endif %}
+    {% if grants %}
+    <div class="role-dry-run role-grants" data-dry-run="grants" data-gains="0" data-losses="0"
+         aria-labelledby="role-grants-title">
+        <p class="role-dry-title" id="role-grants-title"><strong>Probelauf:</strong> direkte Gruppenrechte in Rollen
+            übernehmen</p>
+        <p class="k-small">Niemand sieht danach mehr oder weniger, und niemand darf mehr oder weniger tun. Knovas wird
+            nichts geschrieben.</p>
+        {% if grants.new %}
+        <p class="k-small role-dry-head">Neue Rollen, ohne Funktionen, je eine für eine Gruppe:</p>
+        <ul class="role-dry-list">
+            {% for item in grants.new %}<li><strong>{{ item.group }}</strong> · {{ item.people|join(', ') }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        {% if grants.gone %}
+        <p class="k-small role-dry-head">Entfallen, weil eine Rolle der Person die Gruppe schon gibt:</p>
+        <ul class="role-dry-list">
+            {% for item in grants.gone %}<li>{{ item.person }} · {{ item.role }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        {% if grants.left %}
+        <details class="role-dry-people"{% if grants.left|length <= 6 %} open{% endif %}>
+            <summary>Bleiben direkt ({{ grants.left|length }})</summary>
+            <ul class="role-dry-list">
+                {% for item in grants.left %}<li>{{ item.person }} · {{ item.group }}: {{ left_words[item.why] }}</li>{% endfor %}
+            </ul>
+        </details>
+        {% endif %}
+        {% if grants.moved %}
+        <form class="role-form" method="post" action="{{ url_for('admin.move_direct_grants') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit">{{ grants.moved }} {{ 'Gruppenrecht' if grants.moved == 1 else 'Gruppenrechte' }} übernehmen</button>
+        </form>
+        {% else %}
+        <p class="k-small k-muted">Nichts zu übernehmen.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+{%- endmacro %}
+
+{#- «Darf lesen»: the folders whose rule names the role's group and the documents whose own rights name it, as Knovas
+    holds them now (read on every page; the Platform keeps no copy). Every change starts with a dry run; a row's
+    «Entfernen» too. -#}
+{% macro data_part() -%}
+            {% if role_data.addable %}
+            <details class="role-edit"{% if data_form %} open{% endif %}>
+                <summary>+ Daten hinzufügen</summary>
+                <form class="role-form" method="post" action="{{ url_for('admin.preview_role_data', role_id=shown.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="op" value="add">
+                    <label for="role-data-kind">Art</label>
+                    <select id="role-data-kind" name="kind">
+                        {% for value in ['folder', 'source', 'document'] %}
+                        <option value="{{ value }}"{% if data_form and data_form.kind == value %} selected{% endif %}>{{ kind_words[value] }}</option>
+                        {% endfor %}
+                    </select>
+                    <label for="role-data-pointer">Pfad bei Knovas</label>
+                    <input id="role-data-pointer" type="text" name="pointer" maxlength="1024" required
+                           placeholder="z. B. DMS/Mandate/Baurecht/" value="{{ data_form.pointer if data_form else '' }}">
+                    <p class="k-small k-muted">Ein Ordner oder eine Quelle endet meist mit «/»; ein Dokument ist sein
+                        voller Pfad, wie unter «Dokumente». Zuerst zeigt ein Probelauf, wer danach mehr oder weniger
+                        sieht.</p>
+                    <button type="submit" class="secondary">Probelauf</button>
+                </form>
+            </details>
+            {% endif %}
+            {% if role_data.rows %}
+            <ul class="role-data-rows">
+                {% for row in role_data.rows %}
+                <li class="role-data-row" {% if row.kind == 'document' %}data-document-uuid="{{ row.id }}"{% else %}data-rule-id="{{ row.id }}"{% endif %}>
+                    <span class="role-data-text">
+                        <span class="role-data-name">{{ row.pointer }}</span>
+                        <span class="k-small k-muted">{{ 'Dokument' if row.kind == 'document' else 'Ordner' }}</span>
+                    </span>
+                    <form method="post" action="{{ url_for('admin.preview_role_data', role_id=shown.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="op" value="remove">
+                        <input type="hidden" name="kind" value="{{ row.kind }}">
+                        <input type="hidden" name="pointer" value="{{ row.pointer }}">
+                        <button type="submit" class="secondary compact">Entfernen …</button>
+                    </form>
+                </li>
+                {% endfor %}
+            </ul>
+            {% elif role_data.addable and not role_data.error %}
+            <p class="k-small k-muted">Noch keine Daten.</p>
+            {% endif %}
+            {% if role_data.partial %}<p class="k-small k-muted">Knovas hat nicht alle Dokumente der Gruppe genannt;
+                weitere Dokumente mit eigenen Rechten fehlen hier vielleicht.</p>{% endif %}
+            {% if role_data.error %}<p class="k-small role-data-error">Knovas hat die Daten dieser Rolle nicht genannt.
+                Bitte die Seite später neu laden.</p>{% endif %}
+            {% if role_data.why %}<p class="k-small k-muted">{{ why_words[role_data.why] }}</p>{% endif %}
+            {% if not role_data.ein %}
+            <p class="k-small k-muted">Was die Rolle lesen darf, speichert Knovas; es wirkt mit «Ein».</p>
+            {% endif %}
+            {% if dry_run %}
+            {% set adopt = dry_run.what == 'adopt' %}
+            {% set adding = dry_run.op == 'add' %}
+            <div class="role-dry-run" data-dry-run="data" data-gains="{{ dry_run.gains|length }}"
+                 data-losses="{{ dry_run.losses|length }}" aria-labelledby="role-dry-title">
+                <p class="role-dry-title" id="role-dry-title"><strong>Probelauf:</strong>
+                    {% if adopt %}Gruppe «{{ dry_run.name }}» übernehmen{% else %}«{{ dry_run.pointer }}» als
+                    {{ kind_words[dry_run.kind] }} {{ 'hinzufügen' if adding else 'entfernen' }}{% endif %}</p>
+                <p class="k-small">Mit «Ein» sehen es danach {{ dry_run.gains|length }}
+                    {{ 'Person' if dry_run.gains|length == 1 else 'Personen' }} mehr und {{ dry_run.losses|length }}
+                    {{ 'Person' if dry_run.losses|length == 1 else 'Personen' }} nicht mehr.</p>
+                {% for code in dry_run.warnings %}
+                <p class="role-dry-warning" data-warning="{{ code }}">{{ warning_words[code] }}</p>
+                {% endfor %}
+                {% for code in dry_run.notes %}<p class="k-small k-muted">{{ note_words[code] }}</p>{% endfor %}
+                {{ dry_people(dry_run.gains, 'data-gains-person', 'Sehen es danach neu') }}
+                {{ dry_people(dry_run.losses, 'data-loses-person', 'Sehen es danach nicht mehr') }}
+                <form class="role-form" method="post" action="{{ dry_run.action }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    {% for name, value in dry_run.fields %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+                    {% if dry_run.confirm %}
+                    <label class="admin-check role-dry-confirm">
+                        <input type="checkbox" name="confirm" value="1" required>
+                        <span>Ich habe die Warnung gelesen und will die Änderung.</span>
+                    </label>
+                    {% endif %}
+                    <button type="submit">{{ 'Gruppe übernehmen' if adopt else ('Hinzufügen' if adding else 'Entfernen') }}</button>
+                </form>
+            </div>
+            {% endif %}
+            {% if role_data.adopt is not none %}
+            <details class="role-adopt">
+                <summary>Gruppe übernehmen</summary>
+                {% if role_data.adopt %}
+                <form class="role-form" method="post" action="{{ url_for('admin.preview_adopt_group', role_id=shown.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <p class="k-small k-muted">Die Rolle nimmt eine Gruppe, die es bei Knovas schon gibt, als ihre
+                        Gruppe, mit allem, was diese Gruppe lesen darf.{% if shown.core_group_id %} Ihre bisherige
+                        Gruppe darf dafür keine Daten mehr haben; Knovas löscht sie danach.{% endif %}</p>
+                    <label for="role-adopt-group">Gruppe bei Knovas</label>
+                    <select id="role-adopt-group" name="group_id" required>
+                        {% for group in role_data.adopt %}<option value="{{ group.id }}">{{ group.name }}</option>{% endfor %}
+                    </select>
+                    <button type="submit" class="secondary">Probelauf</button>
+                </form>
+                {% elif role_data.adopt_unread %}
+                <p class="k-small k-muted">Knovas hat die Gruppen nicht genannt.</p>
+                {% else %}
+                <p class="k-small k-muted">Jede Gruppe bei Knovas gehört schon einer Rolle.</p>
+                {% endif %}
+            </details>
+            {% endif %}
+{%- endmacro %}

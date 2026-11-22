@@ -156,6 +156,11 @@ def execute_acl_change(client, payload, *, actor, conn) -> dict:
     paths cannot drift.
     """
     action = str(payload.get("action") or "")
+    # RB-5: a role's data (role_data_add, role_data_remove) is planned again and carried out by its own executor.
+    if action in ("role_data_add", "role_data_remove"):
+        from web_interface.admin_role_data import execute_role_data
+
+        return execute_role_data(client, payload, actor=actor, conn=conn)
     groups = [str(g) for g in (payload.get("access_groups") or []) if g]
 
     if action == "document_acl":

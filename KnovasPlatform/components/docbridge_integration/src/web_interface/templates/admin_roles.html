@@ -25,6 +25,7 @@
 {%- set bits = (name or '?').split() -%}
 {{- ((bits[0][:1] if bits else '?') ~ (bits[1][:1] if bits|length > 1 else ''))|upper -}}
 {%- endmacro %}
+{% import "_role_data.html" as role_data_parts with context %}
 
 <main class="admin admin-column roles-page">
 {% call parts.page(wide=True) %}
@@ -65,7 +66,8 @@
         <p class="k-small">
             {{ unlinked|map(attribute='name')|join(' und ') }} {{ 'haben' if unlinked|length > 1 else 'hat' }}
             noch keine Gruppe bei Knovas. Die Administration erhält die Administratorgruppe des Mandanten, Mitglied
-            eine neue Gruppe «Mitglied».
+            eine neue Gruppe «Mitglied». Hat Knovas schon eine Gruppe «Mitglied», übernimmt die Rolle Mitglied sie
+            mit «Gruppe übernehmen».
         </p>
         <form method="post" action="{{ url_for('admin.connect_roles') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -73,6 +75,8 @@
         </form>
     </div>
     {% endif %}
+
+    {{ role_data_parts.grants_offer() }}
 
     {% set tab_items = [] %}
     {% for r in roles %}{% set _ = tab_items.append({'key': r.id|string, 'label': r.name, 'count': r.members|length,
@@ -129,9 +133,7 @@
 
         <section class="role-part" data-role-part="data" aria-labelledby="role-part-data">
             <h3 class="k-section-title" id="role-part-data">Darf lesen</h3>
-            {# RB-5 fills this part (sources, folders, documents; «+ Daten hinzufügen»). The words stay while the
-               tenant is not at «Ein». #}
-            <p class="k-small k-muted">Noch keine Daten. Was eine Rolle lesen darf, wirkt mit «Ein».</p>
+            {{ role_data_parts.data_part() }}
         </section>
 
         <section class="role-part" data-role-part="members" aria-labelledby="role-part-members">
