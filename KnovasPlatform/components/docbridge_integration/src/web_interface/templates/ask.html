@@ -16,7 +16,8 @@
    view 'verlauf': all of the person's chats, newest first, 50 a page (GET /fragen/verlauf).
 
    Statement, quote, title and question are text: autoescape is on and nothing here is marked safe (FU-11). Every
-   href is built with url_for, here or in the route (FU-34). Without JavaScript every quote stands open under its
+   href is built with url_for, here or in the route (FU-34); a passage without one (a reply of the Brain's tools
+   that is not stored) shows its title without a link. Without JavaScript every quote stands open under its
    statement and each reference says so (aria-expanded="true"); ask.js closes them and makes each reference open
    its own. A reference and the full stop after it stay on one line (ask-tail, FU-35); the words before it wrap, a
    long one anywhere. Titles, quotes and questions are isolated (dir="auto"): a right-to-left mark in a document
@@ -36,7 +37,7 @@
     {% for p in items %}
     <li class="ask-source">
         <span class="ask-num">{{ p.number }}</span>
-        <span class="ask-source-name"><a class="k-link" href="{{ p.href }}" target="_blank" rel="noopener" dir="auto">{{ p.title }}</a>
+        <span class="ask-source-name">{% if p.href %}<a class="k-link" href="{{ p.href }}" target="_blank" rel="noopener" dir="auto">{{ p.title }}</a>{% else %}<span dir="auto">{{ p.title }}</span>{% endif %}
         {%- if p.page %}<span class="k-muted">, S.&nbsp;{{ p.page }}</span>{% endif %}</span>
     </li>
     {% endfor %}
@@ -56,7 +57,7 @@
         </div>
         {% endif %}
         <p class="ask-quote-text">«<span dir="auto">{{ s.quote }}</span>»</p>
-        {% if s.passage %}
+        {% if s.passage and s.passage.href %}
         <a class="k-link k-small" href="{{ s.passage.href }}" target="_blank" rel="noopener">Im Dokument zeigen <span aria-hidden="true">→</span></a>
         {% endif %}
         {% endcall %}

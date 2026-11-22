@@ -3,7 +3,10 @@
 Admins only, as the admin console: anyone else gets 403 here and does not see the section. Every
 POST passes the app's X-CSRF-Token gate. A secret never appears in a response: the page shows
 whether it is set, and a Test proves it works. The Knovas Assistent's key has "Verbindung testen"
-(PMVP-25): one call to Claude with an invented passage and question, never a customer's text.
+(PMVP-25): one call to Claude with an invented passage and question, never a customer's text. Under the answer mode
+the page always shows one warning line, and a save that would leave \u00abBrain-Werkzeuge\u00bb (``assistant.mode``
+``brain_mcp``) without the provider anthropic, the Claude API key or the gateway key is refused with its own words
+(PMVP-20 brain-mcp).
 """
 from __future__ import annotations
 
@@ -81,7 +84,8 @@ def create_settings_blueprint(resolver: ps.Resolver, *, gate: Any,
             found, profiles_error = [], str(exc) if isinstance(exc, (ps.SettingError, BundleError)) else type(exc).__name__
         return {"success": True, "settings": resolver.entries(), "can_edit": gate is not None and is_admin(),
                 "roles": list(roles()), "profiles": found, "profiles_error": profiles_error,
-                "problems": assistant_providers.settings_problems(resolver)}
+                "problems": assistant_providers.settings_problems(resolver),
+                "warnings": assistant_providers.settings_warnings()}
 
     @bp.route("/api/settings/platform", methods=["GET"])
     @admin_only
@@ -96,6 +100,14 @@ def create_settings_blueprint(resolver: ps.Resolver, *, gate: Any,
         values = body().get("values")
         if not isinstance(values, dict):
             return jsonify({"success": False, "error": "values fehlt."}), 400
+        # \u00abBrain-Werkzeuge\u00bb only with anthropic and both keys (PMVP-20 brain-mcp): the page's own words, nothing saved.
+        try:
+            refusal = assistant_providers.brain_mcp_refusal(resolver, values)
+        except Exception as exc:  # noqa: BLE001 - settings not readable: refuse rather than guess
+            logger.warning("platform settings: brain tools check failed (%s)", type(exc).__name__)
+            refusal = "Die Einstellungen sind gerade nicht lesbar; nichts gespeichert."
+        if refusal:
+            return jsonify({"success": False, "error": refusal}), 400
         try:
             changed = resolver.save(user(), values, roles=roles())
         except ps.SettingError as exc:

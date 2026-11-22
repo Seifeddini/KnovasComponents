@@ -225,9 +225,16 @@ def shown_reply(reply: Reply, pdf_preview: bool, *, turn: Optional[int] = None,
 
     ``turn``: the answer's place in its chat (1 is the first); the quote ids are then ``zitat-<turn>-<i>``, unique
     on a page of several answers. ``href``: the address of a passage's document (a stored chat's ``source`` route);
-    without it, ``_open_href``.
+    without it, ``_open_href``, unless the reply's passages may not be opened directly (a reply of the Brain's tools,
+    ``opens_directly`` False: read with the company's key, never granted): then no address, and the page shows the
+    title alone.
     """
-    open_href = href or (lambda passage: _open_href(passage, pdf_preview))
+    if href is not None:
+        open_href = href
+    elif getattr(reply, "opens_directly", True):
+        open_href = lambda passage: _open_href(passage, pdf_preview)  # noqa: E731
+    else:
+        open_href = lambda passage: ""  # noqa: E731
     passages = [ShownPassage(number=p.number, title=p.title, page=p.page, href=open_href(p)) for p in reply.passages]
     by_number = {p.number: p for p in passages}
     statements: List[ShownStatement] = []
@@ -567,7 +574,11 @@ def create_assistant_blueprint(*, csrf_valid: Callable[[str], bool], grant: Call
         return service
 
     def granted(reply: Reply) -> None:
-        """The reply's passages may be opened by this person, as a search hit may (only a shown reply's)."""
+        """The reply's passages may be opened by this person, as a search hit may (only a shown reply's). Never a
+        reply of the Brain's tools (``opens_directly`` False): the company's key read them, not this person's search;
+        a stored chat opens them through ``source``, after the Core said she may read the document."""
+        if not getattr(reply, "opens_directly", True):
+            return
         pointers = [_clean(p.pointer) for p in reply.passages] if reply.status in STORED_STATUSES else []
         if any(pointers):
             grant([{"doc_id": pointer} for pointer in pointers if pointer])
