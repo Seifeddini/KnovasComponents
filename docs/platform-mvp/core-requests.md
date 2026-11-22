@@ -144,3 +144,50 @@ gateway sends one per call.** The agent is known to both by the Platform's agent
 **How to know it works:** on the demo tenant, `brokered`: an agent in a role with a walled group finds a walled
 document through the gateway; taken out of the role on the Platform, it no longer does within a minute; revoked, its
 next call reads nothing; with the Platform stopped, it reads nothing after 300 seconds.
+
+## Added on 2026-11-22: what the enforcement switch needs (PMVP-42's draft)
+
+From the work order `work-orders/PMVP-42.md`. The Platform never switches a tenant: Knovas staff do, through the
+internal admin API (`PUT /admin/clients/<id>/rbac-enforcement`, an employee login). The Platform shows the position,
+records the firm's request and its approval by a second administrator, and refuses to ask for «Ein» before two green
+end-to-end rights runs are on record (plan § 8.1, DEC-0082). For that it needs two things from the Core besides CR-R1.
+
+### CR-R1a in detail: the tenant reads its own posture
+
+- **Route:** `GET /secured/rbac/posture`, on the tenant's client certificate (mTLS) like every `/secured/*` route; the
+  tenant is the certificate's. No admin key, no principal assertion (the answer names no person). Admission class
+  `metadata`.
+- **Answer:** `{"mode": "disabled" | "enforcing" | "brokered", "backfill_complete": true | false,
+  "broker_key_registered": true | false}` in the Secure API's usual envelope. Nothing else: no group, no document, no
+  other tenant. A failure to read the posture is 503, never a guess (as `EnforcementLookupError`).
+- **Logs:** the tenant id and the mode.
+- **Used by:** `KnovasAPIClient.rbac_posture()` (PMVP-42 adds it; a 404, the Core without this route, answers None):
+  the position sentence on «Zugriff» (PMVP-42), RB-5's «wirkt mit «Ein»», PMVP-41's switch from computed answers to
+  Knovas's own, PMVP-42's refusal of «Ein» before a complete backfill.
+- **How to know it works:** on the demo tenant the page says «Aus»; after Knovas switches it to `brokered` it says
+  «Ein» on the next page view.
+
+### CR-R7: the end-to-end rights test under `brokered`, and what counts for § 8.1
+
+- **Why:** for the Platform «Ein» is `brokered` (CR-R1). The job `rbac-wall` (`scripts/ci/rbac_wall_stack.py`; run
+  record `docs/ModernDocs/reports/2026-11-rbac-phase-1-run-record.md`) runs the journey under `enforcing` with groups in
+  the request body (first green run 18 Nov 2026), a posture the Platform never uses. Two green runs of that journey do
+  not show that the Platform's «Ein» keeps the walls.
+- **What:** the same journey under `brokered`: a broker key registered for the test tenant; every search, document
+  read and `document_readable` carries a claim signed as the Platform signs it (`typ knovas-principal+jws`, EdDSA,
+  `sub`, `tid`, `grp`, `rol`, at most 300 seconds, `jti` burned). Steps at least: a walled document is invisible to a
+  claim without its group and visible to one with it or a group above it; an open document is visible to every claim;
+  a request without a claim, an expired, replayed or foreign-tenant claim is refused; the control run without
+  enforcement reports the leak. Each run's record line names the posture, the commit and the run id.
+- **What counts for § 8.1:** two green runs of this journey, of the Core version deployed for the pilot, each on the
+  run record with run id, date, commit, posture `brokered` and result. Knovas copies the two lines into the
+  installation's configuration (`enforcement.rights_runs`, PMVP-62's release note); the Platform refuses to ask for
+  «Ein» without two.
+- **Recommended:** Knovas's switch step (`scripts/ops/rbac_switch.py`, or CR-R1's route) refuses `brokered` unless it
+  is given two such runs, so the gate also holds where the switch happens.
+- **Depends on:** CR-R1. **Used by:** PMVP-42, PMVP-43 (the pilot's truth table runs on top of it), § 11's measure
+  "documents shown to a person without the right: 0".
+
+**Needed for the pilot's «Ein» (15 December):** CR-R1, CR-R1a, CR-R2 and CR-R7 with two green runs. A route for the
+firm's second administrator to carry the switch out itself (CR-R8, a dual-control token the Platform signs) is
+**not** requested: it waits for the founder's decision 1 in `work-orders/PMVP-42.md`.
