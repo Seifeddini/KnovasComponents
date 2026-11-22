@@ -16,7 +16,15 @@
    A link is presentation. Whether a person may open a page is decided by the page's route, and the web app
    reads "may open" from those routes (app.py: _admin_pages, _builder_nav); nothing here names a role.
    Cortex, Experimente, Eigene Ansichten, Einstellungen and Feedback have no entry until a later item places
-   them (founder, 2026-11-20); their addresses answer as before. #}
+   them (founder, 2026-11-20); their addresses answer as before.
+
+   The person's chats (PMVP-23, Workspace only): assistant_chats(open_chat) (web_interface/assistant_routes.py)
+   hands in «+ Neue Frage», the newest 20 chats grouped by their last change, and «Alle Gespräche» when there are
+   more; None (the assistant off, nobody signed in, the list unreadable) draws nothing. open_chat, set by a chat's
+   page, marks that chat. The block stands after the menu and after the script that follows it (the script finds
+   the menu as its previous sibling), in a <nav> of its own: the first <nav> stays the menu. Titles are the
+   person's text, escaped and isolated (dir="auto"), one line cut by shell.css. In a narrow window the list folds
+   behind «Gespräche» (a checkbox and its label, shell.css; no script). #}
 {% set shell_area = nav_area if nav_area is defined else ('admin' if admin_tab is defined else 'work') %}
 <aside class="app-sidebar" data-area="{{ shell_area }}">
     <a class="app-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
@@ -59,6 +67,31 @@
         window.addEventListener('load', fit);
     })();
     </script>
+
+    {% if shell_area == 'work' and assistant_chats is defined %}
+    {% set chat_list = assistant_chats(open_chat if open_chat is defined else none) %}
+    {% if chat_list %}
+    <nav aria-label="Gespräche" data-chats>
+        <a href="{{ chat_list.new_href }}" class="app-nav-item" data-chats-new>+ Neue Frage</a>
+        {% if chat_list.groups %}
+        <input type="checkbox" id="app-chats-fold" data-chats-fold>
+        <label for="app-chats-fold" data-chats-toggle>Gespräche</label>
+        <div data-chats-list>
+            {% for label, items in chat_list.groups %}
+            <span class="app-nav-group">{{ label }}</span>
+            {% for item in items %}
+            <a href="{{ item.href }}" class="app-nav-item{% if item.current %} active{% endif %}"
+               {% if item.current %}aria-current="page"{% endif %}><span dir="auto">{{ item.title or 'Ohne Titel' }}</span></a>
+            {% endfor %}
+            {% endfor %}
+            {% if chat_list.more_href %}
+            <a href="{{ chat_list.more_href }}" class="app-nav-item" data-chats-all>Alle Gespräche</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </nav>
+    {% endif %}
+    {% endif %}
 
     <div class="app-sidebar-foot">
         {% if shell_area == 'work' and ((console_url is defined and console_url) or (builder_nav is defined and builder_nav)) %}
