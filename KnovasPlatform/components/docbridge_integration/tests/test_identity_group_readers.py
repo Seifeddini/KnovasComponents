@@ -24,7 +24,8 @@ from identity import roles  # noqa: E402
 
 SETTINGS = ExperimentsSettings(enabled=True, index_enabled=True, index_access_groups=("g-exp",),
                                index_debounce_seconds=60, worker_enabled=False)
-YESTERDAY = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+#: Well in the past: the database counts days in its own time zone (UTC), the test in the local one.
+ENDED = (dt.date.today() - dt.timedelta(days=10)).isoformat()
 
 
 @pytest.fixture
@@ -45,7 +46,7 @@ def firm(platform_db, identity_repo):
     store.add_member(team.id, Firm.by_role.id)
     store.add_member(other.id, Firm.none.id)
     identity_repo.grant_access_group(Firm.direct.id, "g-exp")
-    identity_repo.grant_access_group(Firm.ended.id, "g-exp", ends_on=YESTERDAY)
+    identity_repo.grant_access_group(Firm.ended.id, "g-exp", ends_on=ENDED)
     Firm.team, Firm.other = team, other
     return Firm
 
