@@ -165,8 +165,8 @@ def _page(found: Dossier, near: Related, near_failed: bool, args: Mapping[str, A
 
 def _running(found: Dossier, near: Related) -> Optional[Dict[str, str]]:
     """The card «Läuft gerade» (PMVP-32a): the step the thing is in, without the process's prefix, and the address of
-    its process line; None when the neighbours show no single step of kind ProcessStep."""
-    if near.in_state is None:
+    its process line; None unless the neighbours show one step of kind ProcessStep and one process of kind Process."""
+    if near.in_state is None or near.process is None:     # without its process, its line has nothing to show
         return None
     return {"step": near.step_name, "process": near.process.name if near.process is not None else "",
             "href": url_for("brain_views.ablauf", node_id=found.node_id)}

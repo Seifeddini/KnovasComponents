@@ -22,37 +22,7 @@
 </head>
 <body>
 {% import "_parts.html" as parts %}
-{% macro list_form(listing, label) -%}
-<form class="bv-listform" method="get" action="{{ listing.action }}" role="search" aria-label="{{ label }} filtern und sortieren">
-    {%- for key, value in listing.hidden.items() %}
-    <input type="hidden" name="{{ key }}" value="{{ value }}">
-    {%- endfor %}
-    <label class="bv-field bv-field--grow">
-        <span class="bv-field-label k-small k-muted">Filtern</span>
-        <input class="bv-input" type="search" name="filter" value="{{ listing.filter }}" maxlength="100" placeholder="Filtern …" autocomplete="off">
-    </label>
-    <label class="bv-field">
-        <span class="bv-field-label k-small k-muted">Sortieren</span>
-        <select class="bv-input" name="sort">
-            {%- for choice in listing.sorts %}
-            <option value="{{ choice.key }}"{% if choice.key == listing.sort %} selected{% endif %}>{{ choice.label }}</option>
-            {%- endfor %}
-        </select>
-    </label>
-    <button class="bv-button" type="submit">Anwenden</button>
-</form>
-{%- endmacro %}
-{% macro list_pages(listing) -%}
-{% if listing.page.pages > 1 %}
-<nav class="bv-pages" aria-label="Seiten">
-    <span class="k-muted k-small">{{ listing.page.first }}–{{ listing.page.last }} von {{ listing.page.total }} · Seite {{ listing.page.page }} von {{ listing.page.pages }}</span>
-    <span class="bv-pages-links">
-        {%- if listing.previous_href %}{{ parts.link("Zurück", listing.previous_href) }}{% endif -%}
-        {%- if listing.next_href %}{{ parts.link("Weitere " ~ listing.next_count, listing.next_href) }}{% endif -%}
-    </span>
-</nav>
-{% endif %}
-{%- endmacro %}
+{% import "_brain_views_list.html" as lists %}
 <div class="app-shell">
     {% include '_sidebar.html' %}
 
@@ -71,7 +41,7 @@
             {% if tab == 'dokumente' %}
             {% call parts.section("Dokumente") %}
                 {% if dossier.documents %}
-                {{ list_form(listing, "Dokumente") }}
+                {{ lists.list_form(listing, "Dokumente") }}
                 {% if listing.page.items %}
                 <div class="bv-list">
                     {% for document in listing.page.items %}
@@ -84,7 +54,7 @@
                     {% endcall %}
                     {% endfor %}
                 </div>
-                {{ list_pages(listing) }}
+                {{ lists.list_pages(listing) }}
                 {% else %}
                 <p class="bv-empty k-muted k-small">Kein Eintrag passt zu diesem Filter.</p>
                 {% endif %}
@@ -94,7 +64,7 @@
             {% endcall %}
             {% elif kind %}
             {% call parts.section(kind.name) %}
-                {{ list_form(listing, kind.name) }}
+                {{ lists.list_form(listing, kind.name) }}
                 {% if listing.rows %}
                 <div class="bv-list">
                     {% for row in listing.rows %}
@@ -107,7 +77,7 @@
                     {% endcall %}
                     {% endfor %}
                 </div>
-                {{ list_pages(listing) }}
+                {{ lists.list_pages(listing) }}
                 {% else %}
                 <p class="bv-empty k-muted k-small">Kein Eintrag passt zu diesem Filter.</p>
                 {% endif %}

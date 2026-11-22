@@ -158,6 +158,7 @@ components:
       - KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py
       - KnovasPlatform/components/docbridge_integration/src/brain_views/lists.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/brain_views_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_brain_views_list.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/brain_views.css
     why: >-
       The members' views (dossier, evidence trail, process line) are a new module (plan § 5.2), written by PMVP-30a

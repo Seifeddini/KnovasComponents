@@ -251,7 +251,7 @@ def test_no_whole_tenant_read_on_any_of_the_pages(install, member_client):
 
 def test_a_failed_read_is_one_plain_message(install, member_client):
     core = ProcessCore()
-    core._edges = lambda params: (500, {"status": "error"})
+    core.graph_facts_batch = lambda node_ids: (500, {"status": "error"})
     install(core)
     response, html = _line(member_client)
     assert response.status_code == 502 and "Ablauf nicht geladen" in html
@@ -287,7 +287,7 @@ def test_no_log_line_carries_a_name_or_a_fact(install, member_client, caplog):
     install(broken)
     _line(member_client)
     failing = ProcessCore()
-    failing._edges = lambda params: (500, {"status": "error"})
+    failing.graph_facts_batch = lambda node_ids: (500, {"status": "error"})
     install(failing)
     _line(member_client)
     lines = [record.getMessage() for record in caplog.records]

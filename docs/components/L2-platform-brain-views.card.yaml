@@ -11,6 +11,7 @@ source_paths:
 - KnovasPlatform/components/docbridge_integration/src/brain_views/limit.py
 - KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py
 - KnovasPlatform/components/docbridge_integration/src/brain_views/lists.py
+- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_brain_views_list.html
 - KnovasPlatform/components/docbridge_integration/src/web_interface/brain_views_routes.py
 - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/brain_views.css
 purpose: Holds the members' Brain views together (one blueprint behind one switch and one gate, the 25-node limit every view
@@ -31,12 +32,14 @@ responsible_for:
     marks a view''s mark-up carries (data-bv-node, data-bv-row, data-bv-more); the Brain views'' blueprint, the switch brain_views.enabled
     and the gate every view''s route stands behind; the reads every view makes the same way (brain_views/reads.py: the id
     checks, the node read as the person, NotFound and Unavailable; moved from dossier.py by PMVP-32a); the lists'' sort, filter
-    and pages (brain_views/lists.py; moved from related.py and the routes by PMVP-32a).'
+    and pages (brain_views/lists.py; moved from related.py and the routes by PMVP-32a). And the lists'' shared mark-up (templates/_brain_views_list.html:
+    the form and the pages, which the dossier and the process line''s list import).'
   code:
   - KnovasPlatform/components/docbridge_integration/src/brain_views/limit.py
   - KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py
   - KnovasPlatform/components/docbridge_integration/src/brain_views/lists.py
   - KnovasPlatform/components/docbridge_integration/src/web_interface/brain_views_routes.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_brain_views_list.html
 not_responsible_for:
 - 'The dossier and its lists (L2-PLATFORM-DOSSIER) and the process line (L2-PLATFORM-PROCESS-LINE): their routes are attached
   to this card''s blueprint, behind its switch and gate.'
@@ -221,13 +224,22 @@ contract:
   call.brain_views.limit.page_number:
     promises:
     - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.limit.page_number/P-1
-      statement: A whole number from 1; anything else is page 1.
+      statement: A whole number from 1; anything else is page 1; a number of more than nine digits is not converted but taken
+        as far past the last page, which paged turns into the last page.
       risk_class: standard
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_limit_unit.py
         checks:
         - test_a_page_number_as_an_address_gives_it
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_related_page.py
+        checks:
+        - test_a_page_number_too_long_to_read_is_the_last_page
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_limit_unit.py
+        checks:
+        - test_paged_takes_the_page_as_an_address_gives_it
   call.brain_views.reads.node_payload:
     promises:
     - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.reads.node_payload/P-1
@@ -270,7 +282,7 @@ contract:
     - id: L2-PLATFORM-BRAIN-VIEWS/call.brain_views.lists.listing/P-1
       statement: Filters and sorts what was read (name A-Z, Z-A, by relation when there are relations; the filter cleaned
         and cut at 100 characters) and gives one page with the form's fields and the page links; only a known sort key and
-        the cleaned filter go into an address.
+        the cleaned filter go into an address. Drawn by the shared part templates/_brain_views_list.html.
       risk_class: standard
       evidence:
       - kind: test

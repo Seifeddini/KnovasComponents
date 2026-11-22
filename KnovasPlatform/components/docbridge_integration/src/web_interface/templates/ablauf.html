@@ -73,10 +73,15 @@
                 <span class="k-muted k-small">{{ need.type }}</span>
                 {% endcall %}
                 {% endfor %}
-                {% if need.missing %}
+                {% if need.state == 'missing' %}
                 {% call parts.rowline() %}
                 <span class="bv-check bv-check--missing" data-bv-row><span class="bv-check-mark" aria-hidden="true"></span>{{ need.type }}{% if need.min_count > 1 %} <span class="k-muted k-small">({{ need.count }} von {{ need.min_count }})</span>{% endif %}</span>
                 {% if need.required %}{{ parts.tag("fehlt noch", kind="warn") }}{% else %}<span class="k-muted k-small">wahlweise</span>{% endif %}
+                {% endcall %}
+                {% elif need.state == 'unknown' %}
+                {% call parts.rowline() %}
+                <span class="bv-check bv-check--unknown" data-bv-row><span class="bv-check-mark" aria-hidden="true">?</span>{{ need.type }} <span class="k-muted k-small">(die Art eines verbundenen Eintrags ist nicht bekannt)</span></span>
+                {{ parts.tag("unbekannt") }}
                 {% endcall %}
                 {% endif %}
                 {% endfor %}

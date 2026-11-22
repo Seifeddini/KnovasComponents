@@ -8,8 +8,9 @@ with ``current_step``, ``step_history`` and ``owner`` facts. Its ``GET /edges?no
 (the Core's contract on master), or answers 404, or ignores the filters (``edges_route``).
 
 Pinned: the main path and the variants; the direction from ``order``; "not completely described"; «seit» and who;
-the edges route used, its 404 and an unfiltered answer falling back to the process's neighbours; not in a process;
-the reads (per thing, as asked, never the whole tenant).
+the reads (the process's neighbours, seven calls whatever the number of steps; per thing, never the whole tenant);
+not in a process. ``edges_route`` stays on the fake for the shape of a Core's ``/edges``; the line no longer asks it
+(fix round of 2026-11-22).
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ from datetime import date
 import pytest
 
 from brain_views import process_line
-from brain_views.process_line import MAX_STEP_READS, NotFound, Unavailable, main_path, read_line, step_name
+from brain_views.process_line import NotFound, Unavailable, main_path, read_line, step_name
 
 T_PROCESS, T_STEP, T_PLAN, T_PERSON, T_ROLE = (f"7a2b0000-0000-4000-8000-0000000032{n:02d}" for n in range(5))
 KIND_NAMES = {T_PROCESS: "Process", T_STEP: "ProcessStep", T_PLAN: "Vorhaben", T_PERSON: "Person", T_ROLE: "Role"}
@@ -268,64 +269,51 @@ def test_an_owner_key_is_not_shown_and_a_name_is():
     assert read_line(core, INSTANCE).who == "Erfundene Person"
 
 
-# --- the edges route and its fallback ------------------------------------------------------------------------------
+# --- the reads: the process's neighbours, the same calls whatever the steps (fix round 2026-11-22) ---------------
 
 
-def _paths(core):
-    return [c for c in core.calls if c[0] == "graph_get_many" and c[1] == "/edges"]
+def _calls(core):
+    """Every request to the Core: one per graph_node, graph_neighbors, facts batch, and per path of graph_get_many."""
+    return [c for c in core.calls if c[0] in ("graph_node", "graph_neighbors", "graph_facts_batch", "graph_get_many")]
 
 
-def test_the_edges_route_is_used_when_it_honours_its_filters():
-    core = ProcessCore()
+@pytest.mark.parametrize("steps", [1, 11, 25])
+def test_a_line_costs_seven_calls_whatever_the_number_of_steps(steps):
+    core = ProcessCore(steps=steps, transitions=[(n, n + 1) for n in range(1, steps)], reworks=[],
+                       current=min(6, steps))
     line = read_line(core, INSTANCE)
-    assert line.complete and len(line.main) == 10
-    assert ("graph_get_many", "/edges", (("node_id", PROCESS), ("type", "has_step"))) in core.calls
-    asked = {params for _, _, params in _paths(core)}
-    assert (("node_id", step_id(6)), ("type", "transitions_to")) in asked
-    assert (("node_id", step_id(6)), ("type", "reworks_to")) in asked
-    assert [c for c in core.calls if c[0] == "graph_neighbors"] == [("graph_neighbors", INSTANCE, 1, True)]
-    assert [c[0] for c in core.calls].count("graph_facts_batch") == 1
+    assert line.complete and len(line.main) == steps
+    assert len(_calls(core)) == 7, _calls(core)
+    assert [c[0] for c in _calls(core)] == ["graph_node", "graph_neighbors", "graph_get_many", "graph_get_many",
+                                            "graph_get_many", "graph_neighbors", "graph_facts_batch"]
 
 
-@pytest.mark.parametrize("route", ["404", "unfiltered"])
-def test_a_404_or_an_unfiltered_answer_falls_back_to_the_process_neighbours(route, caplog):
-    core = ProcessCore(edges_route=route)
-    caplog.set_level(logging.DEBUG, logger="brain_views")
+def test_the_steps_come_from_the_process_neighbours_and_the_edges_route_is_not_asked():
+    core = ProcessCore()
     line = read_line(core, INSTANCE)
     assert line.complete and _names(line.main) == STEP_NAMES[:10] and line.position == 6
-    assert ("graph_neighbors", PROCESS, 1, True) in core.calls
-    assert len(_paths(core)) == 1                              # the first answer was enough to throw it away
-    reason = "edges_404" if route == "404" else "edges_unfiltered"
-    assert any(reason in r.getMessage() for r in caplog.records)
+    assert [c for c in core.calls if c[0] == "graph_neighbors"] == [("graph_neighbors", INSTANCE, 1, True),
+                                                                     ("graph_neighbors", PROCESS, 1, True)]
+    assert not any(c[0] == "graph_get_many" and c[1].startswith(("/edges", "/nodes/")) for c in core.calls)
 
 
-def test_an_answer_with_another_relation_is_thrown_away_too():
-    core = ProcessCore()
-    honest = core._edges
-
-    def sloppy(params):
-        status, payload = honest(params)
-        if params.get("type") == "reworks_to":       # a Core that honours the node but not the relation
-            payload["edges"] = [dict(e) for e in core.edges if params["node_id"] in (e["node_lo"], e["node_hi"])]
-        return status, payload
-
-    core._edges = sloppy
+def test_thirty_steps_are_read_the_same_way():
+    core = ProcessCore(steps=30, transitions=[(n, n + 1) for n in range(1, 30)], reworks=[], current=28)
     line = read_line(core, INSTANCE)
-    assert line.complete and ("graph_neighbors", PROCESS, 1, True) in core.calls
+    assert line.complete and len(line.main) == 30 and line.position == 28
+    assert len(_calls(core)) == 7
 
 
-def test_more_steps_than_the_round_reads_fall_back_to_the_process_neighbours():
-    many = MAX_STEP_READS + 5
-    core = ProcessCore(steps=many, transitions=[(n, n + 1) for n in range(1, many)], reworks=[], current=28)
-    line = read_line(core, INSTANCE)
-    assert line.complete and len(line.main) == many and line.position == 28
-    assert ("graph_neighbors", PROCESS, 1, True) in core.calls
-    assert len(_paths(core)) == 1
-
-
-def test_an_edges_route_that_fails_otherwise_is_unavailable():
+def test_a_failed_read_of_the_process_is_unavailable():
     core = ProcessCore()
-    core._edges = lambda params: (500, {"status": "error"})
+    honest = core.graph_neighbors
+
+    def failing(node_id, depth=1, include_edges=False):
+        if node_id == PROCESS:
+            raise ConnectionError("weg")
+        return honest(node_id, depth, include_edges)
+
+    core.graph_neighbors = failing
     with pytest.raises(Unavailable):
         read_line(core, INSTANCE)
 
@@ -374,10 +362,9 @@ def test_every_read_is_a_per_thing_read():
     assert kinds <= {"graph_node", "graph_neighbors", "graph_get_many", "graph_facts_batch"}
     for call in core.calls:
         if call[0] == "graph_get_many":
-            assert call[1] == "/edges" and dict(call[2]).get("node_id") or re.fullmatch(
-                r"/(node-types|nodes)/[0-9a-f-]{36}", call[1]), call
-    # one round of kind reads, at most 21 (the thing's own and twenty)
-    assert sum(1 for c in core.calls if c[0] == "graph_get_many" and c[1].startswith("/node-types/")) <= 21
+            assert re.fullmatch(r"/node-types/[0-9a-f-]{36}", call[1]), call
+    # one round of kind reads for the thing, its process and its step
+    assert sum(1 for c in core.calls if c[0] == "graph_get_many" and c[1].startswith("/node-types/")) == 3
 
 
 def test_the_module_logs_no_name_or_fact(caplog):

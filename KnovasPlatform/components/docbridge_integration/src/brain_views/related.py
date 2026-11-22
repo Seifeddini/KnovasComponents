@@ -132,7 +132,11 @@ def read_related(client: Any, node_id: str) -> Related:
         return NOTHING
     by_relation = _relations(answer.get("edges"), node_id)
     relations = {other: ", ".join(sorted(found, key=sort_key)) for other, found in by_relation.items()}
-    names = _kind_names(client, [type_id for _, type_id in rows])
+    # The kinds of the things joined by in_state or instance_of are always read (for «Läuft gerade»), beside the
+    # twenty most frequent: a step whose kind went unread must not make the card disappear (fix round 2026-11-22).
+    must = [type_id for row, type_id in rows
+            if by_relation.get(row["id"].lower(), set()) & {"in_state", "instance_of"}]
+    names = _kind_names(client, [type_id for _, type_id in rows], must=must)
     grouped: Dict[str, List[Thing]] = {}
     for thing_row, type_id in rows:
         key = type_id if type_id in names else OTHER_KIND
@@ -195,13 +199,16 @@ def _relations(edges: Any, node_id: str) -> Dict[str, set]:
     return found
 
 
-def _kind_names(client: Any, type_ids: Sequence[Optional[str]]) -> Dict[str, str]:
-    """{type id: its name} for the kinds with the most things, at most MAX_NAMED_KINDS, in one round of reads."""
+def _kind_names(client: Any, type_ids: Sequence[Optional[str]], *,
+                must: Sequence[Optional[str]] = ()) -> Dict[str, str]:
+    """{type id: its name} for the kinds in ``must`` and the kinds with the most things, at most MAX_NAMED_KINDS of
+    those, in one round of reads."""
     counts: Dict[str, int] = {}
     for type_id in type_ids:
         if type_id:
             counts[type_id] = counts.get(type_id, 0) + 1
-    chosen = sorted(counts, key=lambda t: (-counts[t], t))[:MAX_NAMED_KINDS]
+    needed = sorted({t for t in must if t})
+    chosen = needed + [t for t in sorted(counts, key=lambda t: (-counts[t], t)) if t not in needed][:MAX_NAMED_KINDS]
     if not chosen:
         return {}
     try:

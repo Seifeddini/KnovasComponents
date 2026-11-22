@@ -39,8 +39,8 @@ responsible_for:
   - L2-PLATFORM-BRAIN-VIEWS/R-3
 - id: L2-PLATFORM-DOSSIER/R-3
   statement: 'The card «Läuft gerade» on the dossier''s Überblick (PMVP-32a): the step a thing is in, from the neighbours
-    the dossier already read (an in_state edge to a neighbour of kind ProcessStep), named without its process''s prefix, opening
-    the thing''s process line.'
+    the dossier already read (an in_state edge to a neighbour of kind ProcessStep and an instance_of edge to one of kind Process),
+    named without its process''s prefix, opening the thing''s process line.'
   code:
   - KnovasPlatform/components/docbridge_integration/src/brain_views/related.py
   - KnovasPlatform/components/docbridge_integration/src/web_interface/dossier_routes.py
@@ -225,8 +225,9 @@ contract:
       - L2-PLATFORM-BRAIN-VIEWS/http.GET.dossier._node_id/P-6
     - id: L2-PLATFORM-DOSSIER/http.GET.dossier._node_id/P-7
       statement: 'The Überblick shows the card «Läuft gerade» when the neighbours read shows exactly one in_state edge to
-        a neighbour of kind ProcessStep: the step''s name without the process''s prefix, a link to /ablauf/<node_id>, marked
-        as one drawn thing; no further read. No such neighbour, or more than one: no card. The other tabs show none.'
+        a neighbour of kind ProcessStep and exactly one instance_of edge to a neighbour of kind Process (their kinds are always
+        read, beside the twenty most frequent): the step''s name without the process''s prefix, a link to /ablauf/<node_id>,
+        marked as one drawn thing; no further read. Otherwise no card. The other tabs show none.'
       risk_class: standard
       evidence:
       - kind: test
@@ -235,6 +236,15 @@ contract:
         - test_the_dossier_of_a_thing_in_a_step_shows_where_it_runs
         - test_a_thing_without_a_step_has_no_card
         - test_the_card_costs_no_further_read
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_missing.py
+        checks:
+        - test_the_dossier_keeps_its_card_beside_twenty_kinds
+        - test_a_step_without_its_process_shows_no_card
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_related_read.py
+        checks:
+        - test_the_kinds_of_the_step_and_the_process_are_always_read
   http.GET.dossier._node_id.dokument._position:
     needs:
     - id: L2-PLATFORM-DOSSIER/http.GET.dossier._node_id.dokument._position/N-1

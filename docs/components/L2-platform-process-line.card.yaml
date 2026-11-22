@@ -97,21 +97,25 @@ contract:
         - test_a_hidden_or_missing_thing_is_not_found
     promises:
     - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/P-1
-      statement: 'Per thing, as the person (POST-03): the thing''s node and neighbours; one round of kind reads; the process''s
-        steps through GET /edges?node_id=&type= (has_step, then the process''s instance_of and each step''s transitions_to
-        and reworks_to with GET /nodes/<step> for its name, at most 25 steps) or, when that route answers 400, 404, 405 or
-        501, hands back a row that does not touch the node asked about or has another relation, or the process has more than
-        25 steps, the process''s neighbours; one facts batch. Never a whole-tenant read.'
+      statement: 'Per thing, as the person (POST-03), the same calls whatever the number of steps: the thing''s node and neighbours;
+        one round of at most three kind reads (the thing''s, the process''s, the step''s); the process''s neighbours (its
+        steps, the edges among them, its instance_of edges); one facts batch: 7 calls; when the current step requires things
+        over one hop, one more round for the unread kinds of the thing''s neighbours over those relations (at most 20). Never
+        a whole-tenant read, and no read per step or per instance.'
       risk_class: standard
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_read.py
         checks:
-        - test_the_edges_route_is_used_when_it_honours_its_filters
-        - test_a_404_or_an_unfiltered_answer_falls_back_to_the_process_neighbours
-        - test_an_answer_with_another_relation_is_thrown_away_too
-        - test_more_steps_than_the_round_reads_fall_back_to_the_process_neighbours
+        - test_a_line_costs_seven_calls_whatever_the_number_of_steps
+        - test_the_steps_come_from_the_process_neighbours_and_the_edges_route_is_not_asked
+        - test_thirty_steps_are_read_the_same_way
+        - test_a_failed_read_of_the_process_is_unavailable
         - test_every_read_is_a_per_thing_read
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_missing.py
+        checks:
+        - test_a_requirement_costs_one_kind_read_per_unread_kind
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_page.py
         checks:
@@ -198,7 +202,9 @@ contract:
       statement: '«fehlt noch»: the current step''s requires entries whose path is one hop, counted among the thing''s neighbours
         over that relation whose kind is the entry''s to_type; the things present are listed as links to their dossiers (rows),
         a required entry with fewer than min_count gets «fehlt noch» and its type, a missing optional one is not marked; longer
-        paths are left out with one line; the card says that the direction of a hop is not checked. No further read.'
+        paths are left out with one line; the card says that the direction of a hop is not checked. Nothing is concluded from
+        a kind that was not read: a neighbour over that relation whose kind stays unread (its read failed, or more than 20
+        kinds) makes a short entry «unbekannt», not «fehlt noch».'
       risk_class: standard
       evidence:
       - kind: test
@@ -213,16 +219,24 @@ contract:
         - test_the_card_lists_what_is_there_and_marks_what_is_missing
         - test_min_count_shows_how_many_of_how_many
         - test_a_longer_path_is_one_line
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_missing.py
+        checks:
+        - test_a_person_beside_twenty_crowded_kinds_is_present
+        - test_a_kind_that_cannot_be_read_is_unknown_not_missing
+        - test_more_kinds_than_are_read_make_the_entry_unknown
+        - test_the_page_says_unbekannt_and_not_fehlt_noch
+        - test_the_page_does_not_say_fehlt_noch_for_a_person_beside_twenty_kinds
     - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/P-7
-      statement: '«Alle N Einträge in diesem Ablauf →»: N is the count of the process''s instance_of edges (the edges route,
-        or the fallback''s neighbours), this thing included; the link carries data-bv-more with the others (N - 1) and opens
-        /ablauf/<node_id>/alle; alone in its process, no link.'
+      statement: '«Alle N Einträge in diesem Ablauf →»: N is the count of the process''s instance_of edges (the process''s
+        neighbours), this thing included; the link carries data-bv-more with the others (N - 1) and opens /ablauf/<node_id>/alle;
+        alone in its process, no link.'
       risk_class: standard
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_brain_views_process_line_missing.py
         checks:
-        - test_the_instances_are_counted_from_the_edges_route_and_from_the_fallback
+        - test_the_instances_are_counted_from_the_process_neighbours
         - test_the_line_counts_all_and_its_link_carries_the_others
         - test_alone_in_its_process_there_is_no_link
       - kind: test
@@ -243,7 +257,8 @@ contract:
     promises:
     - id: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id.alle/P-1
       statement: 'Per thing, as the person, never the whole tenant: the thing''s node, neighbours and kinds as the line reads
-        them, then the process''s neighbours (their names); no read per instance. A thing in no process gets one sentence.'
+        them, then the process''s neighbours (their names): 6 calls; no read per instance. A thing in no process gets one
+        sentence.'
       risk_class: standard
       evidence:
       - kind: test
@@ -274,10 +289,9 @@ uses:
   operations:
   - graph-routes
   method: 'Per-thing reads below /secured/graph/ through the Platform''s client on the Platform''s certificate, each signed
-    as the person: GET /nodes/<id> (graph_node), GET /nodes/<id>/neighbors?depth=1&include_edges=true (graph_neighbors, the
-    thing''s and, in the fallback and for the list of instances, the process''s), GET /node-types/<id>, GET /edges?node_id=&type=
-    and GET /nodes/<step> (graph_get_many), POST /facts/batch (graph_facts_batch); never the whole-graph export or the whole
-    edge list'
+    as the person: GET /nodes/<id> (graph_node), GET /nodes/<id>/neighbors?depth=1&include_edges=true (graph_neighbors: the
+    thing''s, and its process''s), GET /node-types/<id> (graph_get_many), POST /facts/batch (graph_facts_batch); never the
+    whole-graph export or the edge list'
   protocol: HTTPS with mTLS
 - component: L2-PLATFORM-BRAIN-VIEWS
   operations:
@@ -318,7 +332,7 @@ review:
 - at: /operations
   why: The two routes and the function that attaches them; the call has no line (its one caller is the Brain views' factory).
 - at: L2-PLATFORM-PROCESS-LINE/http.GET.ablauf._node_id/P-1
-  why: Whether production's GET /secured/graph/edges honours node_id and type is not known; master does (graph_api.list_edges).
-    A Core that ignores them would put the tenant's edge list on the wire once per view before the guard throws it away; someone
-    with production access checks it before the pilot. The step names come from GET /nodes/<step> in the second round (no
-    edge carries a name). Until CR-R1 every person sees every step and instance.
+  why: 'Fix round of 2026-11-22 (the verifier: the per-step GET /edges?node_id=&type= reads cost 26 + 3 N calls, 101 at 25
+    steps): the process''s neighbours are the only path; /edges is no longer asked, as it never saved a call. The open question
+    whether production''s /edges filters by node and type therefore no longer matters to this view. One neighbours read of
+    a process brings all its instances; there is no paged read. Until CR-R1 every person sees every step and instance.'

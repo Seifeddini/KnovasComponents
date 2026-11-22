@@ -116,12 +116,11 @@ def test_the_direction_of_the_hop_is_not_checked():
 # --- 2: the others in the process (the read) -----------------------------------------------------------------------
 
 
-def test_the_instances_are_counted_from_the_edges_route_and_from_the_fallback():
+def test_the_instances_are_counted_from_the_process_neighbours():
     core = ProcessCore()
     assert read_line(core, INSTANCE).instances == 4                      # this one and three others
-    assert ("graph_get_many", "/edges", (("node_id", PROCESS), ("type", "instance_of"))) in core.calls
-    for route in ("404", "unfiltered"):
-        assert read_line(ProcessCore(edges_route=route), INSTANCE).instances == 4
+    assert ("graph_neighbors", PROCESS, 1, True) in core.calls
+    assert not any(c[0] == "graph_get_many" and c[1] == "/edges" for c in core.calls)
 
 
 def test_read_instances_lists_the_others_by_name_without_a_read_per_instance():
@@ -166,9 +165,10 @@ def _checks(html):
     block = html[html.index('<div class="bv-checks'):html.index('class="bv-checks-note')]
     out = []
     for row in re.findall(r'<div class="k-rowline">(.*?)</div>', block, re.S):
-        mark = "ok" if "bv-check-mark--ok" in row else "missing"
+        mark = "ok" if "bv-check-mark--ok" in row else ("unknown" if "bv-check--unknown" in row else "missing")
         text = re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", " ", row.split("</span>\n", 1)[0]))).strip()
-        end = "fehlt noch" if "k-tag--warn" in row else ("wahlweise" if "wahlweise" in row else "")
+        end = "fehlt noch" if "k-tag--warn" in row else ("unbekannt" if ">unbekannt<" in row else
+                                                         ("wahlweise" if "wahlweise" in row else ""))
         out.append((mark, text, end))
     return out
 
@@ -302,3 +302,85 @@ def test_no_log_line_carries_a_name(install, member_client, caplog):
     for line in [record.getMessage() for record in caplog.records]:
         for word in ("Vorhaben", "Erfunden", "Filterwort", "Role"):
             assert word not in line, line
+
+
+# --- fix round of 2026-11-22: nothing is concluded from a kind that was not read ---------------------------------------
+
+
+def _crowd(core, monkeypatch, kinds=20, each=2, relation="kennt"):
+    """The verifier's case: ``kinds`` other kinds with ``each`` neighbours apiece around the instance."""
+    from test_brain_views_process_line_read import KIND_NAMES
+    for k in range(kinds):
+        type_id = f"7a2b0000-0000-4000-8000-0000003300{k:02d}"
+        monkeypatch.setitem(KIND_NAMES, type_id, f"Art {k:02d}")
+        for n in range(each):
+            _add(core, f"Nachbar {k:02d}-{n}", type_id, relation, 100 + k * 10 + n)
+    return core
+
+
+def test_a_person_beside_twenty_crowded_kinds_is_present(monkeypatch):
+    core = _crowd(_requires(ProcessCore(), [_hop("owned_by", "Person")]), monkeypatch)
+    line = read_line(core, INSTANCE)
+    need = line.requirements[0]
+    assert need.state == "ok" and need.present == ((PERSON, "Erfundene Person"),)
+    kind_reads = [c[1] for c in core.calls if c[0] == "graph_get_many"]
+    assert len(kind_reads) == 4 and f"/node-types/{T_PERSON}" in kind_reads    # the three, and the one it needs
+
+
+def test_a_kind_that_cannot_be_read_is_unknown_not_missing():
+    core = _requires(ProcessCore(), [_hop("owned_by", "Person")])
+    honest = core.graph_get_many
+
+    def no_person(calls, **kwargs):
+        answers = honest(calls, **kwargs)
+        return [(404, {"status": "error"}) if path == f"/node-types/{T_PERSON}" else answer
+                for (path, _), answer in zip(calls, answers)]
+
+    core.graph_get_many = no_person
+    need = read_line(core, INSTANCE).requirements[0]
+    assert need.state == "unknown" and not need.missing and need.unknown == 1
+
+
+def test_more_kinds_than_are_read_make_the_entry_unknown(monkeypatch):
+    core = _crowd(_requires(ProcessCore(), [_hop("has_role", "Role")]), monkeypatch, kinds=21, each=1,
+                  relation="has_role")
+    need = read_line(core, INSTANCE).requirements[0]
+    assert need.state == "unknown" and need.unknown == 1                  # twenty read, none a Role, one unread
+    assert sum(1 for c in core.calls if c[0] == "graph_get_many") == 3 + 20
+
+
+def test_a_requirement_costs_one_kind_read_per_unread_kind():
+    core = _requires(ProcessCore(), [_hop("owned_by", "Person"), _hop("has_role", "Role")])
+    read_line(core, INSTANCE)
+    assert len([c for c in core.calls if c[0] in ("graph_node", "graph_neighbors", "graph_facts_batch",
+                                                  "graph_get_many")]) == 7 + 1
+
+
+def test_the_page_says_unbekannt_and_not_fehlt_noch(install, member_client, monkeypatch):
+    core = _crowd(_requires(ProcessCore(), [_hop("has_role", "Role", type="Rolle")]), monkeypatch, kinds=21, each=1,
+                  relation="has_role")
+    install(core)
+    html = member_client.get(f"/ablauf/{INSTANCE}").get_data(as_text=True)
+    assert ">unbekannt<" in html and "fehlt noch" not in html
+    assert _checks(html) == [("unknown", "? Rolle (die Art eines verbundenen Eintrags ist nicht bekannt)", "unbekannt")]
+
+
+def test_the_page_does_not_say_fehlt_noch_for_a_person_beside_twenty_kinds(install, member_client, monkeypatch):
+    install(_crowd(_requires(ProcessCore(), [_hop("owned_by", "Person")]), monkeypatch))
+    html = member_client.get(f"/ablauf/{INSTANCE}").get_data(as_text=True)
+    assert "fehlt noch" not in html and ("ok", "✓ Erfundene Person", "") in _checks(html)
+
+
+def test_the_dossier_keeps_its_card_beside_twenty_kinds(install, member_client, monkeypatch):
+    install(_crowd(ProcessCore(), monkeypatch))
+    html = member_client.get(f"/dossier/{INSTANCE}").get_data(as_text=True)
+    assert "Läuft gerade" in html and f'href="/ablauf/{INSTANCE}">Freigabe</a>' in html
+
+
+def test_a_step_without_its_process_shows_no_card(install, member_client):
+    core = ProcessCore()
+    core.edges = [e for e in core.edges if not (e["relation"] == "instance_of" and INSTANCE in
+                                               (e["node_lo"], e["node_hi"]))]
+    install(core)
+    html = member_client.get(f"/dossier/{INSTANCE}").get_data(as_text=True)
+    assert "Läuft gerade" not in html and "/ablauf/" not in html

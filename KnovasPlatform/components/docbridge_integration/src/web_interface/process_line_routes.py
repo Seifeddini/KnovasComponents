@@ -115,7 +115,7 @@ def _page(line: Line, args: Mapping[str, Any]) -> Dict[str, Any]:
         if args.get("ansicht") == VIEW_STEPS else None,
         "since": german_date(line.since) if line.since else None,
         "ways": [{"name": way.step.name, "back": way.relation == REWORKS_TO} for way in line.ways],
-        "requirements": [{"type": r.type, "required": r.required, "missing": r.missing, "min_count": r.min_count,
+        "requirements": [{"type": r.type, "required": r.required, "state": r.state, "min_count": r.min_count,
                           "count": len(r.present),
                           "present": [{"name": name, "href": url_for("brain_views.dossier", node_id=other)}
                                       for other, name in r.present]} for r in line.requirements],

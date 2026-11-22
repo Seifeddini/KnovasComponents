@@ -132,35 +132,49 @@
 
 /* PMVP-32a: the process line. A row of steps, about twelve; each a circle and its name, joined by a line. */
 .bv-steps { display: flex; flex-direction: column; gap: var(--k-space-lg); }
+/* Equal columns, but never narrower than a step's longest word: a word is not broken in the middle. A browser with
+   German hyphenation (the page is lang="de") breaks long words with a hyphen; without it the column grows, and a row
+   that no longer fits scrolls in itself, as a row of tabs does. */
 .bv-line {
-    display: flex;
-    align-items: flex-start;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(min-content, 1fr);
+    align-items: start;
     margin: 0;
     padding: 0;
     list-style: none;
+    overflow-x: auto;
+    scrollbar-width: thin;
 }
 .bv-step {
     position: relative;
-    flex: 1 1 0;
     min-width: 0;
-    padding: 0 var(--k-space-3xs);
+    padding: 0 var(--k-space-2xs);
     text-align: center;
     font-size: var(--k-text-xs);
     line-height: var(--k-leading-snug);
     color: var(--k-color-text-muted);
-    overflow-wrap: break-word;
+    overflow-wrap: normal;
+    word-break: normal;
+    -webkit-hyphens: auto;
     hyphens: auto;
 }
-/* the line between two circles: from this circle's middle to the next one's */
-.bv-step + .bv-step::before {
+/* The line between two circles, drawn as two halves: from a cell's edge to its circle, and on to the other edge, so
+   the halves of two cells meet whatever their widths. Green where it leaves a step that is done. */
+.bv-step::before,
+.bv-step::after {
     content: "";
     position: absolute;
     top: 15px;
-    right: 50%;
-    width: 100%;
+    width: 50%;
     height: 2px;
     background: var(--k-gray-200);
 }
+.bv-step::before { left: 0; }
+.bv-step::after { right: 0; }
+.bv-step:first-child::before,
+.bv-step:last-child::after { display: none; }
+.bv-step--done::after,
 .bv-step--done + .bv-step::before { background: var(--k-success); }
 .bv-step-mark {
     position: relative;
@@ -199,10 +213,11 @@
 .bv-left { margin: 0; }
 @media (max-width: 640px) {
     /* on a phone the line stands upright: one step a row, circle left, name right */
-    .bv-line { flex-direction: column; gap: var(--k-space-xs); }
+    .bv-line { display: flex; flex-direction: column; gap: var(--k-space-xs); overflow-x: visible; }
     .bv-step { display: flex; align-items: center; gap: var(--k-space-sm); text-align: left; font-size: var(--k-text-sm); }
     .bv-step-mark { margin: 0; flex: none; }
-    .bv-step + .bv-step::before { display: none; }
+    .bv-step::before,
+    .bv-step::after { display: none; }
 }
 
 /* The card «Jetzt»: the step, since when and who; the other ways on request. */
@@ -245,3 +260,10 @@
 }
 .bv-check-mark--ok { border: 0; background: var(--k-success-bg); color: var(--k-color-success-fg); }
 .bv-checks-note { margin: var(--k-space-xs) 0 0; }
+
+/* The tabs of a view wrap instead of scrolling (fix round 2026-11-22, FU-49): with many kinds the current tab
+   («Dokumente», the last) would otherwise sit off the screen of a phone. */
+.bv-main .k-tabs { flex-wrap: wrap; row-gap: var(--k-space-2xs); }
+
+/* «unbekannt»: a requirement whose things' kind could not be read. */
+.bv-check--unknown .bv-check-mark { border-style: dotted; color: var(--k-color-text-muted); }

@@ -17,7 +17,9 @@ and turns the rest into a count that opens a list. Unlike the existing views mad
 - Read its facts. A click on a fact shows the document it comes from (name, folder) and a link that opens it.
 - See which facts have no source she can open: they carry the mark "ohne Beleg" and are never shown as if they had one.
 - Open the tab "Dokumente": the documents assigned to the thing.
-- Today a person reaches a dossier only by its address; links from names in results and answers come with PMVP-33.
+- A person reaches a dossier by its address, from a row of another dossier's lists, from a fact that names another
+  thing, and from a process line («Zum Dossier», and each thing a step still needs); links from names in search
+  results and answers come with PMVP-33.
 
 **Built: related things by kind (PMVP-30b).**
 
@@ -40,12 +42,15 @@ and turns the rest into a count that opens a list. Unlike the existing views mad
   to the log (no names).
 - See what the current step still needs (PMVP-32b): the things it asks for that are there, each opening its dossier,
   and «fehlt noch» for what is missing (things connected to this one directly; documents wait for law-firm data).
+  Where the kind of a connected thing could not be read, the page says «unbekannt» rather than «fehlt noch».
 - Open «Alle 14 Einträge in diesem Ablauf»: the other things in the same process as a list (by name, filter, 50 a
   page), each opening its own line.
 
-**Built: the 25-thing limit (PMVP-34).** Every view takes what it draws through one shared function; what does not
-fit is a count («115 weitere») that opens a list of 50 rows a page. The dossier draws one thing (the thing itself);
-its facts and documents are rows of a list.
+**Built: the 25-thing limit (PMVP-34).** One shared module holds the limit and the paging. The dossier draws one
+thing (the thing itself, and on the Überblick the card «Läuft gerade»); everything else on it is a count in a tab that
+opens a list of 50 rows a page (`paged`). The process line (PMVP-32) is the view that draws more: the thing and up to
+24 steps through `bounded`; with more steps the rest is a count («6 weitere», `more_text`) that opens the main path as
+a list, and «Alle N Einträge in diesem Ablauf» is a count that opens the other things in the process.
 
 **Planned, no work order yet:**
 
@@ -56,8 +61,8 @@ its facts and documents are rows of a list.
 
 ## How it protects data and access
 
-- **Never more than 25 things drawn.** One shared function caps what a view draws; the rest is a count that opens a
-  list. The frozen test `test_pmvp34_view_limit_acceptance.py` opens every view page by itself (a view added later
+- **Never more than 25 things drawn.** What a view draws goes through one shared function (the process line) or is
+  only the thing itself (the dossier); the rest is a count that opens a list. The frozen test `test_pmvp34_view_limit_acceptance.py` opens every view page by itself (a view added later
   included) for a thing with 140 neighbours, documents and facts, and fails if a page draws more than 25 or a count
   opens nothing.
 - **One thing at a time.** The dossier asks the Core only about that one thing; a test fails if it ever asks for the
@@ -117,9 +122,9 @@ Gate G3 (Tuesday 8 December) asks that the dossier and the process line open fro
 - **Marks for derived or uncertain facts** are not built; a field that refers to another thing shows its id, not its
   name (PMVP-33).
 - **The existing Ablauf code** is not reused by PMVP-32 (decided 22 Nov), so it needs no owner here (FU-19).
-- **Whether production's Core filters its edge list** by thing and relation is not known (master does). The process
-  line asks that way first and throws away an answer that is not filtered, but such an answer would still travel once
-  per view; someone with production access checks it before the pilot.
+- **The process line reads a process's whole neighbourhood** once per page (its steps and all its instances; seven
+  calls to the Core whatever the number of steps). It no longer asks the Core's edge list by thing and relation
+  (fix round of 22 Nov), so whether production filters that list no longer matters here.
 - **Who** in the process line is the owner fact only when it is a name; Knovas GmbH stores a person's key (`PERS-…`),
   which is left out, so the pilot shows no name there.
 - **A law firm's matters have no process line** until their data exists in the Brain (option C of the decision);

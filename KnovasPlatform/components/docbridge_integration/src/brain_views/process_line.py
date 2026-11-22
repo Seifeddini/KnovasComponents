@@ -1,5 +1,5 @@
 """The process line for one thing (PMVP-32a, plan B-06, B-01, B-02): where a thing stands in its process, since when,
-and what comes next, read as the signed-in person, per thing.
+what it still needs and what comes next, read as the signed-in person, per thing.
 
 **The data** (the Client Zero convention, as the Knovas GmbH tenant holds it; decision PMVP-32, option A): a process
 is a node of kind ``Process``; its steps are ``ProcessStep`` nodes joined to it by ``has_step``; a step's facts carry
@@ -19,32 +19,29 @@ the lowest order, and from each of its steps the next is the ``transitions_to`` 
 greater than its own; it ends where there is none. Every other step and every ``reworks_to`` is a variant.
 
 **The reads**, each signed as the person through the web app's one client (never ``graph_export``, ``graph_edges``,
-``graph_nodes`` or ``graph_node_types``):
+``graph_nodes`` or ``graph_node_types``); a page view costs the same whatever the number of steps (the fix round of
+2026-11-22 made the process's neighbours the only path: the per-step ``/edges`` reads cost 26 + 3 N calls):
 
 1. ``GET /nodes/<id>`` (``graph_node``): the thing, its kind and its facts. Unknown or hidden: the dossier's NotFound.
 2. ``GET /nodes/<id>/neighbors?depth=1&include_edges=true`` (``graph_neighbors``): its process (``instance_of``) and
    its current step (``in_state``). None of either, or more than one of either: not in a process.
-3. One ``graph_get_many`` round of ``/node-types/<id>``: the thing's kind and its neighbours' kinds (the process's and
-   the step's among them; at most ``MAX_KIND_READS`` besides the thing's own), to recognise ``Process`` and
-   ``ProcessStep`` by name. A process that is not a ``Process``, or a step that is not a ``ProcessStep``: not in a
-   process.
-4. The process's steps and the edges among them, through the Core's ``GET /edges?node_id=&type=`` (``graph_get_many``):
-   one round for the process's ``has_step`` edges, then one round with, for each step, its ``transitions_to`` and
-   ``reworks_to`` edges and ``GET /nodes/<step>`` (its name: no edge carries one). At most ``MAX_STEP_READS`` steps.
-   **Fallback**: an ``/edges`` answer of 400, 404, 405 or 501, a row that does not touch the node asked about or has
-   another relation (a Core that ignores the filters hands back the tenant's edge list: thrown away), or more than
-   ``MAX_STEP_READS`` steps: one ``graph_neighbors(<process>, depth=1, include_edges=True)``, keeping the neighbours of
-   the current step's kind and the edges among them.
+3. One ``graph_get_many`` round of ``/node-types/<id>``: the thing's own kind, the process's and the step's (at most
+   three), to recognise ``Process`` and ``ProcessStep`` by name. Of another kind: not in a process.
+4. ``graph_neighbors(<process>, depth=1, include_edges=True)``: the steps (the neighbours of the current step's kind),
+   the edges among them, and the process's ``instance_of`` edges (how many things are in it).
 5. ``POST /facts/batch`` (``graph_facts_batch``): the steps' facts (``order``, ``requires``).
+6. Only when the current step requires things over one hop: one round of ``/node-types/<id>`` for the kinds of the
+   thing's neighbours over those relations (at most ``MAX_KIND_READS``).
+
+So a line costs 7 calls (with three distinct kinds), and one kind read more per unread kind its step requires;
+the list of the others (``read_instances``: 1 to 4) costs 6.
 
 **What is still missing** (PMVP-32b, coordinator's point 4): the current step's ``requires`` entries whose path is one
-hop. For each, the thing's neighbours (read in 2.) joined to it over that ``relation`` whose kind the Brain names
-``to_type``; fewer than ``min_count`` is missing, and only a ``required`` entry is marked. Edges keep no direction, so
-the hop's ``direction`` is not checked. Longer paths are left out (``more_requirements``). Things, not documents.
-
-**The others in the process** (PMVP-32b): the process's ``instance_of`` edges, counted from the edges route (asked in
-the second round) or from the fallback's neighbours; ``read_instances`` lists them from the process's neighbours (their
-names), without a read per instance.
+hop. For each, the thing's neighbours joined to it over that ``relation`` whose kind the Brain names ``to_type``;
+fewer than ``min_count`` is missing, and only a ``required`` entry is marked. **Nothing is concluded from a kind that
+was not read**: a neighbour over that relation whose kind could not be read (beyond ``MAX_KIND_READS``, or its read
+failed) makes the entry «unknown», not missing. Edges keep no direction, so the hop's ``direction`` is not checked.
+Longer paths are left out (``more_requirements``). Things, not documents.
 
 Nothing here logs a name or a fact; only ids of the process and reason codes (GI-DATA-04).
 """
@@ -69,12 +66,9 @@ PROCESS_KIND = "Process"
 STEP_KIND = "ProcessStep"
 INSTANCE_OF = "instance_of"
 IN_STATE = "in_state"
-HAS_STEP = "has_step"
 TRANSITIONS_TO = "transitions_to"
 REWORKS_TO = "reworks_to"
-MAX_STEP_READS = 25
 MAX_KIND_READS = 20
-FALLBACK_STATUSES = (400, 404, 405, 501)
 _KEY = re.compile(r"^[A-Z]+-")
 _DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
 
@@ -127,16 +121,26 @@ class Line:
 
 @dataclass(frozen=True)
 class Requirement:
-    """One ``requires`` entry of the current step over one hop: what the thing has of it, and whether that is enough."""
+    """One ``requires`` entry of the current step over one hop: what the thing has of it, and whether that is enough.
+
+    ``unknown`` counts the thing's neighbours over that relation whose kind could not be read: while there are any,
+    too few present is not concluded to be missing (``state`` "unknown")."""
 
     type: str
     required: bool
     min_count: int
     present: Tuple[Tuple[str, str], ...]          # (id, name) of the things the thing has of it, by name
+    unknown: int = 0
+
+    @property
+    def state(self) -> str:
+        if len(self.present) >= self.min_count:
+            return "ok"
+        return "unknown" if self.unknown else "missing"
 
     @property
     def missing(self) -> bool:
-        return len(self.present) < self.min_count
+        return self.state == "missing"
 
 
 @dataclass(frozen=True)
@@ -157,7 +161,7 @@ class Instances:
 
 @dataclass(frozen=True)
 class _Context:
-    """What every read of a thing's process starts from: the thing, its neighbours, their kinds, its process."""
+    """What every read of a thing's process starts from: the thing, its neighbours, its process and its step."""
 
     node_id: str
     name: str
@@ -170,8 +174,14 @@ class _Context:
     state: Optional[Mapping[str, Any]]
 
 
-class _Fallback(Exception):
-    """The edges route cannot be used: its reason code."""
+@dataclass(frozen=True)
+class _Process:
+    """What the process's neighbours give: its steps (id -> name), the edges among them, the things in it."""
+
+    steps: Mapping[str, str]
+    edges: List[Tuple[str, str, str]]
+    instances: Set[str]
+    rows: Mapping[str, Mapping[str, Any]]
 
 
 class _Incomplete(Exception):
@@ -193,17 +203,16 @@ def read_line(client: Any, node_id: str) -> Line:
     process, state = ctx.process, ctx.state
     process_name = _clean(process.get("name")) or "Ohne Namen"
     base.update(process_id=process["id"], process_name=process_name)
-    steps, step_edges, instances, path = _steps(client, process["id"], state)
-    step_facts = _facts(client, list(steps))
-    base.update(instances=len(instances | {node_id.lower()}))
-    logger.debug("Process line: the steps of %s read through %s", process["id"], path)
+    found = _process(client, process["id"], state)
+    step_facts = _facts(client, list(found.steps))
+    base.update(instances=len(found.instances | {node_id.lower()}))
     try:
-        line = _line(steps, step_edges, step_facts, state["id"].lower(), process_name)
+        line = _line(found.steps, found.edges, step_facts, state["id"].lower(), process_name)
     except _Incomplete as reason:
         logger.info("Process line: process %s is not completely described (%s)", process["id"], reason)
         return Line(**base)
     main, current, position, next_step, ways = line
-    requirements, more = _requirements(step_facts.get(state["id"].lower()) or (), ctx)
+    requirements, more = _requirements(client, step_facts.get(state["id"].lower()) or (), ctx)
     return Line(**base, complete=True, main=main, current=current, position=position, next_step=next_step,
                 ways=ways, since=_since(ctx.facts), who=_who(ctx.facts), requirements=requirements,
                 more_requirements=more)
@@ -216,22 +225,17 @@ def read_instances(client: Any, node_id: str) -> Instances:
     if ctx.process is None or ctx.state is None:
         return Instances(node_id=node_id, name=ctx.name, kind=ctx.kind)
     process_id = ctx.process["id"]
-    try:
-        near = client.graph_neighbors(process_id, depth=1, include_edges=True)
-    except Exception as exc:  # noqa: BLE001
-        raise Unavailable(type(exc).__name__) from None
-    rows = {r["id"].lower(): r for r in _rows(near.get("neighbors") if isinstance(near, Mapping) else None)}
-    edges = [e for e in (near.get("edges") if isinstance(near, Mapping) else None) or [] if isinstance(e, Mapping)]
-    ids = {_other(e, process_id) for e in edges if e.get("relation") == INSTANCE_OF and _touches(e, process_id)}
-    others = sorted(((rows[i]["id"], _clean(rows[i].get("name")) or "Ohne Namen") for i in ids & set(rows)
-                     if i != node_id.lower()), key=lambda pair: (sort_key(pair[1]), pair[0]))
+    found = _process(client, process_id, ctx.state)
+    others = sorted(((found.rows[i]["id"], _clean(found.rows[i].get("name")) or "Ohne Namen")
+                     for i in found.instances if i in found.rows and i != node_id.lower()),
+                    key=lambda pair: (sort_key(pair[1]), pair[0]))
     return Instances(node_id=node_id, name=ctx.name, kind=ctx.kind, process_id=process_id,
                      process_name=_clean(ctx.process.get("name")) or "Ohne Namen", others=tuple(others))
 
 
 def _context(client: Any, node_id: str) -> _Context:
-    """The thing (NotFound as the dossier raises it), its neighbours and their kinds; its process and its step when
-    it has exactly one of each, of kind Process and ProcessStep."""
+    """The thing (NotFound as the dossier raises it), its neighbours; its process and its step when it has exactly one
+    of each, of kind Process and ProcessStep (one round of at most three kind reads)."""
     payload, node = node_payload(client, node_id)
     own_type = node.get("node_type_id")
     facts = payload.get("facts") if isinstance(payload.get("facts"), list) else []
@@ -246,9 +250,10 @@ def _context(client: Any, node_id: str) -> _Context:
     mine = [e for e in edges if _touches(e, node_id)]
     processes = {_other(e, node_id) for e in mine if e.get("relation") == INSTANCE_OF} & set(rows)
     states = {_other(e, node_id) for e in mine if e.get("relation") == IN_STATE} & set(rows)
-    kinds = _kind_names(client, own_type, rows.values(), must=[rows[i].get("node_type_id") for i in processes | states])
     process = rows[next(iter(processes))] if len(processes) == 1 else None
     state = rows[next(iter(states))] if len(states) == 1 else None
+    must = [r.get("node_type_id") for r in (process, state) if r is not None] if process and state else []
+    kinds = _kind_names(client, [own_type] + must, must=must)
     if process is None or state is None or (
             _folded(kinds.get(str(process.get("node_type_id")).lower(), "")) != _folded(PROCESS_KIND)
             or _folded(kinds.get(str(state.get("node_type_id")).lower(), "")) != _folded(STEP_KIND)):
@@ -258,70 +263,19 @@ def _context(client: Any, node_id: str) -> _Context:
                     rows=rows, mine=mine, kinds=kinds, process=process, state=state)
 
 
-def _steps(client: Any, process_id: str, state: Mapping[str, Any]):
-    """({step id: its name}, [edges among the steps], {ids of the process's instances}, the path taken), through the
-    edges route or its fallback."""
-    try:
-        return (*_steps_by_edges(client, process_id), "the edges route")
-    except _Fallback as reason:
-        logger.info("Process line: the edges route was not used for process %s (%s)", process_id, reason)
-    return (*_steps_by_neighbours(client, process_id, state), "the process's neighbours")
-
-
-def _edges_answer(answer: Any, node_id: str, relation: str) -> List[Mapping[str, Any]]:
-    """The rows of one ``/edges`` answer, or _Fallback when the route cannot be used for this, or Unavailable."""
-    status, payload = answer if isinstance(answer, Sequence) and len(answer) == 2 else (599, None)
-    if status in FALLBACK_STATUSES:
-        raise _Fallback(f"edges_{status}")
-    if status != 200 or not isinstance(payload, Mapping) or not isinstance(payload.get("edges"), list):
-        raise Unavailable(f"edges status {status}")
-    rows = [row for row in payload["edges"] if isinstance(row, Mapping)]
-    for row in rows:
-        if not _touches(row, node_id) or row.get("relation") != relation:
-            raise _Fallback("edges_unfiltered")
-    return rows
-
-
-def _steps_by_edges(client: Any, process_id: str):
-    first = _get_many(client, [("/edges", {"node_id": process_id, "type": HAS_STEP})])
-    ids = sorted({_other(row, process_id) for row in _edges_answer(first[0], process_id, HAS_STEP)} - {None})
-    ids = [i for i in ids if valid_node_id(i)]
-    if len(ids) > MAX_STEP_READS:
-        raise _Fallback("many_steps")
-    calls: List[Tuple[str, Optional[Dict[str, str]]]] = [("/edges", {"node_id": process_id, "type": INSTANCE_OF})]
-    for step in ids:
-        calls += [("/edges", {"node_id": step, "type": TRANSITIONS_TO}),
-                  ("/edges", {"node_id": step, "type": REWORKS_TO}),
-                  (f"/nodes/{quote(step, safe='')}", None)]
-    answers = _get_many(client, calls)
-    instances = {_other(row, process_id) for row in _edges_answer(answers[0], process_id, INSTANCE_OF)} - {None}
-    steps: Dict[str, str] = {}
-    edges: List[Mapping[str, Any]] = []
-    for index, step in enumerate(ids):
-        forward, back, detail = answers[1 + 3 * index:4 + 3 * index]
-        edges += _edges_answer(forward, step, TRANSITIONS_TO) + _edges_answer(back, step, REWORKS_TO)
-        status, payload = detail if isinstance(detail, Sequence) and len(detail) == 2 else (599, None)
-        if status == 404:
-            continue  # a step this person may not see is not on the line
-        node = payload.get("node") if status == 200 and isinstance(payload, Mapping) else None
-        if not isinstance(node, Mapping):
-            raise Unavailable(f"step status {status}")
-        steps[step] = _clean(node.get("name"))
-    return steps, _among(edges, steps), instances
-
-
-def _steps_by_neighbours(client: Any, process_id: str, state: Mapping[str, Any]):
+def _process(client: Any, process_id: str, state: Mapping[str, Any]) -> _Process:
+    """One ``graph_neighbors(<process>)``: the steps (its neighbours of the current step's kind) with their names, the
+    transitions and reworks among them, and the things joined to it by ``instance_of``."""
     try:
         near = client.graph_neighbors(process_id, depth=1, include_edges=True)
     except Exception as exc:  # noqa: BLE001
         raise Unavailable(type(exc).__name__) from None
+    rows = {r["id"].lower(): r for r in _rows(near.get("neighbors") if isinstance(near, Mapping) else None)}
     step_type = str(state.get("node_type_id")).lower()
-    steps = {r["id"].lower(): _clean(r.get("name"))
-             for r in _rows(near.get("neighbors") if isinstance(near, Mapping) else None)
-             if str(r.get("node_type_id")).lower() == step_type}
+    steps = {i: _clean(r.get("name")) for i, r in rows.items() if str(r.get("node_type_id")).lower() == step_type}
     edges = [e for e in (near.get("edges") if isinstance(near, Mapping) else None) or [] if isinstance(e, Mapping)]
     instances = {_other(e, process_id) for e in edges if e.get("relation") == INSTANCE_OF and _touches(e, process_id)}
-    return steps, _among(edges, steps), instances - {None}
+    return _Process(steps=steps, edges=_among(edges, steps), instances=instances - {None}, rows=rows)
 
 
 def _among(edges: Iterable[Mapping[str, Any]], steps: Mapping[str, str]) -> List[Tuple[str, str, str]]:
@@ -477,9 +431,11 @@ def _date(value: Any) -> Optional[date]:
         return None
 
 
-def _requirements(facts: Iterable[Mapping[str, Any]], ctx: _Context) -> Tuple[Tuple[Requirement, ...], bool]:
+def _requirements(client: Any, facts: Iterable[Mapping[str, Any]],
+                  ctx: _Context) -> Tuple[Tuple[Requirement, ...], bool]:
     """The current step's one-hop ``requires`` entries with what the thing has of each; and whether entries with
-    longer (or unreadable) paths were left out."""
+    longer (or unreadable) paths were left out. The kinds of the thing's neighbours over those relations are read in
+    one round (those the context has not read yet); a neighbour whose kind stays unread counts as «unknown»."""
     fact = _fact(facts, "requires")
     value = fact.get("value") if fact else None
     if isinstance(value, str):
@@ -489,7 +445,7 @@ def _requirements(facts: Iterable[Mapping[str, Any]], ctx: _Context) -> Tuple[Tu
             value = None
     if not isinstance(value, list):
         return (), False
-    found: List[Requirement] = []
+    entries: List[Tuple[str, bool, int, str, str]] = []
     more = False
     for entry in value:
         if not isinstance(entry, Mapping):
@@ -502,13 +458,38 @@ def _requirements(facts: Iterable[Mapping[str, Any]], ctx: _Context) -> Tuple[Tu
             more = True
             continue
         count = entry.get("min_count")
-        joined = {_other(e, ctx.node_id) for e in ctx.mine if _clean(e.get("relation")) == relation}
-        present = sorted(((ctx.rows[i]["id"], _clean(ctx.rows[i].get("name")) or "Ohne Namen") for i in joined
-                          if i in ctx.rows and _folded(ctx.kinds.get(str(ctx.rows[i].get("node_type_id")).lower(), ""))
-                          == _folded(to_type)), key=lambda pair: (sort_key(pair[1]), pair[0]))
-        found.append(Requirement(type=_clean(entry.get("type")) or to_type, required=entry.get("required") is not False,
-                                 min_count=count if isinstance(count, int) and not isinstance(count, bool)
-                                 and count >= 1 else 1, present=tuple(present)))
+        entries.append((_clean(entry.get("type")) or to_type, entry.get("required") is not False,
+                        count if isinstance(count, int) and not isinstance(count, bool) and count >= 1 else 1,
+                        relation, to_type))
+    if not entries:
+        return (), more
+    relations = {relation for _, _, _, relation, _ in entries}
+    joined: Dict[str, Set[str]] = {}
+    for edge in ctx.mine:
+        relation, other = _clean(edge.get("relation")), _other(edge, ctx.node_id)
+        if relation in relations and other in ctx.rows:
+            joined.setdefault(relation, set()).add(other)
+    kinds = dict(ctx.kinds)
+    unread = [ctx.rows[i].get("node_type_id") for ids in joined.values() for i in ids
+              if str(ctx.rows[i].get("node_type_id")).lower() not in kinds]
+    kinds.update(_kind_names(client, unread))
+    found: List[Requirement] = []
+    for label, required, min_count, relation, to_type in entries:
+        present: List[Tuple[str, str]] = []
+        unknown = 0
+        for other in joined.get(relation, ()):
+            row = ctx.rows[other]
+            type_id = row.get("node_type_id")
+            if type_id is None:
+                continue                                   # a thing without a kind is of no kind it could need
+            name = kinds.get(str(type_id).lower())
+            if name is None:
+                unknown += 1
+            elif _folded(name) == _folded(to_type):
+                present.append((row["id"], _clean(row.get("name")) or "Ohne Namen"))
+        found.append(Requirement(type=label, required=required, min_count=min_count,
+                                 present=tuple(sorted(present, key=lambda pair: (sort_key(pair[1]), pair[0]))),
+                                 unknown=unknown))
     return tuple(found), more
 
 
@@ -525,22 +506,17 @@ def _get_many(client: Any, calls: List[Tuple[str, Optional[Dict[str, str]]]]) ->
     return list(answers)
 
 
-def _kind_names(client: Any, own_type: Any, rows: Iterable[Mapping[str, Any]], must: Sequence[Any]) -> Dict[str, str]:
-    """{type id: name}: the thing's own kind, the kinds that ``must`` be named (the process's, the step's) and the
-    neighbours' most frequent kinds, at most MAX_KIND_READS besides the thing's own, in one round."""
+def _kind_names(client: Any, type_ids: Iterable[Any], *, must: Sequence[Any] = ()) -> Dict[str, str]:
+    """{type id: name} for the given kinds in one round: those in ``must`` and the most frequent of the rest, at most
+    MAX_KIND_READS. A kind whose read fails is left out (its things are «unknown» to the caller); a failed read of
+    a ``must`` kind (not 404) is Unavailable."""
     counts: Dict[str, int] = {}
-    for row in rows:
-        type_id = row.get("node_type_id")
+    for type_id in type_ids:
         if valid_type_id(type_id):
             counts[type_id.lower()] = counts.get(type_id.lower(), 0) + 1
-    chosen = [t.lower() for t in must if valid_type_id(t)]
-    for type_id in sorted(counts, key=lambda t: (-counts[t], t)):
-        if len(set(chosen)) >= MAX_KIND_READS:
-            break
-        chosen.append(type_id)
-    if valid_type_id(own_type):
-        chosen.insert(0, own_type.lower())
-    chosen = list(dict.fromkeys(chosen))
+    needed = {t.lower() for t in must if valid_type_id(t)}
+    chosen = list(dict.fromkeys(sorted(needed) + sorted(counts, key=lambda t: (-counts[t], t))))
+    chosen = [t for t in chosen if t in needed] + [t for t in chosen if t not in needed][:MAX_KIND_READS]
     if not chosen:
         return {}
     answers = _get_many(client, [(f"/node-types/{quote(t, safe='')}", None) for t in chosen])
@@ -551,7 +527,7 @@ def _kind_names(client: Any, own_type: Any, rows: Iterable[Mapping[str, Any]], m
         name = _clean(node_type.get("name")) if isinstance(node_type, Mapping) else ""
         if name:
             names[type_id] = name
-        elif status not in (200, 404) and type_id in {str(t).lower() for t in must}:
+        elif status not in (200, 404) and type_id in needed:
             raise Unavailable(f"kind status {status}")
     return names
 

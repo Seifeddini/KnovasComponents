@@ -411,3 +411,58 @@ name or the filter text.
 
 - The list macros now exist twice (`dossier.html` and `ablauf_alle.html`); one shared part would hold them both.
 - «fehlt noch» for documents (SPEC-11) waits for option C of the decision.
+
+### Fix round (2026-11-22, after the verification of 32a and 32b, and FU-49)
+
+Builder B, on `feat/pmvp-32b` after merging `origin/feat/platform-mvp` (34 and 30b integrated at `171635e9`).
+
+1. **No «fehlt noch» from a kind that was not read.** The line no longer reads the neighbours' twenty most frequent
+   kinds up front. Its first kind round is the thing's, the process's and the step's (at most three); when the current
+   step requires things over one hop, a second round reads the kinds of the thing's neighbours over exactly those
+   relations that are still unread (at most 20). A neighbour over a required relation whose kind stays unread (its
+   read failed, or more than 20 kinds) makes a short entry **«unbekannt»** (a plain tag, «die Art eines verbundenen
+   Eintrags ist nicht bekannt»), never «fehlt noch». The verifier's case (one Person over `owned_by` beside 20 kinds of
+   2 neighbours) shows the Person present. **30b**: the dossier always reads the kinds of the neighbours joined by
+   `in_state` and `instance_of`, beside the twenty most frequent, so «Läuft gerade» stays. The tabs themselves cannot
+   mislead: a kind beyond twenty is counted under «Weitere Einträge», which says no more than that.
+2. **The process's neighbours are the only path.** `/edges` never saved a call (one neighbours read gives the steps,
+   their names, the edges among them and the instances), so it is no longer asked; its fallback logic is gone. **Calls
+   per line page** (each `graph_get_many` path counted as one): **7 at 1, 11 and 25 steps** (node, neighbours, three
+   kind reads, the process's neighbours, the facts batch), plus one per unread kind the current step requires; before:
+   26 + 3 N (29, 59, 101). The list of the others: 6. Pinned in `test_a_line_costs_seven_calls_whatever_the_number_
+   of_steps` (1, 11, 25) and `test_a_requirement_costs_one_kind_read_per_unread_kind`. The cost moves into the size
+   of one answer: a process's neighbourhood holds all its instances (no paged read; the card's review entry says so).
+3. **«Läuft gerade» needs both** an `in_state` step and an `instance_of` process; with the step alone, no card.
+4. **One list template**: `templates/_brain_views_list.html` (`list_form`, `list_pages`), imported by `dossier.html`
+   and `ablauf_alle.html`; on L2-PLATFORM-BRAIN-VIEWS.
+5. **Long step names**: the line's columns are `minmax(min-content, 1fr)`, so a column is never narrower than its
+   longest word and no word breaks in the middle; `hyphens: auto` (the page is `lang="de"`) lets a browser with German
+   hyphenation hyphenate; a row that no longer fits scrolls in itself. The connecting line is drawn as two halves per
+   step, so it stays continuous whatever the column widths.
+6. **`brain-views.md`** corrected: what draws through `bounded`/`more_text` (the process line) and what is paged (the
+   dossier's tabs and lists), how a person reaches a dossier now, what PMVP-32 added, the edges point replaced.
+7. **The dossier's tabs wrap** (`.bv-main .k-tabs { flex-wrap: wrap }`), so with twelve kinds the current tab is on
+   the screen of a phone (no script on these pages).
+8. **`?seite=99999999999`** is the last page: `limit.page_number` takes more than nine digits as `FAR_PAGE` (without
+   converting it; Python refuses very long numbers), which `paged` clamps.
+
+**Tests changed, with the reason**: `test_brain_views_process_line_read.py` (mine): the five tests of the edges
+route and its fallback are replaced by the call-count tests, "the edges route is not asked", thirty steps the same way,
+and a failed read of the process; `test_every_read_is_a_per_thing_read` now expects three kind reads.
+`test_brain_views_process_line_page.py`: the failed read is now a failing facts batch (the edges route is not asked).
+`test_brain_views_process_line_missing.py`: the instance count comes from the process's neighbours. `test_brain_views_
+limit_unit.py`: a twelve-digit page number is `FAR_PAGE`, no longer 1 (item 8). New: eight tests for items 1 and 3, one
+for the step and process kinds in `test_brain_views_related_read.py`, one for the far page in
+`test_brain_views_related_page.py`.
+
+**Cards**: the process line's P-1 (the reads and the counts), P-6 («unbekannt»), P-7, the list's P-1, the uses and the
+review entry; the dossier's P-7 and R-3 (both edges for the card); the shared template and `page_number`'s line on
+L2-PLATFORM-BRAIN-VIEWS; `boundaries.yaml`. `card check` clean on the three; `card render --check` 0 not current;
+`map-check --scope touched --worktree`: problems 0, **budget 0** (L2-PLATFORM-BRAIN-VIEWS 9,491, L2-PLATFORM-DOSSIER
+15,191, L2-PLATFORM-PROCESS-LINE 14,932), complete 3 `no_contract` (the factory and the two attach functions, review
+entries), compatible 11 (the split's moved lines and the changed statements, against a base that still has one card).
+
+**Screenshots** (`C:\Users\siran\AppData\Local\Temp\claude\1838582cff9d51e1\af9716ae-0421-42ac-9fac-6acb192cc6e6\scratchpad\builderB\shotsfix\`):
+`3-ohne-ablauf-kein-laeuft-gerade-*.png` (a thing in a step without a process: no card), `5-lange-schrittnamen-*.png`
+and `compare-5-…` («Qualitätssicherung», «Wirkungsauswertung» whole at 1440 px), `7-zwoelf-arten-dokumente-*.png`
+(twelve kind tabs wrapped at 390 px, «Dokumente» on the screen).
