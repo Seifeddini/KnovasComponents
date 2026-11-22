@@ -26,7 +26,7 @@
             {% if not dossier %}
             {{ parts.page_head(message_title or "Akte nicht geladen", lede=message or "Der Brain hat gerade nicht geantwortet. Bitte versuchen Sie es in einem Moment noch einmal.") }}
             {% else %}
-            {{ parts.page_head(dossier.name, eyebrow=dossier.kind, lede=dossier.description) }}
+            <div data-bv-node>{{ parts.page_head(dossier.name, eyebrow=dossier.kind, lede=dossier.description) }}</div>
             {{ parts.tabs(tabs, tab) }}
 
             {% if tab == 'dokumente' %}
@@ -35,7 +35,7 @@
                 <div class="bv-list">
                     {% for document in dossier.documents %}
                     {% call parts.rowline() %}
-                    <div class="bv-doc">
+                    <div class="bv-doc" data-bv-row>
                         <span class="bv-doc-name">{{ document.name }}</span>
                         {% if document.folder %}<span class="bv-doc-folder k-muted k-small">{{ document.folder }}</span>{% endif %}
                     </div>
@@ -56,7 +56,7 @@
                     <details class="bv-fact" data-fact="{{ fact.id }}">
                         <summary class="bv-fact-summary">
                             {% call parts.rowline() %}
-                            <div class="bv-fact-line">
+                            <div class="bv-fact-line" data-bv-row>
                                 <span class="bv-fact-label">{{ fact.label }}</span>
                                 <span class="bv-fact-value">{{ fact.value }}</span>
                             </div>
@@ -74,7 +74,7 @@
                     {% else %}
                     <div class="bv-fact" data-fact="{{ fact.id }}">
                         {% call parts.rowline() %}
-                        <div class="bv-fact-line">
+                        <div class="bv-fact-line" data-bv-row>
                             <span class="bv-fact-label">{{ fact.label }}</span>
                             <span class="bv-fact-value">{% if fact.ref_node_id %}{{ parts.link(fact.value, ref_href[fact.ref_node_id], dotted=True) }}{% else %}{{ fact.value }}{% endif %}</span>
                         </div>

@@ -71,6 +71,16 @@ contract:
       - POST-01
       statement: At most 25 nodes are drawn; the remainder is a count that opens a list.
       risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp34_view_limit_acceptance.py
+        checks:
+        - test_the_limit_is_25
+        - test_bounded_shows_at_most_25_in_the_order_given
+        - test_bounded_refuses_more_than_25_and_negative_numbers
+        - test_every_view_page_draws_at_most_25
+        - test_the_rest_is_a_count_that_opens_a_list
+        - test_the_dossier_draws_its_thing_and_lists_its_facts
     - id: L2-PLATFORM-BRAIN-VIEWS/*/P-2
       aliases:
       - POST-02
@@ -200,6 +210,7 @@ uses:
   protocol: HTTPS with mTLS
 hides:
 - How a fact's value is written as text, and the order of the facts.
+- 'How a view keeps to the 25-node limit: one shared function (brain_views/limit.py: bounded, more_text, paged) and the marks in the mark-up that the frozen test counts (data-bv-node on what a view draws, data-bv-row on the rows of a list, which are paged at 50 and not drawn, data-bv-more on the link that opens the rest).'
 - The mark-up and the class names of the dossier; the page is built from the shared page parts.
 review:
 - at: /owner
@@ -212,8 +223,6 @@ review:
   why: 'The three the code reader shows. create_brain_views_blueprint has no line: the plan''s contract deltas (section 7) give none, and its one caller is the web app''s wiring. PMVP-30b to PMVP-34 add theirs.'
 - at: /uses
   why: 'Declared, as the code reader does not follow the client''s methods to the routes they call. /secured/document_readable is on no operation of EXT-BRAIN-API yet (FU-15). Used from the web app as well, which has no card: the file routes (document_external_open, preview_document, download_document), the grant (_grant_for_current_user), the search''s enrichment of a row (_enhance_listing_rows) and its open settings (pdf_inline_in_browser, _download_open_enabled), and the Experimente module''s split (experiments_search.split).'
-- at: L2-PLATFORM-BRAIN-VIEWS/*/P-1
-  why: No evidence; PMVP-34 writes the 25-node limit as one shared function with its test (plan § 11). The dossier draws one node with its facts and documents; the related things by kind, and with them the limit, are PMVP-30b's.
 - at: L2-PLATFORM-BRAIN-VIEWS/*/P-2
   why: 'Does not hold yet, so it has no evidence: a fact''s source is the Core''s provenance_pointer (the document), provenance_chunk_id (the passage) and provenance_status, and no per-thing route returns a passage''s text or its page. What holds is http.GET.dossier._node_id/P-4: a fact without a mark opens its source document. Follow-up FU-38; the Core request CR-2 (docs/platform-mvp/core-requests.md, one chunk read by its id) would close it. A fact whose document the Core did not list among the node''s documents for this person is marked «ohne Beleg» even when it has a passage: the Core shows a fact when any one of its evidence chunks is readable (graph_access.visible_fact_ids), so its provenance document is not known to be readable.'
 - at: L2-PLATFORM-BRAIN-VIEWS/*/P-3
