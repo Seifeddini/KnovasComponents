@@ -221,4 +221,111 @@ If the work needs one of these, stop and write the reason under "Builder's notes
 
 ## Builder's notes
 
-(the builder writes here: what was decided, what is open, what the verifier should look at)
+Builder session of 2026-11-22 (AGENT-claude-code). `feat/pmvp-41` from `origin/feat/platform-mvp` (`1871df4c`), test
+database `knovas_platform_test_pmvp4142`.
+
+### What was built
+
+| File | What |
+|---|---|
+| `P/src/web_interface/admin_access.py` (new) | `attach_access_routes` (the page and its three questions, behind the console's `require_admin`, `csrf_token` first); `resolve` (X from `wer`/`fuer`, the claim rule of § 2); `reach_rows`, `reach_page`, `check_document`, `search_as` (§ 3, § 4); `clean_pointer`, `clean_query`; one audit row `access.what_sees` per answered question |
+| `P/src/web_interface/templates/admin_access.html` (new) | the page «Zugriff» in PMVP-40's look: the card «Prüfen» with three forms, the answer below in a card of its own (`data-what-sees`, `data-effect`) |
+| `P/src/web_interface/admin_role_data.py` | one block of three lines: public names for RB-5's readers (`read_core`, `groups_of`, `live_rules`, `governing`, `core_groups`, `walk`, `own_rights`, `WalkUnfinished`, `PAGE_WALK`); the same functions, nothing else changed (RB-5's frozen file green) |
+| `P/src/web_interface/admin.py` | attaching the routes (after the agents') |
+| `P/src/web_interface/app.py` | `('access', 'Zugriff', 'admin.access', False)` after «Agenten» |
+| `P/src/web_interface/static/css/admin.css` | the rules of the new page (brand tokens only) |
+| `P/tests/test_web_admin_access_rules.py` (new, 27, no database) and `…_routes.py` (new, 4) | below |
+| cards | a new card `L2-PLATFORM-ACCESS-CHECK` «Zugriff prüfen» (`docs/components/L2-platform-access-check.card.yaml`, its page, `boundaries.yaml`); `L2-PLATFORM-ACCESS` points at it; `L2-PLATFORM-ADMIN` declares its use; pages rendered |
+| management | `administration.md` (a section «Was sieht …?», the planned line, the status row, two limits, where the detail is), `README.md`'s row, `data-protection.md` (a paragraph, its row, the founder's decision of 22 Nov) |
+
+### What I decided, and why (the verifier should look here first)
+
+1. **PMVP-34 merged in, not copied.** PMVP-34 is built on `origin/feat/pmvp-34` but not integrated. The order says
+   never a second cap, so I merged `origin/feat/pmvp-34` (`db060a06`) into `feat/pmvp-41` (commit `4f424931`, no
+   conflict) and draw through its `bounded`, `paged`, `page_number` and `more_text`. **Consequence for the
+   coordinator:** integrating `feat/pmvp-41` also integrates PMVP-34's three commits; integrate (or verify) PMVP-34
+   first. If PMVP-34 changes after its verification, a later merge of `feat/platform-mvp` brings the change.
+2. **Three forms, each with its own `wer` and `fuer`.** One form with three buttons would send the Enter key of the
+   document or search field to the first button. After an answer, X (and the assistant's person) stays selected in
+   all three. No script.
+3. **The reach's pages.** Page 1 is `bounded(rows)` (25 drawn, `data-more` = the rest); `seite` 2, 3, … is
+   `paged(rest, seite - 1)` (50 a page), `data-more` the rows after that page; «Zurück» on pages after the first; a
+   page past the end is the last (`paged`), a list without a rest has only page 1. Rules first (by prefix), then
+   documents (by pointer).
+4. **`fuer` counts for the assistant only.** For an external agent it is ignored (`claim_for` without
+   `on_behalf_of`, so the agent's own person applies): passing it would raise `AgentError` for an agent acting on its
+   own. The assistant needs an existing person (any state, else 400); a person who is not active reads nothing
+   (`person-inaktiv`).
+5. **One document's groups:** rights of its own (the listing by prefix, at most RB-5's five pages) win; else the
+   longest folder rule's; else what `document_access` holds (normally none: open). A rule without a group leaves the
+   document open and names no rule. Under «Ein» a subject that reads nothing is not asked about (the Platform signs
+   no claim for it): «Nein», computed.
+6. **The search's marks** come from `document_access` of each hit (at most 25 reads), as the order says; a hit whose
+   rights cannot be read carries no mark («unbekannt»). The search asks Knovas for 25 hits; the page says how many
+   Knovas found when there are more.
+7. **A Core that cannot be read** (groups, rules, documents, the search, the document's rights): 502 with the page's
+   own words and **no audit row** (no question was answered). A refusal writes none either.
+8. **The audit row's `detail`:** `question`, `effect`, and for the reach `rows`, `page`, `partial`; for a document
+   `answer` and `source`; for a search `hits`; `reads_nothing` (the code) when X reads nothing; `fuer` (an id) for
+   the assistant. Ids and counts only.
+9. **A card of its own** («Zugriff prüfen», the way RB-5 split «Rollendaten»): with the page, `L2-PLATFORM-ACCESS`
+   would be over 20,000 tokens (14,832 now, the page's code alone 5,309). PMVP-42 adds its part to this card.
+
+### Existing tests changed (each predicted by the order's menu line, template and FU-17)
+
+- `tests/test_web_admin_gates.py`: `/admin/access` in `PAGES`, the three questions in `FORMS` (about `{person}`);
+  its fake `_Client` gains `document_access` and `asserting_for` so the administrator's 200 can be shown (FU-17, named
+  in the order).
+- `tests/test_shell_nav_links.py`: `admin.access` («Zugriff») in `ADMIN_PAGES` and `NAMES`, after «Agenten». The test
+  pins the menu's exact list; the order adds the entry.
+- `tests/test_shell_nav_partial.py`: `admin_access.html` in `ADMIN_TEMPLATES`. The test requires every
+  `admin_*.html` to be listed; the order adds the template.
+
+The two shell files are not in "Files you may change"; RB-3 and RB-7 changed the same lists for their pages.
+
+### Checks
+
+- **Tests**, in the pinned environment (`scratchpad\pinned-venv`, `requirements.txt`'s versions: pytest 7.4.3, tenacity 8.2.3, cryptography 42.0.0; FU-50), each file in a pytest process of its own, one after another, on `knovas_platform_test_pmvp4142`, all exit code 0, nothing failed, skipped or errored:
+  - frozen: `test_pmvp41_what_sees_acceptance.py` 31, `test_pmvp11_navigation_acceptance.py` 40, `test_rb5_role_data_acceptance.py` 95, `test_rb12_roles_acceptance.py` 66, `test_rb34_roles_page_acceptance.py` 106, `test_rb67_agents_acceptance.py` 27, `test_pmvp34_view_limit_acceptance.py` 17;
+  - mine: `test_web_admin_access_rules.py` 27, `test_web_admin_access_routes.py` 4;
+  - the rest the order names: `test_shell_nav_links.py` 31, `test_shell_nav_partial.py` 52, `test_shell_nav_styles.py` 33, `test_shell_parts_css.py` 86, `test_shell_parts_macros.py` 49, `test_shell_parts_styleguide.py` 52, `test_shell_styleguide.py` 13, `test_shell_tokens.py` 88, `test_brain_views_limit_unit.py` 28, `test_web_admin_role_data_rules.py` 25, `test_web_admin_approvals.py` 22, `test_web_admin_doc_fields.py` 124, `test_web_admin_documents.py` 66, `test_web_admin_ingestion.py` 161, `test_web_admin_input_checks.py` 19, `test_web_admin_people.py` 28, `test_web_admin_roles_rules.py` 13, `test_web_admin_system_doc_fields.py` 14, `test_web_admin_system_extractor.py` 32, `test_identity_agents_pages.py` 10.
+  1359 passed in 29 files. None of these files has an id in `baseline-failing-ids.txt`. The whole suite was not run. The same files had passed before in the machine's own Python (newer libraries).
+- **`tests/test_web_admin_gates.py`** (367 tests, the slowest file): 367 passed in the machine's own Python; its run in the pinned environment was still going when this was pushed (the coordinator asked for the push at once) and its result follows in the next commit of this branch.
+- **Frozen check** (header of `frozen-tests.txt`): all 13 OK.
+- **Cards** (KnowledgeBase-worktrees `pmvp-01/scripts`, `py -3 -m brain_runner`, read only; nothing reached a tenant):
+  `card check` on the new card and the three changed ones: valid, 0 errors, 0 warnings. `card render --root
+  docs/components`: 6 pages written (the new card, access, admin, and the consumer tables of `EXT-brain-api.md`,
+  `L2-platform-brain-views.md`, `L2-platform-role-data.md`); `--check` 0 not current, 0 problems. `map-check --scope touched --head feat/pmvp-41` (the committed files), base
+  `origin/feat/platform-mvp`: declared 0, compatible 0, **budget 0** (L2-PLATFORM-ADMIN 15,471, L2-PLATFORM-ACCESS
+  14,630, L2-PLATFORM-ACCESS-CHECK 8,267, L2-PLATFORM-ROLE-DATA 15,783, L2-PLATFORM-BRAIN-VIEWS 11,276 tokens; a Windows
+  working tree with CRLF line ends counts about 280 more for the Rollendaten card, so measure with `--head`),
+  complete 24 (open point 3); touched without a card: `src/web_interface` (`app.py`, as always).
+
+### Screenshots
+
+Outside the repository, in `C:\Users\siran\AppData\Local\Temp\claude\1838582cff9d51e1\af9716ae-0421-42ac-9fac-6acb192cc6e6\scratchpad\b4142\shots41\`
+(the real app on the test database, a fake Core with invented people, groups and documents; nothing reached a
+tenant), each at 1440 and 390 px, beside `00-reference-05-zugriff.png`:
+
+- `41-page`: the page with its three questions;
+- `41-reach-weitere`: what Sara Keller (Steuerrecht) reads: 61 things, 25 rows drawn and «36 weitere»;
+- `41-check-nein`: Jonas Meier (Praktikum) and a document of the mandate: «Nein.», the folder rule and its two groups;
+- `41-search-vorschau`: a search as Jonas before «Ein»: four hits by name, two marked «würde nicht lesen»;
+- `41-search-ein`: the same search with a fake reporting `brokered`: Knovas's own two hits, no marks;
+- `41-check-ein-assistent`: the Knovas Assistent for Marco Frei under «Ein»: Knovas's «Ja.» and the computed reason.
+
+Nothing scrolls sideways at 390 px (`facts-41.json`). After a question the answer stands above the forms, so it is
+the first thing on the page.
+
+### Open, for the coordinator and the verifier
+
+1. **PMVP-34 rides along** (decision 1).
+2. **The Builder's «Zugriff erklären»** stays, as the order says (it reads direct grants only; FU-20's clean-up).
+3. **`complete` findings in map-check's scope** (report only): 14 `not_on_card` on `L2-PLATFORM-ROLE-DATA` (the
+   public names of its readers and `Sight`, `tenant_brokered`, `CoreUnreadable`, `POINTER_MAX`) and 5 on
+   `L2-PLATFORM-BRAIN-VIEWS` (`limit.py`'s functions): in-process imports, named in the new card's `uses` method.
+   The Rollendaten card is at 15,783 tokens of 16,000 (committed files), so they are not listed there as operations.
+4. **The admin card** is at 15,471 tokens after this item (admin.css and admin.py); PMVP-42 adds to both.
+5. From the order's "Found while drafting": whether the Core lists other groups' documents for an administrator under
+   «Ein» is still to be checked on the demo tenant once CR-R1 lands (the reach walks `documents(group=…)` as the
+   administrator).
