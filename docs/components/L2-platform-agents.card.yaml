@@ -1,0 +1,267 @@
+card: 2
+id: L2-PLATFORM-AGENTS
+name: Agenten
+kind: code
+owner: ROLE-ENGINE-OWNER
+level: 2
+parent: L1-WORKSPACE
+source_paths:
+- KnovasPlatform/components/docbridge_integration/src/web_interface/admin_agents.py
+- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_agents.html
+purpose: The role builder's Agenten page in the Platform's console, where an administrator registers agents - the Knovas
+  Assistent and external agents - and makes them members of roles.
+responsible_for:
+- id: L2-PLATFORM-AGENTS/R-1
+  aliases:
+  - L2-PLATFORM-ADMIN/R-6
+  statement: 'Agents (RB-6, RB-7): the page Agenten lists every agent (the Knovas Assistent and the external agents)
+    with whom it acts for, its id (Knovas binds the gateway key to it) and its roles; registers an external agent for an
+    active person or on its own, and revokes one; on a role, adds and removes an agent, the assistant included, never
+    into Administration (the agent rows and «+ Agent hinzufügen» under «Mitglieder» of the Rollen page).
+    After each change is committed it hands that agent''s claims to the Core''s gateway at once,
+    behind the switch agents.core_gateway; a Core that refuses never breaks the page.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_agents.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_agents.html
+not_responsible_for:
+- The console's blueprint and its role gates (L2-PLATFORM-ADMIN); the Rollen page and its routes (L2-PLATFORM-ROLES),
+  which draws the agent rows this card's role_agents gives and whose page the role forms here answer with.
+- The agents as stored, their audit rows, an agent's claim and the delivery to the Core's gateway (identity/agents.py,
+  identity/agent_delivery.py, migration 0028_agents); the Platform's identity package, which has no card.
+- An agent's gateway key; Knovas issues it, bound to the agent's id. The Platform holds no agent key.
+terms:
+- agent (a member of roles that is not a person - the Knovas Assistent, or an external agent registered here)
+operations:
+- id: http.GET.agents
+  name: 'GET /admin/agents - Agenten: every agent, whom it acts for, its id, its roles, revoked or not; the switch'
+  entrance: http
+  ref: GET /admin/agents
+- id: http.POST.agents.create
+  name: POST /admin/agents/create - register an external agent (name, on_behalf_of); the answer names its id
+  entrance: http
+  ref: POST /admin/agents/create
+- id: http.POST.agents._agent_id.revoke
+  name: POST /admin/agents/{agent_id}/revoke - revoke an external agent
+  entrance: http
+  ref: POST /admin/agents/{agent_id}/revoke
+- id: http.POST.roles._role_id.agents.add
+  name: POST /admin/roles/{role_id}/agents/add - make an agent a member of a role (agent_id); never Administration
+  entrance: http
+  ref: POST /admin/roles/{role_id}/agents/add
+- id: http.POST.roles._role_id.agents.remove
+  name: POST /admin/roles/{role_id}/agents/remove - take an agent out of a role (agent_id), the assistant included
+  entrance: http
+  ref: POST /admin/roles/{role_id}/agents/remove
+- id: call.web_interface.admin_agents.attach_agent_routes
+  name: attach_agent_routes - attaches the Agenten routes and a role's agent forms to the console's blueprint, behind the
+    gate it is given
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/admin_agents.py#attach_agent_routes
+- id: call.web_interface.admin_agents.role_agents
+  name: role_agents - a role's agent rows for «Mitglieder» and the agents «+ Agent hinzufügen» offers (none for
+    Administration)
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/admin_agents.py#role_agents
+contract:
+  http.GET.agents:
+    needs:
+    - id: L2-PLATFORM-AGENTS/http.GET.agents/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.GET.agents/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
+        checks:
+        - test_the_agent_pages_are_behind_the_admin_gate
+        - test_the_page_creates_an_agent_names_its_id_and_audits_by_id
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
+        checks:
+        - test_the_menu_offers_agenten_and_the_page_lists_every_agent
+    promises:
+    - id: L2-PLATFORM-AGENTS/http.GET.agents/P-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.GET.agents/P-1
+      statement: 'Lists every agent, the assistant first: its name, Knovas Assistent or Externer Agent, whom it acts for (a person''s name, selbständig, or die angemeldete Person), its id, its roles and whether it is revoked; offers no revoke for the assistant or a revoked agent; says whether the switch agents.core_gateway is on and that what an agent may read acts with «Ein».'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
+        checks:
+        - test_the_page_creates_an_agent_names_its_id_and_audits_by_id
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
+        checks:
+        - test_the_menu_offers_agenten_and_the_page_lists_every_agent
+        - test_the_page_says_the_switchs_state_and_that_it_acts_with_ein
+        - test_only_active_people_are_offered
+  http.POST.agents.create:
+    needs:
+    - id: L2-PLATFORM-AGENTS/http.POST.agents.create/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.agents.create/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
+        checks:
+        - test_the_agent_pages_are_behind_the_admin_gate
+        - test_every_agent_form_needs_its_token
+    promises:
+    - id: L2-PLATFORM-AGENTS/http.POST.agents.create/P-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.agents.create/P-1
+      statement: 'Registers an external agent for an active person or on its own (a name of 1 to 80 characters, unique), audited by id as agent.created in the same transaction, and names its id on the answer; a refusal answers 400 and writes nothing. With the switch on, the new agent''s claims reach the Core at once; off, nothing does.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
+        checks:
+        - test_the_page_creates_an_agent_names_its_id_and_audits_by_id
+        - test_changes_on_the_agent_pages_reach_the_core_at_once
+        - test_with_the_switch_off_nothing_reaches_the_core
+        - test_a_core_without_the_route_leaves_the_platform_working
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
+        checks:
+        - test_refusals_answer_400_or_404_and_write_nothing
+  http.POST.agents._agent_id.revoke:
+    needs:
+    - id: L2-PLATFORM-AGENTS/http.POST.agents._agent_id.revoke/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.agents._agent_id.revoke/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
+        checks:
+        - test_the_agent_pages_are_behind_the_admin_gate
+        - test_every_agent_form_needs_its_token
+    promises:
+    - id: L2-PLATFORM-AGENTS/http.POST.agents._agent_id.revoke/P-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.agents._agent_id.revoke/P-1
+      statement: 'Revokes an external agent, audited by id as agent.revoked; from then on it has no claim, and with the switch on the Core drops its claims in the same request (DELETE, never a PUT). The assistant is refused (400), an unknown id is 404.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
+        checks:
+        - test_the_page_creates_an_agent_names_its_id_and_audits_by_id
+        - test_changes_on_the_agent_pages_reach_the_core_at_once
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
+        checks:
+        - test_refusals_answer_400_or_404_and_write_nothing
+  http.POST.roles._role_id.agents.add:
+    needs:
+    - id: L2-PLATFORM-AGENTS/http.POST.roles._role_id.agents.add/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.roles._role_id.agents.add/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
+        checks:
+        - test_the_agent_pages_are_behind_the_admin_gate
+        - test_every_agent_form_needs_its_token
+    promises:
+    - id: L2-PLATFORM-AGENTS/http.POST.roles._role_id.agents.add/P-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.roles._role_id.agents.add/P-1
+      statement: 'Makes the agent a member of the role, audited by id; Administration, a revoked or unknown agent and a 33rd group for an agent on its own answer 400 and write nothing, an unknown role 404. With the switch on the agent''s new claims reach the Core at once.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
+        checks:
+        - test_an_administrator_may_take_the_assistant_out_of_a_role_and_no_agent_into_administration
+        - test_changes_on_the_agent_pages_reach_the_core_at_once
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
+        checks:
+        - test_refusals_answer_400_or_404_and_write_nothing
+  http.POST.roles._role_id.agents.remove:
+    needs:
+    - id: L2-PLATFORM-AGENTS/http.POST.roles._role_id.agents.remove/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.roles._role_id.agents.remove/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
+        checks:
+        - test_the_agent_pages_are_behind_the_admin_gate
+        - test_every_agent_form_needs_its_token
+    promises:
+    - id: L2-PLATFORM-AGENTS/http.POST.roles._role_id.agents.remove/P-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.roles._role_id.agents.remove/P-1
+      statement: 'Takes the agent out of the role, the Knovas Assistent included (the role may not be used by AI), audited by id; an unknown role is 404.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_rb67_agents_acceptance.py
+        checks:
+        - test_an_administrator_may_take_the_assistant_out_of_a_role_and_no_agent_into_administration
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_identity_agents_pages.py
+        checks:
+        - test_refusals_answer_400_or_404_and_write_nothing
+uses:
+- component: EXT-MCP-GATEWAY
+  operations:
+  - agent-claims-put
+  - agent-claims-delete
+  expects:
+  - EXT-MCP-GATEWAY/agent-claims-put/P-1
+  - EXT-MCP-GATEWAY/agent-claims-delete/P-1
+  method: 'after an agent page''s change is committed, through app.extensions["agents"]["deliver"] (identity/agent_delivery.py,
+    no card) and the Platform''s own client on the Platform''s certificate, without a person''s assertion: the agent''s
+    pool of 20 claims, or its drop; only while agents.core_gateway is on'
+  protocol: HTTPS with mTLS
+hides:
+- The German texts of the Agenten page and of the agent rows.
+review:
+- at: /owner
+  why: Proposed owner, as for every card in this repository; one role per component is confirmed by a person (Software Map
+    K4).
+- at: /status
+  why: Live or planned is not read from the code; the console is on main and runs where the Platform runs.
+- at: /source_paths
+  why: 'Split from L2-PLATFORM-ADMIN by RB-FIX-1 (2026-11-21, FU-44), the way PMVP-40 split L2-PLATFORM-ACCESS: the admin card was 33,409 tokens against 16,000, and the role builder''s pages in one card of their own would still be about 18,900, so they are two cards, Rollen and Agenten. This card took admin_agents.py and its page, L2-PLATFORM-ADMIN/R-6 (now R-1) and the operations and contract
+    lines of its five routes, each line with its old id as its first alias. The parent L1-WORKSPACE (KnowledgeBase) does
+    not list this card yet.'
+- at: L2-PLATFORM-AGENTS/R-1
+  why: 'RB-6, RB-7 (2026-11-21, work order docs/platform-mvp/work-orders/RB-6-7.md; founder: "Core gateway only", "only
+    after «Ein»"). The agent store (identity/agents.py, migration 0028_agents) and the delivery to the Core
+    (identity/agent_delivery.py, its job every minute) are the identity package''s, which has no card; this card holds
+    the pages. The two role routes live in admin_agents.py and answer with RB-3/RB-4''s Rollen page
+    (attach_role_routes returns its page function, admin.py hands it to attach_agent_routes); the agent rows
+    under «Mitglieder» are drawn from admin_agents.role_agents. Every route uses the console''s
+    require_admin and checks the form field csrf_token first (400). No gate changed. The Platform holds no agent key.
+    As for the approvals, the routes are attached to the blueprint admin.py passes in, so the code reader shows them
+    without the prefix /admin and the operation ids follow it; the refs name the served path.'
+- at: /operations
+  why: The routes are attached to the blueprint admin.py passes in, so the code reader shows them without the prefix /admin
+    (e.g. GET /agents @web_interface.admin_agents.bp); the operation ids follow it, the refs name the served path. Backlog
+    row B33 of the Software Map plan.
+- at: /contract
+  why: 'Plan § 7 names Verwaltung only in SHELL POST-01, whose server half ("the server refuses the page otherwise") is
+    each route''s N-1 here. The other lines come from the work order RB-6-7.md and its frozen tests.'
+- at: /uses
+  why: 'Not declared because they have no card yet: the Platform''s identity package (agents, agent_delivery, roles).
+    L2-PLATFORM-ADMIN and L2-PLATFORM-ROLES are not declared: this code imports nothing of them; they pass in the
+    blueprint, the gate, the page helpers and the Rollen page. attach_agent_routes and role_agents have no line: plan § 7
+    gives none.'

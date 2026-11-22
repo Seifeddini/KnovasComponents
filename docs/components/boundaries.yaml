@@ -188,27 +188,40 @@ components:
     paths:
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_approvals.py
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_roles.py
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_role_data.py
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_agents.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/guarded.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_people.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_approvals.html
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_roles.html
-      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_agents.html
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_people.js
       - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/admin.css
     why: >-
-      The console's blueprint with its role gates (admin.py), the people page, the role builder's Rollen page
-      (admin_roles.py and its page, RB-3 and RB-4: it hangs on the same blueprint and gate; a role's data, its dry
-      runs, adopting a group and moving direct grants in admin_role_data.py, RB-5), the agent pages and
-      the agents of a role (admin_agents.py and its page, RB-7; the agent store and the delivery to the Core they
-      call stay in identity/, which has no card) and the approvals that PMVP-40 to PMVP-42 change, and
-      guarded.py, which only console modules call. The other console modules mounted on the same
+      The console's blueprint with its role gates (admin.py), the people page and the approvals that PMVP-40 to
+      PMVP-42 change, and guarded.py, which only console modules call. The other console modules mounted on the same
       blueprint (admin_ingestion.py, admin_doc_fields.py, admin_system.py) and their pages are not changed by the plan
       and stay with the web app for now; admin.css styles them too. The access groups, folder rules and documents
       (admin_documents.py and their pages) are L2-PLATFORM-ACCESS since PMVP-40 split the card: together the two were
-      over the context budget, the code alone (16,724 tokens) over 16,000.
+      over the context budget, the code alone (16,724 tokens) over 16,000. The role builder's pages are
+      L2-PLATFORM-ROLES and L2-PLATFORM-AGENTS since RB-FIX-1 split them off the same way (FU-44).
+  L2-PLATFORM-ROLES:
+    card: L2-platform-roles.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_roles.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_roles.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_role_data.py
+    why: >-
+      The role builder's Rollen page (RB-3, RB-4): a role's functions, its people and its Core group; a role's data,
+      its dry runs, adopting a group and moving direct grants (admin_role_data.py, RB-5). Split from
+      L2-PLATFORM-ADMIN by RB-FIX-1 (context budget: together the card was 33,409 tokens); its routes hang on that
+      card's blueprint and gate. The role store and the claim's groups it calls stay in identity/, which has no card.
+  L2-PLATFORM-AGENTS:
+    card: L2-platform-agents.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_agents.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_agents.html
+    why: >-
+      The role builder's Agenten page and a role's agents (RB-6, RB-7). Split from L2-PLATFORM-ADMIN by RB-FIX-1 with
+      L2-PLATFORM-ROLES; one card for both would still have been over the context budget. Its routes hang on the
+      console's blueprint and gate; the agent store, the claim and the delivery to the Core's gateway stay in
+      identity/, which has no card.
   L2-PLATFORM-ACCESS:
     card: L2-platform-access.card.yaml
     paths:
