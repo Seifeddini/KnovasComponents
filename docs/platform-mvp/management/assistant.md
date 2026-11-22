@@ -8,9 +8,11 @@ The Knovas Assistent answers an employee's question from the firm's own document
 same search the employee uses, as that employee, widens each hit to the text around it in its own document (up to
 1,200 characters, PMVP-20 context), and asks a language model to answer in short statements, each tied to one passage
 and carrying a word-for-word quote from it. Plain program code checks every statement before it is shown;
-one that fails is left out. If nothing is left, the assistant says "Dazu finde ich nichts in Ihren Quellen" and lists
-the closest passages instead of answering from general knowledge. Customers see "Knovas Assistent", never a model's
-name.
+one that fails is left out. Where a turn makes no claim about the documents (a greeting, "what can you do", a
+question back when a request is too vague, or "nothing fits, ask me like this"), it may answer in its own words: a
+short **reply** without a source, which the Platform checks too (PMVP-20 conversation, below). Only when neither a
+statement nor a reply is left does it say "Dazu finde ich nichts in Ihren Quellen" and list the nearest passages
+instead of answering from general knowledge. Customers see "Knovas Assistent", never a model's name.
 
 ## What a person can do with it
 
@@ -18,6 +20,13 @@ name.
   question mark default to searching; the person's choice wins (PMVP-22a).
 - **Read the answer** as numbered statements. A click on a number opens the quote under the statement, with the
   document's title and page and a link that opens the document as a search hit does. All passages are listed below.
+- **Talk to it** (PMVP-20 conversation, verified 22 Nov with notes; the fix round built, not yet verified): the
+  model is asked to give «wagwan», «Danke» or «Was kannst du?» a short friendly reply in her language, «document» a
+  question back (which matter, which kind of document, what she wants to know; the nearest five passages under it),
+  and a question the documents do not answer a reply that says what was looked for and how to ask. The model may
+  not always do so; when its reply breaks a rule below, she reads «Dazu finde ich nichts in Ihren Quellen». A reply
+  stands in a box under «Knovas Assistent» with the label «Hinweis – ohne Quelle»: no quote, no source; it is the
+  assistant speaking, not evidence. Before statements it may stand as a short lead-in.
 - **See that something was left out** ("2 Aussagen ohne Beleg ausgelassen"), never the removed text.
 - **Get a plain message** when the service is busy ("ausgelastet") or fails; never half an answer.
 - **See what is happening while she waits** (PMVP-24): when she sends a question, the button is disabled, her
@@ -48,6 +57,37 @@ name.
   mode on the settings page; the page refuses the mode without the provider Anthropic and both keys.
 - **Not yet:** the passage opened inside the document (PMVP-22b), renaming or searching
   chats (W-10, 12 January).
+
+**What a reply may and may not contain** (PMVP-20 conversation, with the verification's fix round). The model is
+asked to use a reply only to greet, thank, say what the assistant can do, ask the person to be more specific, or
+say what it looked for and how to ask; never to answer a yes/no question about the documents or state anything
+about them. **Program code drops a reply** (counted as `reply_dropped`; if nothing is left the person reads «Dazu
+finde ich nichts in Ihren Quellen») when:
+
+- it is longer than 400 characters (200 as a lead-in above statements), holds a letter of another alphabet, or is
+  the second reply of the answer; a lead-in whose statements were all removed goes too;
+- it holds a **number or a date**: a digit, a number word in German, English, French or Italian («drei», «six»,
+  «deux», «dieci»; «un», «une», «uno», «una», «due», «sei», «otto» only before a span of time), «Dutzend», a Roman
+  numeral (capitals; small letters when they stand alone, never «i»), a month, a weekday, a holiday, «Monatsende»
+  and its kin, «letzten»/«nächsten» before a span of time;
+- it **names a person by an honorific or a title** (Herr, Frau, Dr., Prof., Me, Mr, Mrs, Ms before a capitalised
+  word), whatever the passages hold;
+- it holds a **word that names something the model was given**: every word of a passage's title or file path (a
+  client's folder), and every capitalised word of a passage's text that is not a common word (a short list of
+  function words and general document vocabulary, their forms and compounds) and does not begin a sentence; a
+  common word counts when a passage uses it as a name («Herr Richter», «Hans Richter»). With «Brain-Werkzeuge» that
+  is every title, summary and text the tool results returned;
+- it **copies four consecutive words** (case and accents aside) of anything the model was given.
+
+Every reply is shown in a box under «Knovas Assistent» with the label **«Hinweis – ohne Quelle»**: no number, no
+quote, no source, so nobody takes it for a checked fact. **Residual risk:** a reply can still carry a statement in
+plain words that copies no four words and names no one («Ja, er ist gültig»). The instruction forbids it and the
+label marks it; the rules cannot tell it from a harmless sentence. When the search finds nothing (as for «wagwan»
+on the demo tenant) the model is still asked once, with no passage: only a reply can be shown then.
+
+**Clean titles.** Wherever a source is listed (under a statement, in «Quellen», in «Die nächsten Stellen», in a
+stored chat) a leading UUID is dropped and a file named `<Mandat>_<Art>` reads «2024-055 · Beilage-Vertrag», with
+«S. n» when the page is known. «Die nächsten Stellen» stands only under a question back or a no-answer, at most five.
 
 **The five checks.** A statement is shown only if (1) it is in the agreed form, (2) its source is a passage this
 person's search returned, (3) its quote stands word for word in that passage (three words or more), (4) every number in
@@ -120,6 +160,7 @@ default.
 | PMVP-21 | chat storage: three new tables, owner only | verified 19 Nov (with notes); integrated; no page uses it yet | management (critical: database change) |
 | PMVP-22a | the ask page | built; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-25 | switch, provider and model, key, connection test | built; no verification verdict yet | management (critical: a secret) |
+| PMVP-20 conversation | replies in the assistant's own words, checked by the Platform (no number or date, no name of what the model was given, no honorific with a name, no copied four words, short), labelled «Hinweis – ohne Quelle»; the model asked even when the search finds nothing; clean titles; at most five nearest passages; the Brain-tools mode alike | verified 22 Nov with notes; the fix round built on `feat/pmvp-20-conversation`, not yet verified | Siran (sensitive) |
 | PMVP-20 brain-mcp | «Brain-Werkzeuge»: Claude answers through the Knovas MCP gateway (search, fetch) with the company's key; the same check; off by default | built 22 Nov on `feat/pmvp-20-brain-mcp`; no verification verdict yet | management (critical: a secret) |
 | PMVP-22b | passage in the document | not started | routine |
 | PMVP-23 | follow-up questions and past chats (list, open, delete; deleted after 90 days); takes up FU-01, FU-02, FU-03, FU-06, FU-07 | built 22 Nov on `feat/pmvp-23` (33 frozen acceptance tests pass); no verification verdict yet; no migration | Siran (sensitive) |

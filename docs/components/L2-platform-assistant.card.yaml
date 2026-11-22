@@ -320,7 +320,7 @@ contract:
     - id: L2-PLATFORM-ASSISTANT/*/P-5
       aliases:
       - POST-05
-      statement: If no passage supports an answer, the reply says so and lists the closest passages; it does not answer from general knowledge.
+      statement: If no passage supports an answer and the model gave no valid reply of its own (P-11), the reply says so and lists the nearest passages (at most five); it does not answer from general knowledge.
       risk_class: standard
       evidence:
       - kind: test
@@ -454,8 +454,8 @@ contract:
         default) Claude calls the Knovas MCP gateway''s search and fetch itself through the MCP connector, and the
         answer is checked as before: the passages are the texts of the gateway''s tool results in that same answer, a
         statement names one returned document and check.py, unchanged, shows it only if its quote and numbers stand
-        in one passage of it; no tool result is no_answer. The page never grants such an answer''s documents; the
-        answer ends within 150 seconds.'
+        in one passage of it; with no tool result no statement can stand and only a valid reply (P-11) can be shown,
+        else no_answer. The page never grants such an answer''s documents; the answer ends within 150 seconds.'
       risk_class: critical
       evidence:
       - kind: test
@@ -481,6 +481,54 @@ contract:
         - test_a_reply_of_the_brains_tools_becomes_a_chat_with_its_cited_passages_and_nothing_is_granted
         - test_its_document_opens_through_the_click_route_after_the_core_said_yes
         - test_shown_unsaved_its_passages_show_the_title_without_a_link
+    - id: L2-PLATFORM-ASSISTANT/*/P-11
+      statement: 'A reply in the assistant''s own words (PMVP-20 conversation; {"reply", "kind"}) is shown only if it
+        is plain Latin text of at most 400 characters (a lead-in beside statements 200), holds no number or date
+        (digits, number words in four languages, Roman numerals, weekdays, holidays, ends of periods), names no
+        person by an honorific, names nothing the model was given (a word of a title or pointer, a capitalised word of
+        a text that is no common word or that a text uses as a name; with the Brain''s tools every title, summary and
+        text of the tool results) and copies no four consecutive words of it; one a turn, and a lead-in only above a
+        statement that was shown. It carries no source and the page labels it «Hinweis – ohne Quelle». A reply that
+        breaks a rule is dropped and counted (reply_dropped); then the no-answer path applies. The model is asked once
+        also when the search found nothing; then no statement can stand. Both answer modes alike. Residual: a
+        plain-word statement that copies no four words and names no one is forbidden by the instruction, not by
+        these rules.'
+      risk_class: critical
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_conversation.py
+        checks:
+        - test_a_greeting_gets_a_reply_without_sources
+        - test_document_gets_a_clarifying_reply_and_at_most_five_nearest_passages
+        - test_a_reply_with_a_number_is_dropped
+        - test_a_reply_naming_something_of_the_passages_is_dropped
+        - test_a_reply_naming_the_matter_of_a_title_is_dropped
+        - test_a_fact_written_as_a_reply_is_not_shown
+        - test_a_lead_in_without_a_statement_left_is_dropped
+        - test_nothing_found_the_model_is_asked_once_with_no_passage
+        - test_nothing_found_every_statement_is_an_unknown_source
+        - test_brain_tools_a_reply_naming_a_tool_result_is_dropped
+        - test_no_reply_text_reaches_a_log_line_at_debug
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_conversation_fixes.py
+        checks:
+        - test_brain_tools_a_reply_naming_any_text_of_the_tool_results_is_dropped
+        - test_a_reply_copying_four_words_of_a_passage_is_dropped
+        - test_a_reply_naming_a_person_by_an_honorific_is_dropped
+        - test_names_the_first_round_missed_are_names_now
+        - test_numbers_and_dates_the_first_round_missed_are_dropped
+        - test_what_the_rules_cannot_see_is_shown_and_labelled_on_the_page
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_conversation_pages.py
+        checks:
+        - test_a_greeting_is_drawn_as_the_assistant_speaking_without_sources
+        - test_a_clarifying_reply_lists_at_most_five_nearest_passages_with_clean_titles
+        - test_the_chat_stores_the_reply_and_shows_it_again
+        - test_no_reply_text_in_the_routes_log_lines_at_debug
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_statements_acceptance.py
+        checks:
+        - test_no_passages_means_no_generation_and_the_no_answer_reply
     limits:
     - id: L2-PLATFORM-ASSISTANT/*/L-1
       statement: 'The prompt keeps the Core''s limits for /secured/llm/generate (plan § 5.2, step 3): at most 32 messages with the question last, and the passages and the chat''s earlier turns cut to the byte limits per message.'

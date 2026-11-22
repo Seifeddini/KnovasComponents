@@ -128,7 +128,10 @@ UNKNOWN_SOURCE = "unknown_source"
 QUOTE_NOT_FOUND = "quote_not_found"
 NUMBER_NOT_FOUND = "number_not_found"
 TOO_LONG = "too_long"
-REASONS = (NOT_A_STATEMENT, UNKNOWN_SOURCE, QUOTE_NOT_FOUND, NUMBER_NOT_FOUND, TOO_LONG)
+#: A reply (``{"reply": ...}``, PMVP-20 conversation) that broke one of its rules (``assistant.conversation``), or
+#: a second reply of the same answer. ``check_answer`` leaves replies to that module and never counts this itself.
+REPLY_DROPPED = "reply_dropped"
+REASONS = (NOT_A_STATEMENT, UNKNOWN_SOURCE, QUOTE_NOT_FOUND, NUMBER_NOT_FOUND, TOO_LONG, REPLY_DROPPED)
 
 
 @dataclass(frozen=True)
@@ -150,12 +153,16 @@ def check_answer(text: str, passages: Mapping[int, str]) -> Tuple[List[Statement
 
     ``passages`` maps each retrieved passage's number to its text. Every
     reason of ``REASONS`` is a key of the counts. The no-answer line, as an
-    object or as the plain sentence, is neither shown nor counted.
+    object or as the plain sentence, is neither shown nor counted. A reply
+    (``is_reply``) is no statement and is not counted here: its own rules
+    are ``assistant.conversation``'s (PMVP-20 conversation).
     """
     shown: List[Statement] = []
     removed_by = dict.fromkeys(REASONS, 0)
     for value in read_answer(text):
         if isinstance(value, dict) and value.get("no_answer") is True:
+            continue
+        if is_reply(value):
             continue
         statement = check_form(value, passages)
         if statement is None:
@@ -174,6 +181,12 @@ def check_answer(text: str, passages: Mapping[int, str]) -> Tuple[List[Statement
         else:
             shown.append(found)
     return shown, removed_by
+
+
+def is_reply(value: Any) -> bool:
+    """Whether a decoded line is a reply of the assistant's own (PMVP-20 conversation): an object with the key
+    ``reply`` and without ``statement`` (an object with both is a statement, its further keys ignored)."""
+    return isinstance(value, dict) and "reply" in value and "statement" not in value
 
 
 # ---------------------------------------------------------------------------

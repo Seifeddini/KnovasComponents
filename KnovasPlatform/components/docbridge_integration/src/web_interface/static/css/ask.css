@@ -81,6 +81,45 @@
 
 .ask-removed { margin: 0; }
 
+/* The assistant's own words (PMVP-20 conversation): a reply that cites nothing, drawn as the assistant speaking and
+   never as a statement: its name over it, on the accent's soft surface, no reference, no quote, no source. */
+.ask-reply {
+    min-width: 0;
+    margin: 0 0 var(--k-space-md);
+    padding: var(--k-space-sm) var(--k-space-md);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-color-accent-soft);
+}
+/* Its head: the name, and the label that says it is a note without a source, so nobody takes it for a checked
+   fact (PMVP-20 conversation, the verifier's note). */
+.ask-reply-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--k-space-2xs) var(--k-space-sm);
+    margin: 0 0 var(--k-space-2xs);
+}
+.ask-reply-who {
+    font-size: var(--k-text-xs);
+    font-weight: var(--k-weight-semibold);
+    color: var(--k-color-accent);
+}
+.ask-reply-note {
+    padding: 0 var(--k-space-2xs);
+    border: 1px solid var(--k-color-border);
+    border-radius: var(--k-radius-xs);
+    background: var(--k-color-surface);
+    font-size: var(--k-text-2xs);
+    color: var(--k-color-text-muted);
+}
+.ask-reply-text {
+    margin: 0;
+    font-size: var(--k-text-base);
+    line-height: var(--k-leading-relaxed);
+    color: var(--k-color-text);
+    overflow-wrap: anywhere;
+}
+
 /* The plain message: no answer, busy, failed. */
 .ask-message {
     margin: 0;
