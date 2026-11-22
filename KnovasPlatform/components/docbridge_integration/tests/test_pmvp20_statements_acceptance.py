@@ -408,9 +408,12 @@ def test_nothing_left_after_the_check_gives_the_no_answer_reply():
 
 
 def test_no_passages_means_no_generation_and_the_no_answer_reply():
+    # Re-pinned by the coordinator on 2026-11-22 (PMVP-20 conversation, the founder: "the knovas assistant doesnt
+    # really behave like an LLM"): with no passages the model may be asked once, so it can answer a greeting or ask
+    # back; no statement can be shown without a passage, and without a valid reply the no-answer stays.
     generate = FakeGenerate(FRIST)
     reply = _service(FakeSearch(rows=[]), generate).answer("Frist?")
-    assert generate.calls == []
+    assert len(generate.calls) <= 1
     assert reply.status == "no_answer"
     assert reply.message == NO_ANSWER_TEXT
     assert reply.sentences == []
