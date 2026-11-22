@@ -227,3 +227,21 @@
     gap: var(--k-space-xs) var(--k-space-md);
 }
 .bv-after p { margin: 0; }
+
+/* PMVP-32b: what the current step needs: a check for what is there, an empty ring for what is missing. */
+.bv-checks { margin-top: var(--k-space-sm); }
+.bv-check { display: flex; align-items: center; gap: var(--k-space-sm); min-width: 0; overflow-wrap: anywhere; }
+.bv-check-mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 20px;
+    height: 20px;
+    box-sizing: border-box;
+    border: 2px dashed var(--k-gray-300);
+    border-radius: var(--k-radius-full);
+    font-size: var(--k-text-2xs);
+    font-weight: var(--k-weight-bold);
+}
+.bv-check-mark--ok { border: 0; background: var(--k-success-bg); color: var(--k-color-success-fg); }
+.bv-checks-note { margin: var(--k-space-xs) 0 0; }

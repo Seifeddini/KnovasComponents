@@ -186,8 +186,9 @@ components:
       - KnovasPlatform/components/docbridge_integration/src/brain_views/process_line.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/process_line_routes.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ablauf.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ablauf_alle.html
     why: >-
-      The process line of one thing (PMVP-32a, plan B-06), built per thing on the Client Zero convention (decision
+      The process line of one thing (PMVP-32a, plan B-06; «fehlt noch» and the list of the others, PMVP-32b), built per thing on the Client Zero convention (decision
       PMVP-32): the reading, its route and its template. A card of its own from the start, as the coordinator split
       the Brain views for the context budget; its route hangs on L2-PLATFORM-BRAIN-VIEWS's blueprint and gate. The
       modellers' Ablauf view (graph_views/) is not reused (FU-19).

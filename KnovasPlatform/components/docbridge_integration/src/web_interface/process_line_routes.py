@@ -9,6 +9,11 @@ blueprint (brain_views_routes.py), behind its switch and gate.
 - **What is drawn** goes through ``brain_views.limit.bounded``: the thing (its head) and the steps of the main path,
   at most 25. With more steps, the drawn ones are a window that holds the current step, and the rest is a count that
   opens the whole main path as a list (``?ansicht=schritte``).
+- **What is still missing** (PMVP-32b): the card «Jetzt» lists what the current step needs over one hop: each thing
+  the thing has of it (a link to its dossier), and «fehlt noch» for a required entry with too few.
+- ``GET /ablauf/<node_id>/alle`` (PMVP-32b): the other things in the same process, by name, filterable, 50 a page
+  (``brain_views.lists``), each a link to its own line; the line's «Alle N Einträge in diesem Ablauf» opens it, with
+  its count as ``data-bv-more`` (N - 1, the others).
 
 Every address is built here with url_for. The route logs no name or fact; only the type of a failed read.
 """
@@ -22,7 +27,8 @@ from typing import Any, Callable, Dict, List, Mapping, Optional
 from flask import Blueprint, abort, render_template, request, url_for
 
 from brain_views.limit import bounded, more_text
-from brain_views.process_line import REWORKS_TO, Line, NotFound, Unavailable, read_line
+from brain_views.lists import listing
+from brain_views.process_line import REWORKS_TO, Line, NotFound, Unavailable, read_instances, read_line
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +68,25 @@ def attach_process_line_routes(bp: Blueprint, *, refuse_unless_open: Callable[[]
             return render_template("ablauf.html", **dict(page_context()), line=None), 502
         return render_template("ablauf.html", **dict(page_context()), **_page(line, request.args))
 
+    @bp.route("/ablauf/<node_id>/alle")
+    def ablauf_alle(node_id: str):
+        refuse_unless_open()
+        try:
+            found = read_instances(client(), node_id)
+        except NotFound:
+            abort(404)
+        except Unavailable as exc:
+            logger.warning("Process line: a read for the instances failed (%s)", exc)
+            return render_template("ablauf_alle.html", **dict(page_context()), found=None), 502
+        page: Dict[str, Any] = {"found": found, "line_href": url_for("brain_views.ablauf", node_id=node_id)}
+        if found.in_process:
+            rows = listing(found.others, request.args, keep={}, name=lambda pair: pair[1],
+                           href=lambda **query: url_for("brain_views.ablauf_alle", node_id=node_id, **query))
+            rows["rows"] = [{"name": name, "href": url_for("brain_views.ablauf", node_id=other)}
+                            for other, name in rows["page"].items]
+            page["listing"] = rows
+        return render_template("ablauf_alle.html", **dict(page_context()), **page)
+
 
 def _page(line: Line, args: Mapping[str, Any]) -> Dict[str, Any]:
     here = {"node_id": line.node_id}
@@ -90,5 +115,11 @@ def _page(line: Line, args: Mapping[str, Any]) -> Dict[str, Any]:
         if args.get("ansicht") == VIEW_STEPS else None,
         "since": german_date(line.since) if line.since else None,
         "ways": [{"name": way.step.name, "back": way.relation == REWORKS_TO} for way in line.ways],
+        "requirements": [{"type": r.type, "required": r.required, "missing": r.missing, "min_count": r.min_count,
+                          "count": len(r.present),
+                          "present": [{"name": name, "href": url_for("brain_views.dossier", node_id=other)}
+                                      for other, name in r.present]} for r in line.requirements],
+        "others": line.instances - 1,
+        "all_href": url_for("brain_views.ablauf_alle", **here),
     })
     return page

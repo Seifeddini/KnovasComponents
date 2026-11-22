@@ -202,7 +202,7 @@ def test_thirteen_steps_wrap_into_two_even_rows(install, member_client):
     _, html = _line(member_client)
     rows = re.findall(r'<ol class="bv-line" start="\d+">(.*?)</ol>', html, re.S)
     assert [len(re.findall(r"data-bv-node", row)) for row in rows] == [7, 6]
-    assert "data-bv-more" not in html
+    assert "ansicht=schritte" not in html                        # no step left out (PMVP-32b's «Alle N» has its own count)
 
 
 # --- 5: the dossier's card «Läuft gerade» ----------------------------------------------------------------------------------

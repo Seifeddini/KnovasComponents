@@ -7,7 +7,9 @@
    ways from the current step) and every address, built there with url_for. Without a line the page is one message.
    Nothing here makes an address out of what the Brain says, and nothing is marked safe. Built from the page parts;
    brain_views.css holds the line, with tokens only. The marks of PMVP-34: data-bv-node on what is drawn (the thing,
-   each step), data-bv-row on each row of a list, data-bv-more on the count that opens the rest. #}
+   each step), data-bv-row on each row of a list, data-bv-more on the count that opens the rest. PMVP-32b:
+   `requirements` (what the current step needs over one hop: the things the thing has of it, each a link to its
+   dossier, and whether it is missing), `others` and `all_href` (the other things in this process, a list). #}
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -62,6 +64,27 @@
                 <h2 class="bv-now-title">Jetzt: {{ line.current.name }}</h2>
                 {% if since or line.who %}<span class="k-muted k-small">{% if since %}seit {{ since }}{% endif %}{% if since and line.who %} · {% endif %}{% if line.who %}{{ line.who }}{% endif %}</span>{% endif %}
             </div>
+            {% if requirements %}
+            <div class="bv-checks bv-list">
+                {% for need in requirements %}
+                {% for thing in need.present %}
+                {% call parts.rowline() %}
+                <span class="bv-check" data-bv-row><span class="bv-check-mark bv-check-mark--ok" aria-hidden="true">✓</span>{{ parts.link(thing.name, thing.href, dotted=True) }}</span>
+                <span class="k-muted k-small">{{ need.type }}</span>
+                {% endcall %}
+                {% endfor %}
+                {% if need.missing %}
+                {% call parts.rowline() %}
+                <span class="bv-check bv-check--missing" data-bv-row><span class="bv-check-mark" aria-hidden="true"></span>{{ need.type }}{% if need.min_count > 1 %} <span class="k-muted k-small">({{ need.count }} von {{ need.min_count }})</span>{% endif %}</span>
+                {% if need.required %}{{ parts.tag("fehlt noch", kind="warn") }}{% else %}<span class="k-muted k-small">wahlweise</span>{% endif %}
+                {% endcall %}
+                {% endif %}
+                {% endfor %}
+            </div>
+            <p class="bv-checks-note k-muted k-small">Geprüft wird, was über eine Verbindung direkt an diesem Eintrag hängt; in welche Richtung die Verbindung zeigt, wird nicht geprüft.{% if line.more_requirements %} Weitere Voraussetzungen werden hier nicht geprüft.{% endif %}</p>
+            {% elif line.more_requirements %}
+            <p class="bv-checks-note k-muted k-small">Weitere Voraussetzungen werden hier nicht geprüft.</p>
+            {% endif %}
             {% if ways %}
             <details class="bv-ways">
                 <summary class="bv-ways-summary k-small">Andere Wege ({{ ways|length }})</summary>
@@ -79,8 +102,9 @@
 
             <div class="bv-after">
                 {% if line.next_step %}<p class="k-small"><span class="k-muted">Danach:</span> {{ line.next_step.name }}</p>{% else %}<p></p>{% endif %}
-                <p class="k-small">{{ parts.link("Zum Dossier", dossier_href) }}</p>
+                {% if others > 0 %}<p class="k-small"><a class="k-link" data-bv-more="{{ others }}" href="{{ all_href }}">Alle {{ line.instances }} Einträge in diesem Ablauf →</a></p>{% endif %}
             </div>
+            <p class="k-small">{{ parts.link("Zum Dossier", dossier_href) }}</p>
 
             {% if all_steps %}
             {% call parts.section("Alle Schritte des Hauptwegs") %}
