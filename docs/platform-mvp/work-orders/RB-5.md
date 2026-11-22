@@ -578,6 +578,36 @@ Freigaben summary.
 - Cost: an adopt holds every role's row while it reads the Core (other role changes wait up to that long); a data
   change holds one role's row while it writes (an adopt or a change of that role waits).
 
+**Merge of RB-FIX-1** (coordinator, 2026-11-22; `origin/feat/platform-mvp` at `d655226f`, merged in `68da849f`):
+
+- Conflicts resolved keeping both sides. `roles.py`: RB-FIX-1's `CLAIM_GROUP_ROWS` (the claim's rows for the readers
+  of many people) and its NUL refusal in `clean_name` stay; RB-5's `active_claim_groups` now reads `CLAIM_GROUP_ROWS`, so
+  the claim's rule has one SQL definition (its own test still holds it to `claim_groups`); `RoleStore.share` stays. The
+  move's role names already drop control characters (NUL included) before `create_role`. `administration.md`: both
+  status rows and both work orders. RB-FIX-1's `knovas_client.py` logging comes in unchanged.
+- **Cards:** the admin card and `boundaries.yaml` take RB-FIX-1's split; RB-5's lines moved to
+  **L2-PLATFORM-ROLES** (`L2-platform-roles.card.yaml`) with `admin_role_data.py`: R-2 (was R-7 on my branch), the
+  seven routes and `execute_role_data` with their lines, the term «dry run», the hides line, the Core method, the
+  review entry, and uses of L2-PLATFORM-ADMIN (`run_guarded`, which this card's code now imports) and L2-BRAIN-BUILDER
+  (`builder.access.Tree`). They were never on the base, so they carry no aliases. L2-PLATFORM-ACCESS's
+  `execute_acl_change` now uses L2-PLATFORM-ROLES's `execute_role_data` (expecting its P-1). The admin card holds
+  nothing of RB-5 and is within its budget.
+- **Open (for the coordinator):** map-check reports **L2-PLATFORM-ROLES over budget, 33,953 tokens against 16,000**
+  (card 13,877, code 19,934: `admin_roles.py`, its page and `admin_role_data.py`). A card of its own for a role's data
+  would hold about 18,000 (the module alone is about 10,000) and still be over unless the module is cut down or split
+  (the planning, which needs no Flask, could leave the routes' module). Not split here: the order was "the Rollen card",
+  and a split is a decision of its own. Every other map-check line in scope is as before: problems 0, declared 0,
+  compatible 7 (`need_added`: the seven routes' N-1), complete 6 `no_contract` (the five known ones and RB-FIX-1's
+  `attach_role_routes`), touched without a card `src/identity`.
+- **Checks after the merge** (one process per file, own database):
+  the nine frozen files 497 passed, 0 skipped (PMVP-03 29, PMVP-10 33, PMVP-11 40, PMVP-20 88, PMVP-21 13, RB-1/2 66,
+  RB-3/4 106, **RB-5 95**, RB-6/7 27); `tests/test_web_admin_*.py` (11 files) 835 passed (gates 331, own 25, RB-FIX-1's
+  input checks 19); `tests/test_identity_*.py` (21 files) 334 passed, 1 failed, 1 skipped (the failure is
+  `test_identity_broker_key.py::test_private_key_is_created_readable_only_by_its_owner`, in the baseline; the skip is
+  POSIX mode bits on Windows); `tests/test_shell_*.py` (8 files) 403 passed; `tests/test_knovas_client_*.py` (6 files)
+  287 passed. Frozen check: all nine OK. `card check` 20 cards valid, 0 errors, 0 warnings; `card render --check` 0 not
+  current.
+
 **Open, for the coordinator and the verifier:**
 
 1. **Founder to check (decision 2):** with the bypass on (the default) an administrator changes a role's data alone,
@@ -592,7 +622,7 @@ Freigaben summary.
 4. **The real client puts a pointer in a query string** (`document_access(pointer)`, `documents(prefix=pointer)`), as
    the «Zugriff» pages do; urllib3 logs a request line with its query at DEBUG when its logger is at DEBUG (the app
    holds it quiet). Not RB-5's to change (`knovas_client.py`, FU-43).
-5. **The admin card** is 53,280 tokens against 16,000 (FU-44; RB-FIX-1 splits a card «Rollen»; R-7 and the seven
-   routes belong there).
+5. **The card's budget:** see "Merge of RB-FIX-1" above (L2-PLATFORM-ROLES 33,953 tokens; the admin card is within
+   its budget).
 6. Verifier: the frozen file takes about 9 minutes; run in a database of your own. A killed run leaves schemas behind
    (recreate the database).
