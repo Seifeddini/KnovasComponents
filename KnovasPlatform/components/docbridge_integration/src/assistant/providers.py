@@ -112,12 +112,15 @@ def chosen_provider(value: Any) -> Optional[str]:
 
 
 def make_anthropic_generate(*, api_key: Value, model: Value = DEFAULT_ANTHROPIC_MODEL,
-                            client_factory: Optional[ClientFactory] = None) -> GenerateFn:
+                            client_factory: Optional[ClientFactory] = None,
+                            time_left: Optional[Callable[[], float]] = None) -> GenerateFn:
     """``generate(*, system_instruction, messages, max_tokens) -> str`` through Claude.
 
     ``api_key`` and ``model`` are values or callables giving them; callables are asked on every call (the
     settings page's values, read through the Resolver). ``client_factory(api_key=..., timeout=...,
-    max_retries=...)`` builds the client; by default ``anthropic.Anthropic``. Tests pass a fake.
+    max_retries=...)`` builds the client; by default ``anthropic.Anthropic``. Tests pass a fake. ``time_left``
+    (PMVP-24): the seconds the answer's deadline leaves; the client then waits the smaller of
+    ``ANTHROPIC_TIMEOUT_SECONDS`` and that. Without it, ``ANTHROPIC_TIMEOUT_SECONDS``.
     """
 
     def generate(*, system_instruction: str, messages: List[Dict[str, str]], max_tokens: int) -> str:
@@ -146,8 +149,9 @@ def make_anthropic_generate(*, api_key: Value, model: Value = DEFAULT_ANTHROPIC_
         failure: Optional[CoreError] = None
         client: Any = None
         try:
-            client = factory(api_key=key, timeout=ANTHROPIC_TIMEOUT_SECONDS,
-                             max_retries=ANTHROPIC_MAX_RETRIES)
+            timeout = ANTHROPIC_TIMEOUT_SECONDS if time_left is None else max(
+                1.0, min(ANTHROPIC_TIMEOUT_SECONDS, float(time_left())))
+            client = factory(api_key=key, timeout=timeout, max_retries=ANTHROPIC_MAX_RETRIES)
             response = client.beta.messages.create(**request)
         except anthropic.AnthropicError as exc:
             failure = _mapped(exc, anthropic)

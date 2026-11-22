@@ -141,6 +141,38 @@
 }
 .ask-again-input:focus { outline: none; }
 
+/* --- the waiting line under a box (PMVP-24) ---------------------------------- */
+/* An empty status line until a question is sent; ask.js then writes one of its three texts into it. While the
+   question is on its way a small dot before the text breathes quietly (the text itself keeps its contrast); with
+   reduced motion the dot stands still. */
+.ask-wait {
+    margin: var(--k-space-xs) 0 0;
+    font-size: var(--k-text-sm);
+    line-height: var(--k-leading-normal);
+    color: var(--k-color-text-muted);
+}
+.ask-wait:empty { margin: 0; }
+.ask-wait[data-wait-step="3"] { color: var(--k-color-text); }
+.ask-wait[data-wait-step="1"]::before,
+.ask-wait[data-wait-step="2"]::before {
+    content: "";
+    display: inline-block;
+    width: var(--k-space-2xs);
+    height: var(--k-space-2xs);
+    margin-right: var(--k-space-xs);
+    border-radius: var(--k-radius-full);
+    background: var(--k-color-accent);
+    vertical-align: middle;
+    animation: ask-wait-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ask-wait-pulse {
+    50% { opacity: 0.3; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ask-wait[data-wait-step="1"]::before,
+    .ask-wait[data-wait-step="2"]::before { animation: none; }
+}
+
 /* --- deleting a chat: a quiet button under the box -------------------------- */
 .ask-delete { margin-top: var(--k-space-sm); text-align: right; }
 .ask-delete-button {

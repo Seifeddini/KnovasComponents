@@ -102,9 +102,9 @@ operations:
   entrance: call
   ref: KnovasPlatform/components/docbridge_integration/src/web_interface/assistant_routes.py#install_assistant
 - id: call.assistant.core.make_service
-  name: 'make_service(settings, api_client, split, user_key) - the assistant as the settings say now: OFF while it is
-    switched off, else the service with the provider the customer chose (the assistant''s routes, PMVP-22a, build it per
-    request)'
+  name: 'make_service(settings, api_client, split, user_key, deadline) - the assistant as the settings say now: OFF
+    while it is switched off, else the service with the provider the customer chose (the assistant''s routes, PMVP-22a,
+    build it per request, with the answer''s deadline the route started, PMVP-24)'
   entrance: call
   ref: KnovasPlatform/components/docbridge_integration/src/assistant/core.py#make_service
 - id: call.assistant.providers.connection_test
@@ -301,6 +301,30 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_providers.py
         checks:
         - test_the_service_says_busy_or_failed_and_nothing_else
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_waiting_deadline.py
+        checks:
+        - test_a_search_that_always_times_out_is_busy_within_the_deadline
+        - test_a_retry_is_made_only_with_time_left_for_it
+        - test_with_no_time_left_nothing_is_sent
+        - test_a_search_of_125_seconds_leaves_no_time_to_generate
+        - test_after_a_search_of_10_seconds_the_core_waits_120_and_claude_60
+        - test_the_generations_timeout_is_never_more_than_the_time_left
+        - test_the_generation_is_not_started_with_less_than_30_seconds_left
+        - test_a_core_generation_that_times_out_is_busy
+        - test_a_claude_generation_that_times_out_is_busy
+        - test_the_cores_generation_429_and_503_are_busy_at_once
+        - test_the_cores_search_429_and_503_are_busy_at_once
+        - test_claudes_429_and_529_are_busy_at_once
+        - test_the_search_pages_own_search_still_tries_three_times_with_its_read_timeout
+        - test_the_deadlines_log_lines_hold_durations_and_step_names_only
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_waiting_pages.py
+        checks:
+        - test_the_service_is_built_with_a_deadline_that_starts_with_the_request
+        - test_both_boxes_have_the_status_line_with_its_two_times
+        - test_the_script_disables_the_button_resets_on_pageshow_and_reads_the_two_times
+        - test_in_the_browser_the_line_follows_the_question_and_a_second_click_sends_nothing
     - id: L2-PLATFORM-ASSISTANT/*/P-7
       statement: The provider's API key (assistant.anthropic_api_key) is kept sealed by the settings registry and is in no
         log line, exception, page, response or audit entry (the audit says geändert); without a key no client is built,
@@ -483,6 +507,13 @@ contract:
         - test_busy_and_failed_show_the_plain_message_and_nothing_else
         - test_a_question_over_the_limit_is_refused_before_the_service
         - test_the_real_service_is_wired_and_fails_closed_without_the_secured_api
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_waiting_pages.py
+        checks:
+        - test_a_new_question_whose_generation_times_out_is_busy_and_stores_nothing
+        - test_a_follow_up_whose_generation_times_out_is_busy_and_stores_nothing
+        - test_the_expired_form_stays_a_400
+        - test_no_customer_text_in_the_logs_of_a_busy_answer
     - id: L2-PLATFORM-ASSISTANT/http.POST.fragen/P-4
       statement: 'Question, statement, quote and title reach the page as plain text, escaped: no Markdown, no HTML, no
         link from the model (FU-11); a title or a quote is a run of its own direction, so a right-to-left mark in it
@@ -581,6 +612,17 @@ contract:
         - test_a_stored_answer_reads_back_as_the_reply_it_was
         - test_a_stored_answer_that_does_not_parse_is_one_plain_paragraph
         - test_only_the_stored_shape_is_read_as_an_answer
+    - id: L2-PLATFORM-ASSISTANT/http.GET.fragen._chat_id/P-3
+      statement: 'POST-06 for a chat (PMVP-24): a chat that cannot be read now (the database is down) answers a plain
+        page, «Das Gespräch kann gerade nicht geladen werden. Bitte versuchen Sie es in einem Moment noch einmal.», with
+        status 503, never a 500 and no text of the error; nothing is asked, stored or deleted. The same holds for the
+        follow-up, the delete and the click route.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_waiting_pages.py
+        checks:
+        - test_a_chat_that_cannot_be_read_is_a_plain_503
     - id: L2-PLATFORM-ASSISTANT/http.GET.fragen._chat_id/P-2
       statement: 'POST-03 on every chat address: the chat is read and written as the signed-in person''s only;
         another person''s chat, a missing one and a malformed id give the same 404, before anything is asked or
@@ -911,7 +953,7 @@ review:
 - at: L2-PLATFORM-ASSISTANT/*/P-5
   why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here.
 - at: L2-PLATFORM-ASSISTANT/*/P-6
-  why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing; Claude's client waits 60 seconds and never retries (a 429 or 529 is busy at once), under nginx's 180. FU-08 (a 504 from nginx before the plain message) is PMVP-24's.
+  why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing; Claude's client never retries (a 429 or 529 is busy at once). PMVP-24 (FU-08) gives every answer one deadline under nginx's and gunicorn's 180 seconds; the search with its retries and the generation end within 150 seconds of the route's start (assistant/core.py, ANSWER_DEADLINE_SECONDS; the client's within_time bounds each attempt and allows a retry only with time left), the generation is not started with less than 30 seconds left, its timeout is at most the time left (the Core's 120, Claude's 60), and a timeout is busy; the boxes show a waiting line (ask.js) that gives up at 170 seconds. test_assistant_waiting_deadline.py and test_assistant_waiting_pages.py show it.
 - at: L2-PLATFORM-ASSISTANT/*/L-1
   why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The limits are the Core's; with anthropic the service keeps them all the same (PMVP-25 changes nothing of the service). The history is sent in whole pairs, the newest always (cut if it must, FU-07), weighed with a digit as three bytes (FU-06); test_assistant_chats_service.py shows both (PMVP-23).
 - at: L2-PLATFORM-ASSISTANT/R-4

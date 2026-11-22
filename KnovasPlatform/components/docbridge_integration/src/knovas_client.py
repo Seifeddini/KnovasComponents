@@ -103,6 +103,27 @@ def _code_or_none(value: Any) -> Optional[str]:
     return value if isinstance(value, str) and _SHORT_CODE.fullmatch(value) else None
 
 
+#: Inside ``KnovasAPIClient.within_time`` a retry is made only when at least this many seconds remain after its wait
+#: (PMVP-24): an attempt with less would only use up the answer's deadline.
+MIN_ATTEMPT_SECONDS = 5.0
+
+
+def _out_of_time(retry_state: Any) -> bool:
+    """tenacity's second stop for ``_make_request``: inside ``within_time``, no retry without ``MIN_ATTEMPT_SECONDS``
+    after its wait. Outside it (no bound on the thread) it never stops anything: three tries, as before."""
+    client = retry_state.args[0] if retry_state.args else None
+    left_of = getattr(client, "_time_left", None)
+    left = left_of() if callable(left_of) else None
+    return left is not None and left - float(retry_state.upcoming_sleep or 0.0) < MIN_ATTEMPT_SECONDS
+
+
+def _capped(timeout: Any, left: float) -> Any:
+    """``timeout`` (a number, a (connect, read) pair or None) no longer than ``left`` seconds."""
+    if isinstance(timeout, tuple):
+        return tuple(left if part is None else min(float(part), left) for part in timeout)
+    return left if timeout is None else min(float(timeout), left)
+
+
 def _transport_error(exc: requests.exceptions.RequestException, method: str,
                      endpoint: str) -> requests.exceptions.RequestException:
     """The same kind of error ``requests`` raised for no answer, saying only the route and the kind (RB-FIX-2).
@@ -1753,6 +1774,32 @@ class KnovasAPIClient:
             local.user = previous
 
     @contextlib.contextmanager
+    def within_time(self, time_left):
+        """Every request in this block ends in time (PMVP-24, FU-08): ``time_left()`` gives the seconds that remain.
+
+        For the Knovas Assistent, whose search with its retries and generation together have a deadline under the
+        web server's (``assistant.core.ANSWER_DEADLINE_SECONDS``). Each request's timeout is the smaller of its own
+        and the time left; with no time left nothing is sent and the request times out at once
+        (``requests.exceptions.ReadTimeout``). ``_make_request`` (the search) retries only when, after its wait, at
+        least ``MIN_ATTEMPT_SECONDS`` remain. Per thread, like ``keeping_snippets``. Off by default: outside the
+        block a request waits ``http_read_timeout`` and a search tries three times, exactly as before.
+        """
+        local = getattr(self, "_time_local", None)
+        if local is None:
+            local = self._time_local = threading.local()
+        previous = getattr(local, "left", None)
+        local.left = time_left
+        try:
+            yield
+        finally:
+            local.left = previous
+
+    def _time_left(self) -> Optional[float]:
+        """The seconds ``within_time`` leaves this thread, or None outside it."""
+        left = getattr(getattr(self, "_time_local", None), "left", None)
+        return None if left is None else float(left())
+
+    @contextlib.contextmanager
     def keeping_snippets(self):
         """Searches in this block keep each hit's passage text in its row as ``"snippet"``.
 
@@ -1870,7 +1917,8 @@ class KnovasAPIClient:
         self._last_request_time = time.time()
     
     @retry(
-        stop=stop_after_attempt(3),
+        # PMVP-24: inside within_time a retry also needs MIN_ATTEMPT_SECONDS left after its wait.
+        stop=(stop_after_attempt(3) | _out_of_time),
         wait=wait_exponential(multiplier=2, min=1, max=30),
         retry=retry_if_exception_type(_RETRYABLE_REQUEST_EXCEPTIONS)
     )
@@ -2014,6 +2062,11 @@ class KnovasAPIClient:
         TLS failure) never carries the URL -- the path's ids and the query string -- into a caller's log line or a
         route's traceback. ``endpoint`` is the path the route's name is read from.
         """
+        left = self._time_left()
+        if left is not None:  # within_time (PMVP-24): no longer than the time left, and nothing sent without any
+            if left <= 0:
+                raise _transport_error(requests.exceptions.ReadTimeout("no time left"), method, endpoint)
+            kwargs["timeout"] = _capped(kwargs.get("timeout"), left)
         try:
             return self._session.request(method=method, **kwargs)
         except requests.exceptions.RequestException as exc:

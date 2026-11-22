@@ -11,9 +11,69 @@
    A chat's page (PMVP-23): "Gespraech loeschen" asks first, with the form's own data-confirm text; without this
    script the form deletes at once.
 
+   The waiting line (PMVP-24), for the search page's box (Fragen) and every box of the ask page: when a question is
+   sent, the button is disabled, the box keeps the question and the status line under it says the first text; after
+   data-wait-slow-ms (20 s) the second; after data-wait-giveup-ms (170 s, past the server's deadline of 150 s) the
+   third, and the button works again. A second Enter or click while waiting sends nothing. On pageshow (back and
+   forward) the box is reset. The line's texts are the three fixed ones below, set as text; nothing else is written.
+
    No markup is written from text: only attributes, classes and the hidden property change. */
 (function () {
     'use strict';
+
+    // --- the waiting line ----------------------------------------------------------------------------------
+    var WAIT_TEXTS = [
+        '',
+        'Der Knovas Assistent sucht in Ihren Quellen und pr\u00fcft die Antwort \u2026',
+        'Das dauert l\u00e4nger als sonst. Die Antwort kommt, sobald sie gepr\u00fcft ist.',
+        'Keine Antwort erhalten. Bitte versuchen Sie es noch einmal.'
+    ];
+    var SLOW_MS = 20000;
+    var GIVE_UP_MS = 170000;
+
+    // The waiting of one box: its status line is inside the form (the search page) or right after it (the ask page).
+    var waiting = function (form, button) {
+        var line = form.querySelector('.ask-wait');
+        var next = form.nextElementSibling;
+        if (!line && next && next.classList.contains('ask-wait')) line = next;
+        var timers = [];
+        var sending = false;
+        var after = function (name, fallback) {
+            var ms = line ? parseInt(line.getAttribute(name), 10) : NaN;
+            return ms > 0 ? ms : fallback;
+        };
+        var say = function (step) {
+            if (!line) return;
+            line.textContent = WAIT_TEXTS[step];
+            line.setAttribute('data-wait-step', String(step));
+        };
+        var stop = function () {
+            timers.forEach(clearTimeout);
+            timers = [];
+        };
+        var reset = function () {
+            stop();
+            sending = false;
+            if (button) button.disabled = false;
+            say(0);
+        };
+        window.addEventListener('pageshow', reset);
+        return {
+            sending: function () { return sending; },
+            start: function () {
+                stop();
+                sending = true;
+                if (button) button.disabled = true;
+                say(1);
+                timers.push(setTimeout(function () { say(2); }, after('data-wait-slow-ms', SLOW_MS)));
+                timers.push(setTimeout(function () {
+                    say(3);
+                    sending = false;
+                    if (button) button.disabled = false;
+                }, after('data-wait-giveup-ms', GIVE_UP_MS)));
+            }
+        };
+    };
 
     // --- the switch in the box -------------------------------------------------------------------------------
     var form = document.getElementById('askForm');
@@ -62,14 +122,27 @@
                 event.stopPropagation();
             }
         }, true);
+        var boxWait = waiting(form, askButton);
         form.addEventListener('submit', function (event) {
-            if (mode() !== 'fragen' || !input.value.trim()) {
+            if (mode() !== 'fragen' || !input.value.trim() || boxWait.sending()) {
                 event.preventDefault();
                 return;
             }
-            askButton.disabled = true;
+            boxWait.start();
         });
     }
+
+    // --- the boxes of the ask page: a new question or a follow-up ------------------------------------------
+    Array.prototype.forEach.call(document.querySelectorAll('form.ask-again'), function (again) {
+        var againWait = waiting(again, again.querySelector('button[type="submit"]'));
+        again.addEventListener('submit', function (event) {
+            if (againWait.sending()) {
+                event.preventDefault();
+                return;
+            }
+            againWait.start();
+        });
+    });
 
     // --- the references on the ask page --------------------------------------------------------------------
     var chips = document.querySelectorAll('.ask-statement [aria-controls]');
