@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zugriff · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
+</head>
+<body class="admin-page">
+<div class="app-shell">
+{% set admin_tab = 'access' %}
+{% include '_sidebar.html' %}
+<div class="app-content">
+{% import "_parts.html" as parts %}
+{# PMVP-41 (FEAT-2026-11-19-platform-mvp § 4 A-05; work order docs/platform-mvp/work-orders/PMVP-41.md; mock-up
+   docs/platform-mvp/reference-screens/05-zugriff.html, the card «Prüfen»), in the look of PMVP-40: one column of the
+   shared parts. Three questions about a person, a role or an agent (X), each a form of its own: may X read this
+   document, what does a search find as X, what does X read. The answer stands above them (a POST draws the page
+   again at the top, so it is seen first) and says whether it is computed
+   («wirkt mit «Ein»») or Knovas's own. Names only, never passage text; every name, prefix and pointer is escaped;
+   every action comes from url_for; the pointer and the query travel in form fields only. #}
+{% set nothing_words = {
+    "deaktiviert": "Die Person ist deaktiviert. Die Plattform stellt für sie keinen Ausweis aus: Knovas zeigt ihr nichts, auch nichts Offenes.",
+    "widerrufen": "Dieser Agent ist widerrufen. Die Plattform stellt für ihn keinen Ausweis aus: Knovas zeigt ihm nichts, auch nichts Offenes.",
+    "person-inaktiv": "Die Person, für die dieser Agent handelt, ist nicht aktiv. Die Plattform stellt keinen Ausweis aus: Knovas zeigt nichts, auch nichts Offenes.",
+    "zu-viele-gruppen": "Der Ausweis trüge mehr als 32 Gruppen. Die Plattform stellt ihn nicht aus: Knovas zeigt nichts, auch nichts Offenes.",
+} %}
+{% macro who(prefix) -%}
+<label for="{{ prefix }}-wer">Wer
+    <select id="{{ prefix }}-wer" name="wer" required>
+        <option value="">Bitte wählen</option>
+        <optgroup label="Personen">
+        {%- for p in people %}
+            <option value="person:{{ p.id }}"{% if chosen.wer == 'person:' ~ p.id %} selected{% endif %}>{{ p.name }}{% if not p.active %} (deaktiviert){% endif %}</option>
+        {%- endfor %}
+        </optgroup>
+        <optgroup label="Rollen">
+        {%- for r in roles %}
+            <option value="role:{{ r.id }}"{% if chosen.wer == 'role:' ~ r.id %} selected{% endif %}>Rolle {{ r.name }}</option>
+        {%- endfor %}
+        </optgroup>
+        <optgroup label="Agenten">
+        {%- for a in agents %}
+            <option value="agent:{{ a.id }}"{% if chosen.wer == 'agent:' ~ a.id %} selected{% endif %}>{{ a.name }}</option>
+        {%- endfor %}
+        </optgroup>
+    </select>
+</label>
+<label for="{{ prefix }}-fuer">Für (nur beim Knovas Assistenten)
+    <select id="{{ prefix }}-fuer" name="fuer">
+        <option value="">niemanden</option>
+        {%- for p in people if p.active %}
+        <option value="{{ p.id }}"{% if chosen.fuer == p.id %} selected{% endif %}>{{ p.name }}</option>
+        {%- endfor %}
+    </select>
+</label>
+{%- endmacro %}
+
+<main class="admin admin-column">
+{% call parts.page(wide=True) %}
+    {{ parts.page_head("Zugriff", lede="Wer darf was lesen? Prüfen Sie es für eine Person, eine Rolle oder einen Agenten. Sie sehen dabei nur Namen von Dokumenten, nie ihren Inhalt; jede Prüfung wird protokolliert.") }}
+
+    {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
+
+    {% if answer %}
+    {% set x = answer.name %}
+    <div class="what-sees" data-what-sees="{{ answer.wer }}" data-effect="{{ answer.effect }}">
+    {% if answer.question == 'document' %}{% set heading = "Darf " ~ x ~ " das Dokument lesen?" %}
+    {% elif answer.question == 'search' %}{% set heading = "Was findet " ~ x ~ "?" %}
+    {% else %}{% set heading = "Was liest " ~ x ~ "?" %}{% endif %}
+    {% call parts.section(heading) %}
+        {% call parts.card() %}
+        {% if answer.effect == 'vorschau' %}
+        <p class="k-small k-muted what-sees-note">Berechnet aus den Gruppen, Ordnerregeln und Rechten bei Knovas: Das
+            wirkt mit «Ein». Solange Knovas auf «Aus» steht, liest jede Person alles.</p>
+        {% endif %}
+        {% if answer.nothing %}
+        <p class="what-sees-nothing" data-reads-nothing="{{ answer.nothing }}">{{ nothing_words[answer.nothing] }}</p>
+        {% endif %}
+
+        {% if answer.question == 'document' %}
+        <p class="what-sees-pointer"><span class="k-muted">Dokument:</span> <code>{{ answer.pointer }}</code></p>
+        <p class="what-sees-answer what-sees-answer--{{ answer.answer }}" data-answer="{{ answer.answer }}" data-source="{{ answer.source }}">
+            <strong>{{ "Ja." if answer.answer == 'ja' else "Nein." }}</strong>
+            {% if answer.source == 'knovas' %}Das ist die Antwort von Knovas, gefragt als {{ x }}.
+            {% elif answer.effect == 'ein' and answer.kind == 'role' %}Berechnet: Eine Rolle hat keinen eigenen Ausweis, Knovas wird für sie nicht gefragt.{% endif %}
+        </p>
+        {% if not answer.nothing %}
+        <p class="what-sees-reason">
+            {% if answer.rule %}Das Dokument liegt im Ordner <code class="what-sees-ptr" data-reason-rule="{{ answer.rule.id }}">{{ answer.rule.prefix }}</code>; dessen Regel lässt es lesen:
+            {% elif answer.groups %}Das Dokument hat eigene Rechte; sie lassen es lesen:
+            {% else %}Das Dokument ist offen: Es hat keine eigenen Rechte und keine Ordnerregel mit einer Gruppe. Jede Person liest es.{% endif %}
+            {% for g in answer.groups %}<span class="what-sees-group" data-reason-group="{{ g.id }}">{{ g.name }}</span>{{ ", " if not loop.last }}{% endfor %}{% if answer.groups %}, und wer über einer dieser Gruppen steht.{% endif %}
+        </p>
+        {% if answer.groups %}
+        <p class="what-sees-reason">{% if answer.via %}Berechnet liest {{ x }} es über: {{ answer.via|join(", ") }}.{% else %}Berechnet liest {{ x }} es nicht: Keine Gruppe von {{ x }} ist eine davon oder steht über einer.{% endif %}</p>
+        {% endif %}
+        {% if answer.source == 'knovas' and answer.computed != answer.answer %}
+        <p class="k-small what-sees-differs">Die Berechnung sagt «{{ "Ja" if answer.computed == 'ja' else "Nein" }}». Es zählt die Antwort von Knovas.</p>
+        {% endif %}
+        {% endif %}
+
+        {% elif answer.question == 'search' %}
+        {% if not answer.nothing %}
+        <p class="k-small what-sees-search-note">
+            {% if answer.effect == 'ein' %}Die Treffer, die Knovas {{ x }} zeigt, nur mit ihren Namen.
+            {% else %}Gesucht als {{ x }}. Heute findet die Suche alles; die Marke sagt, ob {{ x }} das Dokument mit «Ein» lesen würde.{% endif %}
+            {% if answer.total > answer.hits|length %} Knovas nennt {{ answer.total }} Treffer; hier stehen die ersten {{ answer.hits|length }}.{% endif %}
+        </p>
+        {% if answer.hits %}
+        <ol class="what-sees-rows">
+            {% for hit in answer.hits %}
+            <li class="what-sees-row" data-hit="{{ hit.pointer }}"{% if hit.would %} data-would="{{ hit.would }}"{% endif %}>
+                <span class="what-sees-text">
+                    <span class="what-sees-title">{{ hit.title }}</span>
+                    <span class="what-sees-ptr">{{ hit.pointer }}</span>
+                </span>
+                {% if answer.effect != 'ein' %}
+                {% if hit.would == 'ja' %}{{ parts.tag("würde lesen") }}{% elif hit.would == 'nein' %}{{ parts.tag("würde nicht lesen", "bad") }}{% else %}{{ parts.tag("unbekannt", "warn") }}{% endif %}
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ol>
+        {% else %}
+        <p class="k-muted">Keine Treffer.</p>
+        {% endif %}
+        {% endif %}
+
+        {% else %}
+        {% if not answer.nothing %}
+        {% if answer.rows %}
+        <ul class="what-sees-rows">
+            {% for row in answer.rows %}
+            <li class="what-sees-row" data-reads="{{ row.key }}">
+                <span class="what-sees-text">
+                    {% if row.kind == 'folder' %}
+                    <span class="what-sees-title">Ordner <code>{{ row.text }}</code></span>
+                    {% else %}
+                    <span class="what-sees-title">{{ row.title or row.text.rsplit('/', 1)[-1] }}</span>
+                    <span class="what-sees-ptr">{{ row.text }}</span>
+                    {% endif %}
+                </span>
+                <span class="k-small k-muted what-sees-groups">{% for g in row.groups %}{{ g.name }}{{ ", " if not loop.last }}{% endfor %}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% elif answer.page == 1 %}
+        <p>{{ x }} liest nichts Gesperrtes: Keine Ordnerregel und kein Dokument mit eigenen Rechten nennt eine Gruppe von {{ x }} oder eine darunter.</p>
+        {% endif %}
+        {% if answer.pages > 1 %}
+        <p class="k-small k-muted">Einträge {{ answer.first }} bis {{ answer.last }} von {{ answer.total }}.</p>
+        {% endif %}
+        <div class="what-sees-pages">
+            {% if answer.previous %}
+            <form method="post" class="inline" action="{{ url_for('admin.access_reach') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="wer" value="{{ answer.wer }}">
+                <input type="hidden" name="fuer" value="{{ answer.fuer or '' }}">
+                <input type="hidden" name="seite" value="{{ answer.previous }}">
+                <button type="submit" class="btn-outline">Zurück</button>
+            </form>
+            {% endif %}
+            {% if answer.more %}
+            <form method="post" class="inline" action="{{ url_for('admin.access_reach') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="wer" value="{{ answer.wer }}">
+                <input type="hidden" name="fuer" value="{{ answer.fuer or '' }}">
+                <input type="hidden" name="seite" value="{{ answer.next }}">
+                <button type="submit" class="btn-outline" data-more="{{ answer.more }}">{{ more_text(answer.more) }}</button>
+            </form>
+            {% endif %}
+        </div>
+        {% if answer.partial %}
+        <p class="k-small what-sees-partial">Die Liste ist vielleicht nicht vollständig: Zu einer Gruppe hat Knovas mehr
+            Dokumente, als hier auf einmal gelesen werden.</p>
+        {% endif %}
+        <p class="k-small k-muted">Dazu liest {{ x }} alles Offene: Dokumente ohne eigene Rechte in Ordnern ohne Regel
+            oder mit einer Regel ohne Gruppe. Ein Dokument, das eine Ordnerregel lesen lässt, steht hier mit seinem Ordner.</p>
+        {% endif %}
+        {% endif %}
+        {% endcall %}
+    {% endcall %}
+    </div>
+    {% endif %}
+
+    {% call parts.section("Prüfen") %}
+        {% call parts.card() %}
+        <div class="what-sees-asks">
+            <form class="access-form what-sees-ask" method="post" action="{{ url_for('admin.access_check') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <p class="what-sees-question">Darf … dieses Dokument lesen?</p>
+                {{ who("check") }}
+                <label for="check-pointer" class="what-sees-wide">Dokument (Pfad)
+                    <input type="text" id="check-pointer" name="pointer" maxlength="1024" required
+                           placeholder="z. B. Mandate/2026-0142/Nachtrag.pdf"
+                           value="{{ answer.pointer if answer and answer.question == 'document' else '' }}">
+                </label>
+                <button type="submit">Prüfen</button>
+            </form>
+            <form class="access-form what-sees-ask" method="post" action="{{ url_for('admin.access_search') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <p class="what-sees-question">Was findet … bei einer Suche?</p>
+                {{ who("search") }}
+                <label for="search-query" class="what-sees-wide">Suche
+                    <input type="text" id="search-query" name="query" maxlength="500" required
+                           value="{{ answer.query if answer and answer.question == 'search' else '' }}">
+                </label>
+                <button type="submit">Als … suchen</button>
+            </form>
+            <form class="access-form what-sees-ask" method="post" action="{{ url_for('admin.access_reach') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <p class="what-sees-question">Was liest …?</p>
+                {{ who("reach") }}
+                <button type="submit">Anzeigen</button>
+            </form>
+        </div>
+        {% endcall %}
+    {% endcall %}
+
+{% endcall %}
+</main>
+</div>
+</div>
+</body>
+</html>

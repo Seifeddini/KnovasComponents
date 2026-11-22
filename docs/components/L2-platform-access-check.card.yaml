@@ -1,0 +1,214 @@
+card: 2
+id: L2-PLATFORM-ACCESS-CHECK
+name: Zugriff prüfen
+kind: code
+owner: ROLE-ENGINE-OWNER
+level: 2
+parent: L1-WORKSPACE
+source_paths:
+- KnovasPlatform/components/docbridge_integration/src/web_interface/admin_access.py
+- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access.html
+purpose: The console's page «Zugriff» (A-05) - «Was sieht …?» - where an administrator asks what a person, a role, the
+  Knovas Assistent or an external agent reads, whether it may read one document, and what a search finds as it.
+responsible_for:
+- id: L2-PLATFORM-ACCESS-CHECK/R-1
+  statement: '«Was sieht …?» (PMVP-41): for a person, a role, the assistant (for a person) or an external agent, with the
+    groups its claim would carry (RB-2, RB-6), the folder rules and own-rights documents it reads (computed, at most 25
+    rows, the rest a paged list), yes or no for one document with the reason, and a search as it, names only. Computed
+    before «Ein»; once the client reports brokered, the yes or no and the search are the Core''s own, asked as it. Reads
+    per thing, writes nothing but one audit row by id.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_access.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access.html
+not_responsible_for:
+- The console's blueprint, its role gates and admin.css (L2-PLATFORM-ADMIN); the menu entry «Zugriff» (app.py, no card).
+- The readers of the Core's groups, folder rules and documents and the reader closure (L2-PLATFORM-ROLE-DATA, imported).
+- Who may read what; the Core decides, for the Platform's claims only under brokered (CR-R1, CR-R1a).
+terms:
+- 'X (the person, role or agent a question is about; its groups are those its signed claim would carry)'
+operations:
+- id: http.GET.access
+  name: 'GET /admin/access - Zugriff: the three questions; writes nothing, asks the Core nothing'
+  entrance: http
+  ref: GET /admin/access
+- id: http.POST.access.reach
+  name: 'POST /admin/access/reach - what X reads (wer, fuer, seite): folder rules and own-rights documents, 25 then pages of 50'
+  entrance: http
+  ref: POST /admin/access/reach
+- id: http.POST.access.check
+  name: 'POST /admin/access/check - may X read this document (wer, fuer, pointer): yes or no with the reason'
+  entrance: http
+  ref: POST /admin/access/check
+- id: http.POST.access.search
+  name: 'POST /admin/access/search - a search as X (wer, fuer, query): at most 25 hits, names only'
+  entrance: http
+  ref: POST /admin/access/search
+- id: call.web_interface.admin_access.attach_access_routes
+  name: 'attach_access_routes - mounts the page and its three questions on the console''s blueprint behind the gate it is given'
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/admin_access.py#attach_access_routes
+contract:
+  http.GET.access:
+    needs:
+    - id: L2-PLATFORM-ACCESS-CHECK/http.GET.access/N-1
+      statement: 'require_admin: signed out 302 to the sign-in, any other caller 403; nothing asked.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp41_what_sees_acceptance.py
+        checks:
+        - test_the_page_and_the_three_questions_admit_administrators_only
+        - test_signed_out_is_sent_to_the_sign_in_and_nothing_is_asked
+        - test_a_member_and_an_approver_are_refused_and_nothing_is_asked
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+    promises:
+    - id: L2-PLATFORM-ACCESS-CHECK/http.GET.access/P-1
+      statement: 'Offers every person, role and agent that is not revoked as wer, active people as fuer; writes nothing.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp41_what_sees_acceptance.py
+        checks:
+        - test_the_page_offers_people_roles_and_agents_and_writes_nothing
+        - test_the_menu_offers_zugriff_to_administrators_only
+  http.POST.access.reach:
+    needs:
+    - id: L2-PLATFORM-ACCESS-CHECK/http.POST.access.reach/N-1
+      statement: 'require_admin (302, 403), then csrf_token (400), then wer and fuer (400): nothing asked, no audit row.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp41_what_sees_acceptance.py
+        checks:
+        - test_a_member_and_an_approver_are_refused_and_nothing_is_asked
+        - test_each_question_checks_the_form_token
+        - test_an_unknown_or_malformed_subject_is_refused
+        - test_the_assistant_is_asked_about_for_a_person_only
+    promises:
+    - id: L2-PLATFORM-ACCESS-CHECK/http.POST.access.reach/P-1
+      statement: 'X''s claim groups (a person''s, a role''s group, an agent''s narrowed to its person; none for a revoked
+        agent, an inactive person or over 32 groups); each walled rule and own-rights document X reads, or one above;
+        at most 25 rows, the rest a count opening pages of 50; per-thing reads only; one audit row by id.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp41_what_sees_acceptance.py
+        checks:
+        - test_a_person_reads_through_direct_grants_roles_and_groups_above
+        - test_the_assistant_reads_its_roles_narrowed_to_the_person_and_never_a_direct_grant
+        - test_a_revoked_agent_a_deactivated_person_and_a_claim_over_32_groups_read_nothing
+        - test_at_most_25_rows_and_the_rest_is_a_count_that_opens_the_list
+        - test_no_question_reads_the_whole_tenant_or_writes
+        - test_every_answered_question_is_audited_by_id_without_customer_text
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_access_rules.py
+        checks:
+        - test_page_one_draws_at_most_25_and_the_rest_comes_in_pages_of_50
+        - test_a_walk_that_cannot_finish_keeps_what_it_read_and_says_so
+  http.POST.access.check:
+    needs:
+    - id: L2-PLATFORM-ACCESS-CHECK/http.POST.access.check/N-1
+      statement: 'As reach''s N-1; an empty or unknown document 400, no audit row.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp41_what_sees_acceptance.py
+        checks:
+        - test_each_question_checks_the_form_token
+        - test_an_unknown_or_empty_document_is_refused
+    promises:
+    - id: L2-PLATFORM-ACCESS-CHECK/http.POST.access.check/P-1
+      statement: 'Yes or no with its rule and groups. Computed (berechnet) unless the client reports brokered; then the
+        Core''s document_readable asked as the person or the agent''s principal (knovas), which counts; a role stays
+        computed.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp41_what_sees_acceptance.py
+        checks:
+        - test_before_ein_the_answer_is_computed_and_says_so
+        - test_open_documents_groups_above_and_rights_of_its_own
+        - test_under_ein_the_answer_is_knovas_own_asked_as_that_person
+        - test_under_ein_an_agent_is_asked_with_its_own_claim
+        - test_under_ein_a_role_has_no_principal_and_stays_computed
+        - test_any_posture_but_brokered_keeps_the_preview
+  http.POST.access.search:
+    needs:
+    - id: L2-PLATFORM-ACCESS-CHECK/http.POST.access.search/N-1
+      statement: 'As reach''s N-1; a role or an empty query 400, no audit row.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp41_what_sees_acceptance.py
+        checks:
+        - test_each_question_checks_the_form_token
+        - test_a_role_does_not_search_and_a_subject_that_reads_nothing_sends_nothing
+    promises:
+    - id: L2-PLATFORM-ACCESS-CHECK/http.POST.access.search/P-1
+      statement: 'The search inside asserting_for(X); at most 25 hits by title and pointer, never passage text; before
+        «Ein» each marked would-read from the document''s rights, after it as the Core returned them.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp41_what_sees_acceptance.py
+        checks:
+        - test_before_ein_the_search_runs_as_the_person_and_marks_each_hit
+        - test_under_ein_the_hits_are_knovas_answer_for_the_person
+        - test_the_assistant_searches_with_its_claim_for_the_person
+        - test_at_most_25_hits_are_shown
+        - test_no_customer_text_reaches_a_log_line
+  call.web_interface.admin_access.attach_access_routes:
+    promises:
+    - id: L2-PLATFORM-ACCESS-CHECK/call.web_interface.admin_access.attach_access_routes/P-1
+      statement: 'Every route it mounts carries the gate it is given and reads the form''s csrf_token first.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp41_what_sees_acceptance.py
+        checks:
+        - test_the_page_and_the_three_questions_admit_administrators_only
+        - test_each_question_checks_the_form_token
+uses:
+- component: L2-PLATFORM-ROLE-DATA
+  operations: []
+  expects: []
+  method: 'imported: RB-5''s readers (read_core, live_rules, governing, walk, own_rights, core_groups), Sight and
+    tenant_brokered, under their public names'
+  protocol: in-process call
+- component: L2-PLATFORM-BRAIN-VIEWS
+  operations: []
+  expects: []
+  method: 'imported: brain_views.limit (bounded, paged, page_number, more_text), the one 25-row cap (PMVP-34)'
+  protocol: in-process call
+- component: EXT-BRAIN-API
+  operations:
+  - access-routes
+  expects:
+  - EXT-BRAIN-API/access-routes/P-1
+  method: 'through the Platform''s own client (client_factory): groups, folder rules, documents by group or prefix, one
+    document''s access; and, as X (asserting_for), the search and document_readable; never a write'
+  protocol: HTTPS with mTLS
+hides:
+- The German words of the page (templates/admin_access.html).
+- How X's groups are read (identity.roles.claim_groups, identity.agents.AgentStore.claim_for) and how many pages of the
+  Core's list a question walks (RB-5's five pages of 200 a group).
+review:
+- at: /owner
+  why: Proposed owner, as for every card in this repository; one role per component is confirmed by a person (Software Map
+    K4).
+- at: /status
+  why: Live or planned is not read from the code; the console is on main and runs where the Platform runs.
+- at: /source_paths
+  why: 'A card of its own (PMVP-41, 2026-11-22), the way RB-5 split «Rollendaten»: with the page L2-PLATFORM-ACCESS would
+    be over the context budget. PMVP-42 adds the enforcement position and its switch to the same page. The lines are new:
+    no aliases. The parent L1-WORKSPACE (KnowledgeBase) does not list this card yet.'
+- at: /operations
+  why: The code reader shows the routes without the prefix /admin (the blueprint is passed in); the refs name the
+    served path.
+- at: /contract
+  why: 'Plan § 7 names Verwaltung only in SHELL POST-01, whose server half is each route''s N-1 here. The other lines come
+    from the work order PMVP-41.md (decisions of the founder, 2026-11-22: names only, every look audited) and its frozen
+    tests.'

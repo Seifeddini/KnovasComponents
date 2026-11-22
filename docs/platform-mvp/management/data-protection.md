@@ -1,6 +1,6 @@
 # Data protection in the Platform MVP
 
-State on 21 November 2026. Overview and status words: [README.md](README.md).
+State on 22 November 2026. Overview and status words: [README.md](README.md).
 
 ## What it is
 
@@ -129,6 +129,15 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 - **Logs and audit hold ids only:** an agent's id, counts, HTTP statuses and error classes; never a claim, an agent's
   or a person's name, a group id or a question.
 
+**«Was sieht …?»** (PMVP-41, built 22 Nov, not yet verified). On the page «Zugriff» an administrator sees what
+another person, a role or an agent reads: **the names and paths of documents and folders, never their content** - no
+passage, summary or excerpt, also from a search run as that person (founder, 22 November). She may so see the names
+of documents she cannot read herself. Each answered question writes one audit row with the administrator, the person,
+role or agent by id, the question and counts or the yes or no (and, for the assistant, the person it acts for, by id);
+never a path, a search, a name or a group. Its log lines hold ids, counts and error classes only. Until «Ein» the
+answers are computed from Knovas's rules and say so; after «Ein» the yes or no and the search are Knovas's own, asked as
+that person or agent. The page writes nothing to Knovas.
+
 **Demo tenant and Knovas GmbH tenant.**
 
 | | Demo law firm tenant | Knovas GmbH tenant (Client Zero) |
@@ -147,7 +156,7 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 | Second log sweep (FU-22, FU-31) | not started; waits for #55 | its web-server part is deployment: sensitive |
 | Key handling (PMVP-25) | built; no verification verdict yet | management (critical) |
 | Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | PMVP-42 drafted and reworked 22 Nov: one administrator switches after a confirmation, recorded by id; Knovas switches only when its own prerequisites hold (two green rights runs under `brokered` among them); PMVP-43 not started | management (critical); Siran (sensitive) |
-| «Was sieht …?» (PMVP-41): an administrator sees the names of the documents another person, a role or an agent reads, never passage text; every look audited by id | drafted 22 Nov; names only, every look audited (founder, 22 Nov) | Siran (sensitive) |
+| «Was sieht …?» (PMVP-41): an administrator sees the names of the documents another person, a role or an agent reads, never passage text; every look audited by id | built 22 Nov; no verification verdict yet; names only, every look audited (founder, 22 Nov) | Siran (sensitive) |
 | Roles: the move to roles, functions and groups read from roles, the 32-group cap (RB-1, RB-2) | built; no verification verdict yet | management (critical: a migration) |
 | Agents: one signed claim for every agent; external agents' claims handed to the Core behind a switch (RB-6, RB-7) | built; no verification verdict yet; acts with the Core's CR-R1, CR-R5, CR-R6 | management (critical: a migration, signing and claims) |
 | A role's data: folder rules and document rights written to Knovas after a dry run, four eyes, adopting a group, moving direct grants (RB-5) | verified (with notes); not yet integrated; hides nothing until CR-R1, CR-R2 and «Ein» | Siran (sensitive) |
@@ -162,6 +171,7 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 | 20 Nov | after the sweep's first verification | The log fingerprint is keyed with the installation's secret |
 | 21 Nov | founder | The customer chooses the provider; the pilot's passages may go to Anthropic |
 | 21 Nov | founder | The Platform signs agents' claims; external agents use only Knovas's gateway ("Core gateway only"); on client installations agents only after «Ein» |
+| 22 Nov | founder | «Was sieht …?» shows document names only, never content, and every look is audited (PMVP-41) |
 | 22 Nov | founder | A chat keeps its passages (owner only, deleted with it); chats are deleted automatically after 90 days, read by the coordinator as 90 days after the last message (PMVP-23) |
 
 ## Known limits and open points

@@ -1321,6 +1321,7 @@ def create_app(config_path: Optional[str] = None):
         ('people', 'Personen', 'admin.people', False),
         ('roles', 'Rollen', 'admin.roles', False),
         ('agents', 'Agenten', 'admin.agents', False),
+        ('access', 'Zugriff', 'admin.access', False),
         ('documents', 'Dokumente', 'admin.documents', False),
         ('access_groups', 'Zugriffsgruppen', 'admin.access_groups', False),
         ('doc_fields', 'Dokumentfelder', 'admin.doc_fields', True),

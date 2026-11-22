@@ -2291,3 +2291,73 @@
 
 /* The offer to move direct grants: the line of «Mit Knovas verbinden», above the row of roles. */
 .role-grants-offer { margin-top: var(--k-space-sm); }
+
+/* ── Zugriff: «Was sieht …?» (PMVP-41; mock-up 05-zugriff.html, the card «Prüfen») ─────────────────────────────
+   Three questions, each a form of its own in the one card (the grid of .access-form), a hairline between them; the
+   answer below in a card of its own: a row per folder rule or document X reads, a hit per search result, or yes or
+   no with the reason. Names and paths wrap anywhere, so nothing scrolls sideways at 390 px. Brand tokens only. */
+
+.what-sees-asks { display: grid; gap: var(--k-space-md); }
+.what-sees-ask + .what-sees-ask {
+    padding-top: var(--k-space-md);
+    border-top: 1px solid var(--k-gray-100);
+}
+.what-sees-question,
+.what-sees-ask > .what-sees-wide { grid-column: 1 / -1; }
+.what-sees-question {
+    margin: 0;
+    font-weight: var(--k-weight-semibold);
+    color: var(--k-color-text-strong);
+}
+.admin-page .admin .what-sees-ask select { min-width: 0; }
+
+.what-sees-note { margin: 0 0 var(--k-space-xs); }
+.what-sees-nothing,
+.what-sees-pointer,
+.what-sees-reason,
+.what-sees-differs,
+.what-sees-search-note,
+.what-sees-partial { margin: var(--k-space-xs) 0 0; overflow-wrap: anywhere; }
+.what-sees-nothing { color: var(--k-color-text-strong); }
+.what-sees-pointer { font-size: var(--k-text-sm); }
+.what-sees-pointer code, .what-sees-reason code { font-size: var(--k-text-xs); }
+.what-sees-answer { margin: var(--k-space-xs) 0 0; font-size: var(--k-text-base); }
+.what-sees-answer--ja > strong { color: var(--k-color-success-fg); }
+.what-sees-answer--nein > strong { color: var(--k-color-danger-fg); }
+.what-sees-group { font-weight: var(--k-weight-medium); color: var(--k-color-text-strong); }
+.what-sees-partial { color: var(--k-color-warning-fg); }
+
+.what-sees-rows { margin: 0; padding: 0; list-style: none; }
+.what-sees-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-space-2xs) var(--k-space-md);
+    padding: var(--k-space-xs) 0;
+    border-top: 1px solid var(--k-gray-100);
+}
+.what-sees-row:first-child { border-top: 0; }
+.what-sees-text {
+    display: grid;
+    flex: 1 1 14rem;
+    gap: var(--k-space-3xs);
+    min-width: 0;
+}
+.what-sees-title {
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+.what-sees-ptr {
+    min-width: 0;
+    font-family: var(--k-font-mono);
+    font-size: var(--k-text-xs);
+    color: var(--k-color-text-muted);
+    overflow-wrap: anywhere;
+}
+.what-sees-pointer code,
+.what-sees-title code { overflow-wrap: anywhere; }
+.what-sees-groups { overflow-wrap: anywhere; }
+.what-sees-pages { display: flex; flex-wrap: wrap; gap: var(--k-space-xs); margin-top: var(--k-space-xs); }
+.what-sees-pages:empty { display: none; }

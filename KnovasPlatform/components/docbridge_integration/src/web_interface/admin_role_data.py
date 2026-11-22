@@ -173,6 +173,11 @@ class Sight:
         return frozenset(u for u, held in self.people.items() if not groups or held & closure)
 
 
+#: Public names of the readers above, shared with «Was sieht …?» (PMVP-41, admin_access.py); nothing else changes.
+read_core, groups_of, live_rules, governing, core_groups, walk, own_rights, WalkUnfinished, PAGE_WALK = (
+    _read, _groups_of, _live_rules, _governing, _core_groups, _walk, _own_rights, _Unfinished, _PAGE_WALK)
+
+
 # -- the plan of a data change ----------------------------------------------------------------------------------------
 
 

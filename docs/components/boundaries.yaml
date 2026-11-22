@@ -241,6 +241,16 @@ components:
       written through the Brain's access routes; the Dokumente page with its fields drawer and the erasing of the
       corpus. Split from L2-PLATFORM-ADMIN by PMVP-40 (context budget); its routes hang on that card's blueprint and
       gate, and its guarded writes go through that card's run_guarded.
+  L2-PLATFORM-ACCESS-CHECK:
+    card: L2-platform-access-check.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_access.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access.html
+    why: >-
+      The page «Zugriff» (PMVP-41, «Was sieht …?»; PMVP-42 adds the enforcement position): what a person, a role or
+      an agent reads, one document yes or no, a search as it. A card of its own, the way RB-5 split «Rollendaten»:
+      with it L2-PLATFORM-ACCESS would be over the context budget. Its routes hang on the console's blueprint and gate;
+      it reads the Core through RB-5's readers (L2-PLATFORM-ROLE-DATA).
   EXT-BRAIN-API:
     card: EXT-brain-api.card.yaml
     paths: []

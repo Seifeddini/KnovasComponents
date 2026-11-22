@@ -37,7 +37,7 @@ not_responsible_for:
   only what the administrator may see.
 - The document fields' registry, packs and rules (admin_doc_fields.py, the Dokumentfelder page; no card yet), whose views
   the drawer reuses.
-- «Was sieht …?» and the enforcement posture; PMVP-41 and PMVP-42.
+- «Was sieht …?» and the enforcement posture, on the page «Zugriff» (L2-PLATFORM-ACCESS-CHECK; PMVP-41 and PMVP-42).
 terms:
 - access group (a group of readers at Knovas; a document or a folder rule names the groups that may read it, by id)
 - folder rule (a path prefix whose documents take the rule's access groups, at ingest and, for documents already there,

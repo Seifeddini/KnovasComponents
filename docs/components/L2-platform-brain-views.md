@@ -123,7 +123,9 @@ card_hash: sha256:a7f467170b91b04b
 
 *Generated from the other cards' uses; never written.*
 
-No other card names this one.
+| Component | Operations | Expects |
+|---|---|---|
+| `L2-PLATFORM-ACCESS-CHECK` |  |  |
 
 ## Hides
 

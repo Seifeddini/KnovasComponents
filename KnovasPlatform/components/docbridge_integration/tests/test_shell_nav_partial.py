@@ -27,6 +27,7 @@ ADMIN_TEMPLATES = {
     "admin_ingestion.html": "ingestion", "admin_system.html": "system", "admin_approvals.html": "approvals",
     "admin_roles.html": "roles",                                                     # RB-3
     "admin_agents.html": "agents",                                                   # RB-7
+    "admin_access.html": "access",                                                   # PMVP-41
 }
 HIDDEN_WORDS = ("Cortex", "Experimente", "Eigene Ansichten", "Einstellungen", "Feedback")
 ROLES = ("admin", "approver", "ingestion_manager", "member", "experimenter", "experiments_manager")

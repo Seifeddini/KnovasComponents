@@ -1,6 +1,6 @@
 # Administration (Verwaltung) and settings
 
-State on 21 November 2026. Overview and status words: [README.md](README.md).
+State on 22 November 2026. Overview and status words: [README.md](README.md).
 
 ## What it is
 
@@ -33,8 +33,12 @@ the new navigation and look and adds the assistant's and the views' settings.
   main action beside the title, roles in plain words, the group tree drawn as a tree, and marks only for exceptions
   (deactivated, locked, password change pending, a document that is not active).
 
-**Planned:** "Was sieht …?" (what does a given person see) moves here from the Builder (PMVP-41); the enforcement
-position is shown and switched with a second administrator (PMVP-42); the pilot's rights test set (PMVP-43).
+- **«Was sieht …?» on the new page «Zugriff» (PMVP-41, built 22 Nov, not yet verified):** what a person, a role, the
+  Knovas Assistent or an external agent reads; one document yes or no with the reason; a search as that person or
+  agent, names only. Section below.
+
+**Planned:** the enforcement position is shown on «Zugriff» and switched by one administrator after a confirmation
+(PMVP-42); the pilot's rights test set (PMVP-43).
 
 ## Roles (the role builder, RB-1 and RB-2)
 
@@ -232,6 +236,45 @@ functions); the Knovas Core accepts it as it accepts a person's.
   administrator; never a name.
 
 
+## Was sieht …? (PMVP-41)
+
+**Where.** Verwaltung › **Zugriff** (`/admin/access`), for administrators only. An administrator picks a person, a
+role, the Knovas Assistent (with the person it acts for: it never acts alone) or an external agent, and asks one of
+three questions:
+
+- **Darf … dieses Dokument lesen?** Yes or no, with the reason: the folder rule that gives the document its groups,
+  or the document's own rights, the groups by name, and through which of her groups the person reads it.
+- **Was findet … bei einer Suche?** The search runs as that person or agent. The page shows each hit by its name and
+  path only, never a passage, a summary or an excerpt; at most 25.
+- **Was liest …?** Every folder rule with a group the subject reads, and every document with rights of its own the
+  subject reads: at most 25 rows, the rest a count («38 weitere») that opens the list, 50 rows at a time. One sentence
+  adds that everything open is read too (no rule, or a rule without a group, and no rights of its own).
+
+**Whose groups.** Exactly what Knovas would receive in the subject's signed claim: a person's own groups and her
+roles' groups; a role's group; an agent's roles' groups, narrowed to the person it acts for (never a person's own
+direct grant). A deactivated person, a revoked agent, an agent whose person is not active and a claim over 32 groups
+read nothing: the Platform signs nothing for them, and the page says so. A document a group reads is also read by
+whoever holds a group above it in Knovas's tree.
+
+**Before «Ein» (today, for every firm).** Every answer is computed from Knovas's groups, folder rules and document
+rights, and says that it acts with «Ein» and that while Knovas is on «Aus» everyone reads everything. A search shows
+what Knovas finds today (everything), each hit marked: would the subject read it with «Ein».
+
+**After «Ein».** Once the Platform can read that the firm's Knovas is `brokered` (CR-R1a; the client call comes with
+PMVP-42), the yes or no and the search are Knovas's own answers, asked as that person or agent; where Knovas and the
+computation differ, Knovas counts and the page says so. «Was liest …?» stays computed (Knovas has no such question),
+and so does every answer about a role (a role has no claim of its own).
+
+**What it reads.** One thing at a time: the subject's groups, the folder rules, the documents of each of the
+subject's groups and the groups below them (at most 5 pages of 200 a group; a longer list says it may be incomplete),
+one document's rights. Never the whole firm. It writes nothing to Knovas.
+
+**In the log, by id.** Every answered question writes one row (`access.what_sees`): the administrator, the subject
+(person, role or agent) by id, the question, before or after «Ein», the counts or the yes or no, and for the assistant
+the person it acts for, by id. Never a path, a search, a document's name, a group or a person's name. A refused
+question writes nothing. The Builder's «Zugriff erklären» stays until a later clean-up (it reads only a person's
+direct grants, not her roles').
+
 ## How it protects data and access
 
 - **Each page checks on the server.** Every Admin route has its own role gate; the menu only reflects it. Signed out
@@ -252,7 +295,7 @@ functions); the Knovas Core accepts it as it accepts a person's.
 | PMVP-25 | the assistant's settings and connection test | built; no verification verdict yet | management (critical) |
 | PMVP-30a | the Brain views switch | built; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-40 | the three pages in the new look; gate tests; the Admin card split in two (a new card "Zugriff" for the access pages) | in build (work pushed, builder's notes not written) | Jannik or Siran (routine) |
-| PMVP-41 | "Was sieht …?" in Admin: what a person, a role, the Knovas Assistent or an external agent reads; one document yes or no with the reason; a search as that person (names only) | work order and acceptance tests drafted 22 Nov (not yet frozen); computed until «Ein», Knovas's own answer after | Siran (sensitive) |
+| PMVP-41 | "Was sieht …?" in Admin: what a person, a role, the Knovas Assistent or an external agent reads; one document yes or no with the reason; a search as that person (names only) | built 22 Nov (branch `feat/pmvp-41`); no verification verdict yet; computed until «Ein», Knovas's own answer after (CR-R1a, with PMVP-42's client call) | Siran (sensitive) |
 | PMVP-42 | enforcement position and switch | work order and acceptance tests drafted 22 Nov and reworked the same day after the founder's answer (not yet frozen): one administrator switches after a confirmation; the Core decides whether «Ein» is allowed (a broker key, a complete backfill, two green rights runs under `brokered`) and the page shows its reason; no migration. Waits for the Core's CR-R1a and CR-R8 (and CR-R7's runs for «Ein») | management (critical) |
 | PMVP-43 | the pilot's rights test set | not started | Siran (sensitive) |
 | RB-1, RB-2 | roles: tables, the two roles, the move of an existing installation; functions and groups read from roles; the last-administrator rule and the 32-group cap | built; no verification verdict yet | management (critical: a migration) |
@@ -286,7 +329,14 @@ functions); the Knovas Core accepts it as it accepts a person's.
   (FU-44); RB-FIX-1 gives the Rollen page and the Agenten page a card each («Rollen», «Agenten»), because one card for
   both would still have been over the budget. RB-5's part of the Rollen page (a role's data) has a card of its own
   («Rollendaten») for the same reason.
-- **"Was sieht …?" and the enforcement position** are still the Builder's files (FU-20); PMVP-41 and PMVP-42 move them to «Zugriff» (drafted 22 Nov). Decided by the founder on 22 Nov: one administrator switches enforcement, the Core holds the gate (two green rights runs under `brokered` are its own precondition), and «Was sieht …?» shows names only, every look audited.
+- **"Was sieht …?" and the enforcement position** were the Builder's files (FU-20). «Was sieht …?» is now on «Zugriff»
+  (PMVP-41, built); the Builder's «Zugriff erklären» stays until a clean-up retires it. The enforcement position moves
+  with PMVP-42. Decided by the founder on 22 Nov: one administrator switches enforcement, the Core holds the gate (two
+  green rights runs under `brokered` are its own precondition), and «Was sieht …?» shows names only, every look audited.
+- **«Was sieht …?» before «Ein»** is a computation of Knovas's rule, not Knovas's answer; it may differ from what
+  Knovas will do (for example while a new folder rule has not yet reached documents already read in, CR-R3). Whether
+  Knovas lists other groups' documents for an administrator once «Ein» is on is to be checked on the demo tenant
+  (work order PMVP-41, "Found while drafting").
 - Ingestion, document fields and System have no card; their domain is open.
 - Small findings: an approver who is also an ingestion manager lands on Ingestion; malformed roles give an error page;
   a signed-out call to the Builder's data routes is redirected to sign-in instead of refused (FU-24).
@@ -320,11 +370,12 @@ the shell (navigation, look, page parts).
 
 ## Owner
 
-The engine owner role, proposed on the cards (Verwaltung, "Zugriff", «Rollen», «Agenten» and «Rollendaten»);
+The engine owner role, proposed on the cards (Verwaltung, "Zugriff", «Rollen», «Agenten», «Rollendaten» and
+«Zugriff prüfen»);
 a person has still to confirm it.
 
 **Where the detail is:** `docs/platform-mvp/work-orders/PMVP-11.md`, `PMVP-40.md` (branch `feat/pmvp-40`), `PMVP-25.md`
 (branch `feat/pmvp-25`), `RB-1-2.md` (branch `feat/rb-1-2`), `RB-3-4.md` (branch `feat/rb-3-4`), `RB-6-7.md`
-(branch `feat/rb-6-7`), `RB-FIX-1.md` (branch `maint/rb-fix-1`), `RB-5.md` (branch `feat/rb-5`); `KnovasPlatform/docs/agents.md`;
+(branch `feat/rb-6-7`), `RB-FIX-1.md` (branch `maint/rb-fix-1`), `RB-5.md` (branch `feat/rb-5`), `PMVP-41.md` (branch `feat/pmvp-41`); `KnovasPlatform/docs/agents.md`;
 `docs/platform-mvp/design/role-builder.md`; `docs/components/L2-platform-admin.md`, `L2-platform-roles.md`,
 `L2-platform-role-data.md`, `L2-platform-agents.md`; `docs/platform-mvp/follow-ups.md`.
