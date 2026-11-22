@@ -244,6 +244,7 @@ No migration; `builder/store.py`, `builder/access_backend.py`, `identity/**`, `g
   fix was merged in.
 - **After merging PMVP-41's fix** (`5743e29b`) and the refusal's words (`6b8bd90e`), again in the pinned environment:
   `test_pmvp42_enforcement_switch_acceptance.py` 18, `test_web_admin_enforcement_routes.py` 5, `test_web_admin_enforcement_rules.py` 23, `test_knovas_client_posture.py` 18, `test_pmvp41_what_sees_acceptance.py` 31, `test_web_admin_access_routes.py` 7, `test_web_admin_access_rules.py` 27, `test_builder_access.py` 23, `test_rb67_agents_acceptance.py` 27, `test_rb5_role_data_acceptance.py` 95, `test_shell_nav_links.py` 31, `test_shell_nav_partial.py` 52, `test_pmvp11_navigation_acceptance.py` 40, `test_web_admin_gates.py` 376; 773 passed in 14 files, all exit code 0.
+- **After merging `origin/feat/platform-mvp` once more** (`71323e6f`, PMVP-24; `knovas_client.py`'s route list conflicted and keeps both new routes), pinned: `test_pmvp42_enforcement_switch_acceptance.py` 18, `test_knovas_client_posture.py` 18, `test_knovas_client_logs.py` 32, `test_pmvp41_what_sees_acceptance.py` 31, `test_web_admin_enforcement_routes.py` 5.
 - **Frozen check** (header of `frozen-tests.txt`): all 13 OK.
 - **Cards** (KnowledgeBase-worktrees `pmvp-01/scripts`, `py -3 -m brain_runner`, read only; nothing reached a tenant):
   `card check` on `L2-PLATFORM-ACCESS-CHECK`, `L2-BRAIN-BUILDER`, `EXT-BRAIN-API`: valid, 0 errors, 0 warnings.
