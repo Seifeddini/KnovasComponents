@@ -254,4 +254,112 @@ the reason under "Builder's notes".
 
 ## Builder's notes
 
-(the builder writes here: what was decided, what is open, what the verifier should look at)
+### Builder A, 2026-11-22 (branch `feat/pmvp-23` from `origin/feat/platform-mvp` `cee2a4a1`)
+
+**What was built.** Everything in "What to build", in the files the order allows:
+
+- `assistant_routes.py`: `POST /fragen` stores an `answered` / `no_answer` reply as a new chat in one transaction,
+  grants the reply's passages and answers `303` to `/fragen/<id>#runde-1`; `busy` / `failed` store nothing and put
+  the question back in the box. The chat page `GET /fragen/<id>`, the follow-up `POST /fragen/<id>`, delete
+  `POST /fragen/<id>/loeschen`, the click route `GET /fragen/<id>/quelle/<turn>/<n>` and `GET /fragen/verlauf`.
+  `stored_answer` / `stored_reply` write and read the answer's JSON (`v: 1`); `history_of` gives the service the
+  turns as text (statements only); `follow_up_search_text` is D1; `chat_title` is FU-02; the sidebar's data
+  (`assistant_chats`, a template function from the blueprint's context processor). `AsTheAssistant.answer` passes
+  `search_text` on (and calls a service without it exactly as before). `install_assistant` starts
+  `ChatRetentionJob`.
+- `service.py` (item 5 only): `answer(question, history=(), *, search_text=None)`; `_fit_history` in whole pairs,
+  the newest always, cut answer first (FU-07); `history_weight` with a digit as three bytes (FU-06);
+  `DIGIT_WEIGHT_BYTES = 3`, `MIN_HISTORY_PIECE_BYTES = 100`. Passages are fitted as before.
+- `chats.py`: `list_chats(*, owner, limit=None, offset=0)`; `RETENTION_DAYS`, `purge_expired_chats`,
+  `ChatRetentionJob`; nothing else.
+- `ask.html` (turns, the follow-up box, «Gespräch löschen», the page of all chats), `ask.js` (the delete asks
+  first), `ask.css`; `_sidebar.html` (one block after the menu and its script), `shell.css` (rules for that block
+  only); `app.py` (the two `_CSRF_EXEMPT_ENDPOINTS` entries and their comment, nothing else).
+- The two cards, their pages, `boundaries.yaml`; `assistant/README.md`; `management/assistant.md`, its row in
+  `management/README.md`, `management/data-protection.md`.
+
+**No migration.** New columns or tables were not needed: the answer lives in `assistant_messages.text` as JSON and
+the passages in `assistant_references.text` (D2), as the order says.
+
+**Decisions taken here (the verifier may disagree):**
+
+1. **The installation's time zone** for «Heute» / «Diese Woche» / «Früher» is `Europe/Zurich`, as
+   `experiments/indexer.py` reads it (UTC when tzdata is missing): the deployment sets no `TZ`, so the process zone
+   would be UTC. «Diese Woche» is since Monday of the current week; earlier is «Früher».
+2. **The sidebar block uses the partial's own classes** (`app-nav-item`, `app-nav-group`) and is styled through
+   data attributes (`data-chats` and its parts). Reason: `test_shell_nav_styles.py` pins the exact set of classes
+   the partial draws and shell.css styles (`PARTS`, the one state `active`); new classes would have changed that
+   test, which the order does not predict. The block is `<nav aria-label="Gespräche" data-chats>` after the menu's
+   `<script>`, so PMVP-11's first `<nav>` is still «Suche» alone, and nothing in it is marked on the search page.
+3. **At 390 px the list folds behind «Gespräche»** (asked: say so): a checkbox and its label, CSS only, no script;
+   «+ Neue Frage» and «Gespräche» stand in a row under the menu, the list opens under them as a column as wide as
+   the head. The mark-up always holds the newest 20. Measured in headless Chrome: nothing scrolls sideways, folded
+   or open (`test_at_390_pixels_the_sidebar_with_its_chats_does_not_scroll_sideways`).
+4. **The audit row is written with `audit.record_or_raise`**, not `audit.record` (the order names the module's
+   `record`): inside the purge's one transaction, a row that cannot be written then undoes the deletion and the
+   next tick tries again. With the best-effort `record`, a failed row would leave a deletion with no row, and the
+   next tick would run it again the same day.
+5. **`ChatRetentionJob` opens a connection per tick** (`gate.open_connection`) and closes it after; an hour apart
+   there is nothing to keep open. It is not started when the app is already in testing at `install_assistant`; a
+   test app is marked only after `create_app` returns, so there the thread starts, and its `keep_running` (the
+   app's `testing`) ends it at its first tick, an hour later, without a purge: RB-7's `AgentSyncJob` does the same.
+6. **Grants**: only an `answered` / `no_answer` reply's passages are granted (22a granted any reply that carried
+   passages; a `busy` reply carrying some was granted though nothing of it is shown), with NUL removed from the
+   pointer. The click route grants exactly the one document after `document_readable`.
+7. **The anchor** is `runde-<n>` on each answered turn's `<section>`; the 303 after a question lands on `runde-1`,
+   after a follow-up on the new turn's number.
+8. **A follow-up over 4,000 bytes** is refused before the service, with the message under the last turn and the box
+   left empty (as 22a does for a question).
+9. **A stored answer that does not parse** is drawn as one plain paragraph of the message's text (escaped, `dir="auto"`),
+   its error type logged, and left out of the history sent to the model (a raw JSON could carry quotes).
+10. **The page of all chats** answers a read that fails with a plain 503 page (never a 500). A chat page whose read
+    fails still answers 500: that is PMVP-24's item 5.
+11. **A follow-up's search text** is the last question cut (with an ellipsis) so that it and the follow-up fit
+    `MAX_QUESTION_BYTES`; the follow-up is never cut.
+
+**Existing tests changed** (each with its reason):
+
+- `tests/test_assistant_page_routes.py` (predicted by the order): `_ask` follows the `303` by default (keyword
+  `follow`), so each test still checks the page the person sees; `test_an_empty_question_goes_back_to_the_search`
+  passes `follow=False` to keep checking its `303`; `test_the_quote_card_names_the_document_and_the_page` looks for
+  `zitat-1-1` (unique ids per turn); `test_the_link_opens_the_pdf_as_a_search_hit_opens_it` and
+  `test_every_address_on_the_page_is_built_by_the_app` follow each link of the chat page (the click route) and
+  check where it sends the browser against the same addresses as before; `test_the_page_offers_the_box_for_a_new_question`
+  checks the chat's box, which posts the follow-up to the chat's address. Through `_ask`,
+  `test_the_settings_page_switches_it_on` and `test_the_switch_is_read_on_every_request` now see 200 after the
+  redirect. The fake service takes no `search_text` (no follow-up there).
+- `tests/test_assistant_page_static.py::test_the_form_actions_are_built_by_the_app`: it pinned every form action
+  of `ask.html` to `url_for('assistant.ask')`; the order adds two form posts (items 4, 6, 10), so it now allows
+  exactly `url_for('assistant.follow_up', chat_id=chat_id)` and `url_for('assistant.delete_chat', chat_id=chat_id)`
+  besides. Still url_for only.
+- `tests/test_identity_agents_pages.py::test_the_ask_page_answers_as_the_assistant_for_the_signed_in_person`: its
+  fake returns `no_answer`, which is now stored: `200` became `303` (told to the coordinator, who agreed).
+- The frozen `test_rb67_agents_acceptance.py` pinned `200` for a `no_answer`; the coordinator re-pinned it
+  (`cee2a4a1`, accepts 200 or 303). I did not touch it.
+
+**Tests.** New: `test_assistant_chats_routes.py` (43), `test_assistant_chats_list.py` (19),
+`test_assistant_chats_service.py` (31), `test_assistant_chats_retention.py` (25). The frozen
+`test_pmvp23_chats_followups_acceptance.py`: 33 passed, none skipped, blob unchanged. The order's groups in one process (`tests/test_assistant_*.py`, `tests/test_identity_chats_store.py`, `tests/test_shell_*.py`, the frozen `test_pmvp23_chats_followups_acceptance.py`, `test_pmvp21_chats_acceptance.py`, `test_pmvp20_statements_acceptance.py`, `test_pmvp11_navigation_acceptance.py`, `test_rb67_agents_acceptance.py`, and the changed `test_identity_agents_pages.py`): 1,689 passed, 0 failed, 0 skipped, on the own database `knovas_platform_test_pmvp23` (dropped after). Frozen check: all 11 OK. ASCII check `origin/feat/platform-mvp..HEAD`: 0 lines.
+
+**In the browser** (headless Chrome over the DevTools protocol, the real app with identity on, a fake service, the
+database `knovas_platform_pmvp23_browser`, not the test one; dropped after): a question sent from the search page's
+box with Enter (303 to `#runde-1`), a follow-up in the chat (`#runde-2`, the search text and the history reached the
+fake), a busy follow-up (the chat as it was, the message under it, the question in the box), the page of all chats,
+a chat opened from the sidebar (the open one marked `aria-current`), and a delete (the confirm's text, then the
+search page without that chat), at 1440 and 390 px. Nothing scrolled sideways at either width; no request failed
+or left the installation. Screenshots, outside the repository, in
+`C:\Users\siran\AppData\Local\Temp\claude\1838582cff9d51e1\af9716ae-0421-42ac-9fac-6acb192cc6e6\scratchpad\pmvp23\shots\`:
+`box-*.png`, `chat-*.png`, `followup-*.png`, `busy-*.png`, `verlauf-*.png`, `fold-390.png`, `opened-*.png`,
+`deleted-*.png`, `compare-1440.png` / `compare-390.png` (beside `01-assistent.png`), `facts.json`. The tools
+(`serve.py`, `shoot.py`, `cdp.py`) are one folder up.
+
+**Card checks** (from `KnowledgeBase-worktrees/pmvp-01/scripts`, read only): `card check` on the two cards: valid, 0 errors, 0 warnings; `card render --check`: 21 cards, 0 not current. `map-check --scope touched --settings docs/components/map-check.yaml`, base `origin/feat/platform-mvp` (`cee2a4a1`), head `236b7072`: problems 0; declared equals observed: 0 findings (the five new routes are the ones the code registers). In the scope: `statement_changed` on `*/L-2` (FU-02's cut added) and on `install_assistant/P-1` (the deletion job), `need_added` on the two new operations' `N-1`; `over_budget` on the assistant's card (63,554 tokens, budget 16,000; PMVP-22a's notes give 33,450 before this item); `no_contract` on the shell's `create_shell_blueprint` (not this item's). Touched without a card: `app.py` (the web app).
+
+**For the verifier.**
+
+- D1's limit: a follow-up that changes the subject still carries the last question into the search; a reference
+  further back is not resolved. Written in the README and on `management/assistant.md`.
+- FU-46: every log test of this item sets the `web_interface`, `assistant`, `identity` (and `knovas_client`,
+  `document_grants`) loggers to DEBUG explicitly.
+- PMVP-20 context (`feat/pmvp-20-context`) was not on `origin/feat/platform-mvp` when this was pushed; nothing of
+  it is merged here. `knovas_client.py` is untouched; `service.py`'s `compose` changed only in `_fit_history`.
