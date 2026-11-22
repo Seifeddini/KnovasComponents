@@ -1,6 +1,6 @@
 # Brain views
 
-State on 21 November 2026. Overview and status words: [README.md](README.md).
+State on 22 November 2026. Overview and status words: [README.md](README.md).
 
 ## What it is
 
@@ -19,6 +19,10 @@ and turns the rest into a count that opens a list. Unlike the existing views mad
 - Open the tab "Dokumente": the documents assigned to the thing.
 - Today a person reaches a dossier only by its address; links from names in results and answers come with PMVP-33.
 
+**Built: the 25-thing limit (PMVP-34).** Every view takes what it draws through one shared function; what does not
+fit is a count («115 weitere») that opens a list of 50 rows a page. The dossier draws one thing (the thing itself);
+its facts and documents are rows of a list.
+
 **Planned, no work order yet:**
 
 | Item | What | Note |
@@ -27,10 +31,13 @@ and turns the rest into a count that opens a list. Unlike the existing views mad
 | PMVP-31 | the evidence trail ("Beleg-Spur") from a reference in an answer | third on the plan's cut list |
 | PMVP-32 | the process line for one matter: main path, current step, what is missing | decided 22 Nov (`decisions/PMVP-32-question.md`): built per thing on Knovas GmbH's own processes (the Core has none; no law firm's data holds one; the old Ablauf reads the whole tenant and is not reused); law-firm process data asked of the demo plan and the Builder's bet |
 | PMVP-33 | names in search results and answers link to the dossier | |
-| PMVP-34 | the 25-thing limit as one shared function with its test | work order decided 22 Nov; its test frozen |
 
 ## How it protects data and access
 
+- **Never more than 25 things drawn.** One shared function caps what a view draws; the rest is a count that opens a
+  list. The frozen test `test_pmvp34_view_limit_acceptance.py` opens every view page by itself (a view added later
+  included) for a thing with 140 neighbours, documents and facts, and fails if a page draws more than 25 or a count
+  opens nothing.
 - **One thing at a time.** The dossier asks the Core only about that one thing; a test fails if it ever asks for the
   whole tenant. (The Core's whole-graph export already fails for the Knovas tenant, so the views must not use it.)
 - **As the person.** Every read is signed as the employee who is signed in, exactly as her search is. A thing she may
@@ -49,7 +56,8 @@ and turns the rest into a count that opens a list. Unlike the existing views mad
 | Item | State | Approves before main |
 |---|---|---|
 | PMVP-30a dossier | built; no verification verdict yet | Jannik or Siran (routine) |
-| PMVP-34, PMVP-30b | work orders decided 22 Nov (PMVP-34's test frozen); one builder, 34 first | Jannik or Siran (routine) |
+| PMVP-34 the 25-thing limit | built 22 Nov (its frozen test green); no verification verdict yet | Jannik or Siran (routine) |
+| PMVP-30b related things | work order decided 22 Nov; same builder, after 34 | Jannik or Siran (routine) |
 | PMVP-32a, PMVP-32b | decided 22 Nov: the line on Knovas GmbH's own processes; work order written; same builder after 30b | Jannik or Siran (routine) |
 | PMVP-31, 33 | not started | Jannik or Siran (routine) |
 
@@ -62,6 +70,7 @@ Gate G3 (Tuesday 8 December) asks that the dossier and the process line open fro
 | 19 Nov | founder | The views belong to the new domain "Workspace" (DEC-0083) |
 | 19 Nov | plan, approved by the founder | If a gate is missed: the process line becomes the existing Ablauf view (cut 2), then the evidence trail is dropped and the numbered references stay (cut 3) |
 | 20 Nov and 21 Nov | founder | The existing modelling views stay, hidden from the menu ("Hide, place later"; cleanup decision) |
+| 22 Nov | coordinator | What a view draws is capped at 25; the rows of a list a count opens are not drawn things, and lists are paged at 50 (PMVP-34, D1) |
 | 21 Nov | builder of PMVP-30a, for the verifier to judge | One read per thing; the section "Verbunden" left out (it needs PMVP-30b's reads); only the mark "ohne Beleg" built |
 
 ## Known limits and open points
@@ -70,7 +79,6 @@ Gate G3 (Tuesday 8 December) asks that the dossier and the process line open fro
   a passage's text or page by its id. So a click opens the document at its start, not at the passage. Both the plan's
   requirement and the card's promise ask for the passage. A request to the Core is written together with FU-37; until
   then the promise holds for the document, not the passage.
-- **No 25-thing limit yet** (PMVP-34); the dossier draws no graph today.
 - **Marks for derived or uncertain facts** are not built; a field that refers to another thing shows its id, not its
   name (PMVP-33).
 - **The existing Ablauf code** is not reused by PMVP-32 (decided 22 Nov), so it needs no owner here (FU-19).

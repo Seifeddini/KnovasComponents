@@ -55,7 +55,8 @@ branch reaches main only through a pull request a person reviews and merges; the
 | The verifier's notes on RB-FIX-1: no address or Knovas text in the errors the Knovas client raises or in the HTTP library's warnings; how an operator finds Knovas's own message | RB-FIX-2 | built; no verification verdict yet | sensitive: Siran |
 | No customer text in logs (pull request #55) | maintenance | verified (second verification, with notes); not on main, not in the build branch | open: no class named |
 | Follow-up questions and past chats; waiting and failure states | PMVP-23, PMVP-24 | work orders decided 22 Nov (PMVP-23's acceptance tests frozen); not started (24 after 23) | 23 sensitive: Siran; 24 routine: Jannik or Siran |
-| Related things by kind; the 25-thing limit | PMVP-30b, PMVP-34 | work orders decided 22 Nov (PMVP-34's acceptance test frozen); not started (30b after 34) | routine: Jannik or Siran |
+| The 25-thing limit: one shared function, the marks its frozen test counts | PMVP-34 | built 22 Nov (its frozen test green); no verification verdict yet | routine: Jannik or Siran |
+| Related things by kind | PMVP-30b | work order decided 22 Nov; not started (after 34) | routine: Jannik or Siran |
 | Process line | PMVP-32a, PMVP-32b | decided 22 Nov: built on Knovas GmbH's own processes (founder); work order written; not started (after 30b) | routine |
 | «Was sieht …?» in Admin | PMVP-41 | work order and acceptance tests drafted (22 Nov), not yet frozen; names only, every look audited (founder, 22 Nov) | sensitive: Siran |
 | Enforcement position and switch | PMVP-42 | reworked 22 Nov after the founder's answer: one administrator switches with a confirmation; the Core refuses «Ein» until its own prerequisites hold; acceptance tests drafted, not yet frozen; the switch waits for the Core's CR-R1a, CR-R7 and CR-R8 | critical: management |

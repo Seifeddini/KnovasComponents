@@ -106,4 +106,60 @@ The frozen files (`test_pmvp34_view_limit_acceptance.py` among them), `P/tests/c
 
 ## Builder's notes
 
-(the builder writes here: what was decided, what is open, what the verifier should look at)
+Builder session of 2026-11-22 (builder B, AGENT-claude-code). `feat/pmvp-34` from `origin/feat/platform-mvp`
+(`5cbefb66`); `origin/feat/platform-mvp` (`cee2a4a1`, the RB-6/RB-7 re-pin) merged in once, no conflict.
+
+### What was built
+
+| File | What |
+|---|---|
+| `src/brain_views/limit.py` (new) | `MAX_DRAWN = 25`, `PAGE_SIZE = 50`; `bounded` → `Bounded(shown, rest, total)`; `more_text`; `paged` → `Page(items, page, pages, total, size)` with `previous`, `next`, `first`, `last`; `page_number` (a `?seite=` value to a page number). No Flask, app or client import; ASCII only |
+| `templates/dossier.html` | the three marks only (below) |
+| `tests/test_brain_views_limit_unit.py` (new, 28) | what the frozen test leaves open: `reserved` above the limit, non-numbers refused, `page_number`, a page's neighbours and places, the module's imports and ASCII |
+| card, its page, `boundaries.yaml` | `*/P-1` (POST-01) has the frozen test as evidence, its review entry is gone; a `hides` line for the limit and the marks; `boundaries.yaml`'s reason names `limit.py` (the folder was already a source path) |
+
+### What I decided, and why (the verifier should look here first)
+
+1. **Where the marks sit.** PMVP-30a's tests pin `<details class="bv-fact" data-fact="…">` and
+   `<div class="bv-fact" data-fact="…">` as exact strings, and the parts (`page_head`, `rowline`) take no attribute and
+   may not be changed. So: `data-bv-node` on a plain `<div>` around `parts.page_head(…)` (the thing's head; inside
+   the column's flex the wrapper is the item, and the head looks the same: `shots34/compare-dossier-1440.png`);
+   `data-bv-row` on `<div class="bv-fact-line">` (one per fact, in both branches) and on `<div class="bv-doc">` (one
+   per document row). One mark per row, no existing test changed. The message page (no dossier) carries no mark.
+2. **`reserved` above `limit`** raises `ValueError` (the view would already draw more than its limit); `reserved ==
+   limit` gives nothing shown and everything in `rest`. A non-integer (`2.5`, `"25"`, `True`) is refused too.
+3. **Extras for PMVP-30b and PMVP-32**, which may not change `limit.py`: `page_number(value)` (anything that is not
+   a plain ASCII number of at most nine digits is page 1; `paged` then clamps to the last page) and the `Page`
+   properties `previous`, `next`, `first`, `last`, so the lists need no page arithmetic of their own.
+4. **`more_text`** refuses a negative or non-integer count (`ValueError`) rather than printing it.
+
+### The deliberate break (Done when 2)
+
+Run against `dossier.html` with the frozen test, each put back afterwards (the file's diff is the three marks):
+
+- a `data-bv-node` on each of the first 25 facts (26 with the head): `test_every_view_page_draws_at_most_25` and
+  `test_the_dossier_draws_its_thing_and_lists_its_facts` fail ("draws 26 things");
+- a link `data-bv-more="0"`: `test_the_rest_is_a_count_that_opens_a_list` fails ("a count that is no count");
+- a link `data-bv-more="115"` to `/dossier/<id>/dokument/9999`: the same test fails ("the count's list answers 404").
+
+### Checks
+
+- **Tests** (own database: `knovas_platform_test_pmvpB`, as the coordinator set it for builder B, not
+  `…_pmvp34`; one process): the frozen `test_pmvp34_view_limit_acceptance.py` 17 passed (15 failed before);
+  `test_brain_views_limit_unit.py` 28; `test_brain_views_dossier_*.py` 70. With `tests/test_shell_*.py` and
+  `tests/test_pmvp11_navigation_acceptance.py`: **558 passed, 0 failed**. The whole suite was not run.
+- **Frozen check**: all eleven OK (after the merge as well).
+- **Card**: `card check` valid, 0 errors, 0 warnings; `card render --check` 21 cards, 0 not current; `map-check
+  --scope touched`, base `origin/feat/platform-mvp`: problems 0; in scope only the earlier `no_contract` on
+  `create_brain_views_blueprint` (review entry). Run from KnowledgeBase-worktrees `pmvp-01/scripts`, read only.
+- **In the browser** (headless Chrome, the real app, a fake Core with the reference screen's invented firm and 412
+  documents; 1440 and 390 px): 1 drawn thing on «Überblick» and on «Dokumente»; nothing scrolls sideways; no failed
+  request; lowest text contrast 4.76 to 1. Screenshots, outside the repository:
+  `C:\Users\siran\AppData\Local\Temp\claude\1838582cff9d51e1\af9716ae-0421-42ac-9fac-6acb192cc6e6\scratchpad\builderB\shots34\`
+  (`dossier-*.png`, `dokumente-*.png`, `compare-dossier-*.png` beside `02-dossier.png`, `facts.json`); the tools
+  (`serve.py`, `shoot.py`) one folder up.
+
+### Open
+
+- Nothing stopped this item. The «Dokumente» tab still lists every document on one page (412 rows in the shots):
+  rows are exempt from the cap (D1), and paging them is PMVP-30b's item 4.
