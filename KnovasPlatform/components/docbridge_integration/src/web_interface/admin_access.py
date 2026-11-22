@@ -569,7 +569,7 @@ def attach_access_routes(bp, gate, *, csrf_valid, csrf_token, page_context, clie
             code = "no_route" if answer is None else str(answer["refused"])
             logger.info("Enforcement switch to %s refused by Knovas (%s) for %s", target, code, me.id)
             written = _switch_row(conn, me, tenant, SWITCH_REFUSED, {"to": target, "code": code}, outcome="denied")
-            words = _WAITS if answer is None else reason_for(code)
+            words = _WAITS if answer is None else f"Knovas hat nicht umgeschaltet: {reason_for(code)}"
             return _page(error=words if written else f"{words} {_ROW_MISSING}", status=409)
         if not _switch_row(conn, me, tenant, SWITCHED, {"from": before.mode, "to": target}):
             return _page(error=f"Knovas hat umgeschaltet. {_ROW_MISSING}", status=500)
