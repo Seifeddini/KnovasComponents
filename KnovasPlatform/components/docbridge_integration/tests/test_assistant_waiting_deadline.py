@@ -328,7 +328,7 @@ def test_a_core_generation_that_times_out_is_busy(key_dir, monkeypatch, split, c
 
 def test_a_claude_generation_that_times_out_is_busy(key_dir, monkeypatch, split, clock):
     import anthropic
-    import httpx
+    import httpx2 as httpx
 
     fake = Core(clock, search=[10])
     deadline = Deadline(clock=clock)
@@ -369,7 +369,7 @@ def test_the_cores_search_429_and_503_are_busy_at_once(key_dir, monkeypatch, spl
 @pytest.mark.parametrize("status, wanted", [(429, "busy"), (529, "busy"), (500, "failed"), (401, "failed")])
 def test_claudes_429_and_529_are_busy_at_once(key_dir, monkeypatch, split, clock, status, wanted):
     import anthropic
-    import httpx
+    import httpx2 as httpx
 
     request = httpx.Request("POST", "https://api.anthropic.test/v1/messages")
     response = httpx.Response(status, request=request, json={"type": "error", "error": {"type": "x", "message": "m"}})
@@ -418,7 +418,9 @@ def test_outside_the_bound_the_stop_never_cuts_a_retry(clock):
     from knovas_client import _out_of_time
 
     client = KnovasAPIClient(config_loader=_StubConfig(SECURED))
-    state = types.SimpleNamespace(args=(client,), upcoming_sleep=30)
+    # the state as both tenacity 8.2.3 (pinned) and 9 hand it to a stop: the next wait comes from the strategy
+    state = types.SimpleNamespace(args=(client,), attempt_number=1,
+                                  retry_object=types.SimpleNamespace(wait=lambda retry_state: 30))
     assert _out_of_time(state) is False
     with client.within_time(lambda: MIN_ATTEMPT_SECONDS + 30 - 0.1):
         assert _out_of_time(state) is True

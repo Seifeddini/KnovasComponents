@@ -67,8 +67,9 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 import time
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, TypeVar, Union
 
 import requests
 
@@ -85,6 +86,47 @@ MIN_GENERATE_SECONDS = 30.0
 #: The reasons of a ``CoreFailed`` that are a timeout: the Core's generation (``knovas_client.llm_generate``) and
 #: Claude's (``providers``). They are read as busy (D1).
 TIMEOUT_REASONS = frozenset({"timeout", "anthropic_timeout"})
+
+
+T = TypeVar("T")
+
+
+class OutOfTime(Exception):
+    """A call that did not end within its wall-clock time (``call_within``)."""
+
+
+def call_within(seconds: float, call: Callable[[], T], *, on_overrun: Optional[Callable[[], Any]] = None,
+                name: str = "call") -> T:
+    """``call()``, waited for at most ``seconds`` of wall-clock time (PMVP-24, the verifier's finding 2).
+
+    A read timeout bounds each read, not the whole call: a peer that sends its headers and then one byte at a time
+    keeps a call alive for as long as it likes. So the call runs in a worker thread and the caller waits for it no
+    longer than ``seconds``; past them ``on_overrun()`` is asked to cut the call short (closing its connection; it may
+    fail, it is never waited for) and ``OutOfTime`` is raised. The worker is a daemon thread; what it returns later is
+    dropped. Its own result or exception is the caller's when it ends in time.
+    """
+    outcome: Dict[str, Any] = {}
+    done = threading.Event()
+
+    def work() -> None:
+        try:
+            outcome["value"] = call()
+        except BaseException as exc:  # noqa: BLE001 - handed to the caller as it is
+            outcome["error"] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=work, name=f"knovas-{name}", daemon=True).start()
+    if not done.wait(max(0.0, float(seconds))):
+        if on_overrun is not None:
+            try:
+                on_overrun()
+            except Exception:  # noqa: BLE001 - cutting a call short is best effort
+                pass
+        raise OutOfTime(name)
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["value"]
 
 
 class Deadline:

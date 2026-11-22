@@ -223,3 +223,45 @@ folder up.
 - The capacity test in the week of 1 December may move 150 and 30 (D2); both are constants in `core.py`.
 - PMVP-20 context was not on `origin/feat/platform-mvp`; nothing of it is merged here. When it lands, its change
   to `keeping_snippets` sits next to `within_time` in `knovas_client.py`.
+
+### Rework 1, 2026-11-22 (after the first verification's FAIL)
+
+`origin/feat/platform-mvp` merged first (PMVP-23 integrated, `eae92f1d`); one conflict, in the PMVP-23/24 row of
+`management/README.md` (platform-mvp's wording kept, this item's state updated).
+
+**Finding 1 (HIGH): an API the pinned tenacity lacks.** `_out_of_time` read `retry_state.upcoming_sleep`, which
+tenacity 8.2.3 (`requirements.txt`, CI and the image) does not have: inside `within_time` the first timeout raised
+`AttributeError`, a slow search answered `failed` instead of busy and lost its retries. Fixed: `_upcoming_wait` asks
+the retry's own wait strategy (`retry_state.retry_object.wait(retry_state)`), which gives the wait either version is
+about to make. `next_action.sleep` was not used: 8.2.3 asks `stop` before it computes the wait, so there it holds the
+previous attempt's wait. The rest of the change checked for API that 8.2.3 or the pinned set lacks: `stop_any`
+through `|`, `RetryError.last_attempt`, the `sleep` and `wait` of `_make_request.retry` exist in 8.2.3; the tests
+imported `httpx`, which the pinned set does not install (Anthropic's SDK there uses `httpx2`), and now import
+`httpx2`.
+
+**Finding 2 (LOW): the deadline by the wall clock.** `assistant.core.call_within(seconds, call, on_overrun)` runs a
+call in a daemon worker thread and waits for it no longer than `seconds`; past them it asks `on_overrun` to cut the
+call short and raises `OutOfTime`. Inside `within_time` every request of the Knovas client goes through it
+(`_send_in_time`): `stream=True`, the body read with `read1` in the pieces the peer sends and the time checked after
+each, the caller waiting no longer than the request's read timeout or the time left. Past it the caller gets a
+`ReadTimeout` (busy; the search makes no retry without time for it) and the worker stops at the peer's next byte and
+closes the connection. Claude's call, with the answer's deadline, goes through it as well (`min(60 s, time left)`;
+past it the client is closed and the answer fails as `anthropic_timeout`, which the deadline reads as busy). PMVP-20
+context's helper is not on `feat/platform-mvp` (its branch is not merged), so this is the only one; when it lands,
+one of the two should go (for the coordinator).
+
+Left open: a peer that trickles even its headers keeps the worker thread, never the person, until it stops or the
+connection drops; it is a daemon thread and holds one connection. With a trickled body the worker stops right after
+the deadline (tested: the server sees the connection dropped).
+
+New: `tests/test_assistant_waiting_trickle.py` (8): the search, the Core's generation and Claude through Anthropic's
+real SDK, each against a real socket server on 127.0.0.1 that trickles its body or its headers (a byte every 0.2 s,
+a deadline of 2 s); each gives up by the deadline and makes one request; the control shows the same search outside
+the bound still waiting. `test_outside_the_bound_the_stop_never_cuts_a_retry` now hands the stop the state both
+tenacity versions hand it.
+
+**Under the pinned versions.** A venv in the scratchpad (`pmvp24\venv-pinned`), `pip install -r
+requirements.txt` after CI's knovas-extract pin (git `2c95cbc0`): tenacity 8.2.3, requests 2.32.0, urllib3 2.8.0,
+anthropic 2.12.0 with httpx2 2.16.2, Flask 3.0.0, pytest 7.4.3, on Python 3.13 (the only Python on this machine; CI
+uses 3.11). The frozen check: all 13 OK. In one process, the frozen PMVP-23, 20, 21, 11 and RB-67 files, `tests/test_assistant_*.py`, `tests/test_web_*.py` and `tests/test_shell_*.py`: 2,744 tests, 0 failed, 0 errors, 1 skipped, on the own database `knovas_platform_test_pmvp24`. The browser test needs `websockets`, which `requirements.txt` does not pin: it skips in the
+pinned venv and passes in the development environment.

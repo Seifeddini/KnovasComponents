@@ -318,6 +318,14 @@ contract:
         - test_claudes_429_and_529_are_busy_at_once
         - test_the_search_pages_own_search_still_tries_three_times_with_its_read_timeout
         - test_the_deadlines_log_lines_hold_durations_and_step_names_only
+        - test_outside_the_bound_the_stop_never_cuts_a_retry
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_waiting_trickle.py
+        checks:
+        - test_the_search_gives_up_by_the_deadline
+        - test_without_the_bound_the_trickle_would_hold_the_search
+        - test_the_cores_generation_gives_up_by_the_deadline
+        - test_claude_gives_up_by_the_deadline
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_waiting_pages.py
         checks:
@@ -953,7 +961,7 @@ review:
 - at: L2-PLATFORM-ASSISTANT/*/P-5
   why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here.
 - at: L2-PLATFORM-ASSISTANT/*/P-6
-  why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing; Claude's client never retries (a 429 or 529 is busy at once). PMVP-24 (FU-08) gives every answer one deadline under nginx's and gunicorn's 180 seconds; the search with its retries and the generation end within 150 seconds of the route's start (assistant/core.py, ANSWER_DEADLINE_SECONDS; the client's within_time bounds each attempt and allows a retry only with time left), the generation is not started with less than 30 seconds left, its timeout is at most the time left (the Core's 120, Claude's 60), and a timeout is busy; the boxes show a waiting line (ask.js) that gives up at 170 seconds. test_assistant_waiting_deadline.py and test_assistant_waiting_pages.py show it.
+  why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing; Claude's client never retries (a 429 or 529 is busy at once). PMVP-24 (FU-08) gives every answer one deadline under nginx's and gunicorn's 180 seconds; the search with its retries and the generation end within 150 seconds of the route's start (assistant/core.py, ANSWER_DEADLINE_SECONDS; the client's within_time bounds each attempt by the wall clock and allows a retry only with time left; a request and Claude's call run in a worker thread, call_within, so a peer that trickles its answer cannot hold the person past the deadline), the generation is not started with less than 30 seconds left, its timeout is at most the time left (the Core's 120, Claude's 60), and a timeout is busy; the boxes show a waiting line (ask.js) that gives up at 170 seconds. test_assistant_waiting_deadline.py and test_assistant_waiting_pages.py show it.
 - at: L2-PLATFORM-ASSISTANT/*/L-1
   why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The limits are the Core's; with anthropic the service keeps them all the same (PMVP-25 changes nothing of the service). The history is sent in whole pairs, the newest always (cut if it must, FU-07), weighed with a digit as three bytes (FU-06); test_assistant_chats_service.py shows both (PMVP-23).
 - at: L2-PLATFORM-ASSISTANT/R-4
