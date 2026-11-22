@@ -8,7 +8,9 @@
 2. the switch sends ``brokered`` or ``disabled`` once and nothing else: ``enforcing``, Probe or anything else raises
    before a request is made; a 409 is ``{"refused": <the Core's short error_code>}`` (``unknown`` when the code is no
    short identifier); a 404 is None; a 5xx raises;
-3. no log line or error text carries the Core's message, at any level.
+3. no log line or error text carries the Core's message, at any level;
+4. the switch is sent once and never retried: a timeout or a lost connection raises after one request (its answer
+   may be lost after the Core switched), while the read keeps the client's usual retries.
 """
 from __future__ import annotations
 
@@ -120,3 +122,33 @@ def test_a_core_without_the_route_answers_none_and_a_failure_raises(caplog):
         _client(Answer(500, {"error_code": "INTERNAL", "message": MESSAGE})).set_rbac_posture("brokered")
     assert "/secured/rbac/posture" in str(raised.value) and MESSAGE not in str(raised.value)
     assert MESSAGE not in caplog.text and "Zwiebel" not in caplog.text
+
+
+# --- 4. once ------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("error", [requests.exceptions.ReadTimeout("slow"), requests.exceptions.ConnectionError("reset")])
+def test_the_switch_is_sent_once_and_never_retried(error):
+    def fail(method, url, **kw):
+        raise error
+
+    client = make_client()
+    client._session = FakeSession(fail)
+    with pytest.raises(type(error)):
+        client.set_rbac_posture("brokered")
+    assert [c["method"] for c in client._session.calls] == ["PUT"]
+
+
+def test_the_read_keeps_the_usual_retries():
+    answers = [requests.exceptions.ReadTimeout("slow"), Answer(200, POSTURE)]
+
+    def respond(method, url, **kw):
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    client = make_client()
+    client._session = FakeSession(respond)
+    assert client.rbac_posture()["mode"] == "disabled"
+    assert len(client._session.calls) == 2

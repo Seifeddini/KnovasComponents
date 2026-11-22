@@ -99,6 +99,10 @@ POSITIONS = {"brokered": "ein", "disabled": "aus", "enforcing": "teilweise"}
 #: What a switch asks the Core for (CR-R8): «Ein» is brokered, «Aus» disabled. Never enforcing, never Probe.
 TO_CORE = {"ein": "brokered", "aus": "disabled"}
 SWITCHED, SWITCH_REFUSED = "enforcement.switched", "enforcement.switch_refused"
+#: Every attempt is recorded before anything is sent; its outcome follows in a row of its own: switched, refused (with
+#: the Core's code), failed (the Core answered with an error) or unknown (its answer was lost: it may have switched).
+SWITCH_ATTEMPTED, SWITCH_FAILED, SWITCH_UNKNOWN = ("enforcement.switch_attempted", "enforcement.switch_failed",
+                                                   "enforcement.switch_unknown")
 #: Why the Core does not (yet) allow «Ein», per its code (CR-R8), in the page's words: never the bare code.
 REASONS = {
     "no_broker_key": "Knovas kennt den Schlüssel dieser Plattform noch nicht. Ohne ihn kann Knovas nicht prüfen, für "
@@ -114,7 +118,10 @@ _CONFIRM = "Bitte die Folgen bestätigen (Häkchen setzen) und erneut absenden. 
 _WAITS = ("Die Umschaltung wartet auf Knovas: Knovas bietet sie diesem Mandanten noch nicht an. Es wurde nichts "
           "umgeschaltet.")
 _ALREADY = "Diese Stellung gilt schon. Es wurde nichts umgeschaltet."
-_SWITCH_FAILED = "Knovas hat nicht geantwortet. Ob umgeschaltet wurde, zeigt die Stellung oben, wie Knovas sie meldet."
+_SWITCH_FAILED = "Knovas hat das Umschalten mit einem Fehler beantwortet. Die Stellung oben ist die, die Knovas meldet."
+_SWITCH_UNKNOWN = ("Die Antwort von Knovas ist ausgeblieben: Ob umgeschaltet wurde, ist unbekannt. Die Stellung oben ist "
+                   "die, die Knovas jetzt meldet.")
+_NOT_RECORDED = "Der Versuch konnte nicht protokolliert werden. Es wurde nichts an Knovas gesendet."
 _ROW_MISSING = "Der Protokolleintrag dazu konnte nicht geschrieben werden."
 
 
@@ -560,11 +567,19 @@ def attach_access_routes(bp, gate, *, csrf_valid, csrf_token, page_context, clie
         if before.mode == target:
             return _page(error=_ALREADY, status=409)
         tenant = str(getattr(client, "customer_id", "") or "") or None
+        # The attempt's row first, with a write that raises: without it nothing is sent.
+        if not _switch_row(conn, me, tenant, SWITCH_ATTEMPTED, {"from": before.mode, "to": target}):
+            return _page(error=_NOT_RECORDED, status=503)
         try:
             answer = client.set_rbac_posture(target)
-        except Exception as exc:  # noqa: BLE001 - the page says so and reads the position again
-            logger.warning("Enforcement switch to %s: Knovas did not answer (%s)", target, type(exc).__name__)
-            return _page(error=_SWITCH_FAILED, status=502)
+        except Exception as exc:  # noqa: BLE001 - recorded, said in the page's words; the position is read again
+            answered = getattr(getattr(exc, "response", None), "status_code", None)
+            action, words = (SWITCH_FAILED, _SWITCH_FAILED) if answered else (SWITCH_UNKNOWN, _SWITCH_UNKNOWN)
+            logger.warning("Enforcement switch to %s: %s (%s, HTTP %s)", target, action, type(exc).__name__,
+                           answered or "-")
+            written = _switch_row(conn, me, tenant, action, {"to": target, "error": type(exc).__name__,
+                                                            "status": answered}, outcome="error")
+            return _page(error=words if written else f"{words} {_ROW_MISSING}", status=502)
         if answer is None or (isinstance(answer, Mapping) and answer.get("refused")):
             code = "no_route" if answer is None else str(answer["refused"])
             logger.info("Enforcement switch to %s refused by Knovas (%s) for %s", target, code, me.id)

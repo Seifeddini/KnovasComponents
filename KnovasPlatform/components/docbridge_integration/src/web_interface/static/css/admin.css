@@ -2389,4 +2389,5 @@
 }
 .access-switch legend { font-weight: var(--k-weight-semibold); color: var(--k-color-text-strong); }
 .admin-page .admin .access-confirm { display: flex; gap: var(--k-space-xs); align-items: flex-start; margin: 0; }
+.admin-page .admin .access-confirm input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .access-switch fieldset > button { justify-self: start; }

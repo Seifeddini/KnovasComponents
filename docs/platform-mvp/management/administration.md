@@ -314,9 +314,14 @@ possible yet); the switch stays disabled until Knovas says it offers it (`tenant
 works; «Ein» is refused with «die zwei grünen Rechteläufe fehlen» until CR-R7's runs are on Knovas's record. The same
 read makes RB-5's «wirkt mit «Ein»» and «Was sieht …?»'s answers switch to Knovas's own by themselves.
 
-**In the log, by id.** Each attempt that reaches Knovas writes one row: `enforcement.switched` (from, to) or
-`enforcement.switch_refused` (to, Knovas's code; `no_route` when Knovas has no route yet), with the administrator and
-the firm's tenant id. Never a name.
+**In the log, by id: every attempt, before it is sent.** Before the Platform asks Knovas, it writes a row
+`enforcement.switch_attempted` (from, to); if that row cannot be written, nothing is sent and the page says so. The
+request is sent **once**, never repeated. Afterwards a second row records the outcome: `enforcement.switched` (from,
+to), `enforcement.switch_refused` (to, Knovas's code; `no_route` when Knovas has no route yet),
+`enforcement.switch_failed` (Knovas answered with an error) or `enforcement.switch_unknown` (Knovas's answer was lost,
+so it may have switched). When the outcome is unknown the page says «Ob umgeschaltet wurde, ist unbekannt» and shows
+the position Knovas reports when it reads it again. Each row holds the administrator and the firm's tenant id; never a
+name.
 
 **The Builder's old request** (a second administrator approving `enforcing`) is retired: its two routes answer that
 the switch is under Verwaltung › Zugriff and record nothing; the Builder's «Durchsetzung» shows the position read only.

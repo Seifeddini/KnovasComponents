@@ -212,7 +212,9 @@ contract:
       statement: 'Nothing sent without bestaetigt=1 or for a mode but ein or aus (400), while the Core does not offer the
         switch or for the active position (409). Else set_rbac_posture brokered or disabled once, never enforcing; the
         page shows what the Core reports after; a refusal 409 in the page''s words, no route 409 «wartet auf Knovas»,
-        a failure 502. Rows enforcement.switched / switch_refused by id; no second administrator, no bypass.'
+        a failure 502. Every attempt''s row before it is sent (record_or_raise: no row, nothing sent, 503), the PUT
+        sent once, never retried; then its outcome''s row (switched, switch_refused, switch_failed or switch_unknown,
+        the last when the answer is lost); by id; no second administrator, no bypass.'
       risk_class: critical
       evidence:
       - kind: test
@@ -233,6 +235,12 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_enforcement_routes.py
         checks:
         - test_a_switch_without_its_audit_row_answers_500_and_says_so
+        - test_a_switch_whose_answer_is_lost_is_recorded_as_unknown_and_the_page_reads_the_position
+        - test_every_attempt_is_recorded_before_it_is_sent_and_without_its_row_nothing_is_sent
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_knovas_client_posture.py
+        checks:
+        - test_the_switch_is_sent_once_and_never_retried
   call.web_interface.admin_access.attach_access_routes:
     promises:
     - id: L2-PLATFORM-ACCESS-CHECK/call.web_interface.admin_access.attach_access_routes/P-1

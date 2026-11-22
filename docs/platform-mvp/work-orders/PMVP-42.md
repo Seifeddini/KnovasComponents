@@ -272,6 +272,25 @@ px, beside `00-reference-05-zugriff.png`:
 
 Nothing scrolls sideways at 390 px (`facts-42.json`).
 
+### Fix round after the verification (pass with notes, 2026-11-22)
+
+- **MEDIUM, a lost answer.** `set_rbac_posture` sends the PUT **once** (`_rbac_request(..., once=True)`: one attempt,
+  the original error re-raised; the read keeps the usual retries). The route writes `enforcement.switch_attempted`
+  (from, to) with `record_or_raise` **before** it sends; if that row cannot be written, nothing is sent (503, «Der
+  Versuch konnte nicht protokolliert werden. Es wurde nichts an Knovas gesendet.»). The outcome follows in a second
+  row: `enforcement.switched`, `enforcement.switch_refused` (code), `enforcement.switch_failed` (an error status) or
+  `enforcement.switch_unknown` (no answer: timeout, lost connection), the last two with outcome `error`, the error's
+  class and status. An unknown outcome answers 502 with «Die Antwort von Knovas ist ausgeblieben: Ob umgeschaltet
+  wurde, ist unbekannt.» and the position read again. `administration.md` says so.
+- **LOW:** the confirmation checkbox has the button's 2 px focus ring.
+- **Tests:** `test_the_switch_is_sent_once_and_never_retried` (a ReadTimeout and a ConnectionError: one PUT),
+  `test_the_read_keeps_the_usual_retries`, `test_a_switch_whose_answer_is_lost_is_recorded_as_unknown_and_the_page_
+  reads_the_position` (the verifier's repro: the fake switches, then raises ReadTimeout), `test_every_attempt_is_
+  recorded_before_it_is_sent_and_without_its_row_nothing_is_sent`. Two of my earlier route tests follow the new rule:
+  the row-missing test fails only the outcome's row; a failing Core is now recorded as `switch_unknown`.
+- `origin/feat/platform-mvp` merged first (PMVP-41 integrated, the Brain-tools mode). `_rbac_request` gained the
+  keyword `once` (default off): the one change outside the two calls, made for this fix.
+
 ### Open, for the coordinator, the verifier and management
 
 1. **Critical item**: management approves before `main`. It rides on PMVP-41 (and PMVP-34).

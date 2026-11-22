@@ -3501,16 +3501,21 @@ class KnovasAPIClient:
         path: str,
         data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
+        once: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """RBAC-Aufruf. Gibt den geparsten Body zurueck.
 
         404 heisst 'unbekannt oder nicht deins' und liefert None - ein
         normaler Zustand, kein Fehler. Das entspricht der 404-statt-403-Regel
         der Secure API: keine Route verraet, dass eine Id existiert.
+
+        ``once``: genau ein Versuch, keine Wiederholung bei Timeout oder Verbindungsfehler (PMVP-42: das Umschalten
+        der Durchsetzung, dessen Antwort verloren gehen kann, nachdem der Core schon umgeschaltet hat).
         """
         try:
-            response = self._make_request(method=method, endpoint=path,
-                                          data=data, params=params)
+            send = (type(self)._make_request.retry_with(stop=stop_after_attempt(1), reraise=True).__get__(self)
+                    if once else self._make_request)
+            response = send(method=method, endpoint=path, data=data, params=params)
         except requests.exceptions.HTTPError as exc:
             response = exc.response
             if response is None or response.status_code != 404:
@@ -3602,12 +3607,13 @@ class KnovasAPIClient:
         the Platform's claims - raises ValueError and sends nothing. The Core checks its own preconditions for
         ``brokered``. Returns ``{"mode": <the new mode>}`` when the Core switched; ``{"refused": <code>}`` when it
         refused (409: its ``error_code`` when that is a short identifier, else ``unknown``); None when it has no such
-        route (404). Every other failure raises, naming the route and the status only.
+        route (404). Every other failure raises, naming the route and the status only. Sent **once**: never retried,
+        since a lost answer may follow a switch the Core made (the caller then says the outcome is unknown).
         """
         if mode not in ('brokered', 'disabled'):
             raise ValueError('set_rbac_posture switches to brokered or disabled only')
         try:
-            payload = self._rbac_request('PUT', '/secured/rbac/posture', data={'mode': mode})
+            payload = self._rbac_request('PUT', '/secured/rbac/posture', data={'mode': mode}, once=True)
         except requests.exceptions.HTTPError as exc:
             response = exc.response
             if response is None or response.status_code != 409:
