@@ -1,14 +1,14 @@
 # Work order PMVP-41: «Was sieht …?» in Admin
 
-**Draft for the coordinator** (2026-11-22). Everything under "Decisions this order takes" is a proposal until the
-coordinator (and, where marked, the founder) confirms it and the test file is frozen.
+**Draft for the coordinator** (2026-11-22; the founder's answer on names written in the same day). Everything under
+"Decisions this order takes" is a proposal until the coordinator confirms it and the test file is frozen.
 
 | | |
 |---|---|
 | Item | PMVP-41 (Jira: filed by the coordinator), plan `FEAT-2026-11-19-platform-mvp` § 4 Admin **A-05** ("pick a person and a document and get yes or no with the reason; run a search as that person"; "Exists in the Builder; move to Admin"), spec item SPEC-platform-mvp-13; follow-up **FU-20** ("Was sieht …?" is still a Builder file). KnowledgeBase `docs/ModernDocs/plans/2026-11-19-platform-mvp.md` on `origin/steering/platform-mvp-provider` |
 | Design | `docs/platform-mvp/design/role-builder.md` § 2.2 (a document's readers are its group and that group's ancestors; one rule governs a document), § 2.3 (the claim; the Core verifies it only under `brokered`), § 4 (one claim for every agent), § 6 rule 7 (Aus, Probe, Ein) |
 | Builds on | RB-2 (`identity.roles.claim_groups`), RB-5's planning (`web_interface/admin_role_data.py`: `Sight`, the readers of rules and documents, `tenant_brokered`), RB-6's claim rule (`identity.agents.AgentStore.claim_for`, `AgentPrincipal`), PMVP-34's cap (`brain_views.limit.bounded`, in build) |
-| Core requests | none new. The answers become Knovas's own once the tenant is `brokered` (**CR-R1**) and the Platform can read that (**CR-R1a**, its client call comes with PMVP-42). Until then every answer is computed and says so |
+| Core requests | none new. The answers become Knovas's own once the tenant is `brokered` (switched by an administrator through **CR-R8**, PMVP-42, or by Knovas through **CR-R1**) and the Platform can read that (**CR-R1a**, its client call comes with PMVP-42). Until then every answer is computed and says so |
 | Mock-up | `docs/platform-mvp/reference-screens/05-zugriff.html` (and `out/05-zugriff.png`): the card «Prüfen» («Darf <Person> das Dokument <…> lesen?» – «Nein. Die Gruppe … » – «Als … suchen») on the page «Zugriff» |
 | Bet | `BET-2026-11-platform-mvp` (approved 2026-11-19) |
 | Class | **sensitive** (plan § 6.5 names "Was sieht …?"; Siran approves before `main`): an administrator sees what another person, a role or an agent reads, and searches as them. No migration, no gate change, no Core write |
@@ -155,11 +155,10 @@ assistant's claim, names only, a role refused, the cap (5); § 6 no whole-tenant
 
 ## Decisions this order takes (draft: for the coordinator to confirm before the tests are frozen)
 
-1. **Founder: under «Ein», may an administrator see the names of documents she cannot read herself?** «Was sieht …?»
-   shows the titles and pointers another person reads (reach, search as X), and the administrator group "grants no
-   read access to walled content" (Core `models.py`). Recommended: **yes, names only, never passage text, every look
-   audited by id** (this order as written). The alternative (counts only under «Ein») makes A-05's "run a search as
-   that person" a count.
+1. **Names under «Ein»: decided by the founder on 2026-11-22: names only, every look audited.** «Was sieht …?»
+   shows the titles and pointers another person reads (reach, search as X), also documents the administrator
+   cannot read herself (the administrator group "grants no read access to walled content", Core `models.py`);
+   never passage text, and every answered question writes its audit row by id (§ 5).
 2. **Computed before «Ein», Knovas's after.** The only honest answer before `brokered`: under `disabled` Knovas says
    yes to everything, under `enforcing` it ignores the Platform's claim (design § 2.3).
 3. **The reach is always computed**, also after «Ein»: Knovas has no "what does X read" route, and listing documents
