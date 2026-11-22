@@ -10,9 +10,9 @@ from __future__ import annotations
 import pytest
 
 from brain_views import related
-from brain_views.related import (MAX_NAMED_KINDS, OTHER_KIND, OTHER_KIND_NAME, SORT_NAME, SORT_NAME_DESC,
-                                 SORT_RELATION, Unavailable, arrange, filter_text, matches, plural, read_related,
-                                 sort_choice, sort_key)
+from brain_views.lists import (SORT_NAME, SORT_NAME_DESC, SORT_RELATION, arrange, filter_text, matches, sort_choice,
+                               sort_key)  # PMVP-32a moved them here from brain_views.related, unchanged
+from brain_views.related import MAX_NAMED_KINDS, OTHER_KIND, OTHER_KIND_NAME, Unavailable, plural, read_related
 from knovas_client import GraphError, KnowledgeGraphDisabled
 
 START = "6f1c2c1e-0000-4000-8000-0000000b0001"
@@ -219,3 +219,19 @@ def test_arrange_sorts_and_filters():
     assert [t.name for t in arrange(things, name=name, needle="b", sort=SORT_NAME)] == ["Bea", "Bruno"]
     assert [t.name for t in arrange(things, name=name, needle="", sort=SORT_RELATION, relation=relation)] == [
         "Bruno", "Bea", "Cäsar", "anna"]
+
+
+def test_the_kinds_of_the_step_and_the_process_are_always_read():
+    """Fix round of 2026-11-22: beside twenty kinds with more things, the step's and the process's kinds are read, so
+    «Läuft gerade» does not disappear."""
+    step, process = _kind(900), _kind(901)
+    rows = [_row(1000 * (k + 1) + n, _kind(100 + k)) for k in range(20) for n in range(2)]
+    rows += [_row(1, step, name="Ablauf: Freigabe"), _row(2, process, name="Ablauf")]
+    edges = [_edge(START, _id(1), "in_state"), _edge(START, _id(2), "instance_of")]
+    names = {_kind(100 + k): f"Art {k:02d}" for k in range(20)}
+    names.update({step: "ProcessStep", process: "Process"})
+    client = Client(rows, edges, names=names)
+    found = read_related(client, START)
+    assert len(client.calls[1][1]) == 22
+    assert found.in_state is not None and found.process is not None and found.step_name == "Freigabe"
+    assert found.kind(step) is not None and found.kind(process) is not None

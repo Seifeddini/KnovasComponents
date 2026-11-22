@@ -52,7 +52,7 @@ def test_more_text_refuses_what_is_no_count():
 
 
 @pytest.mark.parametrize("given, number", [("2", 2), ("  3 ", 3), ("0", 1), ("-2", 1), ("zwei", 1), ("", 1),
-                                           (None, 1), ("2.5", 1), ("٣", 1), ("1" * 12, 1), (7, 7), (-4, 1),
+                                           (None, 1), ("2.5", 1), ("٣", 1), ("1" * 12, 10 ** 9), (7, 7), (-4, 1),
                                            (True, 1)])
 def test_a_page_number_as_an_address_gives_it(given, number):
     assert page_number(given) == number
@@ -63,6 +63,7 @@ def test_paged_takes_the_page_as_an_address_gives_it():
     assert paged(items, "2").page == 2
     assert paged(items, "x").page == 1
     assert paged(items, "999999").page == 3
+    assert paged(items, "99999999999").page == 3 and paged(items, "9" * 5000).page == 3   # FU-49: the last page
 
 
 def test_a_page_knows_its_neighbours_and_its_places():
