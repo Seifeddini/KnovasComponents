@@ -44,6 +44,15 @@ customer is switched to "Ein" before the Core's end-to-end rights test has passe
 and test their lines for customer text. A sweep of the whole web application (maintenance, pull request #55) removes
 questions, bodies, passages, exception messages, document names and paths and e-mail addresses from every log line.
 
+**The Knovas client's own lines** (RB-FIX-1, FU-43, built, not yet verified). When a call to the Knovas Core fails, the
+Platform logs which kind of call it was (`/secured/access_groups/{id}`, never the id itself: a group's id can be a
+name the firm chose), the answer's status, Knovas's error code when it is a short code word, Knovas's own number for
+the request (so Knovas can find its side) and how long the answer was - never its text, which can quote a role's
+name, a question or a passage. The same holds for the error the client hands to the rest of the Platform, for the
+search's diagnostic line (it counted the passages but printed them) and for an uploaded document (its name is no
+longer logged). The HTTP library under the client no longer writes each request's address at the most detailed log
+level (it held document addresses).
+
 **Keyed fingerprints.** Where a log line must name a document, the sweep writes a fingerprint keyed with the
 installation's own secret, so nobody can test a guessed client or matter name against the logs; without a key it says
 "nokey", never an unkeyed fingerprint. An operator on the installation can compute a document's fingerprint to find
@@ -101,6 +110,7 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 | Item | State | Approves before main |
 |---|---|---|
 | Log sweep, pull request #55 | verified (second verification, with notes); not on main; not in the build branch | open: no class named |
+| The Knovas client's log lines (RB-FIX-1, FU-43) | built; no verification verdict yet | Siran (sensitive) |
 | Second log sweep (FU-22, FU-31) | not started; waits for #55 | its web-server part is deployment: sensitive |
 | Key handling (PMVP-25) | built; no verification verdict yet | management (critical) |
 | Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | not started; PMVP-42 waits for the Core's rights test | management (critical); Siran (sensitive) |
@@ -124,8 +134,9 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
   without the right; the repair is outside this plan (Jira SS-664, SS-665, SS-572). Tripwire: no green run by 1 December.
 - **Provider terms (FU-33):** region, retention and what a client contract says about sending passages: open before the
   first law firm.
-- **Older log lines on the build branch:** a document address (FU-25) and two lines that can carry customer text
-  (FU-09), until the sweep reaches main and main is merged into the build branch.
+- **Older log lines on the build branch:** a document address (FU-25), until the sweep reaches main and main is
+  merged into the build branch. The two lines of FU-09 (the Knovas client) are rewritten on the build branch by
+  RB-FIX-1; the sweep changes the same lines, so that merge keeps RB-FIX-1's.
 - **Left after the sweep (FU-22, FU-31):** text can still reach a log outside the web application (experiments runner,
   sync agent, scripts); the web server's default error log writes document addresses; the application server's own
   error line; two unkeyed fingerprints; refusals that name a view's file.

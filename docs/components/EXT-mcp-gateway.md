@@ -91,7 +91,7 @@ None stated.
 
 | Component | Operations | Expects |
 |---|---|---|
-| `L2-PLATFORM-ADMIN` | `agent-claims-put`; `agent-claims-delete` | `EXT-MCP-GATEWAY/agent-claims-put/P-1`; `EXT-MCP-GATEWAY/agent-claims-delete/P-1` |
+| `L2-PLATFORM-AGENTS` | `agent-claims-put`; `agent-claims-delete` | `EXT-MCP-GATEWAY/agent-claims-put/P-1`; `EXT-MCP-GATEWAY/agent-claims-delete/P-1` |
 
 ## Hides
 

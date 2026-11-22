@@ -227,7 +227,12 @@ def create_admin_blueprint(
         if not _form_csrf_ok():
             return _people_page(error="Formular ist abgelaufen.", status=400)
         me = gate.current_user()
-        user_id = str(request.form.get("user_id", "") or "")
+        try:
+            # A malformed or unknown id is refused before anything is read or written (it reached the database as
+            # text and answered 500 before); the canonical form is also what the self-check below compares.
+            user_id = str(_person_id(request.form.get("user_id")))
+        except RoleError as exc:
+            return _people_page(error=str(exc), status=400)
         if user_id == str(me.id):
             # Locking the last administrator out of their own system is a
             # support call, not a security control.
@@ -256,7 +261,10 @@ def create_admin_blueprint(
     def enable_person():
         if not _form_csrf_ok():
             return _people_page(error="Formular ist abgelaufen.", status=400)
-        user_id = str(request.form.get("user_id", "") or "")
+        try:
+            user_id = str(_person_id(request.form.get("user_id")))  # as in disable_person: 400, nothing changed
+        except RoleError as exc:
+            return _people_page(error=str(exc), status=400)
         gate.users().enable(user_id)
         audit.record(
             gate.connection(), action="user.enabled", actor=gate.current_user(),

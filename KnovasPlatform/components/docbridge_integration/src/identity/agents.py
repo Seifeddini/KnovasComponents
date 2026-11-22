@@ -111,6 +111,8 @@ class AgentGroupsError(TooManyGroupsError):
 
 
 _NAME_RULE = f"Ein Agentenname hat 1 bis {NAME_MAX} Zeichen."
+#: A NUL byte: the database stores no text holding one, so it is refused before anything is written.
+_NAME_NUL = "Der Agentenname enthält ein unzulässiges Zeichen."
 _NO_PERSON = "Ein Agent handelt für eine aktive Person oder selbständig. Diese Person gibt es nicht oder sie ist nicht aktiv."
 _REVOKED = "Dieser Agent ist widerrufen und hat keine Rechte."
 _PERSON_INACTIVE = "Die Person, für die dieser Agent handelt, ist nicht aktiv. Er hat keine Rechte."
@@ -174,9 +176,11 @@ def _uuid(value: Any) -> Optional[UUID]:
 
 
 def clean_name(value: Any) -> str:
-    """An agent name as stored: trimmed, runs of white space as one space, 1 to 80 characters."""
+    """An agent name as stored: trimmed, runs of white space as one space, 1 to 80 characters, no NUL byte."""
     if not isinstance(value, str):
         raise AgentError(_NAME_RULE)
+    if "\x00" in value:
+        raise AgentError(_NAME_NUL)
     name = " ".join(value.split())
     if not 1 <= len(name) <= NAME_MAX:
         raise AgentError(_NAME_RULE)

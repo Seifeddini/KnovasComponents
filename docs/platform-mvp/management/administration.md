@@ -75,6 +75,10 @@ functions as they were at the move, but changes made after the move are lost.
 - **Nothing reaches the Core on its own.** The Core is written only when an administrator saves a form on the Rollen
   page (below), never at start-up and never by opening a page.
 - No role name, description, person's name or address is written to a log.
+- **Bad input is answered with the page, never an error page** (RB-FIX-1): a role's name or description, or an
+  agent's name, holding an invalid character (a NUL byte, which no browser form sends) is refused with a plain message
+  before Knovas is asked; deactivating or activating a person the installation does not know is refused and nothing
+  changes. One's own account is recognised however its id is spelled, so it cannot be deactivated by a spelling trick.
 
 ## Rollen bearbeiten (RB-3, RB-4)
 
@@ -178,6 +182,7 @@ functions); the Knovas Core accepts it as it accepts a person's.
 | RB-3, RB-4 | the Rollen page; creating, renaming and deleting roles, their functions and people; the people page offers roles; deactivating waits for removals (the last-administrator race) | verified (with notes); integrated | Siran (sensitive) |
 | RB-6 | one claim for every agent; the Knovas Assistent a member of every role but Administration, answering with its own claim | verified (with notes); not yet integrated | management (critical: a migration, with RB-7) |
 | RB-7 | external agents: the Agenten page, agents on the role page («Mitglieder»), their signed claims handed to the Core behind a switch (off) | verified (with notes); the agent rows on the role page added after RB-3/RB-4 were integrated; not yet integrated | management (critical: a migration, signing and claims) |
+| RB-FIX-1 | clean-up after the role builder: who holds a group counts her roles' groups (FU-42); the Rollen and Agenten pages get cards of their own (FU-44); a role or agent name with an invalid character and an unknown person on «Deaktivieren»/«Aktivieren» answer with the page and change nothing | built; no verification verdict yet | Siran (sensitive) |
 
 ## Decisions taken
 
@@ -198,7 +203,9 @@ functions); the Knovas Core accepts it as it accepts a person's.
 
 - **Phone width (FU-23):** the five Admin pages and the settings page scroll sideways; PMVP-40 reworks the Admin ones.
 - **Contrast of the old green tints (FU-28)** below 4.5 to 1; PMVP-40 replaces them with the brand's.
-- **The Admin card was over its size budget (FU-17)**; PMVP-40 splits it.
+- **The Admin card was over its size budget (FU-17)**; PMVP-40 split it. After the role builder it was over again
+  (FU-44); RB-FIX-1 gives the Rollen page and the Agenten page a card each («Rollen», «Agenten»), because one card for
+  both would still have been over the budget.
 - **"Was sieht …?" and the enforcement position** are still the Builder's files (FU-20).
 - Ingestion, document fields and System have no card; their domain is open.
 - Small findings: an approver who is also an ingestion manager lands on Ingestion; malformed roles give an error page;
@@ -208,8 +215,9 @@ functions); the Knovas Core accepts it as it accepts a person's.
   PMVP-42) and data are attached to it (RB-5). Until then roles decide what a person may do; the page says "wirkt mit
   «Ein»".
 - **Three readers of groups** (the Experimente search's "missing group" hint, the Builder's list of who holds a group,
-  one check of viewers without groups) still read only a person's direct groups, not her roles' groups (open since
-  RB-1/RB-2; not in RB-4's files).
+  one check of viewers without groups) read only a person's direct groups until RB-FIX-1 (built, not yet verified):
+  now each counts a group she holds through a role, and a direct group whose end date has passed no longer counts,
+  as for what Knovas lets her read (FU-42).
 - **Agents act only as far as the Core does.** Today the assistant's claim is signed and logged and narrows nothing
   (enforcement is off); agents are registered and members of roles, and the switch stays off. With CR-R1 («Ein»
   possible) the assistant reads only what its roles and the person hold; with CR-R5 the Core takes the external
@@ -226,10 +234,11 @@ the shell (navigation, look, page parts).
 
 ## Owner
 
-The engine owner role, proposed on the cards (Verwaltung, and "Zugriff" on PMVP-40's branch); a person has still to
-confirm it.
+The engine owner role, proposed on the cards (Verwaltung, "Zugriff", and «Rollen» and «Agenten» on RB-FIX-1's branch);
+a person has still to confirm it.
 
 **Where the detail is:** `docs/platform-mvp/work-orders/PMVP-11.md`, `PMVP-40.md` (branch `feat/pmvp-40`), `PMVP-25.md`
 (branch `feat/pmvp-25`), `RB-1-2.md` (branch `feat/rb-1-2`), `RB-3-4.md` (branch `feat/rb-3-4`), `RB-6-7.md`
-(branch `feat/rb-6-7`); `KnovasPlatform/docs/agents.md`; `docs/platform-mvp/design/role-builder.md`;
-`docs/components/L2-platform-admin.md`; `docs/platform-mvp/follow-ups.md`.
+(branch `feat/rb-6-7`), `RB-FIX-1.md` (branch `maint/rb-fix-1`); `KnovasPlatform/docs/agents.md`;
+`docs/platform-mvp/design/role-builder.md`; `docs/components/L2-platform-admin.md`, `L2-platform-roles.md`,
+`L2-platform-agents.md`; `docs/platform-mvp/follow-ups.md`.

@@ -4,10 +4,11 @@ Handles communication with Knovas knowledge base API.
 """
 
 import contextlib
+import re
 import requests
 import logging
 from typing import Iterator, List, Dict, Any, Optional, Tuple, Union
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from datetime import datetime, timezone
 import time
 import os
@@ -41,6 +42,102 @@ _RETRYABLE_REQUEST_EXCEPTIONS = (
     requests.exceptions.ConnectionError,
     requests.exceptions.Timeout,
 )
+
+
+# -- What a log line may say about a call to the Core (FU-43) ------------------------------------------------------
+# A path can hold an id a customer chose (a group's id can be speaking, so can a node's, a field's or a pack's), a
+# query string a document's pointer, and an answer's body can quote a group's name, which since RB-4 is a role's
+# name. A log line therefore names the route, never the path, and says of an answer only its status, the Core's
+# error code when it is a short identifier, the Core's request id (``X-Request-ID``, to find the Core's own lines)
+# and the body's size: never body text, at any level, DEBUG included.
+
+_ROUTE_ID = '{id}'
+#: The Core's routes this client calls, with ``{id}`` where the path carries an id.
+_ROUTE_TEMPLATES = (
+    '/secured/health', '/secured/query', '/secured/llm/generate', '/secured/sign_certificate',
+    '/secured/init_document_transmission', '/secured/transmit_document_part',
+    '/secured/delete_information_object', '/secured/delete_all_documents',
+    '/secured/agents/{id}/claims',
+    '/secured/access_groups', '/secured/access_groups/{id}',
+    '/secured/document_access', '/secured/document_readable', '/secured/documents',
+    '/secured/folder_rules', '/secured/folder_rules/{id}',
+    '/secured/graph', '/secured/graph/node-types', '/secured/graph/node-types/{id}',
+    '/secured/graph/node-types/{id}/schema', '/secured/graph/node-types/{id}/schema/{id}',
+    '/secured/graph/nodes', '/secured/graph/nodes/{id}', '/secured/graph/nodes/{id}/neighbors',
+    '/secured/graph/nodes/{id}/facts', '/secured/graph/nodes/{id}/knowledge', '/secured/graph/nodes/{id}/filters',
+    '/secured/graph/nodes/{id}/placements', '/secured/graph/placements/{id}/reject',
+    '/secured/graph/edges', '/secured/graph/edges/{id}', '/secured/graph/facts/batch',
+    '/secured/graph/doc-values', '/secured/graph/doc-values/find',
+    '/secured/graph/doc-fields', '/secured/graph/doc-fields/{id}', '/secured/graph/doc-fields/{id}/deprecate',
+    '/secured/graph/doc-fields/packs', '/secured/graph/doc-fields/packs/{id}/install',
+    '/secured/graph/doc-fields/settings', '/secured/graph/doc-field-rules',
+)
+# Fewest ids first, so a fixed word wins over an id in the same place (``doc-fields/packs`` before ``doc-fields/{id}``).
+_ROUTES = tuple(sorted((tuple(t.strip('/').split('/')) for t in _ROUTE_TEMPLATES),
+                       key=lambda route: route.count(_ROUTE_ID)))
+_ROUTE_WORDS = frozenset(word for route in _ROUTES for word in route if word != _ROUTE_ID)
+_SHORT_CODE = re.compile(r'[A-Za-z][A-Za-z0-9_.:-]{0,63}')
+_SHORT_REQUEST_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}')
+
+
+def _route_name(endpoint: Any) -> str:
+    """The route of ``endpoint`` as a log line may name it: ``/secured/access_groups/{id}``, never the id itself.
+
+    The query string and a base URL are dropped. A path no template knows keeps only the route's own words; every
+    other segment becomes ``{id}``.
+    """
+    segments = tuple(s for s in urlsplit(str(endpoint or '')).path.split('/') if s)
+    for route in _ROUTES:
+        if len(route) == len(segments) and all(r in (_ROUTE_ID, s) for r, s in zip(route, segments)):
+            return '/' + '/'.join(route)
+    return '/' + '/'.join(s if s in _ROUTE_WORDS else _ROUTE_ID for s in segments)
+
+
+def _short_code(value: Any) -> str:
+    """An error code fit for a log line (``NOT_FOUND``, ``knowledge_graph_disabled``), else ``-``."""
+    return value if isinstance(value, str) and _SHORT_CODE.fullmatch(value) else '-'
+
+
+def _error_code(response: Any) -> str:
+    """The Core's ``error_code`` of an answer when it is a short identifier, else ``-``. Never raises."""
+    try:
+        body = response.json()
+    except Exception:  # noqa: BLE001 - never fail while reporting a failure
+        return '-'
+    return _short_code(body.get('error_code') if isinstance(body, dict) else None)
+
+
+def _request_id(response: Any) -> str:
+    """The Core's request id of an answer (``X-Request-ID``), or ``-``. Never raises."""
+    try:
+        value = response.headers.get('X-Request-ID')
+    except Exception:  # noqa: BLE001 - a response double without headers
+        return '-'
+    return value if isinstance(value, str) and _SHORT_REQUEST_ID.fullmatch(value) else '-'
+
+
+def _body_size(response: Any) -> int:
+    """How many characters the answer's body has (-1: unreadable): whether the Core said anything, not what."""
+    try:
+        return len(response.text or '')
+    except Exception:  # noqa: BLE001 - never fail while reporting a failure
+        return -1
+
+
+def _raise_for_status(response: Any, method: str, endpoint: str) -> None:
+    """``response.raise_for_status()``, with an error that names the route instead of the URL.
+
+    The error ``requests`` raises quotes the whole URL (the path's ids, the query's pointer), and a caller that logs
+    the exception writes it. The new error keeps the ``response``; nothing else of the old one is chained.
+    """
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as exc:
+        answer = exc.response if exc.response is not None else response
+        raise requests.exceptions.HTTPError(
+            f"Knovas API {method} {_route_name(endpoint)} -> HTTP {getattr(answer, 'status_code', '?')}",
+            response=answer,
+        ) from None
 
 
 def _normalize_semantix_similarity_value(raw: Any) -> float:
@@ -1757,7 +1854,7 @@ class KnovasAPIClient:
         url = f"{self.base_url}{endpoint}"
         headers = self._get_headers()
         
-        logger.debug(f"Making {method} request to {url}")
+        logger.debug("Knovas API %s %s", method, _route_name(endpoint))
         data = self._with_principal(data, method)
         params = self._actor_params(method, params)
 
@@ -1772,20 +1869,16 @@ class KnovasAPIClient:
         )
 
         if response.status_code >= 400:
-            # raise_for_status discards the body, and the body is where the API
-            # says what went wrong. Without this an upstream 500 reaches the log
-            # as "500 Server Error for url ..." and nothing else, which is
-            # indistinguishable from a fault in this deployment.
-            detail = ""
-            try:
-                detail = (response.text or "")[:600]
-            except Exception:  # noqa: BLE001 - never fail while reporting a failure
-                detail = "<response body unreadable>"
+            # Says which call failed and how, so an upstream 500 is not taken for
+            # a fault in this deployment: the route, the status, the Core's error
+            # code and its request id (the Core's own log line has the rest). Not
+            # the body: it can quote a group's name, a question or a document (FU-43).
             logger.error(
-                "Knovas API %s %s -> %s. Response body: %s",
-                method, endpoint, response.status_code, detail or "<empty>",
+                "Knovas API %s %s -> %s (error_code=%s, request_id=%s; body %d chars, not logged)",
+                method, _route_name(endpoint), response.status_code,
+                _error_code(response), _request_id(response), _body_size(response),
             )
-        response.raise_for_status()
+        _raise_for_status(response, method, endpoint)
         return response
 
     def _request_no_retry(
@@ -1819,7 +1912,7 @@ class KnovasAPIClient:
             timeout=self.http_read_timeout if timeout is None else timeout,
             allow_redirects=False,
         )
-        response.raise_for_status()
+        _raise_for_status(response, method, endpoint)
         return response
 
     def _request_quiet(
@@ -2018,7 +2111,8 @@ class KnovasAPIClient:
             payload = _secured_transmit_part_payload(transmission_key_id, idx, part)
             self._request_no_retry(method='POST', endpoint=part_endpoint, data=payload)
 
-        logger.info("Text document uploaded: %s (%d part(s))", ident, len(clean_parts))
+        # Not the identifier: it names the document (FU-43). The init's request id finds it at the Core.
+        logger.info("Text document uploaded: %d part(s), request_id=%s", len(clean_parts), _request_id(init_resp))
         return {'status': 'success', 'identifier': ident, 'part_count': len(clean_parts)}
 
     def sign_certificate(
@@ -2260,12 +2354,13 @@ class KnovasAPIClient:
                 # None -- which is why a refused curation looked like a missing
                 # name in the console.
                 logger.error(
-                    "Knovas API %s %s -> 404, so nothing was written. "
-                    "Response body: %s",
-                    method, endpoint, (response.text or "")[:600] or "<empty>",
+                    "Knovas API %s %s -> 404, so nothing was written "
+                    "(error_code=%s, request_id=%s; body %d chars, not logged)",
+                    method, _route_name(endpoint), _error_code(response),
+                    _request_id(response), _body_size(response),
                 )
             else:
-                logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, endpoint)
+                logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, _route_name(endpoint))
             return None
         if response.status_code in (204, 205):
             # Documented "done, nothing to say". Parsing it fails, and the {}
@@ -2276,8 +2371,9 @@ class KnovasAPIClient:
             payload = response.json()
         except ValueError:
             logger.warning(
-                "Graph-Antwort ohne JSON-Body: %s %s -> %s. Body: %s",
-                method, endpoint, response.status_code, (response.text or "")[:300] or "<empty>",
+                "Graph-Antwort ohne JSON-Body: %s %s -> %s (request_id=%s; body %d chars, not logged)",
+                method, _route_name(endpoint), response.status_code,
+                _request_id(response), _body_size(response),
             )
             return {}
         if method.upper() != 'GET' and not payload:
@@ -2288,9 +2384,9 @@ class KnovasAPIClient:
             # fails in complete silence.
             logger.error(
                 "Knovas API %s %s -> %s with an empty body; treating "
-                "the write as failed. Body: %s",
-                method, endpoint, response.status_code,
-                (response.text or "")[:300] or "<empty>",
+                "the write as failed (request_id=%s; body %d chars, not logged)",
+                method, _route_name(endpoint), response.status_code,
+                _request_id(response), _body_size(response),
             )
         return payload or {}
 
@@ -2437,7 +2533,8 @@ class KnovasAPIClient:
                         allow_redirects=False,
                     )
                 except _RETRYABLE_REQUEST_EXCEPTIONS as exc:
-                    logger.warning("Graph read %s failed: %s", path, type(exc).__name__)
+                    logger.warning("Graph read %s failed: %s",
+                                   _route_name(f"/secured/graph{path}"), type(exc).__name__)
                     continue
                 status = response.status_code
                 if status in (429, 503) and attempt < max_retries:
@@ -2715,8 +2812,9 @@ class KnovasAPIClient:
                 if code == 'NOT_FOUND':
                     return None
                 if code != 'pack_not_found':
-                    logger.info("Document fields off at Knovas: %s %s -> 404 %s",
-                                method, endpoint, code or '<no code>')
+                    logger.info("Document fields off at Knovas: %s %s -> 404 %s (request_id=%s)",
+                                method, _route_name(endpoint), _short_code(code),
+                                _request_id(response))
                     raise DocFieldsUnavailable(status=404, error_code=code) from exc
             if code is None and status == 429:
                 code = 'too_many_requests'  # the rate-limit body has no error_code
@@ -3010,13 +3108,16 @@ class KnovasAPIClient:
                 # nichts geschrieben wurde -- und der Aufrufer sieht nur None.
                 # Genau so meldete die Konsole 'Gruppe wurde angelegt' fuer eine
                 # Gruppe, die es nie gab.
+                # Ohne Antworttext und ohne die Id im Pfad: beide koennen den Namen
+                # einer Gruppe tragen, seit RB-4 den einer Rolle (FU-43).
                 logger.error(
-                    "Knovas API %s %s -> 404, es wurde nichts geschrieben. "
-                    "Antwort: %s",
-                    method, path, (response.text or "")[:600] or "<leer>",
+                    "Knovas API %s %s -> 404, es wurde nichts geschrieben "
+                    "(error_code=%s, request_id=%s; Antwort %d Zeichen, nicht protokolliert)",
+                    method, _route_name(path), _error_code(response),
+                    _request_id(response), _body_size(response),
                 )
             else:
-                logger.info("RBAC 404 (unbekannt oder fremd): %s %s", method, path)
+                logger.info("RBAC 404 (unbekannt oder fremd): %s %s", method, _route_name(path))
             return None
         if response.status_code == 204:
             return {}
@@ -3024,9 +3125,9 @@ class KnovasAPIClient:
             return response.json() or {}
         except ValueError:
             logger.warning(
-                "RBAC-Antwort ohne JSON-Body: %s %s -> %s. Body: %s",
-                method, path, response.status_code,
-                (response.text or "")[:300] or "<leer>",
+                "RBAC-Antwort ohne JSON-Body: %s %s -> %s (request_id=%s; Antwort %d Zeichen, nicht protokolliert)",
+                method, _route_name(path), response.status_code,
+                _request_id(response), _body_size(response),
             )
             return {}
 
@@ -3093,9 +3194,13 @@ class KnovasAPIClient:
                 params={'pointer': str(pointer)},
             )
         except Exception as exc:  # noqa: BLE001 - transport, TLS, HTTP, JSON
+            # Neither the pointer (it names the document) nor the error's text (it
+            # quoted the URL with the pointer): the class, and the status of an
+            # HTTP error, whose route and request id _make_request logged (FU-43).
             logger.warning(
-                "document_readable failed for %r; refusing the document: %s",
-                pointer, exc,
+                "document_readable failed (%s, HTTP %s); refusing the document",
+                type(exc).__name__,
+                getattr(getattr(exc, 'response', None), 'status_code', '-'),
             )
             return False
         if not isinstance(payload, dict):
@@ -3304,13 +3409,16 @@ class KnovasAPIClient:
             for r in normalized_results[:3]
         ):
             raw0 = raw_hits[0] if raw_hits and isinstance(raw_hits[0], dict) else {}
+            chunks = raw0.get("top_chunks")
+            # The chunks' count, not the chunks: a chunk carries its snippet, the
+            # document's own text (FU-09, FU-43).
             logger.info(
                 "Secured query: no page/sentence in first hits; raw[0] keys=%s "
-                "page_number=%r sentence_number=%r top_chunks=%r",
-                sorted(raw0.keys()) if raw0 else [],
+                "page_number=%r sentence_number=%r top_chunks=%d item(s), not logged",
+                sorted(str(k) for k in raw0.keys()) if raw0 else [],
                 raw0.get("page_number"),
                 raw0.get("sentence_number"),
-                raw0.get("top_chunks") if isinstance(raw0.get("top_chunks"), list) else raw0.get("top_chunks"),
+                len(chunks) if isinstance(chunks, list) else 0,
             )
 
         semantix_meta = {

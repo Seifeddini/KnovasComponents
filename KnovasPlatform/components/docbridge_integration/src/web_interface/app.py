@@ -63,8 +63,10 @@ logger = logging.getLogger(__name__)
 
 #: Loggers that print customer text at DEBUG (FU-39): the Anthropic SDK logs every request's options (the
 #: assistant's instruction, passages and question; the views assistant's definitions) and a transport error's text,
-#: and the HTTP libraries their exceptions. Held at INFO or above, whatever LOG_LEVEL says.
-QUIET_LOGGERS = ('anthropic', 'httpx', 'httpx2', 'httpcore', 'httpcore2')
+#: and the HTTP libraries their exceptions. ``urllib3`` (under ``requests``, the Core client's library) logs every
+#: request line with its path and query string: a group's id, a document's pointer (FU-43). Held at INFO or above,
+#: whatever LOG_LEVEL says.
+QUIET_LOGGERS = ('anthropic', 'httpx', 'httpx2', 'httpcore', 'httpcore2', 'urllib3')
 
 
 def _hold_quiet_loggers(level: int) -> None:

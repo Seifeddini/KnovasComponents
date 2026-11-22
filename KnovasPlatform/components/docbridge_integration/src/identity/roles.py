@@ -128,6 +128,9 @@ class TooManyGroupsError(RoleError):
 
 
 _NAME_RULE = f"Ein Rollenname hat 1 bis {NAME_MAX} Zeichen."
+#: A NUL byte: the database stores no text holding one, so it is refused before anything is asked or written.
+_NAME_NUL = "Der Rollenname enthält ein unzulässiges Zeichen."
+_DESCRIPTION_NUL = "Die Beschreibung enthält ein unzulässiges Zeichen."
 _NO_PERSON = "Person nicht gefunden."
 _DELETE_PROTECTED = "Die Rollen Administration und Mitglied können nicht gelöscht werden."
 _ADMIN_STAYS = "Die Administration behält die Funktion «Verwaltung»."
@@ -159,9 +162,11 @@ def _uuid(value: Any) -> Optional[UUID]:
 
 
 def clean_name(value: Any) -> str:
-    """A role name as stored: trimmed, runs of white space as one space, 1 to 80 characters."""
+    """A role name as stored: trimmed, runs of white space as one space, 1 to 80 characters, no NUL byte."""
     if not isinstance(value, str):
         raise RoleError(_NAME_RULE)
+    if "\x00" in value:
+        raise RoleError(_NAME_NUL)
     name = " ".join(value.split())
     if not 1 <= len(name) <= NAME_MAX:
         raise RoleError(_NAME_RULE)
@@ -173,6 +178,8 @@ def _description(value: Any) -> str:
         return ""
     if not isinstance(value, str):
         raise RoleError("Die Beschreibung einer Rolle ist Text.")
+    if "\x00" in value:
+        raise RoleError(_DESCRIPTION_NUL)
     return value.strip()
 
 
@@ -209,6 +216,19 @@ def claim_groups(conn: Any, user_id: Any) -> Tuple[str, ...]:
         (str(user_id), str(user_id)),
     ).fetchall()
     return tuple(r[0] for r in rows)
+
+
+#: Every person's claim groups as rows ``(user_id, group_id)``, by the same rule as ``claim_groups``: the direct
+#: grants that still run, plus the Core groups of their roles. For the readers that ask about many people at once
+#: (``UserRepository.members_of_groups``, the Experimente module's ``viewers_without_groups``; FU-42), as a subquery:
+#: ``... FROM (<CLAIM_GROUP_ROWS>) c WHERE ...``. A test holds it to ``claim_groups``.
+CLAIM_GROUP_ROWS = (
+    "SELECT user_id, group_id FROM user_access_groups "
+    "WHERE ends_on IS NULL OR ends_on >= current_date "
+    "UNION "
+    "SELECT m.user_id, r.core_group_id FROM tenant_role_members m JOIN tenant_roles r ON r.id = m.role_id "
+    "WHERE r.core_group_id IS NOT NULL"
+)
 
 
 @contextmanager
