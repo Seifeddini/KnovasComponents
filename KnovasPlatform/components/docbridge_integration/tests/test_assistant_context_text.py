@@ -181,8 +181,10 @@ def test_line_breaks_inside_the_context_stay():
 def test_the_passage_limit_is_the_clients_and_the_part_is_the_cores_most():
     assert ctx.DEFAULT_PASSAGE_CHARS == knovas_client.DEFAULT_PASSAGE_CHARS == 1_200
     assert ctx.MIN_PASSAGE_CHARS == knovas_client.MIN_PASSAGE_CHARS
+    assert ctx.MAX_PASSAGE_CHARS == knovas_client.MAX_PASSAGE_CHARS == 2_000
     assert ctx.PART_CHARS == knovas_client.DOCUMENT_TEXT_MAX_PART_CHARS == 20_000
     assert (ctx.DEFAULT_CONTEXT_DOCS, ctx.DEFAULT_CONTEXT_SECONDS, ctx.MAX_PARTS) == (8, 8.0, 3)
+    assert (ctx.MAX_CONTEXT_DOCS, ctx.MAX_CONTEXT_SECONDS) == (8, 8.0)
 
 
 def test_the_settings_are_read_per_question(monkeypatch):
@@ -217,3 +219,42 @@ def test_a_wrong_passage_limit_is_the_default_without_a_second_warning(monkeypat
     with caplog.at_level(logging.DEBUG, logger="assistant"):
         assert ctx.passage_chars() == 1200
     assert caplog.records == []
+
+
+@pytest.mark.parametrize("name, above, most", [
+    ("ASSISTANT_CONTEXT_DOCS", "9", 8), ("ASSISTANT_CONTEXT_DOCS", "50", 8), ("ASSISTANT_CONTEXT_DOCS", "73519", 8),
+    ("ASSISTANT_CONTEXT_SECONDS", "8.5", 8.0), ("ASSISTANT_CONTEXT_SECONDS", "60", 8.0),
+    ("ASSISTANT_CONTEXT_SECONDS", "731.519", 8.0),
+])
+def test_a_value_above_the_most_is_cut_to_it_with_a_line_that_holds_no_value(monkeypatch, caplog, name, above,
+                                                                              most):
+    """The verification: the settings allowed 50 documents and 60 seconds; the founder's limits are 8 and 8."""
+    monkeypatch.setenv(name, above)
+    read = ctx.context_docs if name.endswith("DOCS") else ctx.context_seconds
+    with caplog.at_level(logging.DEBUG, logger="assistant"):
+        assert read() == most
+    (line,) = [r.getMessage() for r in caplog.records]
+    assert name in line and above not in line and "7351" not in line
+
+
+@pytest.mark.parametrize("value, used", [("2000", 2000), ("2001", 2000), ("22118", 2000), ("100000000", 2000),
+                                         ("100", 100)])
+def test_the_passage_length_is_at_most_2000(monkeypatch, caplog, value, used):
+    """A passage of 22,118 characters was seen in the verification; the client's search says so once."""
+    monkeypatch.setenv("ASSISTANT_PASSAGE_CHARS", value)
+    with caplog.at_level(logging.DEBUG):
+        assert ctx.passage_chars() == used
+        assert knovas_client._passage_chars() == used
+    lines = [r.getMessage() for r in caplog.records]
+    assert len(lines) == (1 if int(value) > 2000 else 0)
+    assert all("ASSISTANT_PASSAGE_CHARS" in line and value not in line for line in lines)
+
+
+@pytest.mark.parametrize("name", ["ASSISTANT_CONTEXT_DOCS", "ASSISTANT_CONTEXT_SECONDS", "ASSISTANT_PASSAGE_CHARS"])
+def test_a_wrong_value_is_not_written_to_the_log(monkeypatch, caplog, name):
+    monkeypatch.setenv(name, "Kuendigungsfrist Mueller")
+    with caplog.at_level(logging.DEBUG):
+        {"ASSISTANT_CONTEXT_DOCS": ctx.context_docs, "ASSISTANT_CONTEXT_SECONDS": ctx.context_seconds,
+         "ASSISTANT_PASSAGE_CHARS": knovas_client._passage_chars}[name]()
+    (line,) = [r.getMessage() for r in caplog.records]
+    assert name in line and "Kuendigung" not in line and "Mueller" not in line

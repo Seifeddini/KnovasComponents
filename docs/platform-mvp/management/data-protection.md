@@ -39,7 +39,9 @@ the installation itself.
 Since the founder's decision of 22 November it also reads, for the hits that search returned and only those, the text
 around each hit from the Core's document text, under five limits, each tested: only documents this question's search
 just returned; the Core decides every read and any refusal keeps the search's short text; as the person, with the same
-claim as the search; at most 8 documents, 3 parts and 8 seconds a question, one read at a time; nothing of the text in a
+claim as the search; at most 8 documents, 3 parts and 8 seconds of wall-clock time a question, one read at a time
+(`ASSISTANT_CONTEXT_DOCS` 0 to 8, `ASSISTANT_CONTEXT_SECONDS` at most 8, `ASSISTANT_PASSAGE_CHARS` at most 2,000; a
+larger value is cut to the most with a log line that names the setting, never the value); nothing of the text in a
 log line. The Core does not yet read the claim on this request (CR-1c): with enforcement off it reads as the search
 does, under the Core's `enforcing` it reads open documents only, and under «Ein» (`brokered`) it refuses every read,
 so the short texts stay; it never reads a document the search did not return.
@@ -163,7 +165,7 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 | Roles: the move to roles, functions and groups read from roles, the 32-group cap (RB-1, RB-2) | built; no verification verdict yet | management (critical: a migration) |
 | Agents: one signed claim for every agent; external agents' claims handed to the Core behind a switch (RB-6, RB-7) | built; no verification verdict yet; acts with the Core's CR-R1, CR-R5, CR-R6 | management (critical: a migration, signing and claims) |
 | A role's data: folder rules and document rights written to Knovas after a dry run, four eyes, adopting a group, moving direct grants (RB-5) | verified (with notes); not yet integrated; hides nothing until CR-R1, CR-R2 and «Ein» | Siran (sensitive) |
-| The assistant's reads of the text around each hit, under the five limits (PMVP-20 context) | built; no verification verdict yet; reads as the person once the Core takes the claim (CR-1c) | Siran (sensitive) |
+| The assistant's reads of the text around each hit, under the five limits (PMVP-20 context) | verified (with notes); its three fixes built, not yet verified; reads as the person once the Core takes the claim (CR-1c) | Siran (sensitive) |
 
 ## Decisions taken
 

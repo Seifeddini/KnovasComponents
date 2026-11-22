@@ -497,6 +497,13 @@ def _snippet_from_hit(item: Dict[str, Any]) -> Optional[str]:
 #: The most characters one part of ``GET /secured/document/<uuid>/text`` holds (KnowledgeBase ``secure_api.py``,
 #: ``DOCUMENT_TEXT_MAX_PART_CHARS``); a larger ``max_chars`` is the Core's ``422 invalid_paging``.
 DOCUMENT_TEXT_MAX_PART_CHARS = 20_000
+#: The most bytes of one document-text answer that are read: a part of 20,000 characters is at most about 240 KB of
+#: JSON (every character escaped); a larger answer is not a part, and reading it is stopped.
+DOCUMENT_TEXT_MAX_BODY_BYTES = 1_000_000
+
+
+class _StopReading(Exception):
+    """The worker of ``_get_by_deadline`` stops: the deadline passed, the body is too large, or it was abandoned."""
 
 
 def _whole_number(value: Any) -> bool:
@@ -526,10 +533,13 @@ def _document_text_part(payload: Any) -> Optional[Dict[str, Any]]:
 
 #: The most characters of the passage one hit gives the Knovas Assistent
 #: (PMVP-20 passages). The setting ``ASSISTANT_PASSAGE_CHARS`` replaces it: a
-#: whole number of at least ``MIN_PASSAGE_CHARS``; anything else is the
-#: default, with one warning per search.
+#: whole number from ``MIN_PASSAGE_CHARS`` to ``MAX_PASSAGE_CHARS``; a larger
+#: one is cut to ``MAX_PASSAGE_CHARS`` (PMVP-20 context's verification), and
+#: anything else is the default; either with one warning per search that
+#: names the setting and not its value.
 DEFAULT_PASSAGE_CHARS = 1_200
 MIN_PASSAGE_CHARS = 100
+MAX_PASSAGE_CHARS = 2_000
 #: The least words of a passage: the reference check's least quote
 #: (``assistant.check.MIN_QUOTE_WORDS``; a test keeps the two equal).
 MIN_PASSAGE_WORDS = 3
@@ -545,9 +555,12 @@ def _passage_chars() -> int:
     if not raw:
         return DEFAULT_PASSAGE_CHARS
     if raw.isascii() and raw.isdigit() and int(raw) >= MIN_PASSAGE_CHARS:
-        return int(raw)
-    logger.warning("Invalid ASSISTANT_PASSAGE_CHARS=%r (a whole number of at least %d); using %d",
-                   raw[:20], MIN_PASSAGE_CHARS, DEFAULT_PASSAGE_CHARS)
+        if int(raw) <= MAX_PASSAGE_CHARS:
+            return int(raw)
+        logger.warning("ASSISTANT_PASSAGE_CHARS is above %d; using %d", MAX_PASSAGE_CHARS, MAX_PASSAGE_CHARS)
+        return MAX_PASSAGE_CHARS
+    logger.warning("Invalid ASSISTANT_PASSAGE_CHARS (a whole number from %d to %d); using %d",
+                   MIN_PASSAGE_CHARS, MAX_PASSAGE_CHARS, DEFAULT_PASSAGE_CHARS)
     return DEFAULT_PASSAGE_CHARS
 
 
@@ -2379,6 +2392,7 @@ class KnovasAPIClient:
         offset: int = 0,
         max_chars: int = DOCUMENT_TEXT_MAX_PART_CHARS,
         timeout: Optional[float] = None,
+        deadline: Optional[float] = None,
     ) -> Dict[str, Any]:
         """GET /secured/document/<uuid>/text: one part of a document's indexed text (PMVP-20 context).
 
@@ -2390,8 +2404,13 @@ class KnovasAPIClient:
 
         As the person: the principal in force is attached as on every call (``_with_principal``; inside
         ``asserting_for`` the assistant's claim, and ``?actor=``), through the same client as the search. The Core
-        takes no claim on this GET yet (Core request CR-1c). One request, never retried (``_request_no_retry``): the
-        caller has a time budget, and every read is billed. ``timeout`` replaces ``http_read_timeout``.
+        takes no claim on this GET yet (Core request CR-1c). One request, never retried: the caller has a time
+        budget, and every read is billed.
+
+        By the wall clock (``_get_by_deadline``): the answer is in by ``deadline`` (a ``time.monotonic()`` value;
+        else ``timeout`` seconds from now, else ``http_read_timeout``) or the read is given up there with a
+        ``ReadTimeout``. A socket timeout alone restarts with every packet, so a Core that trickles its answer held one
+        question for 47.6 s against a budget of 8 (PMVP-20 context's verification).
 
         ``document_uuid`` must be a UUID; the path holds its canonical form only, so no other value reaches the
         address. A failure is logged as every call's is (RB-FIX-1, RB-FIX-2): the route as a template, the status,
@@ -2406,8 +2425,11 @@ class KnovasAPIClient:
             RuntimeError: the secured API is not configured (nothing was sent).
             PermissionError: nobody is signed in (nothing was sent).
             requests.exceptions.HTTPError: any status of 400 or more (the error names the route, not the id).
-            requests.exceptions.RequestException: no answer (a timeout, no connection), without the address.
+            requests.exceptions.RequestException: no answer (a timeout, no connection, not complete by the
+                deadline), without the address.
         """
+        if deadline is None:
+            deadline = time.monotonic() + (self.http_read_timeout if timeout is None else timeout)
         try:
             document = str(_uuid.UUID(document_uuid)) if isinstance(document_uuid, str) else None
         except ValueError:
@@ -2420,8 +2442,7 @@ class KnovasAPIClient:
         if not self.mtls_enabled:
             raise RuntimeError("mTLS cert paths are not configured; the document text is read on the secured API only")
         endpoint = f"/secured/document/{document}/text"
-        response = self._request_no_retry(
-            'GET', endpoint, params={'offset': offset, 'max_chars': max_chars}, timeout=timeout)
+        response = self._get_by_deadline(endpoint, {'offset': offset, 'max_chars': max_chars}, deadline)
         try:
             payload = response.json()
         except ValueError:
@@ -2434,6 +2455,92 @@ class KnovasAPIClient:
             )
             raise ValueError(f"Knovas API GET {_route_name(endpoint)}: the answer is not a document text part")
         return part
+
+    def _get_by_deadline(self, endpoint: str, params: Dict[str, Any], deadline: float) -> requests.Response:
+        """One GET as the person in force, complete by ``deadline`` (``time.monotonic()``) or given up there.
+
+        ``_request_no_retry``'s steps, with the waiting bounded by the wall clock, for ``document_text``. The rate
+        limit, the certificate check, the principal and the actor run on the caller's thread (``asserting_for`` is
+        per thread). The request and the reading of its body run on a worker thread, and the caller waits for it only
+        until ``deadline``: a socket timeout restarts with every packet, so neither the headers nor the body of a
+        trickling answer can hold the caller longer. The worker streams the body and stops itself at its next piece
+        after the deadline, past ``DOCUMENT_TEXT_MAX_BODY_BYTES``, or at its socket timeout (the time left when the
+        read began), and closes an answer it did not read to the end (its connection is not reused). Nothing it reads
+        after the deadline is used or logged.
+
+        Raises ``ReadTimeout`` naming the route when nothing complete came by the deadline, ``ValueError`` for an
+        answer larger than ``DOCUMENT_TEXT_MAX_BODY_BYTES``, what ``_send`` raises for no answer (without the
+        address), and ``HTTPError`` naming the route for a status of 400 or more (after the line every failed call
+        gets: route, status, short code, request id, body size).
+        """
+        route = _route_name(endpoint)
+        late = f"Knovas API GET {route}: no complete answer by the deadline (ReadTimeout)"
+        self._rate_limit()
+        self._ensure_certificate_freshness()
+        data = self._with_principal(None, 'GET')
+        params = self._actor_params('GET', params)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise requests.exceptions.ReadTimeout(late)
+        box: Dict[str, Any] = {}
+
+        def fetch() -> None:
+            try:
+                response = self._send(
+                    'GET', endpoint, url=f"{self.base_url}{endpoint}", json=data, params=params,
+                    headers=self._get_headers(), timeout=(left, left), allow_redirects=False, stream=True)
+                box['response'] = response
+                if isinstance(getattr(response, '_content', False), (bytes, bytearray)):
+                    body = bytes(response._content)            # already read (a test double, or a cached answer)
+                else:
+                    pieces = bytearray()
+                    for piece in response.iter_content(chunk_size=1024):
+                        pieces += piece
+                        if box.get('abandoned') or time.monotonic() >= deadline:
+                            raise _StopReading('late')
+                        if len(pieces) > DOCUMENT_TEXT_MAX_BODY_BYTES:
+                            raise _StopReading('large')
+                    body = bytes(pieces)
+                if len(body) > DOCUMENT_TEXT_MAX_BODY_BYTES:
+                    raise _StopReading('large')
+                response._content = body
+                box['done'] = True
+            except _StopReading as stop:
+                box['stop'] = str(stop)
+            except requests.exceptions.RequestException as exc:
+                box['error'] = _transport_error(exc, 'GET', endpoint)
+            except Exception as exc:  # noqa: BLE001 - handed to the caller as it is
+                box['error'] = exc
+            finally:
+                # Not read to its end: close it here, on the worker (its connection is not reused). The caller never
+                # closes it: that would wait on the reader the worker is blocked in.
+                if not box.get('done') and box.get('response') is not None:
+                    try:
+                        box['response'].close()
+                    except Exception:  # noqa: BLE001 - a connection that is already gone
+                        pass
+
+        worker = threading.Thread(target=fetch, name="knovas-document-text", daemon=True)
+        worker.start()
+        worker.join(max(0.0, deadline - time.monotonic()))
+        if worker.is_alive():
+            box['abandoned'] = True      # the worker stops at its next piece, or at its socket timeout
+            raise requests.exceptions.ReadTimeout(late)
+        if box.get('stop') == 'late':
+            raise requests.exceptions.ReadTimeout(late)
+        if box.get('stop') == 'large':
+            raise ValueError(f"Knovas API GET {route}: the answer is larger than a document text part")
+        if 'error' in box:
+            raise box['error']
+        response = box['response']
+        status = getattr(response, 'status_code', None)
+        if isinstance(status, int) and status >= 400:
+            logger.info(
+                "Knovas API GET %s -> %s (error_code=%s, request_id=%s; body %d chars, not logged)",
+                route, status, _error_code(response), _request_id(response), _body_size(response),
+            )
+        _raise_for_status(response, 'GET', endpoint)
+        return response
 
     def health_check(self) -> bool:
         """

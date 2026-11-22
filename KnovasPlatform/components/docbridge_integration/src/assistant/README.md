@@ -391,9 +391,9 @@ show two numbers in another order than they are read.
 | Claude's timeout and retries | `providers.ANTHROPIC_TIMEOUT_SECONDS`, `ANTHROPIC_MAX_RETRIES` | 60 s, 0 | under nginx's 180 s (FU-08): no retry, so no `retry-after` wait |
 | passages asked for | `service.DEFAULT_PASSAGE_LIMIT` | 10 | |
 | prompt budget | `service.DEFAULT_PROMPT_BUDGET_BYTES` | 14,000 | system instruction (2,361 bytes) plus all messages |
-| a passage's length | `ASSISTANT_PASSAGE_CHARS` (environment, per question) | 1,200 | the snippet's cut and the context's length; a whole number of at least 100 |
-| documents read per question | `ASSISTANT_CONTEXT_DOCS` (environment, per question) | 8 | 0 to 50; 0 reads none (every passage stays its snippet) |
-| time for all reads of a question | `ASSISTANT_CONTEXT_SECONDS` (environment, per question) | 8 s | more than 0, at most 60; also each read's timeout |
+| a passage's length | `ASSISTANT_PASSAGE_CHARS` (environment, per question) | 1,200 | the snippet's cut and the context's length; 100 to 2,000; a larger value is cut to 2,000, anything else gives 1,200, either with one warning that names the setting, never its value |
+| documents read per question | `ASSISTANT_CONTEXT_DOCS` (environment, per question) | 8 | 0 to 8; 0 reads none (every passage stays its snippet); a larger value is cut to 8, anything else gives 8, with such a warning |
+| time for all reads of a question | `ASSISTANT_CONTEXT_SECONDS` (environment, per question) | 8 s | wall-clock, more than 0 and at most 8; a larger value is cut to 8, anything else gives 8, with such a warning |
 | parts read of one document | `context.MAX_PARTS`, `context.PART_CHARS` | 3 of 20,000 characters | a hit further into a document keeps its snippet |
 | least words of a run that stands for the chunk | `context.MIN_RUN_WORDS` | 8 | when the whole snippet is not in the text |
 | a digit's weight in the history | `service.DIGIT_WEIGHT_BYTES` | 3 | one token per digit at three bytes a token (FU-06) |
@@ -424,9 +424,14 @@ composed; `core.make_read_text(client)` is the reader.
    (every hit keeps its snippet) until Core request CR-1c lands.
 4. **Bounded.** At most `ASSISTANT_CONTEXT_DOCS` documents (default 8, the passages the prompt can hold), the best
    ranked first; at most 3 parts of 20,000 characters per document, the next part only while the chunk is not in the
-   text read so far; one read at a time, each with the time left as its timeout; `ASSISTANT_CONTEXT_SECONDS` (default
-   8) for all of them, after which the remaining hits keep their snippets. One reading per document per question: two
-   hits in one document share it. Each read is one request, never retried.
+   text read so far; one read at a time; `ASSISTANT_CONTEXT_SECONDS` (default and most 8) of **wall-clock** time for
+   all of them, after which the remaining hits keep their snippets. The client keeps that deadline however the Core
+   answers (`KnovasAPIClient._get_by_deadline`): the request and its body are read on a worker thread, streamed, and
+   the question waits for it only until the deadline, because a socket timeout restarts with every packet (the
+   verification held one question 47.6 s with a Core that trickled 64 bytes every 0.5 s). A worker given up stops at
+   its next piece or its socket timeout and closes the answer; nothing it reads later is used. An answer over
+   1,000,000 bytes is not read further. One reading per document per question: two hits in one document share it.
+   Each read is one request, never retried.
 5. **No text in logs**, DEBUG included: one INFO line per question (`Knovas Assistent context: passages= documents=
    reads= parts= widened=`, then the hits that kept their snippet by reason: `nothing_more`, `not_found`,
    `not_visible`, `refused`, `busy`, `core_error`, `timeout`, `transport`, `malformed`, `budget`, `limit`,
@@ -440,7 +445,8 @@ the longest run of at least eight consecutive words of it (never across a `…` 
 not begin or end inside a word (`Art. 5` is not found in `Art. 55`); of several the first counts. Not found within
 three parts: the snippet stays.
 
-**Cutting the context** (`cut_around`): `ASSISTANT_PASSAGE_CHARS` characters (default 1,200) of the document's text
+**Cutting the context** (`cut_around`): `ASSISTANT_PASSAGE_CHARS` characters (default 1,200, at most 2,000) of the
+document's text
 with the chunk inside, centred where the document allows (at its start or end the window takes more from the other
 side), cut at word boundaries (an edge inside a word moves inward, never into the chunk). White space is one
 character per run, a line break where the run held one (the number check reads two numbers on two lines as two). A
@@ -452,12 +458,13 @@ stored references keep it. Page and sentence stay those of the chunk the search 
 page is unchanged: it never calls `document_text` (a test keeps it the assistant's only caller).
 
 **What `compose` cuts first** (measured, German text of 1,232 bytes per 1,200 characters): with no history 8
-contexts and 2 snippets take 13,034 of the 14,000 bytes, nothing is cut. Ten contexts (`ASSISTANT_CONTEXT_DOCS=10`)
-are cut to about 1,075 characters each. With history (PMVP-23; the ask page sends none today) the passages get 60 %
-of what is left: the snippets stay whole and each context is cut to about 775 characters **from its end**, with `…`;
-then the oldest history turns go. A chunk centred in a 1,200-character context survives that cut while it is at most
-about 350 characters long; a longer one loses its end in the prompt, and the check still reads the whole context
-(rework 2, decision 4).
+contexts and 2 snippets take 13,034 of the 14,000 bytes, nothing is cut. With history (a follow-up, PMVP-23) the
+passages get 60 % of what is left: the snippets stay whole and each context is cut to about 775 characters **from its
+end**, with `…`; then the oldest history turns go. A chunk centred in a 1,200-character context survives that cut
+while it is at most about 350 characters long; a longer one loses its end in the prompt, and the check still reads the
+whole context (rework 2, decision 4). At `ASSISTANT_PASSAGE_CHARS=2000` the budget cuts every context even without
+history (to about 1,310 characters, a centred chunk of up to about 600 surviving) and with history to about 775, which
+is before a centred chunk begins: the model would see the text before the hit but not the hit. Keep the default.
 
 ## Rules, and where they are kept
 

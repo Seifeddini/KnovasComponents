@@ -232,7 +232,7 @@ def test_document_text_is_one_get_of_one_part_as_the_person(key_dir, monkeypatch
     (sent,) = core.sent
     assert sent["method"] == "GET" and sent["url"] == f"https://core.test/secured/document/{DOC_A}/text"
     assert sent["params"] == {"offset": 20, "max_chars": 500}
-    assert sent["timeout"] == 3.5 and sent["allow_redirects"] is False
+    assert all(3.0 < t <= 3.5 for t in sent["timeout"]) and sent["allow_redirects"] is False
     assert verifier.verify(sent["json"][ASSERTION_FIELD], tenant=TENANT).subject == str(PERSON)
 
 
@@ -337,7 +337,8 @@ def test_the_reader_asks_for_whole_parts_with_the_time_left(key_dir, monkeypatch
     core = Core()
     make_read_text(_client(key_dir, monkeypatch, core))(DOC_A, 40000, 2.25)
     (sent,) = core.sent
-    assert sent["params"] == {"offset": 40000, "max_chars": 20000} and sent["timeout"] == 2.25
+    assert sent["params"] == {"offset": 40000, "max_chars": 20000}
+    assert all(2.0 < t <= 2.25 for t in sent["timeout"]) and sent["stream"] is True
 
 
 def test_a_client_without_document_text_reads_nothing():

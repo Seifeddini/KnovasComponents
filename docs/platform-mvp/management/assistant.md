@@ -47,7 +47,7 @@ slips.
   question's search just returned, never an id from the question, the chat, the model or an earlier question; (2) the
   Core decides every read, and any refusal or failure keeps the search's short text; (3) as the person, through the
   same connection and the same claim as the search; (4) at most 8 documents, 3 parts of 20,000 characters each and 8
-  seconds a question, one read at a time; (5) nothing of the text in any log line. What search would not show her, the
+  seconds of wall-clock time a question, one read at a time; (5) nothing of the text in any log line. What search would not show her, the
   assistant never sees or sends on. Until the Core takes the claim on this read (CR-1c), «Ein» (the Core's
   `brokered`) means short passages again: the Core refuses the read and each hit keeps its snippet.
 - **Its own claim** (RB-6): the assistant is a member of roles like a person (every role but Administration, until an
@@ -73,6 +73,15 @@ slips.
   at all; if storing fails, the answer is shown once with «Dieses Gespräch konnte nicht gespeichert werden.».
 - **Off by default:** while off, the ask page does not answer and the box only searches.
 
+**The context's three settings** (environment of the installation, read per question): `ASSISTANT_CONTEXT_DOCS`
+documents a question reads, 0 to 8, default 8 (0 reads none); `ASSISTANT_CONTEXT_SECONDS` seconds of wall-clock time
+for all its reads, more than 0 and at most 8, default 8; `ASSISTANT_PASSAGE_CHARS` characters of a passage, 100 to
+2,000, default 1,200. A larger value is cut to the most (8, 8 s, 2,000), any other wrong value gives the default;
+either way one warning line names the setting, never the value. The 8 seconds hold however slowly the Core answers:
+the Platform stops waiting at that moment and the remaining hits keep their short text. Above about 1,300 characters
+the prompt's budget cuts every context from its end, so 2,000 shows the model less of the hit, not more; keep the
+default.
+
 ## Where it stands
 
 | Item | What | State | Approves before main |
@@ -80,7 +89,7 @@ slips.
 | PMVP-20 | the service: search, compose, generate, check | verified 21 Nov (with notes); integrated | Siran (sensitive) |
 | PMVP-20 hardening | numbers checked whole against the cited passage; months, number words, Roman numerals, signs | two verifications failed; the coordinator's short check passed (the founder's decision); integrated | Siran (sensitive) |
 | PMVP-20 passages | the longest text the search sends for one chunk | verified 21 Nov (with notes); integrated | Siran (sensitive) |
-| PMVP-20 context | the text around each hit, read from the document under the founder's five limits | built 22 Nov; no verification verdict yet | Siran (sensitive) |
+| PMVP-20 context | the text around each hit, read from the document under the founder's five limits | verified 22 Nov (with notes); the three fixes (a wall-clock deadline, the settings capped, DEC-0086) built, not yet verified | Siran (sensitive) |
 | PMVP-21 | chat storage: three new tables, owner only | verified 19 Nov (with notes); integrated; no page uses it yet | management (critical: database change) |
 | PMVP-22a | the ask page | built; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-25 | switch, provider and model, key, connection test | built; no verification verdict yet | management (critical: a secret) |
@@ -108,7 +117,7 @@ slips.
 ## Known limits and open points
 
 - **Short passages (FU-37):** the Core's search sends each hit's own short text (2 to 172 characters on the demo
-  tenant). PMVP-20 context (built, not verified) reads up to 1,200 characters around each hit from the document;
+  tenant). PMVP-20 context (verified with notes) reads up to 1,200 characters around each hit from the document;
   measured on the demo tenant, 5 questions: see the work order's notes. A hit keeps its short text where the Core
   refuses the read (under «Ein» every read until CR-1c), beyond the eighth document, after 8 seconds, or when it
   stands more than 60,000 characters into its document.

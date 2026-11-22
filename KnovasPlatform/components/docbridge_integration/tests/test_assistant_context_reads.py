@@ -335,7 +335,7 @@ def test_at_most_eight_documents_are_read_the_lowest_ranked_keep_their_snippets(
     assert [p.text for p in out[8:]] == [r["snippet"] for r in rows[8:]]
 
 
-@pytest.mark.parametrize("value, read", [("2", 2), ("0", 0), ("50", 10)])
+@pytest.mark.parametrize("value, read", [("2", 2), ("0", 0), ("8", 8), ("50", 8)])
 def test_assistant_context_docs_sets_how_many(monkeypatch, value, read):
     ids, texts, rows = _ten_documents()
     monkeypatch.setenv("ASSISTANT_CONTEXT_DOCS", value)

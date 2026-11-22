@@ -63,6 +63,7 @@ through the settings' Resolver::
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Union
 
 import requests
@@ -128,9 +129,10 @@ def make_read_text(client: Any) -> Optional[Callable[[str, int, float], Mapping[
     """``read_text(document_uuid, offset, timeout) -> part`` for ``AssistantService``, or None when ``client``
     cannot read a document's text (then no passage is widened).
 
-    One ``client.document_text`` call of ``PART_CHARS`` characters at ``offset``, with ``timeout`` as its time
-    limit: the client attaches the principal in force (the assistant's claim inside ``asserting_for``, and the
-    declared actor) as for the search. HTTP 429 and 503 become ``CoreBusy``, any other HTTP error, a timeout, no
+    One ``client.document_text`` call of ``PART_CHARS`` characters at ``offset``, done by the wall clock:
+    ``timeout`` is the time left of the question's budget, and the client gives the read up at ``now + timeout``
+    however the Core sends its answer (``KnovasAPIClient._get_by_deadline``). The client attaches the principal in
+    force (the assistant's claim inside ``asserting_for``, and the declared actor) as for the search. HTTP 429 and 503 become ``CoreBusy``, any other HTTP error, a timeout, no
     connection, nobody signed in or a malformed answer ``CoreFailed`` with a short reason; nothing of the original
     error is kept (``from None``), so no address, body or text travels further.
     """
@@ -142,7 +144,7 @@ def make_read_text(client: Any) -> Optional[Callable[[str, int, float], Mapping[
 
     def read_text(document_uuid: str, offset: int, timeout: float) -> Mapping[str, Any]:
         try:
-            return read(document_uuid, offset=offset, max_chars=PART_CHARS, timeout=timeout)
+            return read(document_uuid, offset=offset, max_chars=PART_CHARS, deadline=time.monotonic() + timeout)
         except requests.exceptions.HTTPError as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
             failure: Exception = (CoreBusy(status=status) if status in BUSY_STATUSES

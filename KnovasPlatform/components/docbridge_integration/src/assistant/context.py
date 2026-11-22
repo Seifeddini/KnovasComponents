@@ -18,19 +18,21 @@ characters) to give the model the text around each hit, under five limits. Each 
    the same ``asserting_for`` block (``AsTheAssistant``), so it carries the same principal and declares the same
    actor (``?actor=`` on a GET). The Core takes no claim on this GET yet (Core request CR-1c); it reads with the
    tenant's posture, as the search does under ``disabled``.
-4. **Bounded.** At most ``ASSISTANT_CONTEXT_DOCS`` documents per question (default 8, the passages the prompt can
-   hold; 0 reads none), at most ``MAX_PARTS`` parts of ``PART_CHARS`` characters per document, one read at a time,
-   and ``ASSISTANT_CONTEXT_SECONDS`` (default 8) for all reads of a question; after that the remaining hits keep
-   their snippets. One reading per document per question: two hits in one document share it.
+4. **Bounded.** At most ``ASSISTANT_CONTEXT_DOCS`` documents per question (default and most 8, the passages the
+   prompt can hold; 0 reads none), at most ``MAX_PARTS`` parts of ``PART_CHARS`` characters per document, one read at
+   a time, and ``ASSISTANT_CONTEXT_SECONDS`` (default and most 8) of wall-clock time for all reads of a question: the
+   client gives a read up at that deadline however slowly the Core answers, and the remaining hits keep their
+   snippets. One reading per document per question: two hits in one document share it.
 5. **Nothing of the text in logs**, DEBUG included: one line per question with counts (passages, documents read,
    requests, parts, passages widened, and the hits that kept their snippet, by reason).
 
 The context (``find_chunk``, ``cut_around``): the hit's chunk is looked for in the text read, white space
 normalised and a leading or trailing ellipsis dropped -- first the whole snippet, else the longest run of at least
 ``MIN_RUN_WORDS`` consecutive words of it. The next part is read only while the chunk is not in the text read so far.
-Around it, ``ASSISTANT_PASSAGE_CHARS`` characters (default 1,200, the passage's own limit) of the document's text,
-cut at word boundaries, the chunk inside and centred where the document allows. The context replaces the snippet as
-the passage the model is given and the check reads; its page and sentence stay those of the chunk the search named.
+Around it, ``ASSISTANT_PASSAGE_CHARS`` characters (default 1,200, at most 2,000, the passage's own limit) of the
+document's text, cut at word boundaries, the chunk inside and centred where the document allows. The context replaces
+the snippet as the passage the model is given and the check reads; its page and sentence stay those of the chunk the
+search named.
 
 This module imports neither Flask, nor the app, nor the HTTP client. It is ASCII-only.
 """
@@ -48,12 +50,14 @@ from assistant.errors import CoreBusy, CoreFailed
 
 logger = logging.getLogger(__name__)
 
-#: ``ASSISTANT_CONTEXT_DOCS``: the most documents read per question. 0 reads none.
+#: ``ASSISTANT_CONTEXT_DOCS``: the most documents read per question, 0 to 8 (0 reads none). A larger value is cut to
+#: the most (PMVP-20 context's verification: the founder's limit is 8, the passages the prompt can hold).
 DEFAULT_CONTEXT_DOCS = 8
-MAX_CONTEXT_DOCS = 50
-#: ``ASSISTANT_CONTEXT_SECONDS``: the time all reads of one question may take, in seconds.
+MAX_CONTEXT_DOCS = 8
+#: ``ASSISTANT_CONTEXT_SECONDS``: the wall-clock time all reads of one question may take, more than 0 and at most 8
+#: seconds; a larger value is cut to the most.
 DEFAULT_CONTEXT_SECONDS = 8.0
-MAX_CONTEXT_SECONDS = 60.0
+MAX_CONTEXT_SECONDS = 8.0
 #: A read is not started with less time left than this.
 MIN_READ_SECONDS = 0.2
 #: The most parts read of one document, and the characters asked for per part (the Core's most).
@@ -61,10 +65,12 @@ MAX_PARTS = 3
 PART_CHARS = 20_000
 #: A run of the snippet's words that stands for the chunk when the whole snippet is not in the text.
 MIN_RUN_WORDS = 8
-#: ``ASSISTANT_PASSAGE_CHARS`` as ``knovas_client`` reads it (a test keeps the two equal). The client's search has
-#: already warned about a wrong value in the same question, so it is read here without a warning.
+#: ``ASSISTANT_PASSAGE_CHARS`` as ``knovas_client`` reads it (a test keeps the three equal): 100 to 2,000, a larger
+#: value cut to 2,000. The client's search has already warned about a wrong value in the same question, so it is read
+#: here without a warning.
 DEFAULT_PASSAGE_CHARS = 1_200
 MIN_PASSAGE_CHARS = 100
+MAX_PASSAGE_CHARS = 2_000
 
 ELLIPSIS = "\u2026"
 
@@ -102,27 +108,35 @@ _SECONDS = re.compile(r"[0-9]{1,3}(?:\.[0-9]{1,3})?")
 
 
 def context_docs() -> int:
-    """``ASSISTANT_CONTEXT_DOCS``: a whole number from 0 to ``MAX_CONTEXT_DOCS``; else the default and a warning."""
+    """``ASSISTANT_CONTEXT_DOCS``: a whole number from 0 to ``MAX_CONTEXT_DOCS``; a larger one is cut to it, anything
+    else is the default, either with one warning that names the setting, never its value."""
     raw = (os.environ.get("ASSISTANT_CONTEXT_DOCS") or "").strip()
     if not raw:
         return DEFAULT_CONTEXT_DOCS
-    if raw.isascii() and raw.isdigit() and int(raw) <= MAX_CONTEXT_DOCS:
-        return int(raw)
-    logger.warning("Invalid ASSISTANT_CONTEXT_DOCS=%r (a whole number from 0 to %d); using %d",
-                   raw[:20], MAX_CONTEXT_DOCS, DEFAULT_CONTEXT_DOCS)
+    if raw.isascii() and raw.isdigit():
+        if int(raw) <= MAX_CONTEXT_DOCS:
+            return int(raw)
+        logger.warning("ASSISTANT_CONTEXT_DOCS is above %d; using %d", MAX_CONTEXT_DOCS, MAX_CONTEXT_DOCS)
+        return MAX_CONTEXT_DOCS
+    logger.warning("Invalid ASSISTANT_CONTEXT_DOCS (a whole number from 0 to %d); using %d",
+                   MAX_CONTEXT_DOCS, DEFAULT_CONTEXT_DOCS)
     return DEFAULT_CONTEXT_DOCS
 
 
 def context_seconds() -> float:
-    """``ASSISTANT_CONTEXT_SECONDS``: more than 0, at most ``MAX_CONTEXT_SECONDS`` (``8`` or ``2.5``); else the
-    default and a warning."""
+    """``ASSISTANT_CONTEXT_SECONDS``: more than 0 (``8`` or ``2.5``); a value above ``MAX_CONTEXT_SECONDS`` is cut to
+    it, anything else is the default, either with one warning that names the setting, never its value."""
     raw = (os.environ.get("ASSISTANT_CONTEXT_SECONDS") or "").strip()
     if not raw:
         return DEFAULT_CONTEXT_SECONDS
-    if _SECONDS.fullmatch(raw) and 0 < float(raw) <= MAX_CONTEXT_SECONDS:
-        return float(raw)
-    logger.warning("Invalid ASSISTANT_CONTEXT_SECONDS=%r (seconds, more than 0 and at most %d); using %d",
-                   raw[:20], int(MAX_CONTEXT_SECONDS), int(DEFAULT_CONTEXT_SECONDS))
+    if _SECONDS.fullmatch(raw) and float(raw) > 0:
+        if float(raw) <= MAX_CONTEXT_SECONDS:
+            return float(raw)
+        logger.warning("ASSISTANT_CONTEXT_SECONDS is above %d; using %d", int(MAX_CONTEXT_SECONDS),
+                       int(MAX_CONTEXT_SECONDS))
+        return MAX_CONTEXT_SECONDS
+    logger.warning("Invalid ASSISTANT_CONTEXT_SECONDS (seconds, more than 0 and at most %d); using %d",
+                   int(MAX_CONTEXT_SECONDS), int(DEFAULT_CONTEXT_SECONDS))
     return DEFAULT_CONTEXT_SECONDS
 
 
@@ -130,7 +144,7 @@ def passage_chars() -> int:
     """``ASSISTANT_PASSAGE_CHARS`` as the client's search reads it, without its warning."""
     raw = (os.environ.get("ASSISTANT_PASSAGE_CHARS") or "").strip()
     if raw.isascii() and raw.isdigit() and int(raw) >= MIN_PASSAGE_CHARS:
-        return int(raw)
+        return min(int(raw), MAX_PASSAGE_CHARS)
     return DEFAULT_PASSAGE_CHARS
 
 

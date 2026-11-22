@@ -185,7 +185,8 @@ contract:
         read only from a document that this question''s search returned (never an id from the question, the chat, the
         model or an earlier question), decided by the Core on every read (any refusal or failure keeps the search''s
         snippet), through the same client as the same principal with the same declared actor, bounded (at most 8
-        documents, 3 parts each, 8 seconds a question, one read at a time) and with no text in any log line.'
+        documents, 3 parts each, 8 seconds of wall-clock time a question however the Core answers, one read at a
+        time) and with no text in any log line.'
       risk_class: standard
       evidence:
       - kind: test
@@ -209,6 +210,16 @@ contract:
         - test_the_time_budget_stops_further_reads_and_bounds_each_read
         - test_not_found_keeps_the_snippet_after_at_most_three_parts
         - test_a_quote_from_outside_the_context_is_removed
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_context_deadline.py
+        checks:
+        - test_a_trickling_answer_is_given_up_at_the_deadline
+        - test_a_trickling_core_holds_a_question_no_longer_than_its_budget
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_context_text.py
+        checks:
+        - test_a_value_above_the_most_is_cut_to_it_with_a_line_that_holds_no_value
+        - test_the_passage_length_is_at_most_2000
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_assistant_acceptance.py
         checks:
