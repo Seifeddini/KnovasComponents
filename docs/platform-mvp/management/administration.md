@@ -252,8 +252,8 @@ functions); the Knovas Core accepts it as it accepts a person's.
 | PMVP-25 | the assistant's settings and connection test | built; no verification verdict yet | management (critical) |
 | PMVP-30a | the Brain views switch | built; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-40 | the three pages in the new look; gate tests; the Admin card split in two (a new card "Zugriff" for the access pages) | in build (work pushed, builder's notes not written) | Jannik or Siran (routine) |
-| PMVP-41 | "Was sieht …?" in Admin | not started | Siran (sensitive) |
-| PMVP-42 | enforcement position and switch | not started; waits for two green rights runs of the Core | management (critical) |
+| PMVP-41 | "Was sieht …?" in Admin: what a person, a role, the Knovas Assistent or an external agent reads; one document yes or no with the reason; a search as that person (names only) | work order and acceptance tests drafted 22 Nov (not yet frozen); computed until «Ein», Knovas's own answer after | Siran (sensitive) |
+| PMVP-42 | enforcement position and switch | work order and acceptance tests drafted 22 Nov and reworked the same day after the founder's answer (not yet frozen): one administrator switches after a confirmation; the Core decides whether «Ein» is allowed (a broker key, a complete backfill, two green rights runs under `brokered`) and the page shows its reason; no migration. Waits for the Core's CR-R1a and CR-R8 (and CR-R7's runs for «Ein») | management (critical) |
 | PMVP-43 | the pilot's rights test set | not started | Siran (sensitive) |
 | RB-1, RB-2 | roles: tables, the two roles, the move of an existing installation; functions and groups read from roles; the last-administrator rule and the 32-group cap | built; no verification verdict yet | management (critical: a migration) |
 | RB-3, RB-4 | the Rollen page; creating, renaming and deleting roles, their functions and people; the people page offers roles; deactivating waits for removals (the last-administrator race) | verified (with notes); integrated | Siran (sensitive) |
@@ -286,7 +286,7 @@ functions); the Knovas Core accepts it as it accepts a person's.
   (FU-44); RB-FIX-1 gives the Rollen page and the Agenten page a card each («Rollen», «Agenten»), because one card for
   both would still have been over the budget. RB-5's part of the Rollen page (a role's data) has a card of its own
   («Rollendaten») for the same reason.
-- **"Was sieht …?" and the enforcement position** are still the Builder's files (FU-20).
+- **"Was sieht …?" and the enforcement position** are still the Builder's files (FU-20); PMVP-41 and PMVP-42 move them to «Zugriff» (drafted 22 Nov). Decided by the founder on 22 Nov: one administrator switches enforcement, the Core holds the gate (two green rights runs under `brokered` are its own precondition), and «Was sieht …?» shows names only, every look audited.
 - Ingestion, document fields and System have no card; their domain is open.
 - Small findings: an approver who is also an ingestion manager lands on Ingestion; malformed roles give an error page;
   a signed-out call to the Builder's data routes is redirected to sign-in instead of refused (FU-24).

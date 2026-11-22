@@ -153,3 +153,78 @@ gateway sends one per call.** The agent is known to both by the Platform's agent
 **How to know it works:** on the demo tenant, `brokered`: an agent in a role with a walled group finds a walled
 document through the gateway; taken out of the role on the Platform, it no longer does within a minute; revoked, its
 next call reads nothing; with the Platform stopped, it reads nothing after 300 seconds.
+
+## Added on 2026-11-22: the posture belongs to the Core (CR-R1a, CR-R7, CR-R8; PMVP-42)
+
+The founder decided on 2026-11-22: **"An admin alone should be able to switch such things"** (no second administrator,
+no Knovas staff step), and **RBAC is handled in the Core**: `brokered` is the posture of a tenant with RBAC enabled,
+and enabling it may be conditioned on two green runs. The coordinator's reading, taken unless the founder objects:
+**the gate lives in the Core.** The Platform shows the posture, lets one administrator switch it after a confirmation,
+and shows the Core's reason when the Core refuses. It keeps no record of rights runs and checks no gate itself.
+
+### CR-R1a: the tenant reads its own posture
+
+- **Route:** `GET /secured/rbac/posture`, on the tenant's client certificate (mTLS) like every `/secured/*` route; the
+  tenant is the certificate's. No admin key; no principal assertion needed (the answer names no person). Admission
+  class `metadata`.
+- **Answer** (the Secure API's usual envelope): `{"mode": "disabled" | "enforcing" | "brokered",
+  "backfill_complete": bool, "broker_key_registered": bool, "not_ready": [<code>, …], "tenant_switch": bool}`.
+  `not_ready` lists the codes CR-R8 would answer for `brokered` right now (empty when it would accept);
+  `tenant_switch` is true once the Core offers CR-R8 to this tenant. Nothing else: no group, no document, no other
+  tenant. A posture that cannot be read is 503, never a guess (as `EnforcementLookupError`).
+- **Logs:** the tenant id and the mode.
+- **Used by:** `KnovasAPIClient.rbac_posture()` (PMVP-42 adds it; a 404, the Core without this route, answers None): the
+  position on «Zugriff» and whether its switch is offered (PMVP-42), RB-5's «wirkt mit «Ein»», PMVP-41's switch from
+  computed answers to Knovas's own.
+
+### CR-R7: the end-to-end rights test under `brokered`, and two green runs as the Core's own precondition
+
+- **Why:** for the Platform «Ein» is `brokered`. The job `rbac-wall` (`scripts/ci/rbac_wall_stack.py`; run record
+  `docs/ModernDocs/reports/2026-11-rbac-phase-1-run-record.md`) runs the journey under `enforcing` with groups in the
+  request body (first green run 18 Nov 2026), a posture the Platform never uses.
+- **The test:** the same journey under `brokered`: a broker key registered for the test tenant; every search, document
+  read and `document_readable` carries a claim signed as the Platform signs it (`typ knovas-principal+jws`, EdDSA,
+  `sub`, `tid`, `grp`, `rol`, at most 300 seconds, `jti` burned). At least: a walled document invisible to a claim
+  without its group and visible to one with it or a group above it; an open document visible to every claim; a request
+  without a claim, an expired, replayed or foreign-tenant claim refused; the control run without enforcement reports
+  the leak. Each run's record names the posture, the commit and the run id.
+- **The precondition (plan § 8.1, DEC-0082 as the founder answered it):** the Core puts no tenant into `brokered`
+  (CR-R1's internal route and CR-R8 alike) unless its own record holds **two green runs of this journey under
+  `brokered` for the Core version it runs**. How the runs reach that record (the CI job writes them, or the release
+  carries them for its commit) is the Core builder's choice; a version without them refuses with
+  `rights_runs_missing`. The Platform keeps no copy.
+
+### CR-R8: the tenant sets its own posture
+
+- **Route:** `PUT /secured/rbac/posture`, on the tenant's client certificate; body `{"mode": "brokered" | "disabled"}`
+  plus the principal assertion every Platform call carries. `enforcing` is not accepted here (400): it ignores the
+  Platform's claims.
+- **Who:** the Platform, for one of the firm's administrators. When a broker key is registered the Core verifies the
+  assertion and requires the tenant's administrator group in its `grp`; it records the assertion's subject (an opaque
+  id) as the actor.
+- **Preconditions for `brokered`, checked by the Core, in this order:** a broker key registered (`no_broker_key`); the
+  backfill complete (`backfill_incomplete`); two green runs under `brokered` for this version (CR-R7,
+  `rights_runs_missing`). A refusal is **409** with `{"error_code": <code>}` and changes nothing. `disabled` is always
+  accepted (switching off must never be blocked by the gate).
+- **Answer:** 200 `{"mode": <the new mode>}`; the same mode again is 200 and changes nothing.
+- **Audit and logs:** an audit event `rbac.posture_changed` (tenant, from, to, the actor's subject id); a log line with
+  the tenant, the modes and the outcome code; nothing else.
+- **Rate:** class `metadata`.
+
+**CR-R1 and CR-R8 are not the same thing, but one rule.** CR-R1 makes the Knovas-internal route
+(`PUT /admin/clients/<id>/rbac-enforcement`, an employee login) accept `brokered` (and, by the founder's answer, makes
+`brokered` the posture for enabling RBAC); CR-R8 is the tenant's own entrance. Both set the same column through one
+Core function with one precondition check (CR-R7's included), so they cannot drift apart. CR-R1 stays needed for
+onboarding and for Knovas staff to switch a tenant off in an emergency; the Platform uses only CR-R1a and CR-R8.
+
+**How the Platform uses them (PMVP-42):** `KnovasAPIClient.rbac_posture()` (CR-R1a) and
+`KnovasAPIClient.set_rbac_posture(mode)` (CR-R8: `{"mode": …}` on success, `{"refused": <code>}` on a 409, None on a
+404). Until CR-R1a reports `tenant_switch: true` the page shows the switch disabled, «wartet auf Knovas».
+
+**How to know it works:** on the demo tenant, `disabled`: «Zugriff» says «Aus» and, before CR-R7's runs are recorded,
+that «Ein» is not possible yet and why; an administrator confirms «Ein» and the Core answers `rights_runs_missing`,
+nothing changes. With the runs recorded, the same click switches the tenant to `brokered` and the page says «Ein»;
+«Aus» switches it back at once.
+
+**Needed for the pilot's «Ein» (15 December):** CR-R1a, CR-R2, CR-R7 (with two green runs) and CR-R8; CR-R1 for
+Knovas's own path.

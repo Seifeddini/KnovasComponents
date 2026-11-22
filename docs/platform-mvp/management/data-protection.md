@@ -81,7 +81,7 @@ building are kept outside the repository.
 **Chats** stay in the Platform's own database, owner only; the chat store does not encrypt their text itself.
 Decided on 22 November and built with PMVP-23 (built, not yet verified): a chat keeps **the passages its answers
 were made from** (readable by its owner only, deleted with the chat, never sent to a provider again; a follow-up
-sends the earlier questions and statements only). A chat is **deleted automatically 90 days after its last
+sends the earlier questions and statements only). A chat is **deleted automatically within a day after the 90 days since its last
 message**, with its messages and passages: each web worker of the Platform checks once an hour, and one database
 lock and the day's audit entry make the deletion run once a day for the whole installation, also across restarts.
 The audit log records how many chats it deleted (`assistant.chats.retention`), nothing else: no title, owner or
@@ -149,7 +149,8 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 | The client's errors and the HTTP library's warnings without addresses or Knovas text (RB-FIX-2) | built; no verification verdict yet | Siran (sensitive) |
 | Second log sweep (FU-22, FU-31) | not started; waits for #55 | its web-server part is deployment: sensitive |
 | Key handling (PMVP-25) | built; no verification verdict yet | management (critical) |
-| Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | not started; PMVP-42 waits for the Core's rights test | management (critical); Siran (sensitive) |
+| Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | PMVP-42 drafted and reworked 22 Nov: one administrator switches after a confirmation, recorded by id; Knovas switches only when its own prerequisites hold (two green rights runs under `brokered` among them); PMVP-43 not started | management (critical); Siran (sensitive) |
+| «Was sieht …?» (PMVP-41): an administrator sees the names of the documents another person, a role or an agent reads, never passage text; every look audited by id | drafted 22 Nov; names only, every look audited (founder, 22 Nov) | Siran (sensitive) |
 | Roles: the move to roles, functions and groups read from roles, the 32-group cap (RB-1, RB-2) | built; no verification verdict yet | management (critical: a migration) |
 | Agents: one signed claim for every agent; external agents' claims handed to the Core behind a switch (RB-6, RB-7) | built; no verification verdict yet; acts with the Core's CR-R1, CR-R5, CR-R6 | management (critical: a migration, signing and claims) |
 | A role's data: folder rules and document rights written to Knovas after a dry run, four eyes, adopting a group, moving direct grants (RB-5) | verified (with notes); not yet integrated; hides nothing until CR-R1, CR-R2 and «Ein» | Siran (sensitive) |
