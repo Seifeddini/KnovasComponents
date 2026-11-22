@@ -25,17 +25,28 @@ for the pilot. It is not one component; each rule lives in the part named beside
 
 | To | What | When |
 |---|---|---|
-| The chosen provider: the Knovas Core or Anthropic | the assistant's instruction, the passages this person's search returned, the question and the chat so far (its questions and the statements of its answers; never an earlier passage or quote) | every question, only while the assistant is on |
+| The chosen provider: the Knovas Core or Anthropic | the assistant's instruction, the passages this person's search returned (each up to 1,200 characters of the text around the hit, PMVP-20 context), the question and the chat so far (its questions and the statements of its answers; never an earlier passage or quote) (DEC-0086) | every question, only while the assistant is on |
 | Anthropic | one invented passage and question, no customer text | an administrator presses "Verbindung testen" |
 | The Knovas Core | searches and per-thing reads as the signed-in person, over the Platform's certificate (as today) | search, dossier |
 | The Knovas Core | the assistant's searches and its generation calls with **the assistant's own signed claim** (its id, the groups and functions of its roles that the person also holds) and "the assistant, for this person" (both ids) | every question, only while the assistant is on (RB-6) |
+| The Knovas Core | the assistant's reads of a document's text (`GET /secured/document/<id>/text`): only the documents this question's search returned, at most 8, with the same claim and "the assistant, for this person"; the document's id and where to read from, no text | every question, only while the assistant is on (PMVP-20 context) |
 | The Knovas Core (for its MCP gateway) | per external agent, every minute: **20 signed claims** (the agent's id, the groups and functions of its roles, narrowed to its person if it has one), each valid at most 300 seconds; or "drop this agent's claims" | only while the switch «Agenten über das Knovas-Gateway» is on (off by default; RB-7) |
 
 The pilot (Knovas GmbH) chose Anthropic on 21 November, so its passages may be sent there. Fonts and styles load from
 the installation itself.
 
-**Access rights through the Brain's search.** The assistant has no second way to read documents (FU-14). The dossier
-reads one thing at a time as the person; a thing she may not see looks like one that does not exist, and a fact whose
+**Access rights through the Brain's search.** The assistant finds documents only through the person's search (FU-14).
+Since the founder's decision of 22 November it also reads, for the hits that search returned and only those, the text
+around each hit from the Core's document text, under five limits, each tested: only documents this question's search
+just returned; the Core decides every read and any refusal keeps the search's short text; as the person, with the same
+claim as the search; at most 8 documents, 3 parts and 8 seconds of wall-clock time a question, one read at a time
+(`ASSISTANT_CONTEXT_DOCS` 0 to 8, `ASSISTANT_CONTEXT_SECONDS` at most 8, `ASSISTANT_PASSAGE_CHARS` at most 2,000; a
+larger value is cut to the most with a log line that names the setting, never the value); nothing of the text in a
+log line. The Core does not yet read the claim on this request (CR-1c): with enforcement off it reads as the search
+does, under the Core's `enforcing` it reads open documents only, and under «Ein» (`brokered`) it refuses every read,
+so the short texts stay; it never reads a document the search did not return.
+
+The dossier reads one thing at a time as the person; a thing she may not see looks like one that does not exist, and a fact whose
 source document was not listed for her is marked "ohne Beleg" with the document hidden. **But** the Brain's search
 follows rights only where a customer's enforcement is on, and it is off for every tenant today; until then a search,
 and so what goes to a provider, may hold passages beyond the person's rights (RISK-03 on the assistant's card). No
@@ -171,6 +182,7 @@ reaches the Core is in the audit log by id (who, from, to, or the Core's reason 
 | Roles: the move to roles, functions and groups read from roles, the 32-group cap (RB-1, RB-2) | built; no verification verdict yet | management (critical: a migration) |
 | Agents: one signed claim for every agent; external agents' claims handed to the Core behind a switch (RB-6, RB-7) | built; no verification verdict yet; acts with the Core's CR-R1, CR-R5, CR-R6 | management (critical: a migration, signing and claims) |
 | A role's data: folder rules and document rights written to Knovas after a dry run, four eyes, adopting a group, moving direct grants (RB-5) | verified (with notes); not yet integrated; hides nothing until CR-R1, CR-R2 and «Ein» | Siran (sensitive) |
+| The assistant's reads of the text around each hit, under the five limits (PMVP-20 context) | verified (with notes); its three fixes built, not yet verified; reads as the person once the Core takes the claim (CR-1c) | Siran (sensitive) |
 
 ## Decisions taken
 
@@ -182,6 +194,7 @@ reaches the Core is in the audit log by id (who, from, to, or the Core's reason 
 | 20 Nov | after the sweep's first verification | The log fingerprint is keyed with the installation's secret |
 | 21 Nov | founder | The customer chooses the provider; the pilot's passages may go to Anthropic |
 | 21 Nov | founder | The Platform signs agents' claims; external agents use only Knovas's gateway ("Core gateway only"); on client installations agents only after «Ein» |
+| 22 Nov | founder | The assistant may read the Core's document text for the hits its search returned, under five limits (POST-02 amended) |
 | 22 Nov | founder | «Was sieht …?» shows document names only, never content, and every look is audited (PMVP-41) |
 | 22 Nov | founder | One administrator alone switches enforcement, with a confirmation and an audit row; the gate for «Ein» is the Core's (CR-R7, CR-R8); the Platform keeps no record of rights runs (PMVP-42) |
 | 22 Nov | founder | A chat keeps its passages (owner only, deleted with it); chats are deleted automatically after 90 days, read by the coordinator as 90 days after the last message (PMVP-23) |
@@ -211,7 +224,7 @@ installation's web secret (fingerprints) and settings key (secrets); Anthropic, 
 No single card; the rules sit on the assistant's, Admin's and access cards (engine owner role, proposed). The logs rule
 is the founder's.
 
-**Where the detail is:** `docs/platform-mvp/follow-ups.md` (FU-09, 14, 22, 25, 31, 33, 36);
-`docs/platform-mvp/work-orders/PMVP-25.md` (branch `feat/pmvp-25`), `PMVP-20-passages.md`, `RB-6-7.md` (branch
-`feat/rb-6-7`); `docs/platform-mvp/core-requests.md` (CR-R1, CR-R5, CR-R6); branch
+**Where the detail is:** `docs/platform-mvp/follow-ups.md` (FU-09, 14, 22, 25, 31, 33, 36, 37);
+`docs/platform-mvp/work-orders/PMVP-25.md` (branch `feat/pmvp-25`), `PMVP-20-passages.md`, `PMVP-20-context.md`, `RB-6-7.md` (branch
+`feat/rb-6-7`); `docs/platform-mvp/core-requests.md` (CR-1c, CR-R1, CR-R5, CR-R6); branch
 `maint/platform-logs-no-customer-text`; KnowledgeBase decision DEC-0082.

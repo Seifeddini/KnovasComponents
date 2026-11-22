@@ -59,14 +59,17 @@ responsible_for:
   - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/ask.js
   - KnovasPlatform/components/docbridge_integration/src/identity/chats.py
 not_responsible_for:
-- Reading documents any other way than through the person's own search; there is no second way (plan § 5.2, step 2).
+- Reading documents any other way than through the person's own search and, for the passages that search returned,
+  the text of those documents around each hit, under the founder's five limits of 2026-11-22 (PMVP-20 context;
+  plan § 5.2, step 2, POST-02 as amended).
 - Deciding who may see a document; the Brain's search does, as the signed-in person.
 - The search page and the document view; they belong to the Platform's web app (index.html draws the box and the
   switch only when the ask page says the assistant is on).
 - Opening a document from a reference; the web app's file routes serve what retrieval handed the person.
 terms:
 - reference (a number in an answer that points to a passage retrieved for this person in this chat)
-- passage (a hit's verbatim text that the person's search returned, numbered in search order)
+- passage (a hit's verbatim text that the person's search returned, or up to 1,200 characters of the text around
+  it read from that document (PMVP-20 context), numbered in search order)
 - chat (one person's questions and the answers as they were shown, with their references)
 - follow-up (a question asked in a chat, after its earlier turns)
 operations:
@@ -102,9 +105,9 @@ operations:
   entrance: call
   ref: KnovasPlatform/components/docbridge_integration/src/web_interface/assistant_routes.py#install_assistant
 - id: call.assistant.core.make_service
-  name: 'make_service(settings, api_client, split, user_key) - the assistant as the settings say now: OFF while it is
-    switched off, else the service with the provider the customer chose (the assistant''s routes, PMVP-22a, build it per
-    request)'
+  name: 'make_service(settings, api_client, split, user_key, deadline) - the assistant as the settings say now: OFF
+    while it is switched off, else the service with the provider the customer chose (the assistant''s routes, PMVP-22a,
+    build it per request, with the answer''s deadline the route started, PMVP-24)'
   entrance: call
   ref: KnovasPlatform/components/docbridge_integration/src/assistant/core.py#make_service
 - id: call.assistant.providers.connection_test
@@ -177,9 +180,46 @@ contract:
     - id: L2-PLATFORM-ASSISTANT/*/P-2
       aliases:
       - POST-02
-      statement: No passage enters the prompt that the person's own search would not have returned at that moment.
+      statement: 'No passage enters the prompt that the person''s own search would not have returned at that moment.
+        Amended by the founder on 2026-11-22 (PMVP-20 context): a passage may be widened to the text around its hit,
+        read only from a document that this question''s search returned (never an id from the question, the chat, the
+        model or an earlier question), decided by the Core on every read (any refusal or failure keeps the search''s
+        snippet), through the same client as the same principal with the same declared actor, bounded (at most 8
+        documents, 3 parts each, 8 seconds of wall-clock time a question however the Core answers, one read at a
+        time) and with no text in any log line.'
       risk_class: standard
       evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_context_core.py
+        checks:
+        - test_only_the_documents_this_search_returned_are_read
+        - test_each_refusal_and_failure_keeps_the_snippet_and_the_answer
+        - test_the_read_is_made_as_the_person_who_searched
+        - test_inside_the_assistants_claim_the_read_declares_the_same_actor
+        - test_nothing_of_the_text_reaches_a_log_line_at_debug
+        - test_the_search_page_reads_no_document_text
+        - test_only_the_assistants_reader_calls_document_text
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_context_reads.py
+        checks:
+        - test_only_the_documents_this_search_returned_are_read
+        - test_nothing_is_kept_from_one_question_to_the_next
+        - test_each_refusal_and_failure_keeps_the_snippet_and_the_answer_is_produced
+        - test_two_hits_in_one_document_share_one_reading
+        - test_at_most_eight_documents_are_read_the_lowest_ranked_keep_their_snippets
+        - test_the_time_budget_stops_further_reads_and_bounds_each_read
+        - test_not_found_keeps_the_snippet_after_at_most_three_parts
+        - test_a_quote_from_outside_the_context_is_removed
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_context_deadline.py
+        checks:
+        - test_a_trickling_answer_is_given_up_at_the_deadline
+        - test_a_trickling_core_holds_a_question_no_longer_than_its_budget
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_context_text.py
+        checks:
+        - test_a_value_above_the_most_is_cut_to_it_with_a_line_that_holds_no_value
+        - test_the_passage_length_is_at_most_2000
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp20_assistant_acceptance.py
         checks:
@@ -301,6 +341,38 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_providers.py
         checks:
         - test_the_service_says_busy_or_failed_and_nothing_else
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_waiting_deadline.py
+        checks:
+        - test_a_search_that_always_times_out_is_busy_within_the_deadline
+        - test_a_retry_is_made_only_with_time_left_for_it
+        - test_with_no_time_left_nothing_is_sent
+        - test_a_search_of_125_seconds_leaves_no_time_to_generate
+        - test_after_a_search_of_10_seconds_the_core_waits_120_and_claude_60
+        - test_the_generations_timeout_is_never_more_than_the_time_left
+        - test_the_generation_is_not_started_with_less_than_30_seconds_left
+        - test_a_core_generation_that_times_out_is_busy
+        - test_a_claude_generation_that_times_out_is_busy
+        - test_the_cores_generation_429_and_503_are_busy_at_once
+        - test_the_cores_search_429_and_503_are_busy_at_once
+        - test_claudes_429_and_529_are_busy_at_once
+        - test_the_search_pages_own_search_still_tries_three_times_with_its_read_timeout
+        - test_the_deadlines_log_lines_hold_durations_and_step_names_only
+        - test_outside_the_bound_the_stop_never_cuts_a_retry
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_waiting_trickle.py
+        checks:
+        - test_the_search_gives_up_by_the_deadline
+        - test_without_the_bound_the_trickle_would_hold_the_search
+        - test_the_cores_generation_gives_up_by_the_deadline
+        - test_claude_gives_up_by_the_deadline
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_waiting_pages.py
+        checks:
+        - test_the_service_is_built_with_a_deadline_that_starts_with_the_request
+        - test_both_boxes_have_the_status_line_with_its_two_times
+        - test_the_script_disables_the_button_resets_on_pageshow_and_reads_the_two_times
+        - test_in_the_browser_the_line_follows_the_question_and_a_second_click_sends_nothing
     - id: L2-PLATFORM-ASSISTANT/*/P-7
       statement: The provider's API key (assistant.anthropic_api_key) is kept sealed by the settings registry and is in no
         log line, exception, page, response or audit entry (the audit says geändert); without a key no client is built,
@@ -483,6 +555,13 @@ contract:
         - test_busy_and_failed_show_the_plain_message_and_nothing_else
         - test_a_question_over_the_limit_is_refused_before_the_service
         - test_the_real_service_is_wired_and_fails_closed_without_the_secured_api
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_waiting_pages.py
+        checks:
+        - test_a_new_question_whose_generation_times_out_is_busy_and_stores_nothing
+        - test_a_follow_up_whose_generation_times_out_is_busy_and_stores_nothing
+        - test_the_expired_form_stays_a_400
+        - test_no_customer_text_in_the_logs_of_a_busy_answer
     - id: L2-PLATFORM-ASSISTANT/http.POST.fragen/P-4
       statement: 'Question, statement, quote and title reach the page as plain text, escaped: no Markdown, no HTML, no
         link from the model (FU-11); a title or a quote is a run of its own direction, so a right-to-left mark in it
@@ -581,6 +660,17 @@ contract:
         - test_a_stored_answer_reads_back_as_the_reply_it_was
         - test_a_stored_answer_that_does_not_parse_is_one_plain_paragraph
         - test_only_the_stored_shape_is_read_as_an_answer
+    - id: L2-PLATFORM-ASSISTANT/http.GET.fragen._chat_id/P-3
+      statement: 'POST-06 for a chat (PMVP-24): a chat that cannot be read now (the database is down) answers a plain
+        page, «Das Gespräch kann gerade nicht geladen werden. Bitte versuchen Sie es in einem Moment noch einmal.», with
+        status 503, never a 500 and no text of the error; nothing is asked, stored or deleted. The same holds for the
+        follow-up, the delete and the click route.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_waiting_pages.py
+        checks:
+        - test_a_chat_that_cannot_be_read_is_a_plain_503
     - id: L2-PLATFORM-ASSISTANT/http.GET.fragen._chat_id/P-2
       statement: 'POST-03 on every chat address: the chat is read and written as the signed-in person''s only;
         another person''s chat, a missing one and a malformed id give the same 404, before anything is asked or
@@ -848,7 +938,7 @@ contract:
         - test_the_service_says_busy_or_failed_and_nothing_else
 uses:
 - component: EXT-BRAIN-API
-  method: 'POST /secured/query (the person''s own search, the only way the assistant reads documents) and POST /secured/llm/generate (one whole answer, no streaming), through the Platform''s client (knovas_client.py) on the Platform''s certificate, as the Knovas Assistent for the signed-in person: its own claim narrowed to her and the declared actor (plan § 5.2; RB-6)'
+  method: 'POST /secured/query (the person''s own search), GET /secured/document/<uuid>/text (the text around each hit, only for the documents that search returned, under the founder''s limits of 2026-11-22; PMVP-20 context) and POST /secured/llm/generate (one whole answer, no streaming), through the Platform''s client (knovas_client.py) on the Platform''s certificate, as the Knovas Assistent for the signed-in person: its own claim narrowed to her and the declared actor (plan § 5.2; RB-6)'
   protocol: HTTPS with mTLS
 - component: EXT-ANTHROPIC-API
   operations:
@@ -858,7 +948,7 @@ uses:
   - EXT-ANTHROPIC-API/messages/P-2
   method: 'when the customer chose anthropic (assistant.provider): the official SDK (anthropic==2.12.0),
     client.beta.messages.create, on the key and the model of the settings registry, with the system instruction and
-    the composed messages only (POST-02); one call per answer, and one per «Verbindung testen» with invented text
+    the composed messages only (POST-02; the passages are the contexts around the hits since PMVP-20 context); one call per answer, and one per «Verbindung testen» with invented text
     (src/assistant/providers.py, PMVP-25)'
   protocol: HTTPS
 hides:
@@ -869,6 +959,8 @@ hides:
 decisions:
 - id: FU-14
   statement: 'No Alloy model for POST-02 (the founder, 2026-11-19): the assistant gets document content only through the Brain''s search, which enforces access.'
+- id: PMVP-20-context
+  statement: 'The founder, 2026-11-22 ("Yes, with limits"): the assistant may read the Core''s document-text route for the documents the person''s own search just returned, under five limits (only those documents; the Core decides every read and any failure keeps the snippet; as the person; bounded; no text in logs). POST-02 is amended to them; Core request CR-1 is not needed for the pilot.'
 risks:
 - id: L2-PLATFORM-ASSISTANT/RISK-01
   statement: The check catches a reference number that matches no passage, not one that matches the wrong passage (plan § 7, risks).
@@ -876,8 +968,11 @@ risks:
 - id: L2-PLATFORM-ASSISTANT/RISK-02
   statement: POST-02 keeps the prompt to what the person's search returns; the search follows the person's rights only where a customer's enforcement is on, and it is off for every tenant today (plan § 3).
   mitigation: No customer is switched to enforcement «Ein» before the Core's end-to-end rights test has passed twice (plan § 8.1, DEC-0082).
+- id: L2-PLATFORM-ASSISTANT/RISK-04
+  statement: 'The document-text route takes no claim on a GET yet (Core request CR-1c): it resolves the principal from the certificate alone, so under disabled it reads every document as the search does, under enforcing open documents only, and under brokered it refuses every read (401). The context then reads at most what the tenant''s posture lets an unnamed caller read, never a document the search did not return.'
+  mitigation: Only documents this question's search returned are read, and a refusal keeps the snippet; CR-1c makes the read narrow exactly as the person's search does; until then «Ein» (brokered) means snippets only.
 - id: L2-PLATFORM-ASSISTANT/RISK-03
-  statement: 'With anthropic chosen (the founder, 2026-11-21: the Platform calls the language model itself and the customer chooses the provider; the pilot chose Anthropic), the passages the person''s search returned, the question and its history leave the installation for Anthropic; while enforcement is off (RISK-02) they may hold passages beyond the person''s rights. The key is a secret of the installation.'
+  statement: 'With anthropic chosen (the founder, 2026-11-21: the Platform calls the language model itself and the customer chooses the provider; the pilot chose Anthropic), the passages the person''s search returned (since PMVP-20 context up to 1,200 characters around each hit), the question and its history leave the installation for Anthropic; while enforcement is off (RISK-02) they may hold passages beyond the person''s rights. The key is a secret of the installation.'
   mitigation: Off and knovas by default; only an administrator chooses anthropic and enters the key; the key is sealed with the deployment's settings key and never shown or logged; PMVP-25 is critical under the repository's CLAUDE.md, so management approves it before main.
 review:
 - at: /owner
@@ -905,13 +1000,13 @@ review:
 - at: L2-PLATFORM-ASSISTANT/*/P-1
   why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here.
 - at: L2-PLATFORM-ASSISTANT/*/P-2
-  why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing.
+  why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing. The statement's amendment (the founder, 2026-11-22) and its evidence, one test per limit, are PMVP-20 context's (work order docs/platform-mvp/work-orders/PMVP-20-context.md; built 2026-11-22, not yet verified; class sensitive, Siran approves before main); the reads are assistant/context.py (widen_passages), the reader assistant/core.py (make_read_text) and the client's document_text (knovas_client.py, no card).
 - at: L2-PLATFORM-ASSISTANT/*/P-4
   why: The chat store's half (test_identity_chats_store.py) and the provider path's (PMVP-25) were seen passing; the service's half is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here.
 - at: L2-PLATFORM-ASSISTANT/*/P-5
   why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here.
 - at: L2-PLATFORM-ASSISTANT/*/P-6
-  why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing; Claude's client waits 60 seconds and never retries (a 429 or 529 is busy at once), under nginx's 180. FU-08 (a 504 from nginx before the plain message) is PMVP-24's.
+  why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing; Claude's client never retries (a 429 or 529 is busy at once). PMVP-24 (FU-08) gives every answer one deadline under nginx's and gunicorn's 180 seconds; the search with its retries and the generation end within 150 seconds of the route's start (assistant/core.py, ANSWER_DEADLINE_SECONDS; the client's within_time bounds each attempt by the wall clock and allows a retry only with time left; a request and Claude's call run in a worker thread, call_within, so a peer that trickles its answer cannot hold the person past the deadline), the generation is not started with less than 30 seconds left, its timeout is at most the time left (the Core's 120, Claude's 60), and a timeout is busy; the boxes show a waiting line (ask.js) that gives up at 170 seconds. test_assistant_waiting_deadline.py and test_assistant_waiting_pages.py show it.
 - at: L2-PLATFORM-ASSISTANT/*/L-1
   why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The limits are the Core's; with anthropic the service keeps them all the same (PMVP-25 changes nothing of the service). The history is sent in whole pairs, the newest always (cut if it must, FU-07), weighed with a digit as three bytes (FU-06); test_assistant_chats_service.py shows both (PMVP-23).
 - at: L2-PLATFORM-ASSISTANT/R-4

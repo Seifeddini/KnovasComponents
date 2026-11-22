@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import time
 import os
 import threading
+import uuid as _uuid
 from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -60,7 +61,7 @@ _ROUTE_TEMPLATES = (
     '/secured/agents/{id}/claims',
     '/secured/access_groups', '/secured/access_groups/{id}',
     '/secured/document_access', '/secured/document_readable', '/secured/documents', '/secured/rbac/posture',
-    '/secured/folder_rules', '/secured/folder_rules/{id}',
+    '/secured/folder_rules', '/secured/folder_rules/{id}', '/secured/document/{id}/text',
     '/secured/graph', '/secured/graph/node-types', '/secured/graph/node-types/{id}',
     '/secured/graph/node-types/{id}/schema', '/secured/graph/node-types/{id}/schema/{id}',
     '/secured/graph/nodes', '/secured/graph/nodes/{id}', '/secured/graph/nodes/{id}/neighbors',
@@ -101,6 +102,86 @@ def _short_code(value: Any) -> str:
 def _code_or_none(value: Any) -> Optional[str]:
     """An error code the client's own errors may carry: a short identifier, else None (RB-FIX-2)."""
     return value if isinstance(value, str) and _SHORT_CODE.fullmatch(value) else None
+
+
+#: Inside ``KnovasAPIClient.within_time`` a retry is made only when at least this many seconds remain after its wait
+#: (PMVP-24): an attempt with less would only use up the answer's deadline.
+MIN_ATTEMPT_SECONDS = 5.0
+
+
+def _upcoming_wait(retry_state: Any) -> float:
+    """The wait tenacity makes before the next attempt, computed by the retry's own ``wait`` strategy.
+
+    tenacity 8 (the pinned 8.2.3) asks ``stop`` before it computes the wait and has no ``upcoming_sleep``; 9 computes
+    it first. Both call the same strategy with the same state (``wait_exponential`` reads the attempt number), so
+    asking it here gives the wait either version is about to make. Anything unreadable counts as no wait.
+    """
+    wait = getattr(getattr(retry_state, "retry_object", None), "wait", None)
+    try:
+        return max(0.0, float(wait(retry_state))) if callable(wait) else 0.0
+    except Exception:  # noqa: BLE001 - a strategy that cannot say counts as no wait
+        return 0.0
+
+
+def _out_of_time(retry_state: Any) -> bool:
+    """tenacity's second stop for ``_make_request``: inside ``within_time``, no retry without ``MIN_ATTEMPT_SECONDS``
+    after its wait. Outside it (no bound on the thread) it never stops anything: three tries, as before."""
+    client = retry_state.args[0] if getattr(retry_state, "args", None) else None
+    left_of = getattr(client, "_time_left", None)
+    left = left_of() if callable(left_of) else None
+    return left is not None and left - _upcoming_wait(retry_state) < MIN_ATTEMPT_SECONDS
+
+
+def _read_part(timeout: Any) -> float:
+    """The read part of a request's timeout (a number or a (connect, read) pair); none is no limit."""
+    if isinstance(timeout, tuple):
+        timeout = timeout[-1]
+    return float("inf") if timeout is None else float(timeout)
+
+
+def _read_body(response: requests.Response, time_left: Any) -> None:
+    """Read a streamed answer's body in the pieces the peer sends, and stop once no time is left (PMVP-24).
+
+    ``read1`` returns whatever one read of the socket brought, so a peer that sends one byte at a time is looked at
+    after every byte. The body ends up where ``requests`` keeps it (``content``, ``json()``). urllib3's errors
+    become the ``requests`` errors ``iter_content`` would raise, a read that times out a ``ReadTimeout``. A body
+    already in hand (a test's prepared answer) is left as it is.
+    """
+    import urllib3.exceptions as u3
+
+    raw = getattr(response, "raw", None)
+    if raw is None or getattr(response, "_content", False) is not False:
+        return
+    read1 = getattr(raw, "read1", None)
+    pieces: List[bytes] = []
+    try:
+        while True:
+            if time_left() <= 0:
+                raise requests.exceptions.ReadTimeout("no time left while the answer was read")
+            piece = read1(65536, decode_content=True) if callable(read1) else raw.read(1, decode_content=True)
+            if not piece:
+                break
+            pieces.append(piece)
+    except u3.ReadTimeoutError as exc:
+        raise requests.exceptions.ReadTimeout(str(exc)) from None
+    except u3.ProtocolError as exc:
+        raise requests.exceptions.ChunkedEncodingError(str(exc)) from None
+    except u3.DecodeError as exc:
+        raise requests.exceptions.ContentDecodingError(str(exc)) from None
+    except u3.SSLError as exc:
+        raise requests.exceptions.SSLError(str(exc)) from None
+    response._content = b"".join(pieces)
+    response._content_consumed = True
+    release = getattr(raw, "release_conn", None)
+    if callable(release):
+        release()
+
+
+def _capped(timeout: Any, left: float) -> Any:
+    """``timeout`` (a number, a (connect, read) pair or None) no longer than ``left`` seconds."""
+    if isinstance(timeout, tuple):
+        return tuple(left if part is None else min(float(part), left) for part in timeout)
+    return left if timeout is None else min(float(timeout), left)
 
 
 def _transport_error(exc: requests.exceptions.RequestException, method: str,
@@ -493,12 +574,52 @@ def _snippet_from_hit(item: Dict[str, Any]) -> Optional[str]:
     return found[0] if found else None
 
 
+#: The most characters one part of ``GET /secured/document/<uuid>/text`` holds (KnowledgeBase ``secure_api.py``,
+#: ``DOCUMENT_TEXT_MAX_PART_CHARS``); a larger ``max_chars`` is the Core's ``422 invalid_paging``.
+DOCUMENT_TEXT_MAX_PART_CHARS = 20_000
+#: The most bytes of one document-text answer that are read: a part of 20,000 characters is at most about 240 KB of
+#: JSON (every character escaped); a larger answer is not a part, and reading it is stopped.
+DOCUMENT_TEXT_MAX_BODY_BYTES = 1_000_000
+
+
+class _StopReading(Exception):
+    """The worker of ``_get_by_deadline`` stops: the deadline passed, the body is too large, or it was abandoned."""
+
+
+def _whole_number(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _document_text_part(payload: Any) -> Optional[Dict[str, Any]]:
+    """``{"text", "offset", "next_offset", "total_chars", "truncated"}`` of a document-text answer, or None.
+
+    The Core merges the part into its success envelope (``text``, ``offset``, ``next_offset``, ``total_chars``,
+    ``page_from``, ``page_to``, ``source``, ``truncated``, with ``document_uuid``, ``pointer`` and ``title``); an
+    envelope that nests it under ``data`` is read too. Only the paging and the text are kept: the pointer and the
+    title are not needed, the search row has them.
+    """
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    text, offset, next_offset, total = (data.get("text"), data.get("offset"), data.get("next_offset"),
+                                        data.get("total_chars"))
+    if not isinstance(text, str) or not _whole_number(offset) or not _whole_number(total):
+        return None
+    if next_offset is not None and not (_whole_number(next_offset) and next_offset > offset):
+        return None
+    return {"text": text, "offset": offset, "next_offset": next_offset, "total_chars": total,
+            "truncated": data.get("truncated") is True}
+
+
 #: The most characters of the passage one hit gives the Knovas Assistent
 #: (PMVP-20 passages). The setting ``ASSISTANT_PASSAGE_CHARS`` replaces it: a
-#: whole number of at least ``MIN_PASSAGE_CHARS``; anything else is the
-#: default, with one warning per search.
+#: whole number from ``MIN_PASSAGE_CHARS`` to ``MAX_PASSAGE_CHARS``; a larger
+#: one is cut to ``MAX_PASSAGE_CHARS`` (PMVP-20 context's verification), and
+#: anything else is the default; either with one warning per search that
+#: names the setting and not its value.
 DEFAULT_PASSAGE_CHARS = 1_200
 MIN_PASSAGE_CHARS = 100
+MAX_PASSAGE_CHARS = 2_000
 #: The least words of a passage: the reference check's least quote
 #: (``assistant.check.MIN_QUOTE_WORDS``; a test keeps the two equal).
 MIN_PASSAGE_WORDS = 3
@@ -514,9 +635,12 @@ def _passage_chars() -> int:
     if not raw:
         return DEFAULT_PASSAGE_CHARS
     if raw.isascii() and raw.isdigit() and int(raw) >= MIN_PASSAGE_CHARS:
-        return int(raw)
-    logger.warning("Invalid ASSISTANT_PASSAGE_CHARS=%r (a whole number of at least %d); using %d",
-                   raw[:20], MIN_PASSAGE_CHARS, DEFAULT_PASSAGE_CHARS)
+        if int(raw) <= MAX_PASSAGE_CHARS:
+            return int(raw)
+        logger.warning("ASSISTANT_PASSAGE_CHARS is above %d; using %d", MAX_PASSAGE_CHARS, MAX_PASSAGE_CHARS)
+        return MAX_PASSAGE_CHARS
+    logger.warning("Invalid ASSISTANT_PASSAGE_CHARS (a whole number from %d to %d); using %d",
+                   MIN_PASSAGE_CHARS, MAX_PASSAGE_CHARS, DEFAULT_PASSAGE_CHARS)
     return DEFAULT_PASSAGE_CHARS
 
 
@@ -1753,6 +1877,32 @@ class KnovasAPIClient:
             local.user = previous
 
     @contextlib.contextmanager
+    def within_time(self, time_left):
+        """Every request in this block ends in time (PMVP-24, FU-08): ``time_left()`` gives the seconds that remain.
+
+        For the Knovas Assistent, whose search with its retries and generation together have a deadline under the
+        web server's (``assistant.core.ANSWER_DEADLINE_SECONDS``). Each request's timeout is the smaller of its own
+        and the time left; with no time left nothing is sent and the request times out at once
+        (``requests.exceptions.ReadTimeout``). ``_make_request`` (the search) retries only when, after its wait, at
+        least ``MIN_ATTEMPT_SECONDS`` remain. Per thread, like ``keeping_snippets``. Off by default: outside the
+        block a request waits ``http_read_timeout`` and a search tries three times, exactly as before.
+        """
+        local = getattr(self, "_time_local", None)
+        if local is None:
+            local = self._time_local = threading.local()
+        previous = getattr(local, "left", None)
+        local.left = time_left
+        try:
+            yield
+        finally:
+            local.left = previous
+
+    def _time_left(self) -> Optional[float]:
+        """The seconds ``within_time`` leaves this thread, or None outside it."""
+        left = getattr(getattr(self, "_time_local", None), "left", None)
+        return None if left is None else float(left())
+
+    @contextlib.contextmanager
     def keeping_snippets(self):
         """Searches in this block keep each hit's passage text in its row as ``"snippet"``.
 
@@ -1870,7 +2020,8 @@ class KnovasAPIClient:
         self._last_request_time = time.time()
     
     @retry(
-        stop=stop_after_attempt(3),
+        # PMVP-24: inside within_time a retry also needs MIN_ATTEMPT_SECONDS left after its wait.
+        stop=(stop_after_attempt(3) | _out_of_time),
         wait=wait_exponential(multiplier=2, min=1, max=30),
         retry=retry_if_exception_type(_RETRYABLE_REQUEST_EXCEPTIONS)
     )
@@ -2014,11 +2165,51 @@ class KnovasAPIClient:
         TLS failure) never carries the URL -- the path's ids and the query string -- into a caller's log line or a
         route's traceback. ``endpoint`` is the path the route's name is read from.
         """
+        left = self._time_left()
+        if left is not None:  # within_time (PMVP-24): no longer than the time left, and nothing sent without any
+            if left <= 0:
+                raise _transport_error(requests.exceptions.ReadTimeout("no time left"), method, endpoint)
+            kwargs["timeout"] = _capped(kwargs.get("timeout"), left)
+            return self._send_in_time(method, endpoint, left, kwargs)
         try:
             return self._session.request(method=method, **kwargs)
         except requests.exceptions.RequestException as exc:
             failure = _transport_error(exc, method, endpoint)
         raise failure
+
+    def _send_in_time(self, method: str, endpoint: str, left: float, kwargs: Dict[str, Any]) -> requests.Response:
+        """A request inside ``within_time``: it ends by the wall clock, however slowly the peer answers (PMVP-24).
+
+        A read timeout bounds each read only: a peer that sends its headers and then a byte every few seconds would
+        keep the request, and the person, waiting past the deadline. So the request runs in a worker thread
+        (``assistant.core.call_within``) with its body streamed and read in the pieces the peer sends
+        (``_read_body``), and the caller waits no longer than the request's own read timeout or the time left,
+        whichever is smaller. Past it the caller gets a ``ReadTimeout`` (the assistant reads it as busy, and the
+        search makes no retry without time for it); the worker stops at the peer's next byte and closes the answer.
+        A peer that trickles even its headers keeps only that worker, never the caller.
+        """
+        from assistant.core import OutOfTime, call_within
+
+        time_left = self._time_local.left
+        session = self._session
+        kwargs = {k: v for k, v in kwargs.items() if k != "stream"}
+
+        def request() -> requests.Response:
+            response = session.request(method=method, stream=True, **kwargs)
+            try:
+                _read_body(response, time_left)
+            except BaseException:
+                response.close()
+                raise
+            return response
+
+        try:
+            return call_within(min(left, _read_part(kwargs.get("timeout"))), request, name="request")
+        except OutOfTime:
+            failure: requests.exceptions.RequestException = requests.exceptions.ReadTimeout("past the deadline")
+        except requests.exceptions.RequestException as exc:
+            failure = exc
+        raise _transport_error(failure, method, endpoint)
 
     def secured_mode(self) -> bool:
         """Whether this client speaks the secured API over mTLS (client
@@ -2340,6 +2531,163 @@ class KnovasAPIClient:
                     response.status_code, elapsed_ms(),
                     result['prompt_tokens'], result['completion_tokens'])
         return result
+
+    def document_text(
+        self,
+        document_uuid: Any,
+        *,
+        offset: int = 0,
+        max_chars: int = DOCUMENT_TEXT_MAX_PART_CHARS,
+        timeout: Optional[float] = None,
+        deadline: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """GET /secured/document/<uuid>/text: one part of a document's indexed text (PMVP-20 context).
+
+        For the Knovas Assistent only (``assistant.core.make_read_text``), under the founder's limits of 2026-11-22
+        (``assistant/context.py``): it reads the documents the person's own search just returned, to give the model
+        the text around each hit. The Core answers the text in reading order, at most 20,000 characters a part
+        (``offset``, ``max_chars``); the tenant is the certificate's, and a document the principal may not see
+        answers the 404 of a missing one.
+
+        As the person: the principal in force is attached as on every call (``_with_principal``; inside
+        ``asserting_for`` the assistant's claim, and ``?actor=``), through the same client as the search. The Core
+        takes no claim on this GET yet (Core request CR-1c). One request, never retried: the caller has a time
+        budget, and every read is billed.
+
+        By the wall clock (``_get_by_deadline``): the answer is in by ``deadline`` (a ``time.monotonic()`` value;
+        else ``timeout`` seconds from now, else ``http_read_timeout``) or the read is given up there with a
+        ``ReadTimeout``. A socket timeout alone restarts with every packet, so a Core that trickles its answer held one
+        question for 47.6 s against a budget of 8 (PMVP-20 context's verification).
+
+        ``document_uuid`` must be a UUID; the path holds its canonical form only, so no other value reaches the
+        address. A failure is logged as every call's is (RB-FIX-1, RB-FIX-2): the route as a template, the status,
+        the Core's short code, its request id and the body's size -- never the document's id, the text or the body.
+
+        Returns ``{"text", "offset", "next_offset", "total_chars", "truncated"}`` (``next_offset`` None on the last
+        part).
+
+        Raises:
+            ValueError: ``document_uuid`` is not a UUID or the paging is out of range (nothing was sent); or the
+                answer is not a document-text part.
+            RuntimeError: the secured API is not configured (nothing was sent).
+            PermissionError: nobody is signed in (nothing was sent).
+            requests.exceptions.HTTPError: any status of 400 or more (the error names the route, not the id).
+            requests.exceptions.RequestException: no answer (a timeout, no connection, not complete by the
+                deadline), without the address.
+        """
+        if deadline is None:
+            deadline = time.monotonic() + (self.http_read_timeout if timeout is None else timeout)
+        try:
+            document = str(_uuid.UUID(document_uuid)) if isinstance(document_uuid, str) else None
+        except ValueError:
+            document = None
+        if document is None:
+            raise ValueError("document_uuid is not a UUID")
+        if not _whole_number(offset) or not (_whole_number(max_chars)
+                                             and 1 <= max_chars <= DOCUMENT_TEXT_MAX_PART_CHARS):
+            raise ValueError("offset must be a whole number and max_chars from 1 to 20000")
+        if not self.mtls_enabled:
+            raise RuntimeError("mTLS cert paths are not configured; the document text is read on the secured API only")
+        endpoint = f"/secured/document/{document}/text"
+        response = self._get_by_deadline(endpoint, {'offset': offset, 'max_chars': max_chars}, deadline)
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        part = _document_text_part(payload)
+        if part is None:
+            logger.info(
+                "Knovas API GET %s -> %s but no document text part (request_id=%s; body %d chars, not logged)",
+                _route_name(endpoint), response.status_code, _request_id(response), _body_size(response),
+            )
+            raise ValueError(f"Knovas API GET {_route_name(endpoint)}: the answer is not a document text part")
+        return part
+
+    def _get_by_deadline(self, endpoint: str, params: Dict[str, Any], deadline: float) -> requests.Response:
+        """One GET as the person in force, complete by ``deadline`` (``time.monotonic()``) or given up there.
+
+        ``_request_no_retry``'s steps, with the waiting bounded by the wall clock, for ``document_text``. The rate
+        limit, the certificate check, the principal and the actor run on the caller's thread (``asserting_for`` is
+        per thread). The request and the reading of its body run on a worker thread, and the caller waits for it only
+        until ``deadline``: a socket timeout restarts with every packet, so neither the headers nor the body of a
+        trickling answer can hold the caller longer. The worker streams the body and stops itself at its next piece
+        after the deadline, past ``DOCUMENT_TEXT_MAX_BODY_BYTES``, or at its socket timeout (the time left when the
+        read began), and closes an answer it did not read to the end (its connection is not reused). Nothing it reads
+        after the deadline is used or logged.
+
+        Raises ``ReadTimeout`` naming the route when nothing complete came by the deadline, ``ValueError`` for an
+        answer larger than ``DOCUMENT_TEXT_MAX_BODY_BYTES``, what ``_send`` raises for no answer (without the
+        address), and ``HTTPError`` naming the route for a status of 400 or more (after the line every failed call
+        gets: route, status, short code, request id, body size).
+        """
+        route = _route_name(endpoint)
+        late = f"Knovas API GET {route}: no complete answer by the deadline (ReadTimeout)"
+        self._rate_limit()
+        self._ensure_certificate_freshness()
+        data = self._with_principal(None, 'GET')
+        params = self._actor_params('GET', params)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise requests.exceptions.ReadTimeout(late)
+        box: Dict[str, Any] = {}
+
+        def fetch() -> None:
+            try:
+                response = self._send(
+                    'GET', endpoint, url=f"{self.base_url}{endpoint}", json=data, params=params,
+                    headers=self._get_headers(), timeout=(left, left), allow_redirects=False, stream=True)
+                box['response'] = response
+                if isinstance(getattr(response, '_content', False), (bytes, bytearray)):
+                    body = bytes(response._content)            # already read (a test double, or a cached answer)
+                else:
+                    pieces = bytearray()
+                    for piece in response.iter_content(chunk_size=1024):
+                        pieces += piece
+                        if box.get('abandoned') or time.monotonic() >= deadline:
+                            raise _StopReading('late')
+                        if len(pieces) > DOCUMENT_TEXT_MAX_BODY_BYTES:
+                            raise _StopReading('large')
+                    body = bytes(pieces)
+                if len(body) > DOCUMENT_TEXT_MAX_BODY_BYTES:
+                    raise _StopReading('large')
+                response._content = body
+                box['done'] = True
+            except _StopReading as stop:
+                box['stop'] = str(stop)
+            except requests.exceptions.RequestException as exc:
+                box['error'] = _transport_error(exc, 'GET', endpoint)
+            except Exception as exc:  # noqa: BLE001 - handed to the caller as it is
+                box['error'] = exc
+            finally:
+                # Not read to its end: close it here, on the worker (its connection is not reused). The caller never
+                # closes it: that would wait on the reader the worker is blocked in.
+                if not box.get('done') and box.get('response') is not None:
+                    try:
+                        box['response'].close()
+                    except Exception:  # noqa: BLE001 - a connection that is already gone
+                        pass
+
+        worker = threading.Thread(target=fetch, name="knovas-document-text", daemon=True)
+        worker.start()
+        worker.join(max(0.0, deadline - time.monotonic()))
+        if worker.is_alive():
+            box['abandoned'] = True      # the worker stops at its next piece, or at its socket timeout
+            raise requests.exceptions.ReadTimeout(late)
+        if box.get('stop') == 'late':
+            raise requests.exceptions.ReadTimeout(late)
+        if box.get('stop') == 'large':
+            raise ValueError(f"Knovas API GET {route}: the answer is larger than a document text part")
+        if 'error' in box:
+            raise box['error']
+        response = box['response']
+        status = getattr(response, 'status_code', None)
+        if isinstance(status, int) and status >= 400:
+            logger.info(
+                "Knovas API GET %s -> %s (error_code=%s, request_id=%s; body %d chars, not logged)",
+                route, status, _error_code(response), _request_id(response), _body_size(response),
+            )
+        _raise_for_status(response, 'GET', endpoint)
+        return response
 
     def health_check(self) -> bool:
         """
