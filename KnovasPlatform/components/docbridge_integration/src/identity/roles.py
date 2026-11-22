@@ -544,6 +544,20 @@ class RoleStore:
         ident, _ = self._lock(role_id)
         return self.get_role(ident)
 
+    def share(self, role_id: Any) -> Role:
+        """Hold the role's row in share mode until the transaction ends, and read the role. Use inside a transaction.
+
+        For a change that relies on the role staying as it is without changing the role itself (RB-5's data change:
+        the role's Core group must not change while it writes to the Core). Changes of the role (``_lock``,
+        ``lock_all``) wait for it; other share holders do not. Missing, foreign or malformed: ``RoleNotFound``.
+        """
+        ident = _uuid(role_id)
+        row = None if ident is None else self._conn.execute(
+            "SELECT id FROM tenant_roles WHERE id = %s FOR SHARE", (ident,)).fetchone()
+        if row is None:
+            raise RoleNotFound()
+        return self.get_role(row[0])
+
     def check_new(self, *, name: Any, functions: Iterable[str] = (),
                   description: Any = "") -> Tuple[str, frozenset, str]:
         """What ``create_role`` would refuse, refused without writing: the name as it would be stored, the functions

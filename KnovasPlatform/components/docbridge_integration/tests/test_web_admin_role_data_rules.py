@@ -16,17 +16,22 @@ What they pin that the frozen file does not:
 6. The page renders when the Core cannot be read, and says so in the part.
 7. No Core group id, pointer or name reaches a log line, with ids a tenant might choose (speaking ones).
 8. The Freigaben page's summary of a role's data change names the folder (a page, not a log) and who carries it out.
+9. After the verification (F1 and the adopt's order): a request stores the confirmation only when its own dry run
+   warned, so a folder that becomes open before the second person confirms is not walled; an adopt checks for data
+   only once it holds the rows, and a data change holds its role's row while it writes (two connections, both ways).
 
 Nothing reaches a tenant: the Core is the frozen file's recording fake.
 """
 from __future__ import annotations
 
 import logging
+import threading
+import time
 import uuid
 
 import pytest
 
-from conftest import platform_db_reachable
+from conftest import PLATFORM_DB_TEST_DSN, platform_db_reachable
 
 pytestmark = pytest.mark.skipif(not platform_db_reachable(), reason="No PostgreSQL at the identity test DSN")
 
@@ -36,6 +41,7 @@ from test_rb5_role_data_acceptance import (  # noqa: E402,F401 - the frozen file
     ADD,
     ADOPT,
     ADOPT_PREVIEW,
+    APPROVE,
     DATA_NOTE,
     GRANTS_MOVE,
     PREVIEW,
@@ -252,3 +258,95 @@ def test_the_freigaben_summary_names_the_folder_and_who_carries_it_out():
     assert "Ordner DMS/Steuer/ hinzufuegen" in line and "Warnung bestaetigt" in line and "Administration" in line
     line = _summary("acl_change", {"action": "role_data_remove", "kind": "document", "pointer": "a.pdf"})
     assert "Dokument a.pdf entfernen" in line and "bestaetigt" not in line
+
+
+# --- 9. after the verification ------------------------------------------------------------------------------------------
+
+
+def test_a_confirmation_counts_only_for_the_warning_it_answered(world, scene):
+    """F1: asked for while Steuer was walled, with confirm=1 sent along; by the time a second administrator confirms,
+    the folder is open. The request stored no confirmation (its dry run gave no warning): nothing is sent."""
+    world.bypass(False)
+    vera = world.person("vera", "admin")
+    assert world.admin.post(ADD(scene.bau.id), {"kind": "folder", "pointer": "DMS/Steuer/",
+                                                "confirm": "1"}).status_code == 200
+    waiting, = world.requests()
+    payload = world.conn.execute("SELECT payload FROM approval_requests WHERE id = %s", (waiting["id"],)).fetchone()[0]
+    assert payload["confirm"] is False
+    assert "bestaetigt" not in world.browser(vera).page("/admin/approvals")
+    DataCore.rules = [dict(r, access_groups=[]) if r["rule_id"] == "r-steuer" else r for r in DataCore.rules]
+    world.browser(vera).post(APPROVE(waiting["id"]))
+    assert DataCore.calls == [] and world.requests()[0]["status"] == "approved"
+
+
+def test_a_confirmation_the_dry_run_asked_for_is_stored(world, scene):
+    world.bypass(False)
+    world.admin.post(ADD(scene.bau.id), {"kind": "folder", "pointer": "DMS/Bau/", "confirm": "1"})
+    waiting, = world.requests()
+    payload = world.conn.execute("SELECT payload FROM approval_requests WHERE id = %s", (waiting["id"],)).fetchone()[0]
+    assert payload["confirm"] is True
+
+
+def _second(conn):
+    """A second connection on ``conn``'s schema."""
+    import psycopg
+
+    schema = conn.execute("SELECT current_schema()").fetchone()[0]
+    other = psycopg.connect(PLATFORM_DB_TEST_DSN, autocommit=True)
+    other.execute(f'SET search_path TO "{schema}"')
+    return other
+
+
+def _waits_for_a_lock(conn, seconds=10.0):
+    """True once a session of this database waits for a row lock (the request under test reached it)."""
+    end = time.time() + seconds
+    while time.time() < end:
+        if conn.execute("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                        "AND wait_event_type = 'Lock'").fetchone()[0]:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _in_thread(call):
+    answers = []
+    thread = threading.Thread(target=lambda: answers.append(call()), daemon=True)
+    thread.start()
+    return thread, answers
+
+
+def test_an_adopt_checks_for_data_only_once_it_holds_the_rows(world, scene):
+    """A data change of the role is in flight (it holds the role's row, as execute_role_data does) and writes a rule
+    for the role's present group. The adopt waits for it, then finds the data and refuses: nothing is orphaned."""
+    other = _second(world.conn)
+    try:
+        with other.transaction():
+            other.execute("SELECT id FROM tenant_roles WHERE id = %s FOR SHARE", (str(scene.leer.id),))
+            thread, answers = _in_thread(lambda: world.admin.post(ADOPT(scene.leer.id), {"group_id": "g-steuer"}))
+            assert _waits_for_a_lock(world.conn), "the adopt did not wait for the role's row"
+            DataCore.rules.append({"rule_id": "r-spaet", "pointer_prefix": "DMS/Spaet/", "access_groups": ["g-leer"]})
+        thread.join(30)
+    finally:
+        other.close()
+    assert answers and answers[0].status_code == 400
+    assert world.store.get_role(scene.leer.id).core_group_id == "g-leer"
+    assert DataCore.calls == []
+
+
+def test_a_data_change_waits_for_an_adopt_and_then_refuses(world, scene):
+    """An adopt holds the role's row and switches its group. A data change asked for meanwhile waits for it, then sees
+    that the group changed and sends nothing (the bypass is on: it would act at once)."""
+    other = _second(world.conn)
+    try:
+        with other.transaction():
+            other.execute("SELECT id FROM tenant_roles WHERE id = %s FOR UPDATE", (str(scene.bau.id),))
+            thread, answers = _in_thread(lambda: world.admin.post(ADD(scene.bau.id), {"kind": "folder",
+                                                                                      "pointer": "DMS/Steuer/"}))
+            assert _waits_for_a_lock(world.conn), "the data change did not wait for the role's row"
+            assert DataCore.calls == []
+            other.execute("UPDATE tenant_roles SET core_group_id = 'g-partner' WHERE id = %s", (str(scene.bau.id),))
+        thread.join(30)
+    finally:
+        other.close()
+    assert answers and answers[0].status_code == 400
+    assert DataCore.calls == []

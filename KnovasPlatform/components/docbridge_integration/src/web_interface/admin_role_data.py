@@ -185,7 +185,6 @@ _ADOPT_ADMIN_GROUP = "Die Administratorgruppe gehört zur Administration."
 _ADOPT_TAKEN = "Diese Gruppe gehört schon einer anderen Rolle: jede Rolle hat ihre eigene Gruppe."
 _ADOPT_HAS_DATA = ("Die jetzige Gruppe der Rolle hat noch Daten. Entfernen Sie sie zuerst, jede mit ihrem Probelauf; "
                    "sonst könnte sie niemand mehr lesen.")
-_ADOPT_CHANGED = "Die Rolle hat sich inzwischen geändert. Nichts wurde übernommen; bitte neu planen."
 
 
 # -- reading the Core ------------------------------------------------------------------------------------------------
@@ -495,42 +494,54 @@ def execute_role_data(client, payload: Mapping[str, Any], *, actor, conn) -> dic
     Called by ``run_guarded`` when an administrator acts alone, and by the Freigaben page (``execute_acl_change``)
     once a second person confirmed. Only an administrator carries it out; the change is planned again from what the
     Core holds now; refused (raised, nothing sent) when the role's group is no longer the payload's or the plan now
-    warns without the payload's confirmation. The answer holds ids and counts only (it lands in the audit log as the
-    approvals' ``detail.result``).
+    warns and the payload carries no confirmation (a request stores one only when its own dry run warned). The answer
+    holds ids and counts only (it lands in the audit log as the approvals' ``detail.result``).
+
+    The role's row is held (``RoleStore.share``) from the check of its group to the audit row, so an adopt (which holds
+    every role's row while it checks that the present group carries no data) waits for a data change of the role in
+    flight, and a data change waits for an adopt: the old group never keeps data that no role reads.
     """
     if ADMIN not in (getattr(actor, "roles", None) or ()):
         raise DataRefused(_ONLY_ADMINISTRATION)
     op = ROLE_DATA_ACTIONS.get(str(payload.get("action") or ""))
     if op is None:
         raise DataRefused(_BAD_OP)
-    try:
-        role = RoleStore(conn).get_role(payload.get("role_id"))
-    except RoleNotFound:
-        raise DataRefused(_ROLE_GONE) from None
-    if (role.core_group_id or None) != (payload.get("core_group_id") or None):
-        raise DataRefused(_GROUP_CHANGED)
-    plan = plan_data(client, conn, role, op, payload.get("kind"), payload.get("pointer"))
-    if plan.needs_confirm and payload.get("confirm") is not True:
-        raise DataRefused(_WARNS_NOW)
-    result = {"role_id": str(role.id), "kind": plan.kind, "changed": 0}
-    if plan.call == "none":
-        logger.info("Role %s: data %s is no change", role.id, op)
-        return result
-
     action = DATA_ADDED if op == "add" else DATA_REMOVED
+    refused: Dict[str, Any] = {}
     try:
-        _send(client, plan)
-    except Exception as exc:  # noqa: BLE001 - a refusal is recorded and shown, never raised raw
-        logger.warning("Role %s: Knovas refused the data change (%s, %s)", role.id, plan.call, type(exc).__name__)
-        audit.record(conn, action=action, actor=actor, target_type="role", target_id=str(role.id), outcome="error",
-                     detail=dict(_detail(plan), error=type(exc).__name__))
-        raise CoreRefused() from None
-    try:
-        audit.record_or_raise(conn, action=action, actor=actor, target_type="role", target_id=str(role.id),
-                              detail=_detail(plan))
-    except Exception as exc:  # noqa: BLE001 - the Core has changed; the page says the row is missing
-        logger.error("Role %s: data changed at Knovas, audit row not written, %s", role.id, audit._error_code(exc))
-        raise RowMissing() from None
+        with conn.transaction():
+            try:
+                role = RoleStore(conn).share(payload.get("role_id"))
+            except RoleNotFound:
+                raise DataRefused(_ROLE_GONE) from None
+            if (role.core_group_id or None) != (payload.get("core_group_id") or None):
+                raise DataRefused(_GROUP_CHANGED)
+            plan = plan_data(client, conn, role, op, payload.get("kind"), payload.get("pointer"))
+            if plan.needs_confirm and payload.get("confirm") is not True:
+                raise DataRefused(_WARNS_NOW)
+            result = {"role_id": str(role.id), "kind": plan.kind, "changed": 0}
+            if plan.call == "none":
+                logger.info("Role %s: data %s is no change", role.id, op)
+                return result
+            try:
+                _send(client, plan)
+            except Exception as exc:  # noqa: BLE001 - a refusal is recorded and shown, never raised raw
+                refused.update(role=role, plan=plan, error=type(exc).__name__)
+                raise CoreRefused() from None
+            try:
+                audit.record_or_raise(conn, action=action, actor=actor, target_type="role", target_id=str(role.id),
+                                      detail=_detail(plan))
+            except Exception as exc:  # noqa: BLE001 - the Core has changed; the page says the row is missing
+                logger.error("Role %s: data changed at Knovas, audit row not written, %s", role.id,
+                             audit._error_code(exc))
+                raise RowMissing() from None
+    except CoreRefused:
+        if refused:  # the refusal's row once the hold is released (best effort; the transaction above is undone)
+            role, plan = refused["role"], refused["plan"]
+            logger.warning("Role %s: Knovas refused the data change (%s, %s)", role.id, plan.call, refused["error"])
+            audit.record(conn, action=action, actor=actor, target_type="role", target_id=str(role.id),
+                         outcome="error", detail=dict(_detail(plan), error=refused["error"]))
+        raise
     logger.info("Role %s: data %s at Knovas (%s; %d gain, %d lose sight)", role.id, op, plan.call,
                 len(plan.gains), len(plan.losses))
     result.update(changed=1, gains=len(plan.gains), losses=len(plan.losses), call=plan.call)
@@ -672,6 +683,10 @@ class _SightChanged(Exception):
 
 class _NothingToMove(Exception):
     pass
+
+
+class _NoAdoptChange(Exception):
+    """The role has the group already: nothing written, no row."""
 
 
 # -- the part «Darf lesen» on the page -------------------------------------------------------------------------------
@@ -848,8 +863,10 @@ def attach_role_data_routes(bp, gate, *, csrf_valid, client_factory, require_adm
         if plan.needs_confirm and not confirm:
             logger.info("Role %s: data %s refused (the dry run warns, no confirmation)", role.id, op)
             return page(role.id, error=_CONFIRM_FIRST, status=400, dry_run=_data_view(plan, role, _names(gate)))
+        # The confirmation counts only for the warning it answered: a request planned without one stores none, so a
+        # folder that becomes open before a second person confirms is not walled without a warning anyone saw.
         payload = {"action": f"role_data_{op}", "role_id": str(role.id), "core_group_id": role.core_group_id,
-                   "kind": plan.kind, "pointer": plan.pointer, "confirm": confirm}
+                   "kind": plan.kind, "pointer": plan.pointer, "confirm": bool(confirm and plan.needs_confirm)}
         try:
             outcome = run_guarded(
                 ApprovalService(conn, gate.users()), me, kind="acl_change", target_ref=f"role:{role.id}",
@@ -902,24 +919,24 @@ def attach_role_data_routes(bp, gate, *, csrf_valid, client_factory, require_adm
         me, conn, client = gate.current_user(), gate.connection(), client_factory()
         store = RoleStore(conn)
         try:
-            plan = plan_adopt(client, conn, role, store.list_roles(), request.form.get("group_id"))
-        except RoleDataError as exc:
-            return _refused(role, exc, "adopt")
-        if plan.same:
-            return page(role.id, notice="Die Rolle hat diese Gruppe schon.")
-        try:
             with conn.transaction():
-                store.lock_all()  # every role's row: nobody else takes the group between the check and the write
+                # Every role's row first, then every check: no other role takes the group, and no data change of this
+                # role (it holds the row while it writes, execute_role_data) lands between the check that the present
+                # group carries no data and the switch. The Core is read while the rows are held.
+                store.lock_all()
                 held = {r.id: r for r in store.list_roles()}
-                if role.id not in held or held[role.id].core_group_id != plan.previous:
-                    raise DataRefused(_ADOPT_CHANGED)
-                if any(r.core_group_id == plan.group for r in held.values() if r.id != role.id):
-                    raise DataRefused(_ADOPT_TAKEN)
+                if role.id not in held:
+                    raise DataRefused(_ROLE_GONE)
+                plan = plan_adopt(client, conn, held[role.id], list(held.values()), request.form.get("group_id"))
+                if plan.same:
+                    raise _NoAdoptChange()
                 store.set_core_group(role.id, plan.group, by=me.id)
                 audit.record_or_raise(conn, action=GROUP_ADOPTED, actor=me, target_type="role",
                                       target_id=str(role.id),
                                       detail={"core_group_id": plan.group, "previous_core_group_id": plan.previous,
                                               "gains": len(plan.gains)})
+        except _NoAdoptChange:
+            return page(role.id, notice="Die Rolle hat diese Gruppe schon.")
         except RoleDataError as exc:
             return _refused(role, exc, "adopt")
         except RoleError as exc:  # the 32-group cap (people or an agent of the role)

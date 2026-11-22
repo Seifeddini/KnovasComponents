@@ -503,7 +503,7 @@ Knovas refused (502); under `brokered` before CR-R2 the folder-rule writes are r
   rule's only group warn, so those two forms carry `confirm=1`; with the bypass off they are queued, never sent. The
   docstring says so. No other existing test changed.
 
-**Own tests** (`tests/test_web_admin_role_data_rules.py`, 21; they reuse the frozen file's fake Core, world and scene):
+**Own tests** (`tests/test_web_admin_role_data_rules.py`, 21, 25 after the fixes below; they reuse the frozen file's fake Core, world and scene):
 `active_claim_groups` equals `claim_groups` for every active person (ended and running windows, a deactivated person);
 a subfolder read through its folder's rule is no change; a deleted rule leaves the rule above governing (no `opens`, its
 gains and losses); a deeper rule's documents do not count for the backfill warning; a pointer of 1,025 characters, a
@@ -556,6 +556,27 @@ Freigaben summary.
   its empty tables already overflow, and the target column (`role:<id>`, monospace) is as wide as a pointer was. The
   server's own log over all of this (INFO) holds no path, name, group id or address of RB-5's (one bootstrap line of
   the app's own start).
+
+**Fixes after the verification** (coordinator, 2026-11-22; the verification passed with notes):
+
+- **F1 (low):** a request stored `confirm=1` whenever the form sent it, also when its dry run gave no warning; a folder
+  that became open before the second person confirmed was then walled without anyone having seen a warning, and the
+  Freigaben line said «Warnung bestaetigt». Now `_change` stores `confirm` only when the plan needed it
+  (`confirm and plan.needs_confirm`); the executor plans again as before and refuses (`_WARNS_NOW`, the page's words)
+  when the new plan needs a confirmation the request lacks. Tests: `test_a_confirmation_counts_only_for_the_warning_it_answered`
+  (bypass off, `confirm=1` on a walled folder, the rule emptied, a second administrator approves: nothing sent, the
+  request stays approved, no «bestaetigt» on the page) and `test_a_confirmation_the_dry_run_asked_for_is_stored`.
+- **Adopting checks for data under the lock:** the adopt now takes every role's row (`lock_all`) first and runs all
+  its checks (the group, another role's group, the present group's data at the Core) inside that transaction; the Core
+  is read while the rows are held. For the lock to protect anything, a data change now holds its role's row too:
+  `execute_role_data` takes it in share mode (`RoleStore.share`, an addition to `roles.py`) from the check of the
+  role's group to its audit row, the Core call in between; a refusal's `error` row is written after that transaction
+  is undone. Two-connection tests, both ways: `test_an_adopt_checks_for_data_only_once_it_holds_the_rows` (a data
+  change in flight writes a rule for the present group: the adopt waits, then refuses, nothing changed) and
+  `test_a_data_change_waits_for_an_adopt_and_then_refuses` (an adopt holds the row and switches the group: the data
+  change, bypass on, waits, then sends nothing). The three new tests fail on the code before the fix (tried).
+- Cost: an adopt holds every role's row while it reads the Core (other role changes wait up to that long); a data
+  change holds one role's row while it writes (an adopt or a change of that role waits).
 
 **Open, for the coordinator and the verifier:**
 
