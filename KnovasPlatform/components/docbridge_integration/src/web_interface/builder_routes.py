@@ -2201,7 +2201,6 @@ def create_builder_blueprint(
                       "rules": [r for r in rules if chosen in (r.get("access_groups") or [])],
                       "node_types": [t.get("name") for t in node_types if chosen in (t.get("required_groups") or [])],
                       "counts": counts.get(chosen, {})}
-        tenant = _platform_tenant()
         store = _store()
         workspace = _current_workspace(store) if store is not None else None
         folders = []
@@ -2215,7 +2214,7 @@ def create_builder_blueprint(
                     for k in tree.groups],
                 "people": [{k: v for k, v in p.items() if k != "user"} for p in people],
                 "person": person["id"] if person else None, "lit": lit, "folders": folders,
-                "posture": backend.posture(), "posture_requests": store.posture_requests(tenant) if mode == "live" and tenant and hasattr(store, "posture_requests") else [],
+                "posture": _posture_read_only(backend) if mode == "live" else None, "zugriff_url": _zugriff_url(),
                 "me": str(gate.current_user().id), "workspace": workspace.name if workspace else None}
 
     @bp.route("/zugriff")
@@ -2408,40 +2407,42 @@ def create_builder_blueprint(
         logger.info("Access window: access explained (readable: %s)", readable)
         return jsonify({"success": True, "answer": {**answer, "path": [tree.name(x) for x in answer["path"]]}})
 
+    def _posture_read_only(backend) -> Optional[dict]:
+        """The tenant's position as the Core reports it (``rbac_posture``, CR-R1a), for the «Durchsetzung» part; None
+        when the Core does not report it or cannot be read. Read only: one administrator switches it under
+        Verwaltung › Zugriff (PMVP-42)."""
+        try:
+            posture = backend.posture()
+        except Exception as exc:  # noqa: BLE001 - the part says it does not know
+            logger.info("Access window: the enforcement position is not readable (%s)", type(exc).__name__)
+            return None
+        return dict(posture) if isinstance(posture, dict) else None
+
+    def _zugriff_url() -> Optional[str]:
+        """Verwaltung › Zugriff, where one administrator switches enforcement (PMVP-42); None where the console's
+        blueprint is not mounted (the Builder on its own)."""
+        from werkzeug.routing import BuildError
+
+        try:
+            return url_for("admin.access")
+        except BuildError:
+            return None
+
+    def _posture_moved():
+        """PMVP-42 (FU-20): the switch is no longer requested here. 410 with the page that switches it; nothing is
+        recorded (``builder/store.py`` and its table stay, unused)."""
+        logger.info("Access window: an enforcement request was refused; the switch is under Verwaltung › Zugriff")
+        return jsonify({"success": False, "url": _zugriff_url(),
+                        "error": "Die Durchsetzung schaltet eine Administratorin oder ein Administrator unter "
+                                 "Verwaltung › Zugriff um. Hier wird nichts mehr angefragt."}), 410
+
     @bp.route("/api/access/posture", methods=["POST"])
     def access_posture():
-        """Ask to switch the tenant's RBAC enforcement; a second administrator approves."""
-        mode = (request.get_json(silent=True) or {}).get("mode")
-        if mode not in ("disabled", "enforcing"):
-            return jsonify({"success": False, "error": "Durchsetzung: aus oder an?"}), 400
-        tenant = _platform_tenant()
-        if not tenant:
-            return jsonify({"success": False, "error": "Diese Plattform kennt ihren Mandanten nicht."}), 409
-        _store().request_posture(tenant, mode, gate.current_user().id)
-        logger.info("Access window: enforcement switch requested (%s)", mode)
-        return jsonify({"success": True}), 201
+        return _posture_moved()
 
     @bp.route("/api/access/posture/<request_id>/approve", methods=["POST"])
     def access_posture_approve(request_id: str):
-        tenant = _platform_tenant()
-        store = _store()
-        found = next((r for r in store.posture_requests(tenant or "") if r["id"] == request_id), None)
-        if found is None or found.get("approved_at"):
-            return jsonify({"success": False, "error": "Diese Anfrage gibt es nicht mehr."}), 404
-        if str(found.get("requested_by")) == str(gate.current_user().id):
-            return jsonify({"success": False, "error": "Freigeben muss eine zweite Person."}), 403
-        posture = None
-        try:
-            posture = _access_backend("live").posture()
-        except access_rules.AccessError:
-            pass
-        if found["mode"] == "enforcing" and posture is not None and not posture.get("backfill_complete"):
-            return jsonify({"success": False, "error": "Die ACL-Nachführung ist noch nicht abgeschlossen; erst dann durchsetzen."}), 409
-        outcome = "freigegeben; Knovas schaltet den Mandanten um (interne Schnittstelle)"
-        if not store.approve_posture(tenant, request_id, gate.current_user().id, outcome):
-            return jsonify({"success": False, "error": "Freigeben muss eine zweite Person."}), 403
-        logger.info("Access window: enforcement switch approved")
-        return jsonify({"success": True, "outcome": outcome})
+        return _posture_moved()
 
     def _access_effect(model) -> Optional[dict]:
         """What publish would write of the draft's access design onto the live tenant (builder.review.access_plan),

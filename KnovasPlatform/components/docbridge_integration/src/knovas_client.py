@@ -59,7 +59,7 @@ _ROUTE_TEMPLATES = (
     '/secured/delete_information_object', '/secured/delete_all_documents',
     '/secured/agents/{id}/claims',
     '/secured/access_groups', '/secured/access_groups/{id}',
-    '/secured/document_access', '/secured/document_readable', '/secured/documents',
+    '/secured/document_access', '/secured/document_readable', '/secured/documents', '/secured/rbac/posture',
     '/secured/folder_rules', '/secured/folder_rules/{id}',
     '/secured/graph', '/secured/graph/node-types', '/secured/graph/node-types/{id}',
     '/secured/graph/node-types/{id}/schema', '/secured/graph/node-types/{id}/schema/{id}',
@@ -3235,6 +3235,40 @@ class KnovasAPIClient:
         result = self._rbac_request(
             'DELETE', f'/secured/access_groups/{quote(str(identifier), safe="")}')
         return result is not None
+
+    #: What the Platform keeps of the Core's posture answer (CR-R1a); nothing else of it.
+    RBAC_POSTURE_FIELDS = ('mode', 'backfill_complete', 'broker_key_registered', 'not_ready', 'tenant_switch')
+
+    def rbac_posture(self) -> Optional[Dict[str, Any]]:
+        """GET /secured/rbac/posture (CR-R1a, PMVP-42): the answer's five RBAC_POSTURE_FIELDS, nothing else; None on
+        a 404 (no such route yet). Other failures raise, naming the route and status only (RB-FIX-2)."""
+        payload = self._rbac_request('GET', '/secured/rbac/posture')
+        if payload is None:
+            return None
+        return {key: payload.get(key) for key in self.RBAC_POSTURE_FIELDS}
+
+    def set_rbac_posture(self, mode: str) -> Optional[Dict[str, Any]]:
+        """PUT /secured/rbac/posture (CR-R8, PMVP-42) - the tenant switches its own posture, for one administrator.
+
+        ``mode`` is ``brokered`` («Ein») or ``disabled`` («Aus»). Anything else - ``enforcing`` above all, which ignores
+        the Platform's claims - raises ValueError and sends nothing. The Core checks its own preconditions for
+        ``brokered``. Returns ``{"mode": <the new mode>}`` when the Core switched; ``{"refused": <code>}`` when it
+        refused (409: its ``error_code`` when that is a short identifier, else ``unknown``); None when it has no such
+        route (404). Every other failure raises, naming the route and the status only.
+        """
+        if mode not in ('brokered', 'disabled'):
+            raise ValueError('set_rbac_posture switches to brokered or disabled only')
+        try:
+            payload = self._rbac_request('PUT', '/secured/rbac/posture', data={'mode': mode})
+        except requests.exceptions.HTTPError as exc:
+            response = exc.response
+            if response is None or response.status_code != 409:
+                raise
+            code = _error_code(response)
+            return {'refused': code if code != '-' else 'unknown'}
+        if payload is None:
+            return None
+        return {'mode': payload.get('mode')}
 
     def document_access(self, pointer: str) -> Optional[Dict[str, Any]]:
         """GET /secured/document_access - die ACL genau eines Dokuments."""

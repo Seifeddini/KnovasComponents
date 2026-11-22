@@ -247,8 +247,9 @@ components:
       - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_access.py
       - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access.html
     why: >-
-      The page «Zugriff» (PMVP-41, «Was sieht …?»; PMVP-42 adds the enforcement position): what a person, a role or
-      an agent reads, one document yes or no, a search as it. A card of its own, the way RB-5 split «Rollendaten»:
+      The page «Zugriff» (PMVP-41, «Was sieht …?»; PMVP-42, the enforcement position and its switch): what a person,
+      a role or an agent reads, one document yes or no, a search as it. A card of its own, the way RB-5 split
+      «Rollendaten»:
       with it L2-PLATFORM-ACCESS would be over the context budget. Its routes hang on the console's blueprint and gate;
       it reads the Core through RB-5's readers (L2-PLATFORM-ROLE-DATA).
   EXT-BRAIN-API:

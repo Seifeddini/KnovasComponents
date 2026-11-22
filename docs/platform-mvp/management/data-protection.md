@@ -11,8 +11,8 @@ for the pilot. It is not one component; each rule lives in the part named beside
 ## What a person can do with it
 
 - **An administrator** decides whether the assistant is on and which provider answers (the Knovas Core or Anthropic),
-  enters the provider's key, and sets access groups and folder rules; later she sees and switches the enforcement
-  position with a second administrator (PMVP-42, not started).
+  enters the provider's key, and sets access groups and folder rules; she sees the enforcement position and, alone,
+  switches it after a confirmation (PMVP-42, built; it acts once the Knovas Core offers it).
 - **An employee** sees and deletes only her own chats; a document opens only if her own search or view handed it to her.
 - **Who may do what is decided by roles** (RB-1, RB-2, built, not yet verified): a person may do what her roles allow,
   and the Platform signs her requests with the access groups she holds directly and through her roles, never more than
@@ -138,6 +138,13 @@ never a path, a search, a name or a group. Its log lines hold ids, counts and er
 answers are computed from Knovas's rules and say so; after «Ein» the yes or no and the search are Knovas's own, asked as
 that person or agent. The page writes nothing to Knovas.
 
+**Who decides who reads what** (PMVP-42, built 22 Nov, not yet verified). One administrator switches the firm's
+enforcement to «Ein» or «Aus» after a confirmation (founder, 22 November: no second administrator). **The Knovas Core
+holds the gate:** it puts the firm into «Ein» only when its own preconditions hold (a registered key, a complete
+backfill, two green end-to-end rights runs under `brokered` for its version) and refuses otherwise; «Aus» is always
+accepted. The Platform checks none of it and keeps no record of runs; it shows what the Core reports. Each attempt that
+reaches the Core is in the audit log by id (who, from, to, or the Core's reason code); no name, no group.
+
 **Demo tenant and Knovas GmbH tenant.**
 
 | | Demo law firm tenant | Knovas GmbH tenant (Client Zero) |
@@ -155,7 +162,7 @@ that person or agent. The page writes nothing to Knovas.
 | The client's errors and the HTTP library's warnings without addresses or Knovas text (RB-FIX-2) | built; no verification verdict yet | Siran (sensitive) |
 | Second log sweep (FU-22, FU-31) | not started; waits for #55 | its web-server part is deployment: sensitive |
 | Key handling (PMVP-25) | built; no verification verdict yet | management (critical) |
-| Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | PMVP-42 drafted and reworked 22 Nov: one administrator switches after a confirmation, recorded by id; Knovas switches only when its own prerequisites hold (two green rights runs under `brokered` among them); PMVP-43 not started | management (critical); Siran (sensitive) |
+| Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | PMVP-42 built 22 Nov, no verification verdict yet: one administrator switches after a confirmation, recorded by id; Knovas switches only when its own prerequisites hold (two green rights runs under `brokered` among them); PMVP-43 not started | management (critical); Siran (sensitive) |
 | «Was sieht …?» (PMVP-41): an administrator sees the names of the documents another person, a role or an agent reads, never passage text; every look audited by id | built 22 Nov; no verification verdict yet; names only, every look audited (founder, 22 Nov) | Siran (sensitive) |
 | Roles: the move to roles, functions and groups read from roles, the 32-group cap (RB-1, RB-2) | built; no verification verdict yet | management (critical: a migration) |
 | Agents: one signed claim for every agent; external agents' claims handed to the Core behind a switch (RB-6, RB-7) | built; no verification verdict yet; acts with the Core's CR-R1, CR-R5, CR-R6 | management (critical: a migration, signing and claims) |
@@ -172,6 +179,7 @@ that person or agent. The page writes nothing to Knovas.
 | 21 Nov | founder | The customer chooses the provider; the pilot's passages may go to Anthropic |
 | 21 Nov | founder | The Platform signs agents' claims; external agents use only Knovas's gateway ("Core gateway only"); on client installations agents only after «Ein» |
 | 22 Nov | founder | «Was sieht …?» shows document names only, never content, and every look is audited (PMVP-41) |
+| 22 Nov | founder | One administrator alone switches enforcement, with a confirmation and an audit row; the gate for «Ein» is the Core's (CR-R7, CR-R8); the Platform keeps no record of rights runs (PMVP-42) |
 | 22 Nov | founder | A chat keeps its passages (owner only, deleted with it); chats are deleted automatically after 90 days, read by the coordinator as 90 days after the last message (PMVP-23) |
 
 ## Known limits and open points
