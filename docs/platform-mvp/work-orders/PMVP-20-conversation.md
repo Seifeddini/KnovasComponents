@@ -144,3 +144,31 @@ POST were the same two one-word questions before the zero-passage call existed, 
 | «document» | 0 rows | a `clarify` reply, English: "Happy to help you find it! Which matter is it about, what kind of document are you looking for, and what would you like to know about it?" | **the reply**, no list (nothing found) |
 | «Was kannst du?» | 0 rows | a `chat` reply: "Ich bin der Knovas Assistent und beantworte gern Ihre Fragen zu den Dokumenten der Kanzlei, etwa zu Verträgen, Schriftsätzen oder Fristen. Nennen Sie mir einfach das Mandat oder das Thema, und ich suche die passenden Stellen heraus." | **the reply** |
 | «Welche Kündigungsfrist gilt im Mietvertrag?» | 10 rows, 6 passages, 3 widened (8 s at the 2 s spacing) | no statement; a `clarify` reply that said what it looked for and also what the passages were about («… betreffen vor allem eine Klage und Fristen zur Stellungnahme. Können Sie mir sagen, um welches Mandat …») | **dropped** (name rule: «Stellungnahme» stands capitalised in the passages): «Dazu finde ich nichts» with five nearest, clean titles of the shape «9999-999 · Wort», «S. n» on the one with a page. The instruction now says a reply does not say what the passages contain; not asked again |
+
+## Builder's notes, the fix round after verification (with notes)
+
+Same branch, 2026-11-22; timeboxed to 60 minutes; no model call. Nothing here is verified.
+
+1. *Brain tools* (`brain_tools.py`): `ToolResults.seen` keeps every title, summary and text of every tool result
+   (also results without passages and past the read limits); the reply is checked against them and the passages.
+2. *Plain-word facts* (`conversation.py`): a reply is dropped when it shares `RUN_WORDS` = 4 consecutive folded
+   words with anything the model was given (`copies_a_passage`), or names a person by an honorific or title before
+   a capitalised word (`names_a_person`: Herr, Herrn, Frau, Dr., Prof., Me, Mr, Mrs, Ms, Mme, Mlle). Every reply is
+   labelled «Hinweis – ohne Quelle» on the page. The instructions: a reply never answers a yes/no question about the
+   documents and never states anything about them.
+3. *Names*: a full stop after an abbreviation or an initial ends no sentence; a postal code, a colon and a line's
+   start no longer hide a name; two letters suffice (`MIN_NAME_LETTERS` = 2; legal forms such as "AG" are common);
+   a common word a text uses as a name, after an honorific or right after another name, counts ("Herr Richter").
+   *Decided beyond the order:* the literal rule (every common word capitalised mid-sentence is a name) would make
+   every German noun a name ("Um welchen Vertrag geht es?" dropped), so it applies where a text uses the word as a
+   name; pinned in `test_common_nouns_stay_common_where_no_passage_uses_them_as_a_name`.
+4. *Numbers and dates*: French and Italian number words (the article-like "un", "une", "uno", "una" and the
+   words "due", "sei", "otto" only before a span of time), "Dutzend"/"dozen", small Roman numerals of two letters
+   or more standing alone, hyphen-split number words, weekdays, holidays, "Monatsende" and its kin, "letzten" and
+   "naechsten" before a span of time. Compared without the ae/oe/ue fold ("due" is not "du").
+5. *Docs*: `management/assistant.md` states what is enforced and the residual risk; README, the card (P-11) and
+   this page follow.
+
+Tests: `test_assistant_conversation_fixes.py` (new, the verifier's examples per note); two tests of the first round
+follow the new name rules (a list item's first word is a name now; «Zu Herrn Huber…» now falls to the honorific
+rule, the test uses «Zu Huber…»); the page test reads the label.

@@ -82,12 +82,17 @@ The instruction asks for it; `conversation.check_replies` enforces it:
 | an object with `reply` and without `statement` (with both it is a statement and needs its quote) | `check.is_reply` |
 | plain text with a letter, all letters Latin (as a statement's) | `_latin_letters_only` |
 | at most 400 characters; beside statements a lead-in of at most 200 | `MAX_REPLY_CHARS`, `MAX_LEAD_IN_CHARS` |
-| **no number**: no character of Unicode's number categories, none that looks like a digit, nothing `check.claimed_numbers` reads (a number word, "einen Monat", a month, a Roman numeral, a capital letter alone); "E-Mail" and the English "I" before a verb are words | `holds_a_number` |
-| **no name of the passages**: no word of a passage's title or pointer, and no capitalised word of its text that begins no sentence, line or list item, unless it is a common word (function words, the general vocabulary of documents and matters, their inflections by stem and their compounds); compared folded (case, accents, ae/oe/ue) and by German stem, a genitive s too | `passage_names`, `names_a_passage`, `is_common` |
+| **no number, no date**: no character of Unicode's number categories, none that looks like a digit, nothing `check.claimed_numbers` reads (also with the hyphens inside a word taken out: "dr-ei"); French and Italian number words ("un", "une", "uno", "una", "due", "sei", "otto" only before a span of time); "Dutzend", "dozen"; small Roman numerals standing alone (not "i"); weekdays, holidays, "Monatsende" and its kin, "letzten"/"naechsten" before a span; "E-Mail" and the English "I" before a verb are words | `holds_a_number` |
+| **no person by an honorific**: Herr, Herrn, Frau, Dr., Prof., Me, Mr, Mrs, Ms, Mme, Mlle before a capitalised word, whatever the passages hold | `names_a_person` |
+| **no name of what the model was given**: no word of a title or pointer, and no capitalised word of a text unless it is a common word (function words, the general vocabulary of documents and matters, their inflections by stem and their compounds) or begins a sentence (after ". ! ? ..." on its line, not after an abbreviation or an initial; a line's start, a colon, a postal code do not begin one); a common word a text uses as a name ("Herr Richter", "Hans Richter") counts; two letters suffice; compared folded (case, accents, ae/oe/ue) and by German stem, a genitive s too. With the Brain's tools: every title, summary and text of the tool results (`ToolResults.seen`) | `passage_names`, `names_a_passage`, `is_common` |
+| **no copied run**: no four consecutive words (folded) shared with any title, pointer or text the model was given | `passage_runs`, `copies_a_passage` |
 | one reply a turn: the first that passes, every further one dropped | `check_replies` |
 | a lead-in needs a statement left: beside statements that all failed it is dropped | `check_replies` |
 
-A dropped reply falls back to the no-answer path. The kind decides the list under a reply: `clarify` the nearest
+The page labels every reply «Hinweis – ohne Quelle». Residual risk: a plain-word statement that copies no four
+words and names no one ("Ja, er ist gültig") passes the rules; the instruction forbids it (a reply never answers a
+yes/no question about the documents and never states anything about them) and the label marks it. A dropped reply
+falls back to the no-answer path. The kind decides the list under a reply: `clarify` the nearest
 five passages, `chat` (also a missing or unknown kind) none. What the rules cannot see: a fact in common words
 without a number and a name ("Ja, das ist erlaubt"); the instruction forbids it, the rules keep the specifics out.
 Measured on the demo tenant (2026-11-22, Claude): a clarifying reply that described what the passages were about

@@ -56,7 +56,7 @@ from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, Tupl
 from assistant import check
 from assistant import core as _core
 from assistant.errors import CoreBusy
-from assistant.conversation import NEAREST_PASSAGES, check_replies
+from assistant.conversation import NEAREST_PASSAGES, Seen, check_replies
 from assistant.service import (BUSY_TEXT, CORE_MAX_MESSAGES, DEFAULT_PROMPT_BUDGET_BYTES, FAILED_TEXT,
                                MAX_QUESTION_BYTES, MAX_QUOTE_WORDS, MAX_STATEMENTS, NO_ANSWER_TEXT,
                                QUESTION_TOO_LONG_TEXT, Passage, Reply, Sentence, _fit_history, _usable_turns, finished)
@@ -124,9 +124,9 @@ BRAIN_SYSTEM_INSTRUCTION = (
     "\n"
     "Or a reply, your own words to the person, shown without a source:\n"
     '{"reply": "...", "kind": "chat"}\n'
-    "A reply is one or two short sentences. It holds no digit and no number, states no fact from the documents, "
-    "does not say what they contain and names no document, person, firm, place or matter of the tool results; "
-    "otherwise it is discarded. "
+    "A reply is one or two short sentences. It holds no digit and no number, never answers a yes/no question about "
+    "the documents, never states anything about them and names no document, person, firm, place or matter of the "
+    "tool results; otherwise it is discarded. "
     '"kind" is "chat" for a greeting, thanks or what you can do, and "clarify" when you ask the person to be more '
     "specific or say that nothing fits. When the tool results do not answer the question, write no statement but one "
     "reply, kind clarify, that says what you looked for and asks one helpful follow-up question.\n"
@@ -153,7 +153,7 @@ BRAIN_SYSTEM_INSTRUCTION = (
     '"source": "Vertraege/Beispiel AG/Mietvertrag.pdf", '
     '"quote": "Die K\u00fcndigungsfrist betr\u00e4gt drei Monate zum Monatsende"}\n'
     "\n"
-    "When nothing at all can be said:\n"
+    "Nothing to say:\n"
     '{"no_answer": true}'
 )
 
@@ -195,6 +195,9 @@ class ToolResults:
     cut: int = 0
     not_read: int = 0
     chars: int = 0
+    #: Every title, summary and text the tool results returned, read or not (PMVP-20 conversation, fix round): a
+    #: reply is checked against all of it, not only against the passages.
+    seen: List[Any] = field(default_factory=list)
 
     @property
     def documents(self) -> int:
@@ -276,7 +279,7 @@ class BrainToolsService:
         stats.answer_bytes = _size(text)
         if not found.passages:
             # No tool result: no statement can stand, but a reply needs none (a greeting, a clarifying question).
-            said, dropped = check_replies(text, (), statements_shown=0)
+            said, dropped = check_replies(text, found.seen, statements_shown=0)
             removed_by = dict.fromkeys(check.REASONS, 0)
             removed_by[check.REPLY_DROPPED] = dropped
             stats.reply = said.kind if said is not None else "-"
@@ -284,7 +287,7 @@ class BrainToolsService:
         numbered = {p.number: p.text for p in found.passages}
         statements, removed_by = check.check_answer(resolve_sources(text, found.passages), numbered)
         sentences, passages = cited(statements, found.passages)
-        said, dropped = check_replies(text, found.passages, statements_shown=len(sentences))
+        said, dropped = check_replies(text, list(found.passages) + found.seen, statements_shown=len(sentences))
         removed_by[check.REPLY_DROPPED] += dropped
         stats.reply = (said.kind or "lead_in") if said is not None else "-"
         return finished(sentences, removed_by, said, answered_passages=passages,
@@ -367,6 +370,7 @@ def read_tool_results(responses: Sequence[Any], server_name: Optional[str] = Non
                 if value.get("busy") is True:
                     found.busy += 1
                     continue
+                found.seen.extend(_seen(tool, value))
                 for pointer, page, text in _pieces(tool, value):
                     if len(text) > MAX_PASSAGE_CHARS:
                         text = _cut(text, MAX_PASSAGE_CHARS)
@@ -429,6 +433,26 @@ def _pieces(tool: str, value: Dict[str, Any]) -> List[Tuple[str, Optional[int], 
         meta = value.get("metadata")
         if pointer and isinstance(text, str) and text.strip():
             out.append((pointer, _page(meta.get("page_from") if isinstance(meta, dict) else None), text.strip()))
+    return out
+
+
+def _seen(tool: str, value: Dict[str, Any]) -> List[Seen]:
+    """Every text of one gateway answer, for the reply's check: each search result's title, summary and passages
+    (also a result without passages), a fetched document's title and text."""
+    def text(item: Any) -> str:
+        return item if isinstance(item, str) else ""
+
+    out: List[Seen] = []
+    if tool == "search":
+        results = value.get("results")
+        for result in results if isinstance(results, list) else ():
+            if not isinstance(result, dict):
+                continue
+            passages = result.get("passages")
+            parts = [text(result.get("summary"))] + [text(p) for p in (passages if isinstance(passages, list) else ())]
+            out.append(Seen(title=text(result.get("title")), text="\n".join(part for part in parts if part)))
+    elif tool == "fetch":
+        out.append(Seen(title=text(value.get("title")), text=text(value.get("text"))))
     return out
 
 

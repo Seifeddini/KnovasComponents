@@ -69,8 +69,10 @@ MAX_REPLY_CHARS = 400
 MAX_LEAD_IN_CHARS = 200
 #: The most passages listed under a clarifying reply or a no-answer ("Die naechsten Stellen").
 NEAREST_PASSAGES = 5
-#: Words shorter than this are never names (articles, "AG", "OR", initials).
-MIN_NAME_LETTERS = 3
+#: Words shorter than this are never names (initials); a name of two letters ("Li", "Ng") counts.
+MIN_NAME_LETTERS = 2
+#: The least letters of a part of a compound ("Miet|vertrag").
+_MIN_PART = 3
 
 
 @dataclass(frozen=True)
@@ -87,11 +89,22 @@ class Said:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class Seen:
+    """A text the model was given that is no passage (the Brain tools: a search result's title and summary, the
+    title of a result without passages): its words are checked like a passage's."""
+
+    title: str = ""
+    pointer: str = ""
+    text: str = ""
+
+
 def check_replies(text: str, passages: Sequence[Any], *, statements_shown: int) -> Tuple[Optional[Said], int]:
     """``(the reply to show or None, how many reply lines were dropped)`` for a generated answer.
 
-    ``passages`` are the passages the model was given (anything with ``title``, ``pointer`` and ``text``);
-    ``statements_shown`` how many statements of this answer passed ``check.check_answer``.
+    ``passages`` is everything the model was given (anything with ``title``, ``pointer`` and ``text``: the passages,
+    and with the Brain's tools every ``Seen`` text of the tool results); ``statements_shown`` how many statements of
+    this answer passed ``check.check_answer``.
     """
     values = check.read_answer(text)
     replies = [value for value in values if check.is_reply(value)]
@@ -101,10 +114,11 @@ def check_replies(text: str, passages: Sequence[Any], *, statements_shown: int) 
     if lead_in and statements_shown <= 0:
         return None, len(replies)
     names = passage_names(passages)
+    runs = passage_runs(passages)
     said: Optional[Said] = None
     dropped = 0
     for value in replies:
-        found = None if said is not None else check_reply(value, names, lead_in=lead_in)
+        found = None if said is not None else check_reply(value, names, lead_in=lead_in, runs=runs)
         if found is None:
             dropped += 1
         else:
@@ -112,9 +126,10 @@ def check_replies(text: str, passages: Sequence[Any], *, statements_shown: int) 
     return said, dropped
 
 
-def check_reply(value: Any, names: FrozenSet[str], *, lead_in: bool = False) -> Optional[Said]:
-    """The reply ``value`` holds, or None when it breaks a rule. ``names`` are ``passage_names`` of the answer's
-    passages."""
+def check_reply(value: Any, names: FrozenSet[str], *, lead_in: bool = False,
+                runs: FrozenSet[Tuple[str, ...]] = frozenset()) -> Optional[Said]:
+    """The reply ``value`` holds, or None when it breaks a rule. ``names`` are ``passage_names`` and ``runs``
+    ``passage_runs`` of what the model was given."""
     if not check.is_reply(value):
         return None
     raw = value.get(REPLY_KEY)
@@ -124,7 +139,8 @@ def check_reply(value: Any, names: FrozenSet[str], *, lead_in: bool = False) -> 
     limit = MAX_LEAD_IN_CHARS if lead_in else MAX_REPLY_CHARS
     if not shown or len(shown) > limit:
         return None
-    if not _latin_letters_only(shown) or holds_a_number(shown) or names_a_passage(shown, names):
+    if (not _latin_letters_only(shown) or holds_a_number(shown) or names_a_person(shown)
+            or names_a_passage(shown, names) or copies_a_passage(shown, runs)):
         return None
     if lead_in:
         return Said(text=shown, kind="")
@@ -138,83 +154,218 @@ def _latin_letters_only(text: str) -> bool:
                                  for char in letters)
 
 
+# ---------------------------------------------------------------------------
+# No number, no date
+# ---------------------------------------------------------------------------
+
+
 def holds_a_number(text: str) -> bool:
-    """Whether ``text`` holds a digit, a character of another number category or one that looks like a digit, or
-    anything the statements' number check reads as a number."""
+    """Whether ``text`` holds a number or a date (rule 4).
+
+    A digit or another character of Unicode's number categories, one that looks like a digit, anything the
+    statements' number check reads (``check.claimed_numbers``: German and English number words, "einen Monat",
+    months, Roman numerals in capitals, a capital letter alone), also with the hyphens inside a word taken out
+    ("dr-ei"); French and Italian number words ("deux", "dieci", "cento", "mille"; "un", "une", "uno", "una",
+    "due", "sei" and "otto" only before a span of time: they are articles or words too); "Dutzend", "dozen"; a
+    Roman numeral in small letters standing alone ("iv", "xii"; not "i"); weekdays, holidays, a word for the end
+    or start of a period ("Monatsende", "Jahresanfang"), and "letzten", "naechsten" and their kin before a span
+    of time ("naechste Woche", "last month").
+    """
     if any(unicodedata.category(char)[0] == "N" for char in text):
         return True
     if check._odd_characters(text):
         return True
     # The number check reads a capital letter standing alone as a number ("Kategorie C", "Teil I"): "E-Mail" and the
     # English "I" before a contraction or a verb (the demo tenant, 2026-11-22: "I'm the Knovas Assistent") are words.
-    return bool(check.claimed_numbers(_ENGLISH_I.sub("me", _E_MAIL.sub("Email", text))))
+    plain = _ENGLISH_I.sub("me", _E_MAIL.sub("Email", text))
+    if check.claimed_numbers(plain) or check.claimed_numbers(_INNER_HYPHEN.sub("", plain)):
+        return True
+    if _LOWER_ROMAN.search(text):
+        return True
+    words = [_plain(match.group(0)) for match in _WORD.finditer(_INNER_HYPHEN.sub("", text))]
+    for at, word in enumerate(words):
+        after = words[at + 1] if at + 1 < len(words) else ""
+        if word in _NUMBER_WORDS or word in _DATE_WORDS or _PERIOD_EDGE.fullmatch(word):
+            return True
+        if word in _NUMBER_ARTICLES and _is_span(after):
+            return True
+        if _RELATIVE.fullmatch(word) and (_is_span(after) or after in _DATE_WORDS):
+            return True
+    return False
+
+
+def _is_span(folded: str) -> bool:
+    return folded in _SPANS or _key(folded) in _SPAN_KEYS
 
 
 _E_MAIL = re.compile("(?<![^\\W_])[Ee]-[Mm]ail")
 _ENGLISH_I = re.compile("(?<![^\\s\"'(\u201c\u201e\u00ab])I(?=['\u2019](?:m|ll|ve|d)\\b|\\s+(?:am|can|cannot|"
                         "could|would|will|have|had|do|did|don|found|looked|searched|see|think|help|need|was|only|just|"
                         "also|couldn|didn|haven|wasn)\\b)")
+_INNER_HYPHEN = re.compile("(?<=[^\\W\\d_])[-\u2010\u2011\u00ad](?=[^\\W\\d_])")
+_LOWER_ROMAN = re.compile("(?<![^\\W_])(?=[ivx]{2,}(?![^\\W_]))x{0,3}(?:ix|iv|v?i{0,3})(?![^\\W_])")
+_NUMBER_WORDS = frozenset("""
+deux trois quatre cinq sept huit neuf dix cent cents mille tre quattro cinque sette nove dieci cento mille
+dutzend dutzende dutzenden dozen dozens
+""".split())
+#: Articles or words of their own as well: a number only before a span of time ("un mois", "due mesi").
+_NUMBER_ARTICLES = frozenset("un une uno una due sei otto".split())
+_SPANS_TEXT = """
+an ans annee annees mois jour jours semaine semaines heure heures minute minutes
+anno anni mese mesi giorno giorni settimana settimane ora ore minuto minuti
+tag tage tagen woche wochen monat monate monaten jahr jahre jahren quartal quartale semester stunde stunden
+day days week weeks month months year years quarter quarters hour hours
+"""
+_DATE_WORDS_TEXT = """
+montag dienstag mittwoch donnerstag freitag samstag sonnabend sonntag
+monday tuesday wednesday thursday friday saturday sunday
+lundi mardi mercredi jeudi vendredi samedi dimanche lunedi martedi mercoledi giovedi venerdi sabato domenica
+weihnachten weihnacht ostern pfingsten neujahr silvester auffahrt fasnacht christmas easter noel paques natale pasqua
+"""
+#: "Monatsende", "Jahresanfang", "Quartalsbeginn", "Wochenende" (folded).
+_PERIOD_EDGE = re.compile("(?:monats|jahres|quartals|semester|geschaftsjahres)(?:ende|endes|anfang|anfangs|"
+                          "beginn|beginns|mitte)")
+#: "letzten", "naechsten", "vergangenen", "kommenden", "vorigen" and the English "last", "next" (folded).
+_RELATIVE = re.compile("(?:letzt|nachst|naechst|vergangen|kommend|vorig)(?:e|en|er|es|em)?|last|next|previous|coming")
 
 
 # ---------------------------------------------------------------------------
-# Names of the passages
+# No name, no person, no copied run
 # ---------------------------------------------------------------------------
 
 _WORD = re.compile("[^\\W\\d_]+")
-#: What ends a sentence or opens a part, so that the capital after it may be the sentence's and not a name's.
-_STARTERS = frozenset(".!?:;\u2026([{\"'\u00ab\u00bb\u201c\u201d\u201e\u2018\u2019\u201a\u2022*/|>\u2013\u2014")
+#: Words before a name: a reply naming a person by them is dropped whatever the passages hold.
+_HONORIFICS = ("Herr", "Herrn", "Frau", "Dr", "Prof", "Me", "Mr", "Mrs", "Ms", "Mme", "Mlle")
+_HONORIFIC_BEFORE = re.compile("(?<![^\\W_])(?:" + "|".join(_HONORIFICS) + ")\\.?\\s+$")
+#: Abbreviations a full stop ends without ending the sentence ("Dr. Meier", "Art. Mieter"), folded.
+_ABBREVIATIONS = frozenset("""
+dr prof hr fr frl sr jr st me mr mrs ms mme mlle dipl ing lic iur med phil rer nat oec art abs ziff lit nr bzw vgl
+ca resp sog inkl zzgl exkl gem betr bzgl evtl ggf usw etc str geb verh sig
+""".split())
+#: Legal forms after a firm's name ("Muster AG"): no name of their own.
+_LEGAL_FORMS = frozenset("ag gmbh sa sarl kg ohg se ltd inc llc plc gbr ev".split())
+#: Consecutive words a reply may share with a passage: one more, and the reply copies it (rule 5).
+RUN_WORDS = 4
+_RUN_WORD = re.compile("[^\\W_]+")
+
+
+def names_a_person(text: str) -> bool:
+    """Whether ``text`` names a person by an honorific or a title before a capitalised word ("Herr Richter",
+    "Dr. Vogt", "Mrs Smith"), whatever the passages hold."""
+    for match in _WORD.finditer(text):
+        if match.group(0)[:1].isupper() and _HONORIFIC_BEFORE.search(text[max(0, match.start() - 16):match.start()]):
+            return True
+    return False
+
+
+def passage_runs(passages: Sequence[Any]) -> FrozenSet[Tuple[str, ...]]:
+    """Every ``RUN_WORDS`` consecutive words (folded) of what the model was given: titles, pointers and texts."""
+    runs: Set[Tuple[str, ...]] = set()
+    for passage in passages or ():
+        for value in (getattr(passage, "title", None), getattr(passage, "pointer", None),
+                      getattr(passage, "text", None)):
+            if isinstance(value, str):
+                words = _run_words(value)
+                runs.update(tuple(words[at:at + RUN_WORDS]) for at in range(len(words) - RUN_WORDS + 1))
+    return frozenset(runs)
+
+
+def copies_a_passage(text: str, runs: FrozenSet[Tuple[str, ...]]) -> bool:
+    """Whether ``text`` shares ``RUN_WORDS`` consecutive words (folded) with what the model was given."""
+    if not runs:
+        return False
+    words = _run_words(text)
+    return any(tuple(words[at:at + RUN_WORDS]) in runs for at in range(len(words) - RUN_WORDS + 1))
+
+
+def _run_words(text: str) -> List[str]:
+    return [fold(match.group(0)) for match in _RUN_WORD.finditer(text)]
 
 
 def passage_names(passages: Sequence[Any]) -> FrozenSet[str]:
-    """The folded words (and their stems) that would name something of the passages.
+    """The folded words (and their stems) that would name something of what the model was given.
 
-    Every word of a passage's ``title`` and ``pointer`` (the file name, a client's folder), and every word of its
-    ``text`` that is capitalised and does not begin a sentence, a line or a list item; each only when it is no
-    common word (``is_common``) and has at least ``MIN_NAME_LETTERS`` letters.
+    Every word of a ``title`` and a ``pointer`` (the file name, a client's folder) and every capitalised word of a
+    ``text``, unless it begins a sentence (after ".", "!", "?" or "\u2026" on its line, not after an abbreviation or
+    an initial): at the start of a line, after a colon, after a postal code or "Dr." it may be a name. Each only
+    when it is no common word (``is_common``) and has at least ``MIN_NAME_LETTERS`` letters, except a word that a
+    text uses as a name: after an honorific ("Herr Richter") or right after another name ("Hans Richter").
     """
     found: Set[str] = set()
     for passage in passages or ():
         for value in (getattr(passage, "title", None), getattr(passage, "pointer", None)):
             if isinstance(value, str):
-                _add_names(found, (match.group(0) for match in _WORD.finditer(strip_uuid(value))))
+                for match in _WORD.finditer(strip_uuid(value)):
+                    _add_name(found, match.group(0))
         text = getattr(passage, "text", None)
         if isinstance(text, str):
-            _add_names(found, (match.group(0) for match in _WORD.finditer(text)
-                               if match.group(0)[:1].isupper() and not _begins(text, match.start())))
+            _add_text_names(found, text)
     return frozenset(found)
 
 
-def _add_names(found: Set[str], words: Iterable[str]) -> None:
-    for word in words:
-        if len(word) < MIN_NAME_LETTERS or is_common(word):
+def _add_text_names(found: Set[str], text: str) -> None:
+    previous_end = -1
+    for match in _WORD.finditer(text):
+        word = match.group(0)
+        if not word[:1].isupper() or _begins_sentence(text, match.start()):
+            previous_end = -1
             continue
-        folded = fold(word)
-        found.add(folded)
-        found.add(_key(folded))
+        as_name = bool(_HONORIFIC_BEFORE.search(text[max(0, match.start() - 16):match.start()])) or (
+            previous_end >= 0 and text[previous_end:match.start()].strip(" ") == "")
+        if as_name and len(word) >= MIN_NAME_LETTERS and fold(word) not in _LEGAL_FORMS:
+            _add_folded(found, word)
+            named = True
+        else:
+            named = _add_name(found, word)
+        previous_end = match.end() if named else -1
 
 
-def _begins(text: str, at: int) -> bool:
-    """Whether the word at ``at`` begins the text, a line, a sentence or a list item."""
-    before = text[:at]
+def _add_name(found: Set[str], word: str) -> bool:
+    if len(word) < MIN_NAME_LETTERS or is_common(word):
+        return False
+    _add_folded(found, word)
+    return True
+
+
+def _add_folded(found: Set[str], word: str) -> None:
+    folded = fold(word)
+    found.add(folded)
+    found.add(_key(folded))
+
+
+def _begins_sentence(text: str, at: int) -> bool:
+    """Whether the word at ``at`` begins a sentence on its line, so that its capital may be the sentence's."""
+    before = text[max(0, at - 40):at]     # a window: the texts may be long, the question is local
     kept = before.rstrip()
     if not kept or "\n" in before[len(kept):]:
+        return False                      # the start of the text or of a line: a name may stand there
+    kept = kept.rstrip("\"'\u00bb\u201c\u201d\u2019)]")
+    if not kept or kept[-1] not in ".!?\u2026":
+        return False
+    if kept[-1] != ".":
         return True
-    last = kept[-1]
-    if last == "-":  # a dash between spaces or a list mark, never the hyphen of "Mueller-Meier"
-        return len(kept) < len(before) and (len(kept) == 1 or kept[-2].isspace())
-    return last in _STARTERS or last.isdigit()
+    token = re.search("([^\\W_]+)\\.$", kept)
+    if token is None:
+        return True
+    word = token.group(1)
+    if word.isdigit():
+        return True                       # "1. Der Mieter": an enumeration
+    return not (len(word) == 1 or fold(word) in _ABBREVIATIONS)   # "S. Vogt", "Dr. Meier": no end
 
 
 def names_a_passage(text: str, names: FrozenSet[str]) -> bool:
-    """Whether a word of ``text`` is one of ``names`` (folded, by its stem, or with a genitive s)."""
+    """Whether a word of ``text`` is one of ``names`` (folded, by its stem, or with a genitive s). A common word
+    counts only when a passage used it as a name ("Herr Richter")."""
     if not names:
         return False
     for match in _WORD.finditer(text):
         word = match.group(0)
-        if len(word) < MIN_NAME_LETTERS or is_common(word):
+        if len(word) < MIN_NAME_LETTERS:
             continue
         folded = fold(word)
-        if folded in names or _key(folded) in names or (folded.endswith("s") and folded[:-1] in names):
+        if folded in names or (folded.endswith("s") and folded[:-1] in names):
+            return True
+        if not is_common(word) and _key(folded) in names:
             return True
     return False
 
@@ -222,9 +373,13 @@ def names_a_passage(text: str, names: FrozenSet[str]) -> bool:
 def fold(word: str) -> str:
     """``word`` lower case, without accents, with the umlaut spellings as the plain letter: "M\u00fcller",
     "Mueller" and "MULLER" are one."""
+    return _plain(word).replace("ae", "a").replace("oe", "o").replace("ue", "u")
+
+
+def _plain(word: str) -> str:
+    """``word`` lower case, without accents ("lunedi", "nachsten"); umlaut spellings stay ("due" is not "du")."""
     plain = unicodedata.normalize("NFKD", word.lower().replace("\u00df", "ss"))
-    plain = "".join(char for char in plain if not unicodedata.combining(char))
-    return plain.replace("ae", "a").replace("oe", "o").replace("ue", "u")
+    return "".join(char for char in plain if not unicodedata.combining(char))
 
 
 @lru_cache(maxsize=16384)
@@ -250,12 +405,12 @@ def _common_folded(folded: str) -> bool:
 @lru_cache(maxsize=16384)
 def _compound(folded: str) -> bool:
     """Whether ``folded`` is a noun of ``_NOUNS`` followed by a common word, with a linking letter or two."""
-    for end in range(MIN_NAME_LETTERS, len(folded) - MIN_NAME_LETTERS + 1):
+    for end in range(_MIN_PART, len(folded) - _MIN_PART + 1):
         if folded[:end] not in _HEADS:
             continue
         rest = folded[end:]
         for link in _LINKS:
-            if rest.startswith(link) and len(rest) - len(link) >= MIN_NAME_LETTERS:
+            if rest.startswith(link) and len(rest) - len(link) >= _MIN_PART:
                 tail = rest[len(link):]
                 if tail in _COMMON or _key(tail) in _COMMON_KEYS or _compound(tail):
                     return True
@@ -298,6 +453,8 @@ we our us they them their he she his her me my mine
 what which who whom whose how when where why can could would should will shall may might must do does did is
 are was were be been being have has had
 hello hey thanks thank please welcome sure yes not
+ab je hi ok so ob da wo zu um am im in an es er du ja is it be do of to on at by as if no me my we he us or
+ag sa kg nr hr fr st sr jr mr ms mme ch eu uk gmbh
 """
 
 #: The general vocabulary a reply needs to talk about documents without naming one: the assistant, questions,
@@ -317,6 +474,7 @@ behoerde amt
 vertrag vereinbarung abrede klausel bestimmung regelung regel recht pflicht gesetz verordnung
 frist datum zeitraum dauer beginn ende zeitpunkt
 kuendigung miete mieter vermieter arbeit arbeitgeber arbeitnehmer kauf darlehen
+vertreter vertretung vertreten unterschrift unterzeichnung vertragspartei
 vollmacht klage klageschrift klageantwort beschwerde berufung urteil entscheid verfuegung beschluss
 brief schreiben korrespondenz mail email nachricht notiz memo protokoll bericht gutachten offerte angebot
 rechnung beilage anhang anlage nachtrag entwurf fassung version kopie original
@@ -335,8 +493,11 @@ _NOUN_WORDS = _folded_words(_NOUNS)
 _COMMON = _folded_words(_FUNCTION_WORDS) | _NOUN_WORDS
 #: The stems of the nouns only: a function word is common as written ("must" is no stem of "Muster").
 _COMMON_KEYS = frozenset(_key(word) for word in _NOUN_WORDS)
+_SPANS = frozenset(_plain(word) for word in _SPANS_TEXT.split())
+_SPAN_KEYS = frozenset(_key(word) for word in _SPANS)
+_DATE_WORDS = frozenset(_plain(word) for word in _DATE_WORDS_TEXT.split())
 _HEADS = frozenset(word for word in _NOUN_WORDS | {_key(word) for word in _NOUN_WORDS}
-                   if len(word) >= MIN_NAME_LETTERS)
+                   if len(word) >= _MIN_PART)
 
 
 # ---------------------------------------------------------------------------

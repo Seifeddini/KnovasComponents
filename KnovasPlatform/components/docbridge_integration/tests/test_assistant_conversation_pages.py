@@ -88,7 +88,8 @@ def _sources(main):
 def test_a_greeting_is_drawn_as_the_assistant_speaking_without_sources(alice_client, service):
     main = _main(alice_client, _chat_id(_ask(alice_client)))
     assert _replies(main) == [GREETING]
-    assert re.search(r'<div class="ask-reply">\s*<span class="ask-reply-who">Knovas Assistent</span>', main)
+    assert re.search(r'<div class="ask-reply">\s*<p class="ask-reply-head"><span class="ask-reply-who">Knovas '
+                     r'Assistent</span> <span class="ask-reply-note">Hinweis \u2013 ohne Quelle</span></p>', main)
     for absent in (NO_ANSWER_TEXT, "Die n\u00e4chsten Stellen", "Quellen", "ask-source", "ask-statement",
                    "ask-quote", "k-chip", "ask-message"):
         assert absent not in main, absent

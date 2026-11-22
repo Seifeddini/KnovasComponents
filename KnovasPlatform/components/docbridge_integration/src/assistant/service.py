@@ -176,9 +176,9 @@ SYSTEM_INSTRUCTION = (
     "\n"
     "A reply, your own words to the person, shown without a source:\n"
     '{"reply": "...", "kind": "chat"}\n'
-    "A reply is one or two short sentences. It holds no digit and no number, states no fact from the passages, "
-    "does not say what they contain and names no document, person, firm, place or matter of the passages; "
-    "otherwise it is discarded. "
+    "A reply is one or two short sentences. It holds no digit and no number, never answers a yes/no question about "
+    "the documents, never states anything about them and names no document, person, firm, place or matter of the "
+    "passages; otherwise it is discarded. The page marks it as a note without a source. "
     '"kind" is "chat" for a greeting, thanks or what you can do, and "clarify" when you ask the person to be more '
     "specific or say that nothing fits.\n"
     "\n"

@@ -256,7 +256,7 @@ def test_a_reply_naming_the_matter_of_a_title_is_dropped():
 
 def test_the_same_names_pass_when_no_passage_holds_them():
     rows = [_row(1, "Die K\u00fcndigungsfrist betr\u00e4gt drei Monate.", "Vertrag")]
-    assert _answer({"reply": "Zu Herrn Huber finde ich nichts. Um welches Mandat geht es?", "kind": "clarify"},
+    assert _answer({"reply": "Zu Huber finde ich nichts. Um welches Mandat geht es?", "kind": "clarify"},
                    rows=rows).reply_text
 
 
@@ -270,7 +270,7 @@ def test_the_names_of_the_passages():
         assert name in names, name
     for common in ("vertrag", "mieter", "herr", "gemass", "beilage", "mietvertrag", "kanzlei", "mandanten", "pdf"):
         assert conversation.fold(common) not in names, common
-    assert "imhof" not in names                       # it begins a list item: the capital may be the sentence's
+    assert "imhof" in names and "ag" not in names     # fix round: a line's start may hold a name; "AG" is a form
     assert names_a_passage("Zu Frau M\u00fcller?", names) and names_a_passage("Zu Frau Mueller?", names)
 
 

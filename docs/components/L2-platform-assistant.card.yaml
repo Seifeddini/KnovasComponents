@@ -483,12 +483,16 @@ contract:
         - test_shown_unsaved_its_passages_show_the_title_without_a_link
     - id: L2-PLATFORM-ASSISTANT/*/P-11
       statement: 'A reply in the assistant''s own words (PMVP-20 conversation; {"reply", "kind"}) is shown only if it
-        is plain Latin text of at most 400 characters (a lead-in beside statements 200), holds no number (no digit,
-        nothing the number check reads as one) and names nothing of the passages (a word of a title or pointer, a
-        capitalised word of a text that is no common word); one a turn, and a lead-in only above a statement that was
-        shown. It carries no source and the page draws it as the assistant speaking. A reply that breaks a rule is
-        dropped and counted (reply_dropped); then the no-answer path applies. The model is asked once also when the
-        search found nothing; then no statement can stand. Both answer modes alike.'
+        is plain Latin text of at most 400 characters (a lead-in beside statements 200), holds no number or date
+        (digits, number words in four languages, Roman numerals, weekdays, holidays, ends of periods), names no
+        person by an honorific, names nothing the model was given (a word of a title or pointer, a capitalised word of
+        a text that is no common word or that a text uses as a name; with the Brain''s tools every title, summary and
+        text of the tool results) and copies no four consecutive words of it; one a turn, and a lead-in only above a
+        statement that was shown. It carries no source and the page labels it «Hinweis – ohne Quelle». A reply that
+        breaks a rule is dropped and counted (reply_dropped); then the no-answer path applies. The model is asked once
+        also when the search found nothing; then no statement can stand. Both answer modes alike. Residual: a
+        plain-word statement that copies no four words and names no one is forbidden by the instruction, not by
+        these rules.'
       risk_class: critical
       evidence:
       - kind: test
@@ -505,6 +509,15 @@ contract:
         - test_nothing_found_every_statement_is_an_unknown_source
         - test_brain_tools_a_reply_naming_a_tool_result_is_dropped
         - test_no_reply_text_reaches_a_log_line_at_debug
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_conversation_fixes.py
+        checks:
+        - test_brain_tools_a_reply_naming_any_text_of_the_tool_results_is_dropped
+        - test_a_reply_copying_four_words_of_a_passage_is_dropped
+        - test_a_reply_naming_a_person_by_an_honorific_is_dropped
+        - test_names_the_first_round_missed_are_names_now
+        - test_numbers_and_dates_the_first_round_missed_are_dropped
+        - test_what_the_rules_cannot_see_is_shown_and_labelled_on_the_page
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_conversation_pages.py
         checks:
