@@ -5,9 +5,13 @@
    view 'turns': a chat (GET /fragen/<id>) or one reply that is not stored (busy, failed, an expired form, a write
    that failed). Every turn in order: the first question as the page head, later ones as a heading of the next
    level, each answer as it was drawn when new:
-   answered:  each statement with its numbered reference; the reference opens the statement's quote right under it
-              (a card: the document's title and page, the quote, a link that opens the document); then the passages.
-   no_answer: the service's sentence and the closest passages.
+   answered:  the assistant's lead-in when it gave one; each statement with its numbered reference; the reference
+              opens the statement's quote right under it (a card: the document's title and page, the quote, a link
+              that opens the document); then the passages.
+   no_answer: the assistant's reply when it gave one (PMVP-20 conversation), else the service's sentence; then the
+              nearest passages, at most five (none under a reply of kind chat: the service sends none).
+   A reply is the assistant speaking (ask-reply: its name over its words), never a statement: no reference, no quote,
+   no source. Titles are clean (assistant_routes.ShownPassage: no leading UUID, "2024-055 · Beilage-Vertrag").
    busy, failed: the plain message and nothing else (POST-06).
    stored:    a stored answer that does not parse, as one plain paragraph without chips.
    Then the box: on a chat it asks a follow-up (POST /fragen/<id>), else a new question (POST /fragen); and on a
@@ -45,8 +49,15 @@
     {% endfor %}
 </ol>
 {% endmacro %}
+{% macro said(text) %}
+<div class="ask-reply">
+    <span class="ask-reply-who">Knovas Assistent</span>
+    <p class="ask-reply-text" dir="auto">{{ text }}</p>
+</div>
+{% endmacro %}
 {% macro answer(t) %}
 {% if t.status == 'answered' %}
+{% if t.reply %}{{ said(t.reply) }}{% endif %}
 <div class="ask-answer">
     {% for s in t.statements %}
     <p class="ask-statement">{{ s.head }}<span class="ask-tail">{{ parts.ref_chip(s.number, active=True, controls=s.quote_id) }}{{ s.stop }}</span></p>
@@ -71,7 +82,7 @@
 {% call parts.section('Quellen') %}{{ sources(t.passages) }}{% endcall %}
 {% endif %}
 {% elif t.status == 'no_answer' %}
-<p class="ask-message">{{ t.message }}</p>
+{% if t.reply %}{{ said(t.reply) }}{% else %}<p class="ask-message">{{ t.message }}</p>{% endif %}
 {% if t.removed %}<p class="ask-removed k-muted k-small">{{ t.removed }}</p>{% endif %}
 {% if t.passages %}
 {% call parts.section('Die nächsten Stellen') %}{{ sources(t.passages) }}{% endcall %}

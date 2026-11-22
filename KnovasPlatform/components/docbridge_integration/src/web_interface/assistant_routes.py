@@ -27,7 +27,8 @@ The addresses (blueprint ``assistant``):
   chats, grouped by their last change; "Alle Gespraeche" when there are more. A failed read draws no block.
 
 How an answer is stored (no migration): the assistant message's text is one JSON object, the answer as shown
-(``stored_answer``); its references are the reply's passages with the passage text as search returned it
+(``stored_answer``; since PMVP-20 conversation with the assistant's checked reply and its kind, when it gave one);
+its references are the reply's passages with the passage text as search returned it
 (decision D2: read by its owner only, deleted with the chat). A message that does not parse is drawn as one plain
 paragraph without chips. Before anything is stored, NUL characters are removed, a page outside 1 to 2^31-1 becomes
 no page and a reference without a pointer is left out (FU-01); a question and its answer (and a new chat) go into
@@ -67,6 +68,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from flask import Blueprint, Flask, abort, current_app, g, make_response, redirect, render_template, request, url_for
 
+from assistant.conversation import KINDS, NEAREST_PASSAGES, clean_title
 from assistant.service import (MAX_QUESTION_BYTES, NO_ANSWER_TEXT, QUESTION_TOO_LONG_TEXT, STATUSES, Passage, Reply,
                                Sentence, Turn, cut_to_bytes)
 
@@ -165,7 +167,9 @@ def split_tail(text: str) -> Tuple[str, str]:
 
 @dataclass(frozen=True)
 class ShownPassage:
-    """A passage as the page shows it: its number, title and page, and the address that opens its document."""
+    """A passage as the page shows it: its number, its title as ``conversation.clean_title`` gives it (PMVP-20
+    conversation: no leading UUID, a matter's file as "2024-055 \u00b7 Beilage-Vertrag"), its page, and the address that
+    opens its document."""
 
     number: int
     title: str
@@ -191,7 +195,9 @@ class ShownTurn:
 
     ``status``: one of ``STATUSES``, ``"stored"`` (a stored answer that does not parse: ``message`` is its text, one
     plain paragraph) or ``""`` (a question without an answer). ``anchor``: the element id the 303 lands on.
-    ``notice``: a line under the answer (``NOT_SAVED_TEXT``).
+    ``notice``: a line under the answer (``NOT_SAVED_TEXT``). ``reply``: the assistant's own checked words (PMVP-20
+    conversation), drawn as the assistant speaking and without a source: above the statements of an ``answered``
+    turn, in place of the no-answer sentence of a ``no_answer`` turn.
     """
 
     question: str
@@ -202,6 +208,7 @@ class ShownTurn:
     removed: str = ""
     anchor: str = ""
     notice: str = ""
+    reply: str = ""
 
 
 def _open_href(passage: Passage, pdf_preview: bool) -> str:
@@ -239,7 +246,11 @@ def shown_reply(reply: Reply, pdf_preview: bool, *, turn: Optional[int] = None,
         open_href = lambda passage: _open_href(passage, pdf_preview)  # noqa: E731
     else:
         open_href = lambda passage: ""  # noqa: E731
-    passages = [ShownPassage(number=p.number, title=p.title, page=p.page, href=open_href(p)) for p in reply.passages]
+    listed = list(reply.passages)
+    if reply.status != "answered":  # "Die naechsten Stellen": at most five (PMVP-20 conversation), stored ones too
+        listed = listed[:NEAREST_PASSAGES]
+    passages = [ShownPassage(number=p.number, title=clean_title(p.title), page=p.page, href=open_href(p))
+                for p in listed]
     by_number = {p.number: p for p in passages}
     statements: List[ShownStatement] = []
     for index, sentence in enumerate(reply.sentences, start=1):
@@ -248,7 +259,8 @@ def shown_reply(reply: Reply, pdf_preview: bool, *, turn: Optional[int] = None,
         quote_id = f"zitat-{index}" if turn is None else f"zitat-{turn}-{index}"
         statements.append(ShownStatement(head=head, stop=stop, number=number, quote=sentence.quote,
                                          quote_id=quote_id, passage=by_number.get(number)))
-    return {"statements": statements, "passages": passages, "removed": removed_line(reply.removed)}
+    return {"statements": statements, "passages": passages, "removed": removed_line(reply.removed),
+            "reply": getattr(reply, "reply_text", "") or ""}
 
 
 def _plain(status: str, message: str) -> Reply:
@@ -287,7 +299,9 @@ def stored_answer(reply: Reply) -> Tuple[str, List[Dict[str, Any]]]:
     """The assistant message of an ``answered`` or ``no_answer`` reply as it is stored: ``(text, references)``.
 
     ``text`` is one JSON object, the answer as shown: ``{"v": 1, "status", "statements": [{"text", "source",
-    "quote"}], "removed", "sentences": {"<passage number>": <sentence number>}}``. ``references`` are the reply's
+    "quote"}], "removed", "sentences": {"<passage number>": <sentence number>}}``, and ``"reply"`` and ``"kind"``
+    when the assistant gave a checked reply (PMVP-20 conversation; an older reader ignores them). ``references`` are
+    the reply's
     passages: number, pointer, page, title and the passage text as search returned it (D2). Cleaned first (FU-01):
     no NUL anywhere, a page outside 1 to 2^31-1 as no page, a reference without a pointer left out.
     """
@@ -304,9 +318,13 @@ def stored_answer(reply: Reply) -> Tuple[str, List[Dict[str, Any]]]:
                            "title": _clean(passage.title), "text": _clean(passage.text)})
         if _storable_int(passage.sentence):
             sentences[str(passage.number)] = passage.sentence
-    text = json.dumps({"v": STORED_VERSION, "status": reply.status, "statements": statements,
-                       "removed": max(0, int(reply.removed or 0)), "sentences": sentences}, ensure_ascii=False)
-    return text, references
+    stored: Dict[str, Any] = {"v": STORED_VERSION, "status": reply.status, "statements": statements,
+                              "removed": max(0, int(reply.removed or 0)), "sentences": sentences}
+    said = _clean(getattr(reply, "reply_text", "") or "")
+    if said:
+        stored["reply"] = said
+        stored["kind"] = _clean(getattr(reply, "reply_kind", "") or "")
+    return json.dumps(stored, ensure_ascii=False), references
 
 
 def _int_value(value: Any) -> int:
@@ -335,9 +353,17 @@ def stored_reply(message: Any) -> Reply:
                         page=ref.get("page"), text=ref.get("text") or "", sentence=numbers.get(ref["number"]))
                 for ref in message.references]
     status = data["status"]
+    said = data.get("reply", "")
+    kind = data.get("kind", "")
+    if not isinstance(said, str) or not isinstance(kind, str):
+        raise TypeError("not a stored reply")
+    said = " ".join(said.split())
+    message_text = ""
+    if status == "no_answer":
+        message_text = said or NO_ANSWER_TEXT
     return Reply(status=status, sentences=sentences if status == "answered" else [], passages=passages,
-                 removed=max(0, _int_value(data.get("removed", 0))),
-                 message=NO_ANSWER_TEXT if status == "no_answer" else "")
+                 removed=max(0, _int_value(data.get("removed", 0))), message=message_text,
+                 reply_text=said, reply_kind=kind if said and kind in KINDS else "")
 
 
 def _read_stored(message: Any) -> Optional[Reply]:
@@ -350,8 +376,9 @@ def _read_stored(message: Any) -> Optional[Reply]:
 
 def history_of(chat: Any) -> List[Turn]:
     """The chat's turns for the service, oldest first: a question as typed; an answer as its statements' text, one
-    per line; a ``no_answer`` as ``NO_ANSWER_TEXT``. No quote, no passage, no JSON (POST-02); an answer that does not
-    parse is left out."""
+    per line; a ``no_answer`` as the assistant's reply (PMVP-20 conversation: a clarifying question stays the
+    context of the answer to it), else as ``NO_ANSWER_TEXT``. No quote, no passage, no JSON (POST-02); an answer that
+    does not parse is left out."""
     turns: List[Turn] = []
     for message in chat.messages:
         if message.role == "user":
@@ -360,7 +387,10 @@ def history_of(chat: Any) -> List[Turn]:
         reply = _read_stored(message)
         if reply is None:
             continue
-        text = "\n".join(s.text for s in reply.sentences) if reply.status == "answered" else NO_ANSWER_TEXT
+        if reply.status == "answered":
+            text = "\n".join(s.text for s in reply.sentences)
+        else:
+            text = reply.reply_text or NO_ANSWER_TEXT
         if text.strip():
             turns.append(Turn(role="assistant", text=text))
     return turns

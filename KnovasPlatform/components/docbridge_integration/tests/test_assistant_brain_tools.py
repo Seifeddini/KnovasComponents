@@ -345,7 +345,7 @@ def test_a_quote_outside_the_tool_results_is_removed():
     assert reply.status == "no_answer" and reply.sentences == [] and reply.message == NO_ANSWER_TEXT
     assert reply.removed == 6
     assert reply.removed_by == {"not_a_statement": 1, "unknown_source": 2, "quote_not_found": 3,
-                                "number_not_found": 0, "too_long": 0}
+                                "number_not_found": 0, "too_long": 0, "reply_dropped": 0}  # PMVP-20 conversation
     assert [p.pointer for p in reply.passages] == [PTR_LEASE, PTR_NOTE]           # the closest: one per document
 
 

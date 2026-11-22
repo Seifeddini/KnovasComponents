@@ -145,10 +145,20 @@ def test_the_instruction_names_the_knobs_as_they_are_set():
 
 
 def test_the_examples_in_the_instruction_pass_the_check_they_teach():
+    """Changed by PMVP-20 conversation: the instruction now shows two forms (a statement and a reply) and a reply
+    among its examples; each example still passes the check it teaches, the reply its own rules."""
+    from assistant.conversation import KIND_CLARIFY, check_reply, passage_names
+
     lines = [line for line in SYSTEM_INSTRUCTION.splitlines() if line.startswith("{")]
-    form, examples, no_answer = lines[0], lines[1:-1], lines[-1]
+    values = [json.loads(line) for line in lines]
+    form, reply_form, no_answer = lines[0], lines[1], lines[-1]
+    assert values[0] == {"statement": "...", "source": 2, "quote": "..."}
+    assert values[1] == {"reply": "...", "kind": "chat"}
     assert json.loads(no_answer) == {"no_answer": True}
+    examples = [line for line, value in zip(lines[2:-1], values[2:-1]) if "statement" in value]
+    replies = [value for value in values[2:-1] if "reply" in value]
     assert len(examples) == 2 and all("\u00fc" in line for line in examples)        # German
+    assert len(replies) == 1 and len(examples) + len(replies) == len(lines) - 3
     passages = {}
     for example in map(json.loads, examples):
         assert MIN_QUOTE_WORDS <= len(example["quote"].split()) <= svc.MAX_QUOTE_WORDS
@@ -156,8 +166,15 @@ def test_the_examples_in_the_instruction_pass_the_check_they_teach():
     shown, removed_by = check_answer("\n".join(examples + [no_answer]), passages)
     assert [s.text for s in shown] == [json.loads(e)["statement"] for e in examples]
     assert removed_by == ZEROS
-    # the line that shows the form is not itself a statement
+    # the lines that show the forms are not themselves a statement or a reply that is shown
     assert check_answer(form, passages) == ([], {**ZEROS, NOT_A_STATEMENT: 1})
+    assert check_answer(reply_form, passages) == ([], ZEROS)
+    assert check_reply(values[1], frozenset()) is None
+    # the reply of the examples passes the reply's rules, beside these passages too
+    names = passage_names([svc.Passage(number=n, pointer=f"doc-{n}.pdf", title=f"Vertrag {n}", page=None, text=t)
+                           for n, t in passages.items()])
+    said = check_reply(replies[0], names)
+    assert said is not None and said.kind == KIND_CLARIFY
 
 
 def test_eight_statements_with_quotes_fit_the_answer_budget():

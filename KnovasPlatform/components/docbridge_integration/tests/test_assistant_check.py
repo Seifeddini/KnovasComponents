@@ -85,7 +85,7 @@ def test_every_reason_is_counted_under_its_own_name():
     )
     assert shown == [FRIST_SHOWN, MIETE_SHOWN]
     assert removed_by == {NOT_A_STATEMENT: 1, UNKNOWN_SOURCE: 1, QUOTE_NOT_FOUND: 1,
-                          NUMBER_NOT_FOUND: 1, TOO_LONG: 1}
+                          NUMBER_NOT_FOUND: 1, TOO_LONG: 1, "reply_dropped": 0}  # PMVP-20 conversation: a sixth reason
     assert tuple(removed_by) == REASONS
 
 
