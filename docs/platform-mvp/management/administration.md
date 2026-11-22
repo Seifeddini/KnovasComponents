@@ -260,7 +260,7 @@ functions); the Knovas Core accepts it as it accepts a person's.
 | RB-6 | one claim for every agent; the Knovas Assistent a member of every role but Administration, answering with its own claim | verified (with notes); not yet integrated | management (critical: a migration, with RB-7) |
 | RB-7 | external agents: the Agenten page, agents on the role page («Mitglieder»), their signed claims handed to the Core behind a switch (off) | verified (with notes); the agent rows on the role page added after RB-3/RB-4 were integrated; not yet integrated | management (critical: a migration, signing and claims) |
 | RB-5 | a role's data («Darf lesen»): adding and removing folders, sources and documents with a dry run and four eyes; adopting an existing Knovas group; moving direct group grants into roles | verified (with notes); two fixes after it (F1, the adopt under its lock); RB-FIX-1 merged in; not yet integrated; acts with the Core's CR-R1, CR-R2 (and CR-R3 for folders already read in) | Siran (sensitive) |
-| RB-FIX-1 | clean-up after the role builder: who holds a group counts her roles' groups (FU-42); the Rollen and Agenten pages get cards of their own (FU-44); a role or agent name with an invalid character and an unknown person on «Deaktivieren»/«Aktivieren» answer with the page and change nothing | built; no verification verdict yet | Siran (sensitive) |
+| RB-FIX-1 | clean-up after the role builder: who holds a group counts her roles' groups (FU-42); the Rollen and Agenten pages get cards of their own (FU-44); a role or agent name with an invalid character and an unknown person on «Deaktivieren»/«Aktivieren» answer with the page and change nothing | verified (with notes); integrated | Siran (sensitive) |
 
 ## Decisions taken
 
@@ -301,7 +301,7 @@ functions); the Knovas Core accepts it as it accepts a person's.
   grants after the move (end dates, the administrator group, unknown groups, groups of roles they are not in) are not
   handled yet (founder or coordinator).
 - **Three readers of groups** (the Experimente search's "missing group" hint, the Builder's list of who holds a group,
-  one check of viewers without groups) read only a person's direct groups until RB-FIX-1 (built, not yet verified):
+  one check of viewers without groups) read only a person's direct groups until RB-FIX-1 (verified with notes, integrated):
   now each counts a group she holds through a role, and a direct group whose end date has passed no longer counts,
   as for what Knovas lets her read (FU-42).
 - **Agents act only as far as the Core does.** Today the assistant's claim is signed and logged and narrows nothing
