@@ -78,6 +78,13 @@ provider are passed on without the request that carries it. Without a saved key 
 building are kept outside the repository.
 
 **Chats** stay in the Platform's own database, owner only; the chat store does not encrypt their text itself.
+Decided on 22 November, built with PMVP-23 (not started): a chat keeps **the passages its answers were made from**
+(readable by its owner only, deleted with the chat, never sent to a provider again; a follow-up sends the earlier
+statements only). A chat is **deleted automatically 90 days after its last message**, with its messages and
+passages, by a daily job in the Platform that runs once however many workers there are; the audit log records how
+many chats it deleted, nothing else. The owner can delete a chat at any time, and removing a person removes her
+chats. "90 days after the last message" is the coordinator's reading of the founder's "90 days", so a chat in use
+is not cut off; the founder may correct it.
 
 **Roles** (RB-1, RB-2). Who may do what is now decided by roles, kept in the Platform's own database like accounts.
 The move to roles happens inside the installation when the new version starts: nothing leaves it, nothing is written
@@ -155,6 +162,7 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 | 20 Nov | after the sweep's first verification | The log fingerprint is keyed with the installation's secret |
 | 21 Nov | founder | The customer chooses the provider; the pilot's passages may go to Anthropic |
 | 21 Nov | founder | The Platform signs agents' claims; external agents use only Knovas's gateway ("Core gateway only"); on client installations agents only after «Ein» |
+| 22 Nov | founder | A chat keeps its passages (owner only, deleted with it); chats are deleted automatically after 90 days, read by the coordinator as 90 days after the last message (PMVP-23) |
 
 ## Known limits and open points
 

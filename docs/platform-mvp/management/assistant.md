@@ -62,7 +62,9 @@ slips.
 | PMVP-21 | chat storage: three new tables, owner only | verified 19 Nov (with notes); integrated; no page uses it yet | management (critical: database change) |
 | PMVP-22a | the ask page | built; no verification verdict yet | Jannik or Siran (routine) |
 | PMVP-25 | switch, provider and model, key, connection test | built; no verification verdict yet | management (critical: a secret) |
-| PMVP-22b, 23, 24 | passage in the document; follow-ups and past chats; waiting states | not started | routine |
+| PMVP-22b | passage in the document | not started | routine |
+| PMVP-23 | follow-up questions and past chats (list, open, delete; deleted after 90 days) | work order decided 22 Nov; acceptance tests frozen; not started | Siran (sensitive) |
+| PMVP-24 | waiting line, a time limit under the web server's, failure states | work order decided 22 Nov; after PMVP-23 | Jannik or Siran (routine) |
 | RB-6 | the assistant as a member of roles, answering with its own claim narrowed to the person | built; no verification verdict yet | management (critical: a migration, with RB-7) |
 
 ## Decisions taken
@@ -94,6 +96,8 @@ slips.
 - **Smaller points:** long chats (FU-06, FU-07), a slow Core against the web server's time limit (FU-08), the demo
   profile (FU-10), input edge cases in chat storage (FU-01 to FU-03).
 - **The component card** still says "planned" and names withdrawn test files (FU-18).
+- **Decided by the founder on 22 Nov (PMVP-23):** a stored chat keeps the text of its passages (owner only, deleted
+  with it); chats are deleted automatically 90 days after their last message (the coordinator's reading of "90 days").
 
 ## Depends on
 

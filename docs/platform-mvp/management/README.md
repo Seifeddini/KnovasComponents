@@ -54,9 +54,12 @@ branch reaches main only through a pull request a person reviews and merges; the
 | Clean-up after the role builder: no customer text in the Knovas client's log lines; who holds a group counts her roles; the role builder's pages get cards of their own; two bad inputs answered with the page instead of an error | RB-FIX-1 | verified (with notes); integrated | sensitive: Siran |
 | The verifier's notes on RB-FIX-1: no address or Knovas text in the errors the Knovas client raises or in the HTTP library's warnings; how an operator finds Knovas's own message | RB-FIX-2 | built; no verification verdict yet | sensitive: Siran |
 | No customer text in logs (pull request #55) | maintenance | verified (second verification, with notes); not on main, not in the build branch | open: no class named |
-| «Was sieht …?» in Admin | PMVP-41 | work order and acceptance tests drafted (22 Nov), not yet frozen | sensitive: Siran |
-| Enforcement position and switch with a second administrator | PMVP-42 | work order and acceptance tests drafted (22 Nov), not yet frozen; «Ein» waits for the Core's CR-R1, CR-R1a, CR-R7 and two green rights runs | critical: management |
-| Not started (no work order) | PMVP-02, 04, 22b, 23, 24, 30b, 31–34, 43, 60–62; RB-9, RB-10 (RB-8 dropped: "Core gateway only") | not started | as the plan and the role builder's design say |
+| Follow-up questions and past chats; waiting and failure states | PMVP-23, PMVP-24 | work orders decided 22 Nov (PMVP-23's acceptance tests frozen); not started (24 after 23) | 23 sensitive: Siran; 24 routine: Jannik or Siran |
+| Related things by kind; the 25-thing limit | PMVP-30b, PMVP-34 | work orders decided 22 Nov (PMVP-34's acceptance test frozen); not started (30b after 34) | routine: Jannik or Siran |
+| Process line | PMVP-32a, PMVP-32b | decided 22 Nov: built on Knovas GmbH's own processes (founder); work order written; not started (after 30b) | routine |
+| «Was sieht …?» in Admin | PMVP-41 | work order and acceptance tests drafted (22 Nov), not yet frozen; names only, every look audited (founder, 22 Nov) | sensitive: Siran |
+| Enforcement position and switch | PMVP-42 | reworked 22 Nov after the founder's answer: one administrator switches with a confirmation; the Core refuses «Ein» until its own prerequisites hold; acceptance tests drafted, not yet frozen; the switch waits for the Core's CR-R1a, CR-R7 and CR-R8 | critical: management |
+| Not started (no work order) | PMVP-02, 04, 22b, 31, 33, 43, 60–62; RB-9, RB-10 (RB-8 dropped: "Core gateway only") | not started | as the plan and the role builder's design say |
 
 "Management" approves critical items (DEC-0081); who exactly is **open**. Updating the pilot instance (PMVP-62) needs
 both founders.

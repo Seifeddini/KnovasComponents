@@ -25,6 +25,15 @@ its evidence chunk (`provenance_chunk_id`), but no route returns that chunk's te
   found the Platform's side; check the Core's) must not log it.
 - **Invariant**: GI-QUERY-04's containment rule needs the Core's own amendment for this.
 
+**Update 2026-11-22:** the Core's document-text route (`GET /secured/document/<uuid>/text`, FEAT-2026-11-16 T12) is live in production. The founder decided the same day that the assistant may read it under limits (`work-orders/PMVP-20-context.md`): the Platform cuts the context around each hit itself, so **CR-1 is not needed for the pilot**. It stays useful later (one call instead of one per document).
+
+## CR-1c: the document-text route reads as the person
+
+- **Where**: `GET /secured/document/<uuid>/text`.
+- **What**: under `brokered`, accept the Platform's signed claim on this GET (a header such as `X-Knovas-Principal-Assertion`, or a query parameter), verified like the body field of `POST /secured/query`; today the route resolves the principal without a claim, so it answers 401 under `brokered`.
+- **Why**: with Ein the assistant's context reads must narrow exactly as the person's search does. Until then the Platform falls back to the search's snippet on any refusal.
+- **Needed**: together with CR-R1.
+
 ## CR-2: one passage by its id
 
 - **Where**: a per-thing read, e.g. `GET /secured/chunks/<chunk_id>`.
