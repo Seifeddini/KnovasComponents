@@ -9,7 +9,9 @@
    parts do not (the fact line, the fact that opens its source, the list's form and pages), with tokens only.
    PMVP-30b: one tab per kind of related thing with its count; `kind` and `listing` (the list's page, form fields
    and page links) for a kind's list and for «Dokumente»; `near_failed` when the related things could not be read.
-   The marks of PMVP-34: data-bv-node on what is drawn (the thing), data-bv-row on each row of a list. #}
+   PMVP-32a: `running` (the step the thing is in, its process and the address of its line) for the card «Läuft
+   gerade» on the Überblick. The marks of PMVP-34: data-bv-node on what is drawn (the thing, the card that stands for
+   its step), data-bv-row on each row of a list. #}
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,37 +22,7 @@
 </head>
 <body>
 {% import "_parts.html" as parts %}
-{% macro list_form(listing, label) -%}
-<form class="bv-listform" method="get" action="{{ listing.action }}" role="search" aria-label="{{ label }} filtern und sortieren">
-    {%- for key, value in listing.hidden.items() %}
-    <input type="hidden" name="{{ key }}" value="{{ value }}">
-    {%- endfor %}
-    <label class="bv-field bv-field--grow">
-        <span class="bv-field-label k-small k-muted">Filtern</span>
-        <input class="bv-input" type="search" name="filter" value="{{ listing.filter }}" maxlength="100" placeholder="Filtern …" autocomplete="off">
-    </label>
-    <label class="bv-field">
-        <span class="bv-field-label k-small k-muted">Sortieren</span>
-        <select class="bv-input" name="sort">
-            {%- for choice in listing.sorts %}
-            <option value="{{ choice.key }}"{% if choice.key == listing.sort %} selected{% endif %}>{{ choice.label }}</option>
-            {%- endfor %}
-        </select>
-    </label>
-    <button class="bv-button" type="submit">Anwenden</button>
-</form>
-{%- endmacro %}
-{% macro list_pages(listing) -%}
-{% if listing.page.pages > 1 %}
-<nav class="bv-pages" aria-label="Seiten">
-    <span class="k-muted k-small">{{ listing.page.first }}–{{ listing.page.last }} von {{ listing.page.total }} · Seite {{ listing.page.page }} von {{ listing.page.pages }}</span>
-    <span class="bv-pages-links">
-        {%- if listing.previous_href %}{{ parts.link("Zurück", listing.previous_href) }}{% endif -%}
-        {%- if listing.next_href %}{{ parts.link("Weitere " ~ listing.next_count, listing.next_href) }}{% endif -%}
-    </span>
-</nav>
-{% endif %}
-{%- endmacro %}
+{% import "_brain_views_list.html" as lists %}
 <div class="app-shell">
     {% include '_sidebar.html' %}
 
@@ -69,7 +41,7 @@
             {% if tab == 'dokumente' %}
             {% call parts.section("Dokumente") %}
                 {% if dossier.documents %}
-                {{ list_form(listing, "Dokumente") }}
+                {{ lists.list_form(listing, "Dokumente") }}
                 {% if listing.page.items %}
                 <div class="bv-list">
                     {% for document in listing.page.items %}
@@ -82,7 +54,7 @@
                     {% endcall %}
                     {% endfor %}
                 </div>
-                {{ list_pages(listing) }}
+                {{ lists.list_pages(listing) }}
                 {% else %}
                 <p class="bv-empty k-muted k-small">Kein Eintrag passt zu diesem Filter.</p>
                 {% endif %}
@@ -92,7 +64,7 @@
             {% endcall %}
             {% elif kind %}
             {% call parts.section(kind.name) %}
-                {{ list_form(listing, kind.name) }}
+                {{ lists.list_form(listing, kind.name) }}
                 {% if listing.rows %}
                 <div class="bv-list">
                     {% for row in listing.rows %}
@@ -105,12 +77,23 @@
                     {% endcall %}
                     {% endfor %}
                 </div>
-                {{ list_pages(listing) }}
+                {{ lists.list_pages(listing) }}
                 {% else %}
                 <p class="bv-empty k-muted k-small">Kein Eintrag passt zu diesem Filter.</p>
                 {% endif %}
             {% endcall %}
             {% else %}
+            {% if running %}
+            {% call parts.card(now=True) %}
+            <div class="bv-running" data-bv-node>
+                <div>
+                    <h2 class="bv-running-head k-section-title">Läuft gerade</h2>
+                    {{ parts.link(running.step, running.href) }}{% if running.process %}<span class="k-muted k-small"> · Ablauf «{{ running.process }}»</span>{% endif %}
+                </div>
+                <span class="k-muted" aria-hidden="true">→</span>
+            </div>
+            {% endcall %}
+            {% endif %}
             {% call parts.section("Angaben") %}
                 {% if dossier.facts %}
                 <div class="bv-facts">

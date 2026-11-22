@@ -462,3 +462,11 @@ def test_no_log_line_carries_a_name_a_relation_or_a_filter_text(near, member_cli
     for line in lines:
         for word in ("Hardturm", "Geheim", "Filterwort", "Vermieterin", "Limmat", "Akte", "Mietvertrag", "Vogt"):
             assert word not in line, line
+
+
+def test_a_page_number_too_long_to_read_is_the_last_page(near, member_client):
+    """FU-49 (3): «?seite=99999999999» shows the last page, not the first."""
+    _, html = _page(member_client, art=VERTRAG, seite="99999999999")
+    assert _row_names(html) == [f"Mietvertrag {n:03d}" for n in range(100, 120)]
+    _, html = _page(member_client, tab="dokumente", seite="9" * 40)
+    assert _documents(html) == [f"Akte {n:03d}.pdf" for n in range(100, 120)]
