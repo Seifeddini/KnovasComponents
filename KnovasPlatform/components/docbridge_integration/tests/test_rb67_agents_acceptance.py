@@ -623,7 +623,7 @@ def test_the_assistant_searches_with_its_claim_narrowed_to_the_person(platform_d
 
     def ask():
         before = len(_wire(app).sent)
-        assert person.post("/fragen", data={"csrf_token": person._token, "question": QUESTION}).status_code == 200
+        assert person.post("/fragen", data={"csrf_token": person._token, "question": QUESTION}).status_code in (200, 303)
         return _wire(app).sent[before:]
 
     queries = [s for s in ask() if s["path"] == "/secured/query"]

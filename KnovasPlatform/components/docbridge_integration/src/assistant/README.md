@@ -26,9 +26,14 @@ numbers all stand in their cited passage. No routes, no pages (PMVP-22a, 22b), n
 
 ## The five steps
 
-`AssistantService(search=..., generate=..., read_text=None).answer(question, history=()) -> Reply`
+`AssistantService(search=..., generate=..., read_text=None).answer(question, history=(), *, search_text=None) -> Reply`
 
-1. **Retrieve.** `search(question, limit)` once, with the question as typed. `make_search` takes `/api/search`'s
+`search_text` (PMVP-23): what is searched instead of the question, cut to `MAX_QUESTION_BYTES`; the prompt still
+asks `question`. A follow-up passes the chat's last question and the follow-up together (decision D1,
+`assistant_routes.follow_up_search_text`, which never cuts the follow-up). Without it, or blank, the question is
+searched, as before. `AsTheAssistant` passes it on.
+
+1. **Retrieve.** `search(question, limit)` once, with the question as typed (or `search_text`). `make_search` takes `/api/search`'s
    own path: `doc_fields_routes.search_plan` and `run_search` into `KnovasAPIClient.search_documents` ->
    `POST /secured/query`, the person's principal assertion attached by the client. The rows keep the Core's
    verbatim passage text as `"snippet"` (only inside `client.keeping_snippets()`), and experiment documents are
@@ -391,6 +396,8 @@ show two numbers in another order than they are read.
 | time for all reads of a question | `ASSISTANT_CONTEXT_SECONDS` (environment, per question) | 8 s | more than 0, at most 60; also each read's timeout |
 | parts read of one document | `context.MAX_PARTS`, `context.PART_CHARS` | 3 of 20,000 characters | a hit further into a document keeps its snippet |
 | least words of a run that stands for the chunk | `context.MIN_RUN_WORDS` | 8 | when the whole snippet is not in the text |
+| a digit's weight in the history | `service.DIGIT_WEIGHT_BYTES` | 3 | one token per digit at three bytes a token (FU-06) |
+| smallest cut piece of the newest pair | `service.MIN_HISTORY_PIECE_BYTES` | 100 | a history budget below two pieces sends no history (FU-07) |
 
 ## The context around each hit (PMVP-20 context)
 
@@ -480,9 +487,14 @@ about 350 characters long; a longer one loses its end in the prompt, and the che
    bytes): the model behind the route has a context of 8,192 tokens for prompt and answer together
    (`LLM_MAX_MODEL_LEN`), and the default answer cap is 1,536 tokens. Passages are cut first to fit (short ones stay
    whole, long ones share the rest, cut with an ellipsis; with history present they get 60 % of what is left after
-   the system instruction and the question); history turns are dropped oldest first. History is cleaned before it
-   is sent: two turns of one role in a row reduced to the later one, a trailing unanswered user turn dropped, the
-   window starting with a user turn, one turn at most 4,000 bytes. A question over 4,000 bytes is refused before
+   the system instruction and the question). History is cleaned before it is sent: two turns of one role in a row
+   reduced to the later one, a trailing unanswered user turn dropped, one turn at most 4,000 bytes. Then it is
+   fitted in whole (question, answer) pairs, starting with a question (PMVP-23): the newest pair always, cut to
+   fit when it must, the answer first, then the question, neither below `MIN_HISTORY_PIECE_BYTES` (FU-07: before,
+   two long turns sent no history at all); older pairs whole, newest first, while they fit, at most 15 pairs. Each
+   turn is weighed by `history_weight`, its bytes with every ASCII digit as `DIGIT_WEIGHT_BYTES` (3): the model
+   reads one token per digit, the budget counts about three bytes a token, so a history of numbers stays within
+   8,192 tokens (FU-06). A question over 4,000 bytes is refused before
    the search. Each passage's title is cut to 200 bytes (`MAX_TITLE_BYTES`) and a page number of more than nine
    digits is left out, so a passage takes at most 226 bytes besides its text: up to 200 passages
    (`MAX_PASSAGES_COMPOSED`; `passage_limit` allows 50) and a question of 4,000 bytes always fit the Core's
@@ -510,7 +522,7 @@ about 350 characters long; a longer one loses its end in the prompt, and the che
                          user_key=lambda: doc_fields_routes.user_key_for(identity_gate))
   if service is OFF:
       ...                                      # the route refuses: the assistant is switched off
-  reply = service.answer(question, history)   # history: Turn(role, text), oldest first
+  reply = service.answer(question, history, search_text=...)   # history: Turn(role, text), oldest first
   ```
 
   Call it inside the request, so the client's broker signs for the signed-in person (both calls fail closed with
@@ -527,8 +539,12 @@ about 350 characters long; a longer one loses its end in the prompt, and the che
   route must grant the passages it shows, e.g. `_grant_for_current_user([{"doc_id": p.pointer} for p in
   reply.passages])` (`Passage.pointer` is the row's `doc_id`, which for search rows equals `path`), before a
   reference can open its document.
-- **Chat storage.** PMVP-23 decides whether the quote is stored (`assistant_references` has a text column).
-  History turns are plain text; the instruction tells the model to keep the form even where earlier answers look
+- **Chat storage** (PMVP-23, built in `web_interface/assistant_routes.py`). An answer is stored as one JSON object
+  (the statements with their source and quote, the removed count, each passage's sentence number); its references
+  are the reply's passages with their text (decision D2: owner only, deleted with the chat, never sent again). A
+  follow-up's history is the chat's turns as text: a question as typed, an answer as its statements, one per line,
+  a `no_answer` as `NO_ANSWER_TEXT`; never a quote, a passage or the JSON. The route hands over the whole chat; the
+  service fits it (above). The instruction tells the model to keep the form even where earlier answers look
   different.
 - **Test fakes.** `tests/conftest.py::DummyKnovasClient` has neither `keeping_snippets()` nor `llm_generate()`;
   route tests through `_identity_app` need both (conftest was not PMVP-20's to change).
@@ -543,11 +559,14 @@ about 350 characters long; a longer one loses its end in the prompt, and the che
   60,000 characters into a document, a chunk the search cut differently from the text, or a snippet that stands twice
   in its document (the first place is taken) gives no context or the context of the first place.
 - With `brokered` the document-text route answers 401 until Core request CR-1c: every passage stays its snippet.
-- A follow-up question is searched as typed ("Und wann beginnt sie?"); the history informs the answer, not the
-  retrieval.
+- A follow-up is searched together with the chat's last question (D1, PMVP-23): "Und wann beginnt sie?" after a
+  question on a contract finds that contract's passages. A follow-up that changes the subject still carries the
+  last question into the search, and a reference back further than one question ("und im ersten Vertrag?") is not
+  resolved; no second model call rewrites the follow-up (the alternative D1 did not take).
 - The search page's client-side refinements after Knovas answers (enrichment titles, the score thresholds that are
   off unless configured, the filename supplement) live in `app.py` and do not run for the assistant.
 - The number words are German, and statements are in Latin letters. A French or Italian passage that writes
   "trois mois" does not hold `3`.
-- The answer budget and the prompt budget are arithmetic on bytes, not measured against the model's tokenizer
-  (FU-06 stays open); nothing here was run against a live Core.
+- The answer budget and the prompt budget are arithmetic on bytes, not measured against the model's tokenizer;
+  the history weighs digits as tokens (FU-06), the passages and the question do not (unchanged by PMVP-23).
+  Nothing here was run against a live Core.

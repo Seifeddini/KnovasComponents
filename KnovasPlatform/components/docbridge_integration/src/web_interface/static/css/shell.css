@@ -185,3 +185,92 @@
     .app-shell .app-sidebar .app-nav-item { flex: 0 0 auto; }
     .app-shell .app-sidebar .app-nav-group { flex: none; margin: 0 6px 0 7px; }
 }
+
+/* The person's chats under the menu (PMVP-23, _sidebar.html's block <nav data-chats>): "+ Neue Frage" as the one
+   filled button, then the chats by their last change ("Heute", "Diese Woche", "Frueher") as entries of the menu,
+   the open one on the current entry's white tile, "Alle Gespraeche" when there are more. The block is hooked on
+   its data attributes, so the menu's own rules stay as they are. A title is one line, cut with an ellipsis. */
+.app-shell .app-sidebar [data-chats] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    margin-top: 16px;
+}
+.app-shell .app-sidebar [data-chats] [data-chats-new] {
+    justify-content: center;
+    margin-bottom: 8px;
+    background: var(--k-color-accent);
+    color: var(--k-color-text-inverse);
+    font-weight: var(--k-weight-semibold);
+}
+.app-shell .app-sidebar [data-chats] [data-chats-new]:hover {
+    background: var(--k-color-accent-hover);
+    color: var(--k-color-text-inverse);
+}
+.app-shell .app-sidebar [data-chats] [data-chats-fold],
+.app-shell .app-sidebar [data-chats] [data-chats-toggle] { display: none; }
+.app-shell .app-sidebar [data-chats] [data-chats-list] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.app-shell .app-sidebar [data-chats] [data-chats-list] .app-nav-item { min-width: 0; }
+.app-shell .app-sidebar [data-chats] [data-chats-list] .app-nav-item > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    unicode-bidi: isolate;
+}
+.app-shell .app-sidebar [data-chats] [data-chats-all] { color: var(--k-color-accent); }
+
+/* Narrow windows: the block is a row of its own under the menu's row: "+ Neue Frage" and "Gespraeche". The list
+   is folded behind "Gespraeche" (the checkbox before it, out of sight but in the keys' reach) and opens under the
+   row as a column as wide as the head, so nothing scrolls sideways. */
+@media (max-width: 900px) {
+    .app-shell .app-sidebar [data-chats] {
+        order: 5;
+        flex: 1 1 100%;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 6px;
+        margin-top: 0;
+        padding: 0 2px 4px;
+    }
+    .app-shell .app-sidebar [data-chats] [data-chats-new] { flex: 0 0 auto; margin-bottom: 0; }
+    .app-shell .app-sidebar [data-chats] [data-chats-fold] {
+        display: block;
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: 0;
+        overflow: hidden;
+        opacity: 0;
+    }
+    .app-shell .app-sidebar [data-chats] [data-chats-toggle] {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 9px;
+        border-radius: var(--k-radius-md);
+        color: var(--k-gray-600);
+        font-size: 0.84rem;
+        line-height: 1.5;
+        cursor: pointer;
+    }
+    .app-shell .app-sidebar [data-chats] [data-chats-toggle]::after { content: "\25BE"; }
+    .app-shell .app-sidebar [data-chats] [data-chats-fold]:checked + [data-chats-toggle] {
+        background: var(--k-color-surface);
+        color: var(--k-color-text-strong);
+        box-shadow: var(--k-shadow-sm);
+    }
+    .app-shell .app-sidebar [data-chats] [data-chats-fold]:focus-visible + [data-chats-toggle] {
+        outline: 2px solid var(--k-color-accent);
+        outline-offset: 1px;
+    }
+    .app-shell .app-sidebar [data-chats] [data-chats-list] { display: none; flex: 1 1 100%; }
+    .app-shell .app-sidebar [data-chats] [data-chats-fold]:checked ~ [data-chats-list] { display: flex; }
+}

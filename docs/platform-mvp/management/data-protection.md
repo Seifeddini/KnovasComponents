@@ -13,7 +13,8 @@ for the pilot. It is not one component; each rule lives in the part named beside
 - **An administrator** decides whether the assistant is on and which provider answers (the Knovas Core or Anthropic),
   enters the provider's key, and sets access groups and folder rules; later she sees and switches the enforcement
   position with a second administrator (PMVP-42, not started).
-- **An employee** sees and deletes only her own chats; a document opens only if her own search or view handed it to her.
+- **An employee** sees, continues and deletes only her own chats; a document opens only if her own search or view
+  handed it to her, or, from an old chat, after the Knovas Core confirms she may still read it (PMVP-23).
 - **Who may do what is decided by roles** (RB-1, RB-2, built, not yet verified): a person may do what her roles allow,
   and the Platform signs her requests with the access groups she holds directly and through her roles, never more than
   32.
@@ -24,7 +25,7 @@ for the pilot. It is not one component; each rule lives in the part named beside
 
 | To | What | When |
 |---|---|---|
-| The chosen provider: the Knovas Core or Anthropic | the assistant's instruction, the passages this person's search returned (each up to 1,200 characters of the text around the hit, PMVP-20 context), the question and the chat so far (DEC-0084) | every question, only while the assistant is on |
+| The chosen provider: the Knovas Core or Anthropic | the assistant's instruction, the passages this person's search returned (each up to 1,200 characters of the text around the hit, PMVP-20 context), the question and the chat so far (its questions and the statements of its answers; never an earlier passage or quote) (DEC-0086) | every question, only while the assistant is on |
 | Anthropic | one invented passage and question, no customer text | an administrator presses "Verbindung testen" |
 | The Knovas Core | searches and per-thing reads as the signed-in person, over the Platform's certificate (as today) | search, dossier |
 | The Knovas Core | the assistant's searches and its generation calls with **the assistant's own signed claim** (its id, the groups and functions of its roles that the person also holds) and "the assistant, for this person" (both ids) | every question, only while the assistant is on (RB-6) |
@@ -87,6 +88,15 @@ provider are passed on without the request that carries it. Without a saved key 
 building are kept outside the repository.
 
 **Chats** stay in the Platform's own database, owner only; the chat store does not encrypt their text itself.
+Decided on 22 November and built with PMVP-23 (built, not yet verified): a chat keeps **the passages its answers
+were made from** (readable by its owner only, deleted with the chat, never sent to a provider again; a follow-up
+sends the earlier questions and statements only). A chat is **deleted automatically within a day after the 90 days since its last
+message**, with its messages and passages: each web worker of the Platform checks once an hour, and one database
+lock and the day's audit entry make the deletion run once a day for the whole installation, also across restarts.
+The audit log records how many chats it deleted (`assistant.chats.retention`), nothing else: no title, owner or
+id. The owner can delete a chat at any time, and removing a person removes her chats. Another person's chat answers
+exactly like one that does not exist. "90 days after the last message" is the coordinator's reading of the
+founder's "90 days", so a chat in use is not cut off; the founder may correct it.
 
 **Roles** (RB-1, RB-2). Who may do what is now decided by roles, kept in the Platform's own database like accounts.
 The move to roles happens inside the installation when the new version starts: nothing leaves it, nothing is written
@@ -148,7 +158,8 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 | The client's errors and the HTTP library's warnings without addresses or Knovas text (RB-FIX-2) | built; no verification verdict yet | Siran (sensitive) |
 | Second log sweep (FU-22, FU-31) | not started; waits for #55 | its web-server part is deployment: sensitive |
 | Key handling (PMVP-25) | built; no verification verdict yet | management (critical) |
-| Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | not started; PMVP-42 waits for the Core's rights test | management (critical); Siran (sensitive) |
+| Enforcement switch (PMVP-42); pilot rights test (PMVP-43) | PMVP-42 drafted and reworked 22 Nov: one administrator switches after a confirmation, recorded by id; Knovas switches only when its own prerequisites hold (two green rights runs under `brokered` among them); PMVP-43 not started | management (critical); Siran (sensitive) |
+| «Was sieht …?» (PMVP-41): an administrator sees the names of the documents another person, a role or an agent reads, never passage text; every look audited by id | drafted 22 Nov; names only, every look audited (founder, 22 Nov) | Siran (sensitive) |
 | Roles: the move to roles, functions and groups read from roles, the 32-group cap (RB-1, RB-2) | built; no verification verdict yet | management (critical: a migration) |
 | Agents: one signed claim for every agent; external agents' claims handed to the Core behind a switch (RB-6, RB-7) | built; no verification verdict yet; acts with the Core's CR-R1, CR-R5, CR-R6 | management (critical: a migration, signing and claims) |
 | A role's data: folder rules and document rights written to Knovas after a dry run, four eyes, adopting a group, moving direct grants (RB-5) | verified (with notes); not yet integrated; hides nothing until CR-R1, CR-R2 and «Ein» | Siran (sensitive) |
@@ -165,6 +176,7 @@ Assistent, or an external agent (Claude Code, Copilot) an administrator register
 | 21 Nov | founder | The customer chooses the provider; the pilot's passages may go to Anthropic |
 | 21 Nov | founder | The Platform signs agents' claims; external agents use only Knovas's gateway ("Core gateway only"); on client installations agents only after «Ein» |
 | 22 Nov | founder | The assistant may read the Core's document text for the hits its search returned, under five limits (POST-02 amended) |
+| 22 Nov | founder | A chat keeps its passages (owner only, deleted with it); chats are deleted automatically after 90 days, read by the coordinator as 90 days after the last message (PMVP-23) |
 
 ## Known limits and open points
 

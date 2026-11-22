@@ -17,8 +17,10 @@ One question, one reply:
    the last user message together with the question; the system instruction
    holds the rules and the form of the answer. Everything is cut to the
    Core's limits for ``/secured/llm/generate`` and to the prompt budget:
-   passages are cut first to their share, the oldest history turns are
-   dropped first.
+   passages are cut first to their share; the history is sent as whole
+   (question, answer) pairs, the oldest dropped first, the newest pair always
+   (cut to fit if it must, FU-07), and weighed with every digit as one token
+   (FU-06).
 3. **Generate.** ``generate(system_instruction=..., messages=...,
    max_tokens=...)`` is called exactly once, and only when there is at least
    one passage.
@@ -114,6 +116,15 @@ MAX_HISTORY_TURN_BYTES = 4_000
 #: With history present, the passages may use this share of what is left
 #: after the system instruction and the question; the rest is for history.
 PASSAGE_SHARE = 0.6
+#: What a digit weighs when the history is fitted (FU-06). The model reads one
+#: token per digit, and the budget counts about three bytes a token, so a
+#: history full of numbers (amounts, dates, article numbers) weighs three
+#: times its bytes and stays within the model's 8,192 tokens.
+DIGIT_WEIGHT_BYTES = 3
+#: The newest (question, answer) pair is cut to fit rather than dropped
+#: (FU-07); a piece is never cut below this weight, and a history budget
+#: smaller than two such pieces sends no history.
+MIN_HISTORY_PIECE_BYTES = 100
 #: A passage's title in the prompt is cut to this, whatever the document is
 #: called, so the heads of the passages alone can never fill a message.
 MAX_TITLE_BYTES = 200
@@ -315,12 +326,20 @@ class AssistantService:
         self.max_tokens = int(max_tokens)
         self.prompt_budget_bytes = int(prompt_budget_bytes)
 
-    def answer(self, question: str, history: Sequence[Turn] = ()) -> Reply:
-        """The reply to ``question`` after ``history`` (oldest first). Never raises."""
+    def answer(self, question: str, history: Sequence[Turn] = (), *,
+               search_text: Optional[str] = None) -> Reply:
+        """The reply to ``question`` after ``history`` (oldest first). Never raises.
+
+        ``search_text``: what is searched instead of the question, cut to
+        ``MAX_QUESTION_BYTES``; the prompt still asks ``question``. A
+        follow-up passes the chat's last question and the follow-up together
+        (PMVP-23, decision D1). Without it the question is searched, as
+        before.
+        """
         started = time.monotonic()
         stats = _Stats()
         try:
-            reply = self._answer(question, history, stats)
+            reply = self._answer(question, history, stats, search_text)
         except Exception as exc:  # noqa: BLE001 - answer() never raises (POST-06)
             logger.warning("Knovas Assistent: unexpected error (%s)", type(exc).__name__)
             reply = _failed()
@@ -329,9 +348,12 @@ class AssistantService:
 
     # -- the five steps ----------------------------------------------------
 
-    def _answer(self, question: str, history: Sequence[Turn], stats: "_Stats") -> Reply:
+    def _answer(self, question: str, history: Sequence[Turn], stats: "_Stats",
+                search_text: Optional[str] = None) -> Reply:
         if not isinstance(question, str):
             raise TypeError("question must be a string")
+        if search_text is not None and not isinstance(search_text, str):
+            raise TypeError("search_text must be a string")
         stats.question_bytes = _size(question)
         if not question.strip():
             return Reply(status="no_answer", message=NO_ANSWER_TEXT)
@@ -339,9 +361,12 @@ class AssistantService:
             return Reply(status="failed", message=QUESTION_TOO_LONG_TEXT)
 
         # 1. Retrieve -- the person's own search, nothing else (POST-02).
+        query = question
+        if search_text is not None and search_text.strip():
+            query = cut_to_bytes(search_text.strip(), MAX_QUESTION_BYTES)
         t0 = time.monotonic()
         try:
-            rows = self._search(question, self.passage_limit)
+            rows = self._search(query, self.passage_limit)
         except CoreBusy as exc:
             stats.search_ms = _ms(t0)
             logger.warning("Knovas Assistent: search busy (%s%s)",
@@ -470,8 +495,9 @@ def compose(
     The last message is the user's: the numbered passages, each under a
     head with its number, its title cut to ``MAX_TITLE_BYTES`` and its page,
     then the question. Passage texts are cut to fit the budget, down to
-    nothing when the heads and the question fill it; history turns are
-    dropped oldest first. The result satisfies the Core's limits whatever
+    nothing when the heads and the question fill it; the history goes in
+    whole pairs, oldest dropped first, the newest pair always, cut if it
+    must (``_fit_history``). The result satisfies the Core's limits whatever
     the titles, texts and turns, as long as the question is at most
     ``MAX_QUESTION_BYTES``, ``budget_bytes`` at most
     ``CORE_MAX_MESSAGE_BYTES`` and there are at most
@@ -566,18 +592,75 @@ def _usable_turns(history: Sequence[Any]) -> List[Tuple[str, str]]:
 
 def _fit_history(turns: Sequence[Tuple[str, str]], budget_bytes: int,
                  max_count: int) -> List[Tuple[str, str]]:
-    """The most recent turns that fit; the oldest go first. Starts with a user turn."""
-    kept: List[Tuple[str, str]] = []
-    used = 0
-    for role, text in reversed(turns):
-        if len(kept) >= max_count or used + _size(text) > budget_bytes:
+    """The history as whole (question, answer) pairs, starting with a user turn.
+
+    The newest pair is always kept, cut to fit when it must (FU-07): the
+    answer first, then the question, each never below
+    ``MIN_HISTORY_PIECE_BYTES``. Older pairs follow whole, newest first,
+    while they fit; the oldest go first. Everything is weighed by
+    ``history_weight`` (each digit as ``DIGIT_WEIGHT_BYTES``, FU-06), so
+    the history keeps ``budget_bytes`` in bytes and in tokens. At most
+    ``max_count`` turns.
+    """
+    pairs = _pairs(turns)
+    budget = int(budget_bytes)
+    if not pairs or max_count < 2 or budget < 2 * MIN_HISTORY_PIECE_BYTES:
+        return []
+    question, answer = pairs[-1]
+    if history_weight(question) + history_weight(answer) > budget:
+        question, answer = _cut_pair(question, answer, budget)
+    kept = [(question, answer)]
+    used = history_weight(question) + history_weight(answer)
+    for older_question, older_answer in reversed(pairs[:-1]):
+        weight = history_weight(older_question) + history_weight(older_answer)
+        if 2 * (len(kept) + 1) > max_count or used + weight > budget:
             break
-        kept.append((role, text))
-        used += _size(text)
-    kept.reverse()
-    while kept and kept[0][0] != "user":
-        kept.pop(0)
-    return kept
+        kept.append((older_question, older_answer))
+        used += weight
+    out: List[Tuple[str, str]] = []
+    for pair_question, pair_answer in reversed(kept):
+        out += [("user", pair_question), ("assistant", pair_answer)]
+    return out
+
+
+def _pairs(turns: Sequence[Tuple[str, str]]) -> List[Tuple[str, str]]:
+    """(question, answer) pairs of alternating turns; a leading answer has no question and is left out."""
+    turns = list(turns)
+    if turns and turns[0][0] != "user":
+        turns = turns[1:]
+    return [(q[1], a[1]) for q, a in zip(turns[0::2], turns[1::2])
+            if q[0] == "user" and a[0] == "assistant"]
+
+
+def _cut_pair(question: str, answer: str, budget: int) -> Tuple[str, str]:
+    """The newest pair cut to ``budget`` (weighed): the answer first, then the question."""
+    room = budget - history_weight(question)
+    if room >= MIN_HISTORY_PIECE_BYTES:
+        return question, cut_to_weight(answer, room)
+    answer = cut_to_weight(answer, MIN_HISTORY_PIECE_BYTES)
+    return cut_to_weight(question, budget - history_weight(answer)), answer
+
+
+def history_weight(text: str) -> int:
+    """What a history text weighs against the budget: its UTF-8 bytes, each
+    digit counted as ``DIGIT_WEIGHT_BYTES`` (FU-06)."""
+    digits = sum(1 for ch in text if "0" <= ch <= "9")
+    return _size(text) + (DIGIT_WEIGHT_BYTES - 1) * digits
+
+
+def cut_to_weight(text: str, limit: int) -> str:
+    """``text`` cut with ``cut_to_bytes`` so that ``history_weight`` is at most ``limit``."""
+    if history_weight(text) <= limit:
+        return text
+    low, high, best = 0, min(_size(text), max(0, int(limit))), ""
+    while low <= high:
+        middle = (low + high) // 2
+        cut = cut_to_bytes(text, middle)
+        if history_weight(cut) <= limit:
+            best, low = cut, middle + 1
+        else:
+            high = middle - 1
+    return best
 
 
 # ---------------------------------------------------------------------------

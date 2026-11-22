@@ -44,9 +44,12 @@ def test_every_href_of_the_page_is_built_by_the_app():
 
 
 def test_the_form_actions_are_built_by_the_app():
+    # PMVP-23 adds a chat's two forms: the follow-up and the delete, both on the chat's own id.
+    allowed = {"{{ url_for('assistant.ask') }}", "{{ url_for('assistant.follow_up', chat_id=chat_id) }}",
+               "{{ url_for('assistant.delete_chat', chat_id=chat_id) }}"}
     for template in (TEMPLATE, INDEX):
         for action in re.findall(r'action="([^"]*)"', _read(template)):
-            assert action == "{{ url_for('assistant.ask') }}", (template.name, action)
+            assert action in allowed, (template.name, action)
 
 
 def test_the_stylesheet_names_no_colour():

@@ -23,7 +23,7 @@ responsible_for:
   code:
   - KnovasPlatform/components/docbridge_integration/src/assistant
 - id: L2-PLATFORM-ASSISTANT/R-2
-  statement: 'Past chats (W-07): what a person asked and the answers as they were shown, with their references, stored in the Platform''s own database in new tables only, listed, opened and deleted by their owner only (plan § 5.2).'
+  statement: 'Past chats (W-07): what a person asked and the answers as they were shown, with their references, stored in the Platform''s own database in new tables only, listed, opened and deleted by their owner only (plan § 5.2), and deleted by themselves 90 days after their last message (PMVP-23, decision D3).'
   code:
   - KnovasPlatform/components/docbridge_integration/src/identity/chats.py
   - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0026_assistant_chats.sql
@@ -46,6 +46,18 @@ responsible_for:
     the person''s own claim.'
   code:
   - KnovasPlatform/components/docbridge_integration/src/web_interface/assistant_routes.py
+- id: L2-PLATFORM-ASSISTANT/R-5
+  statement: 'Chats on the page (W-06, W-07, PMVP-23): an answered question becomes the person''s chat. She reads it
+    again as it was answered, asks on in it (the earlier turns go to the service as their text, the search is the
+    chat''s last question and the follow-up together), opens a stored reference''s document after the Core says she
+    may, deletes it, and finds her chats in the Workspace''s sidebar (the newest 20, which the route hands to the
+    shell''s partial) and on the page of all chats.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/assistant_routes.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ask.html
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/ask.css
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/ask.js
+  - KnovasPlatform/components/docbridge_integration/src/identity/chats.py
 not_responsible_for:
 - Reading documents any other way than through the person's own search and, for the passages that search returned,
   the text of those documents around each hit, under the founder's five limits of 2026-11-22 (PMVP-20 context;
@@ -59,11 +71,34 @@ terms:
 - passage (a hit's verbatim text that the person's search returned, or up to 1,200 characters of the text around
   it read from that document (PMVP-20 context), numbered in search order)
 - chat (one person's questions and the answers as they were shown, with their references)
+- follow-up (a question asked in a chat, after its earlier turns)
 operations:
 - id: http.POST.fragen
   name: 'POST /fragen - the ask page: one question from the box, the reply with its references, quotes and passages'
   entrance: http
   ref: POST /fragen
+- id: http.GET.fragen._chat_id
+  name: 'GET /fragen/<chat id> - one of the person''s chats, every turn as it was answered, the box for a follow-up
+    and «Gespräch löschen»'
+  entrance: http
+  ref: GET /fragen/<chat_id>
+- id: http.POST.fragen._chat_id
+  name: POST /fragen/<chat id> - a follow-up in the person's chat (W-06)
+  entrance: http
+  ref: POST /fragen/<chat_id>
+- id: http.POST.fragen._chat_id.loeschen
+  name: POST /fragen/<chat id>/loeschen - deletes the person's chat with its messages and references
+  entrance: http
+  ref: POST /fragen/<chat_id>/loeschen
+- id: http.GET.fragen._chat_id.quelle._turn._number
+  name: GET /fragen/<chat id>/quelle/<turn>/<number> - opens the document of a stored reference once the Core says the
+    person may read it
+  entrance: http
+  ref: GET /fragen/<chat_id>/quelle/<int:turn>/<int:number>
+- id: http.GET.fragen.verlauf
+  name: GET /fragen/verlauf - all of the person's chats, 50 a page, newest first
+  entrance: http
+  ref: GET /fragen/verlauf
 - id: call.web_interface.assistant_routes.install_assistant
   name: install_assistant(app, client, identity_gate, split, csrf_valid, grant, page_context, pdf_preview) - registers
     the ask page and the factory of its service; app.py calls it once, when accounts are on
@@ -215,6 +250,17 @@ contract:
         - test_a_malformed_id_is_a_missing_chat
         - test_a_foreign_write_does_not_move_the_chat
         - test_not_found_names_no_id
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_another_persons_chat_answers_like_a_missing_one
+        - test_the_list_holds_her_own_chats_only
+        - test_delete_removes_the_chat_its_messages_and_references
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_list.py
+        checks:
+        - test_another_persons_chats_are_never_in_her_sidebar
+        - test_the_sidebar_lists_her_chats_newest_first_and_marks_only_the_open_one
     - id: L2-PLATFORM-ASSISTANT/*/P-4
       aliases:
       - POST-04
@@ -237,6 +283,19 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_sdk_logs.py
         checks:
         - test_at_debug_the_sdk_logs_no_request_and_no_transport_error
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_no_customer_text_reaches_a_log_line
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_routes.py
+        checks:
+        - test_no_customer_text_in_any_log_line_at_debug
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_retention.py
+        checks:
+        - test_the_log_line_holds_the_count_and_nothing_else
+        - test_a_tick_never_raises
     - id: L2-PLATFORM-ASSISTANT/*/P-5
       aliases:
       - POST-05
@@ -328,8 +387,17 @@ contract:
         - test_a_long_history_stays_within_the_core_limits_and_ends_with_the_question
         - test_long_passages_are_cut_to_fit_the_core_limits
         - test_a_short_history_is_passed_on_in_order
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_service.py
+        checks:
+        - test_forty_turns_stay_within_the_core_and_the_budget
+        - test_many_short_turns_keep_at_most_32_messages_in_whole_pairs
+        - test_a_history_of_numbers_stays_within_the_models_tokens
+        - test_a_long_last_answer_is_sent_cut_not_dropped
+        - test_when_the_question_alone_is_too_long_both_are_cut
+        - test_older_pairs_follow_whole_or_not_at_all
     - id: L2-PLATFORM-ASSISTANT/*/L-2
-      statement: A chat's title is one line of at most 200 characters; a longer title, a role other than user or assistant and a malformed reference are refused before any statement runs, and the refusal repeats nothing the person typed.
+      statement: A chat's title is one line of at most 200 characters (the page cuts a longer question to it at a word, with an ellipsis, FU-02); a longer title, a role other than user or assistant and a malformed reference are refused before any statement runs, and the refusal repeats nothing the person typed.
       risk_class: standard
       evidence:
       - kind: test
@@ -345,6 +413,37 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp21_chats_acceptance.py
         checks:
         - test_only_user_and_assistant_roles_are_stored
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_routes.py
+        checks:
+        - test_a_long_question_titles_the_chat_cut_at_a_word
+        - test_the_title_is_one_line_of_at_most_200_characters
+    - id: L2-PLATFORM-ASSISTANT/*/L-3
+      statement: 'A chat is deleted with its messages and references 90 days after its last message (D3): a job in
+        every web worker (ChatRetentionJob, hourly, on a connection of its own, whatever the switch says) calls
+        purge_expired_chats, whose one transaction holds an advisory lock, so one worker deletes, and writes one audit
+        row assistant.chats.retention holding the count only, so it runs once a day (UTC) across workers and
+        restarts. A row that cannot be written undoes the deletion.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_retention_is_90_days
+        - test_a_chat_91_days_after_its_last_message_is_deleted_one_at_89_is_not
+        - test_the_job_runs_once_a_day
+        - test_two_workers_run_the_job_once
+        - test_the_retention_audit_row_holds_the_count_only
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_retention.py
+        checks:
+        - test_a_run_with_nothing_to_delete_is_recorded_and_ends_the_day
+        - test_yesterdays_run_does_not_end_today
+        - test_an_audit_row_that_cannot_be_written_undoes_the_deletion
+        - test_a_tick_purges_on_a_connection_of_its_own_and_closes_it
+        - test_a_tick_on_the_database_deletes_once_a_day
+        - test_the_thread_ticks_every_hour_and_first_after_one_interval
+        - test_install_starts_the_job_outside_testing_only
   http.POST.fragen:
     needs:
     - id: L2-PLATFORM-ASSISTANT/http.POST.fragen/N-1
@@ -446,12 +545,217 @@ contract:
         - test_no_removed_line_when_nothing_was_removed
         - test_no_customer_text_reaches_a_log_line
         - test_a_refused_token_logs_no_text
+    - id: L2-PLATFORM-ASSISTANT/http.POST.fragen/P-6
+      statement: 'An answered or no_answer reply becomes a new chat of the signed-in person (PMVP-23): the question
+        titles it as one line cut at a word to 200 characters (FU-02); the question and the answer as shown (one JSON
+        object; its references the reply''s passages with their text, D2) are stored in one transaction, and the
+        browser is sent (303) to the chat at its turn. busy and failed store nothing, and the question stands in the
+        box again. NUL characters, a page outside 1 to 2^31-1 and a reference without a pointer never reach the
+        database (FU-01); a write that fails shows the reply once, unsaved, with «Dieses Gespräch konnte nicht
+        gespeichert werden.», never a 500.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_a_question_becomes_a_chat_of_its_owner
+        - test_no_answer_is_a_chat_too
+        - test_busy_and_failed_store_nothing
+        - test_the_passages_are_kept_with_the_answer
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_routes.py
+        checks:
+        - test_a_question_is_one_chat_of_two_messages_and_a_303_to_its_turn
+        - test_no_answer_is_stored_and_drawn_with_the_closest_passages
+        - test_busy_and_failed_on_a_new_question
+        - test_nul_characters_and_a_huge_page_are_stored_without_error
+        - test_a_write_that_fails_leaves_nothing_and_shows_the_reply_once
+  http.GET.fragen._chat_id:
+    needs:
+    - id: L2-PLATFORM-ASSISTANT/http.GET.fragen._chat_id/N-1
+      statement: 'For every chat address (this one, the follow-up, delete, the click route and the page of all chats):
+        the caller is signed in (else the login gate sends them to sign in), the assistant is switched on and personal
+        accounts are on (else 404).'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_signed_out_is_sent_to_sign_in
+        - test_switched_off_the_chat_addresses_answer_404
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_routes.py
+        checks:
+        - test_signed_out_every_new_address_goes_to_sign_in_and_back
+        - test_switched_off_no_address_answers_and_no_list_is_drawn
+        - test_without_personal_accounts_the_addresses_do_not_exist
+    promises:
+    - id: L2-PLATFORM-ASSISTANT/http.GET.fragen._chat_id/P-1
+      statement: 'POST-01 for a stored turn: every turn is drawn as it was when new (the first question as the page
+        head, each statement with the one reference the check kept, its quote, the passages); a reference points to a
+        passage of that turn''s reply, every document link goes through the click route, and quote ids are unique on
+        the page. A stored answer that does not parse is one plain paragraph without chips.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_a_question_becomes_a_chat_of_its_owner
+        - test_a_follow_up_is_asked_with_the_chat_so_far
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_routes.py
+        checks:
+        - test_a_question_is_one_chat_of_two_messages_and_a_303_to_its_turn
+        - test_every_link_of_a_stored_answer_goes_through_the_click_route
+        - test_a_stored_answer_reads_back_as_the_reply_it_was
+        - test_a_stored_answer_that_does_not_parse_is_one_plain_paragraph
+        - test_only_the_stored_shape_is_read_as_an_answer
+    - id: L2-PLATFORM-ASSISTANT/http.GET.fragen._chat_id/P-2
+      statement: 'POST-03 on every chat address: the chat is read and written as the signed-in person''s only;
+        another person''s chat, a missing one and a malformed id give the same 404, before anything is asked or
+        granted, and the same log line.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_another_persons_chat_answers_like_a_missing_one
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_routes.py
+        checks:
+        - test_another_persons_chat_is_answered_exactly_like_a_missing_one
+  http.POST.fragen._chat_id:
+    needs:
+    - id: L2-PLATFORM-ASSISTANT/http.POST.fragen._chat_id/N-1
+      statement: 'The form carries its csrf_token field (the follow-up and the delete alike); a missing or wrong field,
+        or the header alone, is the form''s 400 before the chat is read or the service is asked. The app exempts both
+        endpoints from its header gate because the routes check the field.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_a_form_without_its_token_changes_nothing
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_routes.py
+        checks:
+        - test_a_form_without_its_field_is_refused_before_anything_is_read
+        - test_the_refused_form_says_it_has_expired_and_repeats_nothing
+    promises:
+    - id: L2-PLATFORM-ASSISTANT/http.POST.fragen._chat_id/P-1
+      statement: 'POST-02 for a follow-up: passages reach the prompt only from this turn''s search, made as the
+        assistant for the person (RB-6); the search is the chat''s last question and the follow-up together (D1, the
+        follow-up never cut). Earlier turns reach the service as their text only: a question as typed, an answer as
+        its statements, a no_answer as its sentence; no stored passage, quote or JSON is sent again. The route hands
+        over the whole chat; the service keeps the Core''s limits (L-1).'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_a_follow_up_is_asked_with_the_chat_so_far
+        - test_the_turns_reach_the_service_in_order
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_routes.py
+        checks:
+        - test_a_follow_up_searches_the_last_question_with_it_and_sends_statements_only
+        - test_a_no_answer_turn_reaches_the_history_as_the_no_answer_sentence
+        - test_the_follow_up_is_never_cut_from_the_search
+        - test_a_follow_up_is_answered_with_the_assistants_claim_for_the_person
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_service.py
+        checks:
+        - test_the_search_uses_the_search_text_and_the_prompt_the_question
+        - test_without_a_search_text_the_question_is_searched_as_before
+        - test_the_assistants_wrapper_passes_the_search_text_on
+    - id: L2-PLATFORM-ASSISTANT/http.POST.fragen._chat_id/P-2
+      statement: 'answered and no_answer store the follow-up and its answer in one transaction and send the browser
+        (303) to the new turn; busy and failed store nothing and show the chat as it was with the plain message under
+        its last turn and the question in the box (POST-06); a write that fails shows the reply once, unsaved.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_a_follow_up_that_fails_stores_nothing
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_routes.py
+        checks:
+        - test_busy_and_failed_on_a_follow_up
+        - test_a_write_that_fails_leaves_nothing_and_shows_the_reply_once
+        - test_an_empty_follow_up_goes_back_to_the_chat
+  http.POST.fragen._chat_id.loeschen:
+    promises:
+    - id: L2-PLATFORM-ASSISTANT/http.POST.fragen._chat_id.loeschen/P-1
+      statement: 'POST-03: deletes the signed-in person''s chat with its messages and references (the passages kept
+        with it go too), then sends the browser (303) to the search page; a second delete, another person''s chat or
+        a malformed id is the same 404 with nothing deleted. The page''s button asks first with JavaScript and deletes
+        at once without it.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_delete_removes_the_chat_its_messages_and_references
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_routes.py
+        checks:
+        - test_delete_takes_the_chat_with_its_messages_and_references
+        - test_the_chat_page_offers_delete_and_asks_first_with_javascript
+  http.GET.fragen._chat_id.quelle._turn._number:
+    promises:
+    - id: L2-PLATFORM-ASSISTANT/http.GET.fragen._chat_id.quelle._turn._number/P-1
+      statement: 'Reads the chat as its owner, takes reference <number> of answer <turn>, asks the Core whether the
+        person may read that document (document_readable, as the person), grants that one document and redirects where
+        a search hit opens it (a PDF at its page and sentence). Not readable, out of range or not her chat: the same
+        404, nothing granted. A stored chat outlives the grants of its answer (an hour), so this is how its documents
+        open later.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_a_stored_reference_opens_after_the_core_says_yes
+        - test_a_stored_reference_the_core_refuses_does_not_open
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_routes.py
+        checks:
+        - test_a_readable_reference_grants_that_one_document_and_opens_it_at_its_page
+        - test_a_reference_the_core_refuses_or_out_of_range_opens_nothing
+  http.GET.fragen.verlauf:
+    promises:
+    - id: L2-PLATFORM-ASSISTANT/http.GET.fragen.verlauf/P-1
+      statement: 'W-07: the signed-in person''s chats only, newest first, 50 a page with «Ältere» and «Neuere»
+        (list_chats with limit and offset, FU-03); titles as text. The sidebar lists the newest 20 and «Alle
+        Gespräche» when there are more; a list that cannot be read draws no block in the sidebar and a plain 503 here,
+        never a broken page.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_pmvp23_chats_followups_acceptance.py
+        checks:
+        - test_the_list_holds_her_own_chats_only
+        - test_the_sidebar_lists_the_newest_20_and_offers_all
+        - test_a_title_is_shown_as_text
+        - test_list_chats_takes_a_limit_and_an_offset
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_list.py
+        checks:
+        - test_all_chats_come_in_pages_of_50_newest_first
+        - test_the_page_of_all_chats_shows_titles_as_text_with_their_date
+        - test_the_sidebar_holds_20_and_offers_all_only_when_there_are_more
+        - test_a_list_that_cannot_be_read_draws_no_block_and_the_page_stands
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_retention.py
+        checks:
+        - test_limit_and_offset_are_checked_before_the_database
+        - test_an_offset_past_the_end_lists_nothing
   call.web_interface.assistant_routes.install_assistant:
     promises:
     - id: L2-PLATFORM-ASSISTANT/call.web_interface.assistant_routes.install_assistant/P-1
-      statement: Registers POST /fragen and builds the page's service on every request through make_service on the
-        installation's settings Resolver, so the switch and the provider apply without a restart and every call is
-        signed for the person who asks.
+      statement: Registers the assistant's pages and builds their service on every request through make_service on
+        the installation's settings Resolver, so the switch and the provider apply without a restart and every call is
+        signed for the person who asks; starts the chats' deletion job in the worker (not in a test app).
       risk_class: standard
       evidence:
       - kind: test
@@ -459,6 +763,11 @@ contract:
         checks:
         - test_the_real_service_is_wired_and_fails_closed_without_the_secured_api
         - test_the_settings_page_switches_it_on
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_assistant_chats_retention.py
+        checks:
+        - test_install_starts_the_job_outside_testing_only
+        - test_the_test_apps_job_does_not_run
     - id: L2-PLATFORM-ASSISTANT/call.web_interface.assistant_routes.install_assistant/P-2
       statement: 'The service answers as the Knovas Assistent for the signed-in person (AsTheAssistant): the whole
         answer runs inside client.asserting_for(AgentPrincipal(<the assistant>, <the person>)), so every Core call of it
@@ -583,6 +892,7 @@ uses:
   protocol: HTTPS
 hides:
 - The layout of the tables assistant_chats, assistant_messages and assistant_references (migration 0026).
+- How an answer is kept in its message (one JSON object, version 1) and drawn again from it.
 - How the prompt is worded and how an answer is split into statements before the check.
 - Which provider writes the answer; the service and the check take the same generate either way.
 decisions:
@@ -607,9 +917,9 @@ review:
 - at: /owner
   why: Proposed owner, as for every card in this repository; one role per component is confirmed by a person (Software Map K4).
 - at: /status
-  why: Planned until the service (PMVP-20), its switch and provider (PMVP-25) and its pages (PMVP-22a) are integrated on feat/platform-mvp; chats.py and migration 0026 are integrated (PMVP-21) but nothing calls them yet.
+  why: Planned until the service (PMVP-20), its switch and provider (PMVP-25) and its pages (PMVP-22a, PMVP-23) are integrated on feat/platform-mvp; chats.py and migration 0026 are integrated (PMVP-21), and PMVP-23's chat pages (on feat/pmvp-23, not integrated) are their first callers.
 - at: /operations
-  why: 'Listed by PMVP-25 (on feat/pmvp-25, from feat/pmvp-20): what other files take today (CoreBusy and CoreFailed by knovas_client.py; connection_test and settings_problems by the settings page) and make_service, the entry the ask page (PMVP-22a, http.POST.fragen, inside this card) takes. Not listed until a caller takes them: AssistantService with Turn, Passage, Sentence, Reply and NO_ANSWER_TEXT (service.py), make_search and make_generate (core.py), make_anthropic_generate (providers.py). identity/chats.py''s ChatStore and ChatNotFound are taken by no other file yet; the routes that use them come with PMVP-22a and PMVP-23.'
+  why: 'Listed by PMVP-25 (on feat/pmvp-25, from feat/pmvp-20): what other files take today (CoreBusy and CoreFailed by knovas_client.py; connection_test and settings_problems by the settings page) and make_service, the entry the ask page (PMVP-22a, http.POST.fragen, inside this card) takes. Not listed until a caller takes them: AssistantService with Turn, Passage, Sentence, Reply and NO_ANSWER_TEXT (service.py), make_search and make_generate (core.py), make_anthropic_generate (providers.py). identity/chats.py''s ChatStore, ChatNotFound, TITLE_MAX and ChatRetentionJob are taken by the chat pages (assistant_routes.py, PMVP-23) inside this card; purge_expired_chats by ChatRetentionJob in the same file. Its five chat addresses are listed (PMVP-23).'
 - at: /uses
   why: 'Operations and expected lines follow with PMVP-20''s integration: EXT-BRAIN-API lists neither POST /secured/query nor POST /secured/llm/generate yet. The service also takes the search page''s own search plan (doc_fields_routes.py) and the web app''s client (knovas_client.py), which have no card.'
 - at: /operations/0
@@ -620,7 +930,8 @@ review:
     a script: a PDF in the browser''s viewer at the passage''s page (preview route, s= the sentence), anything else as
     the file (download route); the search page''s preview dialog is app.js''s and is not on this page. index.html
     (the box and the switch) and the wiring statement and CSRF exemption in app.py stay with the web app, which has
-    no card.'
+    no card. Since PMVP-23 a stored answer answers with a 303 to its chat, whose document links go through the click
+    route (http.GET.fragen._chat_id.quelle._turn._number); a reply that is not stored is drawn here as before.'
 - at: /uses/1
   why: 'EXT-ANTHROPIC-API is new with PMVP-25; the Brain Builder''s views assistant calls the same API with its own key, and its card does not name the dependency yet.'
 - at: L2-PLATFORM-ASSISTANT/*/P-7
@@ -636,7 +947,7 @@ review:
 - at: L2-PLATFORM-ASSISTANT/*/P-6
   why: The first evidence is named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The provider path's (PMVP-25) was seen passing; Claude's client waits 60 seconds and never retries (a 429 or 529 is busy at once), under nginx's 180. FU-08 (a 504 from nginx before the plain message) is PMVP-24's.
 - at: L2-PLATFORM-ASSISTANT/*/L-1
-  why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The limits are the Core's; with anthropic the service keeps them all the same (PMVP-25 changes nothing of the service). FU-06 (a digit-heavy history can overflow the prompt budget) and FU-07 (no history at all when the turns are long) are PMVP-23's.
+  why: Evidence named when the card was written (PMVP-01), in files PMVP-20's rework 2 withdrew (test_pmvp20_assistant_acceptance.py, test_pmvp20_sentence_split_acceptance.py; not on this branch). Their successor, test_pmvp20_statements_acceptance.py, passes on feat/pmvp-25 (88 tests); PMVP-20's integration names its checks here. The limits are the Core's; with anthropic the service keeps them all the same (PMVP-25 changes nothing of the service). The history is sent in whole pairs, the newest always (cut if it must, FU-07), weighed with a digit as three bytes (FU-06); test_assistant_chats_service.py shows both (PMVP-23).
 - at: L2-PLATFORM-ASSISTANT/R-4
   why: 'RB-6 (2026-11-21, work order docs/platform-mvp/work-orders/RB-6-7.md; design role-builder.md § 4). The claim
     is AgentStore.claim_for (identity/agents.py) signed by PrincipalBroker (identity/principal.py), and the actor is
@@ -646,3 +957,12 @@ review:
     and logged and changes nothing. make_service is unchanged: the wrapping is in install_assistant.'
 - at: L2-PLATFORM-ASSISTANT/R-2
   why: Not a line of plan § 7 (which has RESP-01 only); written from plan § 5.2 and W-07, which the chat store and its frozen tests implement.
+- at: L2-PLATFORM-ASSISTANT/R-5
+  why: 'PMVP-23 (work order docs/platform-mvp/work-orders/PMVP-23.md; decisions D1 to D6 of 2026-11-22). The
+    sidebar''s block is drawn by the shell''s partial (_sidebar.html, L2-PLATFORM-SHELL) from what this card''s
+    route hands it through a template function (assistant_chats); its two form posts are in app.py''s list of
+    endpoints that check their own field (the web app, no card). The deletion job runs in each gunicorn worker
+    because the deployment has no scheduler and a command outside the Platform would be a deployment change; the
+    transaction''s lock and the audit row make it once a day. The click route follows the dossier''s pattern
+    (L2-PLATFORM-BRAIN-VIEWS, /dossier/<id>/dokument/<n>): the grants of an answer last an hour, a stored chat 90
+    days.'

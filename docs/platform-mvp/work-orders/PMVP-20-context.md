@@ -57,7 +57,7 @@ KnowledgeBase `origin/master`, `knovas-software/app/src/api/secure_api.py` ~2362
    budget (say what is cut first if 8 contexts do not fit), PMVP-21's stored references (PMVP-23's D2 keeps the
    passage text: the context is what is kept).
 5. **Docs**: `management/assistant.md` and `management/data-protection.md` (what is read, under which limits, what
-   goes to the chosen provider: the context, as passages did; DEC-0084); the assistant's card.
+   goes to the chosen provider: the context, as passages did; DEC-0086); the assistant's card.
 
 ## Your tests (`P/tests/test_assistant_context_*.py`, a recording fake Core)
 
@@ -206,6 +206,6 @@ the same lengths both times. Characters per passage in search order, the snippet
 - A hit more than 60,000 characters into its document keeps its snippet (3 parts from the start; the Core gives no
   character offset for a chunk). A snippet that stands twice in its document takes the first place.
 - Each read is billed (`document_retrieval`): up to 8 more billed requests per question.
-- The contexts go to the provider the customer chose (DEC-0084); FU-33 (Anthropic's terms) is still open.
+- The contexts go to the provider the customer chose (DEC-0086); FU-33 (Anthropic's terms) is still open.
 - The demo documents are all shorter than one context; the cut around a chunk inside a long document is tested with
   fakes only.
