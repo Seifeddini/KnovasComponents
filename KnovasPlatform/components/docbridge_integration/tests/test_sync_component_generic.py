@@ -19,6 +19,8 @@ import pytest
 
 TESTS = Path(__file__).resolve().parent
 COMPONENT = TESTS.parents[1] / "sync_component"
+REPO = TESTS.parents[3]
+KIT = REPO / "KnovasConnectorKit" / "src" / "knovas_connector_kit"
 
 FORBIDDEN = [
     # the Knovas tenant and company
@@ -54,9 +56,16 @@ LINK_MODE_TESTS = ("fake_knovas_link.py", "fake_github_rest.py", "sync_link_worl
 
 def _files() -> list[Path]:
     covered = [p for p in (COMPONENT / "src").rglob("*") if p.is_file() and "__pycache__" not in p.parts]
-    covered += [COMPONENT / name for name in ("README.md", "Dockerfile", "requirements.txt")]
+    # The connector kit the image installs (KnovasConnectorKit; a copy under src/ until 2026-11-23).
+    covered += [p for p in KIT.rglob("*") if p.is_file() and "__pycache__" not in p.parts]
+    covered += [COMPONENT / name for name in ("README.md", "Dockerfile", "Dockerfile.dockerignore", "requirements.txt")]
     covered += [TESTS / name for name in LINK_MODE_TESTS]
     return sorted(covered)
+
+
+def _id(path: Path) -> str:
+    base = TESTS.parents[1] if path.is_relative_to(TESTS.parents[1]) else REPO
+    return path.relative_to(base).as_posix()
 
 
 def _found(path: Path) -> list[str]:
@@ -72,6 +81,7 @@ def test_the_guard_covers_the_code_the_image_the_readme_and_the_link_mode_tests(
     names = {p.name for p in _files()}
     assert {"README.md", "Dockerfile", "__main__.py", "agent.py", "engine.py", "fetchers.py", "link_client.py", "jobs.py",
             "github_jobs.py", "front_matter_edit.py", "runner_cli.py", "test_github_write.py"} <= names
+    assert {"connector.py", "permits.py", "codes.json", "contracts.lock"} <= names, "the connector kit the image installs"
     for p in _files():
         assert p.is_file(), p
 
@@ -81,7 +91,7 @@ def test_the_exception_is_exactly_the_runner_install_line():
     assert len(lines) == 1
 
 
-@pytest.mark.parametrize("path", _files(), ids=lambda p: p.relative_to(TESTS.parents[1]).as_posix())
+@pytest.mark.parametrize("path", _files(), ids=_id)
 def test_no_client_of_the_product_is_named(path):
     assert _found(path) == []
 
