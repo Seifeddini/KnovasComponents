@@ -180,8 +180,9 @@ class SearchIntegration:
                 return []
             found = store.lookup_by_keys(conn, [key for key, _ in keyed]) or {}
             return [self._row(key, hit, found[key]) for key, hit in keyed if key in found]
-        except Exception:  # noqa: BLE001
-            logger.exception("Experiment hits could not be prepared for the search result.")
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Experiment hits could not be prepared for the search result (%s).",
+                         type(exc).__name__)
             return []
 
     def _row(self, key: str, hit: Dict[str, Any], info: Dict[str, Any]) -> Dict[str, Any]:

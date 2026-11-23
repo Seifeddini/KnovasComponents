@@ -119,6 +119,22 @@ row records and a document-level `partial` note). The reader accepts both;
 the writer emits 2 only when it has rows or a partial note, so prose
 sidecars are unchanged.
 
+## Logs: no customer text (`src/log_safety.py`)
+
+No log line carries a question, document or answer text, a response body, an
+exception message or traceback, a document's name, pointer or path, or a
+person's name or e-mail address (`tests/test_logs_carry_no_customer_text.py`).
+A line that has to name a document logs `pointer_hash(pointer)`: 16 hex
+characters of an HMAC keyed from `WEB_SECRET_KEY`, so the logs alone cannot
+confirm a guessed name. To find a document's lines, on the installation:
+
+    docker compose exec docbridge-web python -m log_safety '<pointer>'
+
+(or `-` and pointers on stdin, one per line). With `LOG_LEVEL=DEBUG`, only the
+Platform's own modules log below WARNING; library DEBUG lines (urllib3's
+request lines carry the query string) are dropped and urllib3 is held at
+ERROR. An uncaught exception, in a thread or not, is logged by its type.
+
 ## Search order
 
 `PLATFORM_KEEP_SERVER_ORDER` (default `true`) keeps the ranking the server

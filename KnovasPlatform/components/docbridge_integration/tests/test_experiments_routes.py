@@ -468,7 +468,9 @@ class TestErrorMapping:
         assert r.status_code == 500
         assert r.get_json() == {"success": False, "error": "Interner Serverfehler"}
         assert "geheim" not in r.get_data(as_text=True)
-        assert any("geheim" in (rec.exc_text or "") or rec.exc_info for rec in caplog.records)
+        # The log names the type, never the message or a traceback (no customer text in the logs).
+        assert any("RuntimeError" in rec.getMessage() for rec in caplog.records)
+        assert not any("geheim" in rec.getMessage() or rec.exc_info for rec in caplog.records)
 
     def test_a_failure_in_the_role_gate_is_a_json_500(self, experimenter_client, monkeypatch,
                                                       caplog):
@@ -482,7 +484,8 @@ class TestErrorMapping:
             r = experimenter_client.get("/api/experiments/meta")
         assert r.status_code == 500
         assert r.get_json() == {"success": False, "error": "Interner Serverfehler"}
-        assert any(rec.exc_info for rec in caplog.records)
+        assert any("RuntimeError" in rec.getMessage() for rec in caplog.records)
+        assert not any("user_roles" in rec.getMessage() or rec.exc_info for rec in caplog.records)
         page = experimenter_client.get("/experiments")
         assert page.status_code == 500 and "user_roles" not in page.get_data(as_text=True)
 

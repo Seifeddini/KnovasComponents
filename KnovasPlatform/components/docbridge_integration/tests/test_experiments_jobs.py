@@ -646,7 +646,8 @@ def test_unexpected_exception_text_never_reaches_the_database(db, caplog):
     assert row["status"] == "pending"
     assert row["last_error"] == jobs.MSG_UNEXPECTED
     assert "hunter2" not in json.dumps(JobQueue(db).recent_failures())
-    assert "hunter2" in caplog.text  # the detail is in the log, where it belongs
+    # The log names the type, never the message (no customer text in the logs).
+    assert "RuntimeError" in caplog.text and "hunter2" not in caplog.text
 
 
 def test_job_dies_after_max_attempts_and_on_dead_sees_it(db):

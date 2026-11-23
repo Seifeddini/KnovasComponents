@@ -1966,8 +1966,8 @@ def run_builtin(key: str, data: dict) -> dict:
     except (ValueError, ArithmeticError) as exc:
         # Data far outside anything plausible (counts near the float limit)
         # can still defeat a numeric routine. The evaluation then says so
-        # instead of failing; the log keeps the cause for a developer.
-        log.warning("builtin evaluator %s could not compute: %s: %s", key, type(exc).__name__, exc)
+        # instead of failing; the log keeps the cause's type for a developer.
+        log.warning("builtin evaluator %s could not compute: %s", key, type(exc).__name__)
         warning = "Die Auswertung l\u00e4sst sich mit diesen Daten nicht rechnen."
         raw = {"verdict": "inconclusive", "headline": f"{spec.name}: nicht berechenbar",
                "summary": f"**{spec.name}**: {warning}", "warnings": [warning]}

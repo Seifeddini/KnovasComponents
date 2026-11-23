@@ -441,7 +441,8 @@ def test_shadow_mode_shares_the_cache_and_uploads_plain(monkeypatch, caplog):
     shadow_lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("ShadowDiff")]
     assert len(shadow_lines) == 1
     line = shadow_lines[0]
-    assert "numeric_jaccard=1.0" in line and "ocr_pages=3" in line and "file=Bilanz.pdf" in line
+    assert "numeric_jaccard=1.0" in line and "ocr_pages=3" in line and "doc=" in line
+    assert "Bilanz" not in line, "a document is named by its pointer hash, never by its name"
     for fragment in pages.values():
         assert fragment.split("\n")[0] not in line, "never text"
 
@@ -598,7 +599,7 @@ def test_partial_note_is_surfaced_in_result_log_and_sidecar(tmp_path, monkeypatc
     assert out.parts and out.error is None
     lines = [r.getMessage() for r in caplog.records if "partial" in r.getMessage()]
     assert len(lines) == 1
-    assert "ocr_pages_skipped=12" in lines[0] and "scan.pdf" in lines[0]
+    assert "ocr_pages_skipped=12" in lines[0] and "scan.pdf" not in lines[0]
     assert "Deckblatt" not in lines[0], "counts only, never text"
     data = json.loads(sidecar_path_for_pointer(tmp_path, pointer).read_text(encoding="utf-8"))
     assert data["version"] == 2 and data["partial"] == out.partial

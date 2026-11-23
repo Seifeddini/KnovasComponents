@@ -581,7 +581,8 @@ def check_site(raw: Any) -> dict:
                 # One connector's declaration the protocol's schema does not allow: that connector offers nothing
                 # through protocol 2.0 and the Builder names the field; the rest of the heartbeat is kept (L3).
                 entry["declaration_refused"] = str(exc)
-                logger.warning("Heartbeat: a connector declaration the protocol does not allow (%s), not kept", exc)
+                logger.warning("Heartbeat: a connector declaration the protocol does not allow (%s), not kept",
+                               type(exc).__name__)
         out["components"].append(entry)
     sources = raw.get("sources") or []
     if not isinstance(sources, list) or len(sources) > MAX_SITE_SOURCES:

@@ -78,7 +78,7 @@ class GraphFilterEngine:
             return empty
         except (OSError, ValueError) as exc:
             logger.warning("Pruefmarkierungen nicht ladbar (%s): %s",
-                           self._state_path, exc)
+                           self._state_path, type(exc).__name__)
             return empty
         if not isinstance(raw, dict):
             return empty
@@ -94,7 +94,7 @@ class GraphFilterEngine:
             os.replace(tmp, self._state_path)
         except OSError as exc:
             logger.error("Pruefmarkierungen nicht speicherbar (%s): %s",
-                         self._state_path, exc)
+                         self._state_path, type(exc).__name__)
 
     def _reviewed(self, filter_id: str) -> Dict[str, Any]:
         return self._state["reviewed"].get(filter_id, {})
@@ -104,8 +104,8 @@ class GraphFilterEngine:
     def _filters_of_node(self, entity_id: str) -> List[Dict[str, Any]]:
         try:
             return self._client.graph_filters(entity_id) or []
-        except Exception:
-            logger.error("Filter nicht ladbar fuer %s", entity_id, exc_info=True)
+        except Exception as exc:
+            logger.error("Filter nicht ladbar fuer %s: %s", entity_id, type(exc).__name__)
             return []
 
     def create_filter(self, entity_id: str, label: str) -> Optional[Dict[str, Any]]:
@@ -137,8 +137,8 @@ class GraphFilterEngine:
         try:
             from ontology_graph import _node_id
             return [_node_id(n) for n in (self._client.graph_nodes() or [])]
-        except Exception:
-            logger.error("Knotenliste nicht ladbar", exc_info=True)
+        except Exception as exc:
+            logger.error("Knotenliste nicht ladbar: %s", type(exc).__name__)
             return []
 
     def filters_for_entity(self, store: Any, entity_id: str) -> List[Dict[str, Any]]:
@@ -161,9 +161,9 @@ class GraphFilterEngine:
         for status, mapped in (("active", "pending"), ("rejected", "rejected")):
             try:
                 placements = self._client.graph_placements(node_id, status=status) or []
-            except Exception:
-                logger.error("Placements nicht ladbar (%s, %s)", node_id, status,
-                             exc_info=True)
+            except Exception as exc:
+                logger.error("Placements nicht ladbar (%s, %s): %s", node_id, status,
+                             type(exc).__name__)
                 continue
             for placement in placements:
                 item = self._map_placement(placement, mapped)

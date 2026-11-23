@@ -209,7 +209,7 @@ class RunnerClient:
             status, data, truncated = self._exchange("GET", "/health", None,
                                                      self.health_timeout_seconds, 64 * 1024)
         except Exception as exc:  # noqa: BLE001 - health never raises
-            logger.info("Experiments runner health check failed: %s", exc)
+            logger.info("Experiments runner health check failed: %s", type(exc).__name__)
             return down
         if status != 200 or truncated:
             logger.info("Experiments runner health check: HTTP %s", status)
@@ -263,7 +263,7 @@ class RunnerClient:
                 "POST", "/v1/run", body, float(limit) + self.read_grace_seconds, MAX_RESPONSE_BYTES
             )
         except _NotSent as exc:
-            logger.warning("Experiments runner not reachable: %s", exc)
+            logger.warning("Experiments runner not reachable: %s", type(exc).__name__)
             self.invalidate_health()
             raise Unavailable(MSG_UNREACHABLE) from None
         except (socket.timeout, TimeoutError):
@@ -272,7 +272,7 @@ class RunnerClient:
             return self._failed(MSG_TIMEOUT, started=started)
         except (OSError, http.client.HTTPException) as exc:
             # Accepted, then the connection died: the runner restarted mid-job.
-            logger.warning("Experiments runner dropped the connection: %s", exc)
+            logger.warning("Experiments runner dropped the connection: %s", type(exc).__name__)
             self.invalidate_health()
             raise Unavailable(MSG_UNREACHABLE) from None
 
@@ -280,12 +280,12 @@ class RunnerClient:
             self.invalidate_health()
             raise Unavailable(MSG_UNREACHABLE)
         if status == 400 or status == 413:
-            logger.warning("Experiments runner refused the job (HTTP %s): %s",
-                           status, _clip(raw.decode("utf-8", "replace"), 500))
+            logger.warning("Experiments runner refused the job (HTTP %s): %d bytes, not logged",
+                           status, len(raw))
             return self._failed(MSG_REFUSED, started=started)
         if status != 200:
-            logger.warning("Experiments runner answered HTTP %s: %s",
-                           status, _clip(raw.decode("utf-8", "replace"), 500))
+            logger.warning("Experiments runner answered HTTP %s: %d bytes, not logged",
+                           status, len(raw))
             return self._failed(MSG_SERVER_ERROR.format(status=int(status)), started=started)
         if truncated:
             logger.warning("Experiments runner answer exceeds %s bytes.", MAX_RESPONSE_BYTES)

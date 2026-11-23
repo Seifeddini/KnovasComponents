@@ -58,6 +58,7 @@ from typing import Any, Dict, List, Optional
 from context_store import write_context_sidecar
 from knovas_transmit.chunking import build_transmission_parts
 from knovas_transmit.table_payload import map_extractor_tables
+from log_safety import pointer_hash
 
 logger = logging.getLogger(__name__)
 
@@ -673,8 +674,8 @@ def shadow_diff(
 def _log_shadow_diff(diff: ShadowDiff, document_key: Optional[str]) -> None:
     fields = diff.as_log_fields()
     logger.info(
-        "ShadowDiff file=%s %s",
-        os.path.basename(document_key) if document_key else "-",
+        "ShadowDiff doc=%s %s",
+        pointer_hash(document_key) if document_key else "-",
         " ".join(f"{k}={v}" for k, v in fields.items()),
     )
 
@@ -994,8 +995,8 @@ def extract_guarded(
     if payload is None:
         if timed_out:
             logger.warning(
-                "Extraction timed out after %ds (child killed): %s",
-                timeout, os.path.basename(document_key) if document_key else "-",
+                "Extraction timed out after %ds (child killed): doc %s",
+                timeout, pointer_hash(document_key) if document_key else "-",
             )
             raise ExtractionError(f"{EXTRACT_TIMEOUT_ERROR_PREFIX} after {timeout}s (child killed)")
         raise ExtractionError(f"extractor died (exit {proc.exitcode})")
@@ -1054,7 +1055,7 @@ def extract_parts_from_base64(
     try:
         raw = base64.b64decode(content_base64, validate=False)
     except Exception as exc:
-        logger.warning("knovas-extract upload: base64 decode failed: %s", exc)
+        logger.warning("knovas-extract upload: base64 decode failed: %s", type(exc).__name__)
         return ExtractedParts(error="base64 decode failed")
 
     if extract is None:
@@ -1067,10 +1068,10 @@ def extract_parts_from_base64(
             raw, dotted, use_ocr=use_ocr, ocr_language=ocr_language, document_key=document_key
         )
     except ExtractionError as exc:
-        logger.warning("knovas-extract failed for .%s: %s", normalized, exc)
+        logger.warning("knovas-extract failed for .%s: %s", normalized, type(exc).__name__)
         return ExtractedParts(error=str(exc))
     except Exception as exc:  # noqa: BLE001 - never let an upload 500 on extraction
-        logger.warning("knovas-extract failed for .%s: %s: %s", normalized, type(exc).__name__, exc)
+        logger.warning("knovas-extract failed for .%s: %s", normalized, type(exc).__name__)
         return ExtractedParts(error=f"{type(exc).__name__}: {exc}")
 
     text = content.text
@@ -1081,8 +1082,8 @@ def extract_parts_from_base64(
     partial = partial_note_for(content.extra, expect_ocr=expect_ocr)
     if partial:
         logger.info(
-            "Admin upload partial for %s: %s",
-            os.path.basename(document_key) if document_key else "-",
+            "Admin upload partial for doc %s: %s",
+            pointer_hash(document_key) if document_key else "-",
             " ".join(f"{k}={v}" for k, v in sorted(partial.items())),
         )
 
