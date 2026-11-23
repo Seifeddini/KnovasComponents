@@ -8,6 +8,7 @@ parent: L2-CONNECTION
 source_paths:
 - KnovasPlatform/components/sync_component/src/sync_component
 - KnovasPlatform/components/sync_component/Dockerfile
+- KnovasPlatform/components/sync_component/Dockerfile.dockerignore
 - KnovasPlatform/components/sync_component/requirements.txt
 purpose: Reads a company's sources at the company, plans with brain-runner what changes in the Brain and applies it
   on a person's command, or on its own where a person switched that on and the plan holds nothing a person must
@@ -201,6 +202,23 @@ contract:
       evidence:
       - kind: test
         ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_image.py
+    - id: L3-SYNC-COMPONENT/*/A-7
+      statement: The image is built from the repository's root, its context limited to the component's requirements
+        and source and the kit's package; it installs the one connector kit (KnovasConnectorKit) without its
+        dependencies, which the component's requirements pin inside the kit's ranges, and checks the kit's contracts
+        against their lock while it is built.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_image.py
+        checks:
+        - test_the_image_installs_the_one_connector_kit_from_the_repositorys_root
+        - test_the_build_context_holds_only_what_the_image_needs
+        - test_the_requirements_pin_every_dependency_of_the_kit_inside_its_range
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_sync_component_github_v2.py
+        checks:
+        - test_the_component_runs_on_the_one_connector_kit
   cli.sync_component.__main__:
     needs:
     - id: L3-SYNC-COMPONENT/cli.sync_component.__main__/N-1
@@ -655,8 +673,8 @@ uses:
   - L3-CONNECTOR-KIT/*/A-1
   - L3-CONNECTOR-KIT/*/A-2
   - L3-CONNECTOR-KIT/*/A-3
-  method: the kit's base class and permits, imported from the copy beside the component (the image's build context
-    is the component's folder); the conformance suite in the tests
+  method: the kit's base class and permits, from the one kit (KnovasConnectorKit) the image installs (its build
+    context is the repository's root); the conformance suite in the tests
 - component: L3-KNOVAS-LINK
   operations:
   - local.register
@@ -737,6 +755,10 @@ risks:
     BRAIN_RUNNER_SHA); both images' builds stop on another version (BRAIN_RUNNER_VERSION); a release run prints the
     version its image carries.
 review:
+- at: L3-SYNC-COMPONENT/*/A-7
+  why: New 2026-11-23 (the founder - one connector kit) - the copy of the kit under src/knovas_connector_kit/ is gone;
+    the image is built from the repository's root and installs KnovasConnectorKit. Its contents are otherwise the
+    same. A person confirms the line.
 - at: L3-SYNC-COMPONENT/*/A-3
   why: Changed 2026-11-10 for KG-2 (the founder asked for automatic apply that day) - the Brain may now be written
     without a person's command, for a source a person switched it on for and a plan with nothing to decide. map-check
