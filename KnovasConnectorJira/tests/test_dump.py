@@ -153,10 +153,10 @@ def test_the_command_line_names_the_interface():
 
 
 def image_env() -> dict:
-    """The import path the image sets (Dockerfile: PYTHONPATH=/app/src:/app/vendor): the vendored kit, not the
-    repository's."""
+    """The import path of the image (Dockerfile: PYTHONPATH=/app/src, the kit installed): the connector's source and
+    the kit's own source, nothing else of the test run's path."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("SYNC_") and k != "PYTHONPATH"}
-    env["PYTHONPATH"] = os.pathsep.join([str(PACKAGE / "src"), str(PACKAGE / "vendor")])
+    env["PYTHONPATH"] = os.pathsep.join([str(PACKAGE / "src"), str(PACKAGE.parent / "KnovasConnectorKit" / "src")])
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env
 

@@ -101,8 +101,9 @@ written. Every change, difference and conflict names its `step` (the index into 
 
 ## At a site (behind Knovas Link)
 
-The image `jira-connector` (`Dockerfile`; built from this folder alone, so the kit is the byte-for-byte copy under
-`vendor/`) runs `knovas-connector-jira serve`: it registers with Link as its own component, kind `jira`, with its
+The image `jira-connector` (`Dockerfile`; built from the repository's root, `docker build -f
+KnovasConnectorJira/Dockerfile .`, so that it installs the connector kit from `../KnovasConnectorKit`;
+`Dockerfile.dockerignore` lets nothing else into the context) runs `knovas-connector-jira serve`: it registers with Link as its own component, kind `jira`, with its
 declaration and the job kinds `probe`, `preview`, `act`, `reread`; sends its heartbeat every 30 seconds; reports per
 source whether it can read it (`source.ok`, or the Jira code such as `jira.unauthorized`) on the command `check` and
 whenever the sources or their settings changed; refuses `run` (it runs no mappings); and answers Link's jobs through
@@ -181,8 +182,8 @@ docker compose --env-file knovas.env --profile jira-connector run --rm -T \
   dump-stream --source <source key> --settings /settings.json --out - > <source key>.jsonl
 ```
 
-Or without Docker, from this folder: `PYTHONPATH=src:vendor python -m knovas_connector_jira dump-stream …` (after
-`pip install -r requirements.txt`), with the two credential lines in the environment.
+Or without Docker, from this folder: `PYTHONPATH=src:../KnovasConnectorKit/src python -m knovas_connector_jira
+dump-stream …` (after `pip install -r requirements.txt`), with the two credential lines in the environment.
 
 ## Tests
 
@@ -193,5 +194,6 @@ cd KnovasConnectorJira && pip install -r requirements.txt "pytest>=7.4,<9" PyYAM
 `tests/fake_jira.py` is an in-process Jira written from Atlassian's REST API v3 document, `tests/fake_link.py` an
 in-process Knovas Link local API; `tests/harness.py` is the conformance harness
 (`python -m knovas_connector_kit.conformance harness:make_harness` from `tests/` with both `src` folders on the path).
-`test_site.py` runs the component behind Link, `test_dump.py` the dump, `test_image.py` the image, the vendored kit and
-both compose files.
+`test_site.py` runs the component behind Link, `test_dump.py` the dump, `test_image.py` the image, its build context,
+the kit it installs and both compose files. The tests take the kit from `../KnovasConnectorKit/src` (`pythonpath` in
+`pyproject.toml`), as the image installs it.

@@ -12,9 +12,11 @@
 #                 jira-connector  jira-connector  (KnovasConnectorJira/deploy/docker-compose.jira.yml, beside the site
 #                                                  package; docker-compose.yml, service jira-connector)
 #   repository  ghcr.io/<owner, lower case>/<package>
-#   context     the build context, the one the compose files build from
+#   context     the build context, the one the compose files build from: the image's folder, or the repository's
+#               root for an image that installs the connector kit (KnovasConnectorKit), with its own
+#               <Dockerfile>.dockerignore beside its Dockerfile
 #   dockerfile  the image's Dockerfile, as a path from the repository's root (the one the compose files build)
-#   runner     whether the image installs brain-runner from the private knowledge base (yes: needs the build
+#   runner      whether the image installs brain-runner from the private knowledge base (yes: needs the build
 #               secret kb_read_token; the release refuses to build it without)
 #   module      the Python module the image must import (its version is printed): brain_runner where runner is yes,
 #               else the image's own package
@@ -34,7 +36,7 @@ case "$image" in
   platform)       package=docbridge-web-clientbundle; folder=KnovasPlatform/components/docbridge_integration; context=$folder; runner=yes; module=brain_runner ;;
   knovas-link)    package=knovas-link;                folder=KnovasLink;                                     context=$folder; runner=no;  module=knovas_link ;;
   sync-component) package=sync-component;             folder=KnovasPlatform/components/sync_component;       context=$folder; runner=yes; module=brain_runner ;;
-  jira-connector) package=jira-connector;             folder=KnovasConnectorJira;                            context=$folder; runner=no;  module=knovas_connector_jira.connector ;;
+  jira-connector) package=jira-connector;             folder=KnovasConnectorJira;                            context=.;       runner=no;  module=knovas_connector_jira.connector ;;
   *) fail "unknown image: $image (platform, knovas-link, sync-component or jira-connector)" ;;
 esac
 dockerfile="$folder/Dockerfile"

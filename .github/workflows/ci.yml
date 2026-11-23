@@ -245,8 +245,10 @@ jobs:
         run: python -m pytest -q tests
 
   # The Jira connector (connector protocol v2; FEAT-2026-11-10-write-back J-1, J-2, J-4): its tests and the connector
-  # kit's conformance suite against an in-process fake Jira and Knovas Link, then its image built and started once
-  # (the declaration, from the vendored kit). No secret, no network to Jira, no real Jira.
+  # kit's conformance suite against an in-process fake Jira and Knovas Link (the kit from ../KnovasConnectorKit/src,
+  # pyproject.toml's pythonpath), then its image built from the repository's root and started once (the declaration,
+  # from the installed kit, whose version must be KnovasConnectorKit/pyproject.toml's). No secret, no network to Jira,
+  # no real Jira.
   jira-connector:
     runs-on: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && vars.CI_EPHEMERAL_RUNNER && fromJSON('["self-hosted","knovas-ci-ephemeral"]') || (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && vars.CI_RUNNER || 'ubuntu-latest' }}
     defaults:
@@ -268,9 +270,15 @@ jobs:
         run: python -m pytest -q tests
 
       - name: Build the image and start it once
+        working-directory: .
         run: |
           set -euo pipefail
-          docker build --pull -t jira-connector:ci .
+          docker build --pull -f KnovasConnectorJira/Dockerfile -t jira-connector:ci .
+          want="$(python -c "import tomllib; print(tomllib.load(open('KnovasConnectorKit/pyproject.toml', 'rb'))['project']['version'])")"
+          got="$(docker run --rm --entrypoint python jira-connector:ci -c "from importlib.metadata import version; print(version('knovas-connector-kit'))")"
+          if [ "$got" != "$want" ]; then
+            echo "::error::the image's connector kit is $got, KnovasConnectorKit/pyproject.toml says $want"; exit 1
+          fi
           docker run --rm jira-connector:ci declaration | python -c "import json, sys; d = json.load(sys.stdin); assert d['source_kind'] == 'jira', d; print('declaration', d['connector'])"
           docker run --rm jira-connector:ci serve --once && exit 1 || test $? -eq 2
           docker image rm jira-connector:ci

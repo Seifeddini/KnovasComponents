@@ -156,7 +156,7 @@ jobs:
               echo "::error::a token is left in the image's git configuration"; exit 1
             fi
           else
-            # The image's own package imports, from the image's own path (the Jira connector: its vendored kit too).
+            # The image's own package imports, from the image's own path (the Jira connector: the installed kit too).
             docker run --rm --entrypoint python -e MODULE="$MODULE" "$IMAGE:$SHORT_TAG" \
               -c "import importlib, os; m = importlib.import_module(os.environ['MODULE']); print(m.__name__, m.VERSION)"
           fi
