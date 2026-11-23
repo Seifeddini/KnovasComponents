@@ -1,0 +1,44 @@
+# The demo law firm (synthetic, FEAT-2026-11-19-demo-law-firm) as a consultant fills intake.yaml after the first
+# call. No password here: run-demo.sh reads them from ../site/.env into the two variables named below.
+
+client:
+  key: quarzfels
+  name: Quarzfels Advokatur
+  sector: law-firm
+  people: 13
+  lawyers: 10
+  it_provider: external
+
+software:
+  - {category: practice, product: unknown}     # "our practice software", name not known to the office manager
+
+targets:
+  fileshares:
+    - key: kanzlei
+      path: /mnt/kanzlei                       # //172.28.215.10/shares$, mounted read-only by run-demo.sh
+      roots:
+        - Quarzfels/Praxis/Autodoc             # the practice software's document store
+        - Quarzfels/Gemeinsam                  # the common drive
+        - Quarzfels/Users                      # home folders: expected to refuse the account
+        - Quarzfels/Mail                       # mail archives: expected to refuse the account
+
+  directories:
+    - key: ad
+      url: "ldaps://172.28.215.10"
+      bind_user: "svc-knovas@ad.quarzfels.example"
+      password_env: DISCOVERY_LDAP_PASSWORD
+      base_dn: "DC=ad,DC=quarzfels,DC=example"
+      verify_tls: false                        # self-signed certificate on SRV-DC01
+
+  databases:
+    - key: praxis
+      kind: mssql
+      host: 172.28.215.20
+      port: 1433
+      user: knovas_ro
+      password_env: DISCOVERY_SQL_PASSWORD
+      verify_tls: false                        # self-signed certificate on SRV-SQL01
+
+  m365: []                                     # the firm has no Microsoft 365 tenant in the stand-in
+
+knovas: {api_host: api.knovas.ch, api_port: 8443}

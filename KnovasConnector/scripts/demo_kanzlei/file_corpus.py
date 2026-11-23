@@ -16,7 +16,7 @@ HINT = """HINWEIS — SYNTHETISCHE DEMODATEN
 Dieser Aktenbestand ist vollständig fiktiv. Personen, Gesellschaften und
 Sachverhalte sind erfunden. Er dient ausschliesslich der Produktdemonstration
 von Knovas. Real publizierte Entscheide, die hier als Recherchebeilage liegen,
-behalten ihre ursprüngliche Lizenz (siehe manifest.jsonl / LICENSES.md).
+behalten ihre ursprüngliche Lizenz.
 
 Fiktive Parteien wurden nie in echte Urteile eingefügt.
 """
@@ -27,8 +27,10 @@ def file_corpus(
     bodies: dict[str, str],
     world: World,
     out_root: Path,
+    manifest_path: Path,
 ) -> list[dict]:
-    del world  # letterhead already baked into prose
+    """``manifest_path`` is in the work folder: a client's share has no such file."""
+    authors = {s.id: s.name for s in world.firm.staff}
     out_root.mkdir(parents=True, exist_ok=True)
     (out_root / "00_HINWEIS_DEMODATEN.txt").write_text(HINT, encoding="utf-8")
     manifest: list[dict] = []
@@ -52,6 +54,8 @@ def file_corpus(
             sender=sender,
             to=to,
             sent=sent if row.fmt == "msg" else None,
+            created=sent,
+            author=authors.get(row.author_id or ""),
         )
         rel = path.relative_to(out_root).as_posix()
         manifest.append(
@@ -67,7 +71,8 @@ def file_corpus(
                 "plan_id": row.id,
             }
         )
-    (out_root / "manifest.jsonl").write_text(
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
         "\n".join(json.dumps(row, ensure_ascii=False) for row in manifest) + "\n",
         encoding="utf-8",
     )

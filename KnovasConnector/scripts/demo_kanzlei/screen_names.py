@@ -34,6 +34,11 @@ class ZefixClient:
             "activeOnly": True,
         }
         resp = self.session.post(ZEFIX_SEARCH_URL, json=payload, timeout=self.timeout)
+        # Zefix answers "no such firm" with HTTP 404 and this code, not with an
+        # empty list. Before this was read, every clean name counted as a
+        # failed request and no name could pass the screening.
+        if resp.status_code == 404 and "SEARCH.NORESULT" in resp.text:
+            return []
         resp.raise_for_status()
         data = resp.json()
         rows = data.get("list") if isinstance(data, dict) else data

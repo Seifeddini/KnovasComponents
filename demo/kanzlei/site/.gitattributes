@@ -1,0 +1,7 @@
+# Scripts run inside Linux containers and in Git Bash: keep LF line endings on every checkout.
+*.sh         text eol=lf
+*.py         text eol=lf
+*.yml        text eol=lf
+Dockerfile   text eol=lf
+*.json       text eol=lf
+*.sql        text eol=lf

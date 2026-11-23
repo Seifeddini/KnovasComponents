@@ -1,0 +1,5 @@
+*.egg-info/
+build/
+dist/
+# A scan's output: detail.json holds names and stays at the client.
+detail.json

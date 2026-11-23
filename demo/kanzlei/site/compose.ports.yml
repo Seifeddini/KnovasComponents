@@ -1,0 +1,10 @@
+# Optional: publish the site's ports on 127.0.0.1 only. Enabled by DEMO_PUBLISH_PORTS=1 in .env.
+services:
+  dc:
+    ports:
+      - "127.0.0.1:4450:445"    # SMB
+      - "127.0.0.1:3890:389"    # LDAP (StartTLS)
+      - "127.0.0.1:6360:636"    # LDAPS
+  sql:
+    ports:
+      - "127.0.0.1:14330:1433"  # SQL Server
