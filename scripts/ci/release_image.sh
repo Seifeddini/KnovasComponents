@@ -12,8 +12,9 @@
 #                 jira-connector  jira-connector  (KnovasConnectorJira/deploy/docker-compose.jira.yml, beside the site
 #                                                  package; docker-compose.yml, service jira-connector)
 #   repository  ghcr.io/<owner, lower case>/<package>
-#   context     the build context (its Dockerfile is the one the compose files build)
-#   runner      whether the image installs brain-runner from the private knowledge base (yes: needs the build
+#   context     the build context, the one the compose files build from
+#   dockerfile  the image's Dockerfile, as a path from the repository's root (the one the compose files build)
+#   runner     whether the image installs brain-runner from the private knowledge base (yes: needs the build
 #               secret kb_read_token; the release refuses to build it without)
 #   module      the Python module the image must import (its version is printed): brain_runner where runner is yes,
 #               else the image's own package
@@ -30,12 +31,13 @@ fail() { echo "release_image: $*" >&2; exit 1; }
 image="$1" owner="$2" branch="$3" commit="$4"
 
 case "$image" in
-  platform)       package=docbridge-web-clientbundle; context=KnovasPlatform/components/docbridge_integration; runner=yes; module=brain_runner ;;
-  knovas-link)    package=knovas-link;                context=KnovasLink;                                     runner=no;  module=knovas_link ;;
-  sync-component) package=sync-component;             context=KnovasPlatform/components/sync_component;       runner=yes; module=brain_runner ;;
-  jira-connector) package=jira-connector;             context=KnovasConnectorJira;                            runner=no;  module=knovas_connector_jira.connector ;;
+  platform)       package=docbridge-web-clientbundle; folder=KnovasPlatform/components/docbridge_integration; context=$folder; runner=yes; module=brain_runner ;;
+  knovas-link)    package=knovas-link;                folder=KnovasLink;                                     context=$folder; runner=no;  module=knovas_link ;;
+  sync-component) package=sync-component;             folder=KnovasPlatform/components/sync_component;       context=$folder; runner=yes; module=brain_runner ;;
+  jira-connector) package=jira-connector;             folder=KnovasConnectorJira;                            context=$folder; runner=no;  module=knovas_connector_jira.connector ;;
   *) fail "unknown image: $image (platform, knovas-link, sync-component or jira-connector)" ;;
 esac
+dockerfile="$folder/Dockerfile"
 
 [[ "$owner" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] || fail "not a repository owner: $owner"
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail "not a full commit sha: $commit"
@@ -53,6 +55,7 @@ fi
 echo "package=$package"
 echo "repository=ghcr.io/${owner,,}/$package"
 echo "context=$context"
+echo "dockerfile=$dockerfile"
 echo "runner=$runner"
 echo "module=$module"
 echo "short_tag=${commit:0:12}"

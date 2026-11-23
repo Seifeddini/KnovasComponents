@@ -196,17 +196,44 @@ def test_the_image_names_are_the_ones_the_deployment_uses():
     assert default and owner_free["platform"]["package"] == default.group(1)
     assert compose["sync-component"]["image"].split(":")[0] == owner_free["sync-component"]["package"]
     assert compose["jira-connector"]["image"].split(":")[0] == owner_free["jira-connector"]["package"]
-    assert compose["jira-connector"]["build"]["context"] == "./" + owner_free["jira-connector"]["context"]
     site_file = yaml.safe_load((REPO / "KnovasConnectorJira" / "deploy" / "docker-compose.jira.yml")
                                .read_text(encoding="utf-8"))["services"]
     assert site_file["jira-connector"]["image"].startswith("${JIRA_CONNECTOR_IMAGE:?")
     assert "${JIRA_CONNECTOR_DIGEST:?" in site_file["jira-connector"]["image"]
     for key, out in owner_free.items():
         assert out["repository"] == "ghcr.io/example-org/" + out["package"]      # GHCR wants lower case
-        dockerfile = REPO / out["context"] / "Dockerfile"
+        dockerfile = REPO / out["dockerfile"]
         assert dockerfile.is_file(), dockerfile
         installs_runner = "brain-runner @ git+" in dockerfile.read_text(encoding="utf-8")
         assert (out["runner"] == "yes") == installs_runner, key
+
+
+def _compose_build(service: dict) -> tuple:
+    """A compose service's build as (context, Dockerfile), both from the repository's root, as compose resolves them:
+    the context from the compose file's folder, the Dockerfile from the context (default: Dockerfile)."""
+    import posixpath
+
+    context = posixpath.normpath(service["build"]["context"])
+    return context, posixpath.normpath(posixpath.join(context, service["build"].get("dockerfile", "Dockerfile")))
+
+
+def test_the_release_builds_each_image_as_the_compose_file_does():
+    """The release passes the helper's Dockerfile (-f) and context to docker build, and they are the compose file's: an
+    image whose context is the repository's root (so that the connector kit is in it) is released from the same
+    context and Dockerfile it is built from locally."""
+    build = _step("Build and check the image")
+    assert build["env"]["CONTEXT"] == "${{ steps.what.outputs.context }}"
+    assert build["env"]["DOCKERFILE"] == "${{ steps.what.outputs.dockerfile }}"
+    assert 'docker build --pull --no-cache -f "$DOCKERFILE"' in build["run"]
+    assert '"${build[@]}" "$CONTEXT"' in build["run"]
+    compose = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
+    for key, service in (("platform", "docbridge-web"), ("sync-component", "sync-component"),
+                         ("jira-connector", "jira-connector")):
+        out = _helper(key, "Example-Org", "main", COMMIT)
+        assert _compose_build(compose[service]) == (out["context"], out["dockerfile"]), key
+    for key in ("platform", "knovas-link", "sync-component", "jira-connector"):
+        out = _helper(key, "Example-Org", "main", COMMIT)
+        assert (REPO / out["dockerfile"]).resolve().is_relative_to((REPO / out["context"]).resolve()), key
 
 
 @pytest.mark.parametrize("branch, tag", [

@@ -120,6 +120,7 @@ jobs:
         env:
           IMAGE: ${{ steps.what.outputs.repository }}
           CONTEXT: ${{ steps.what.outputs.context }}
+          DOCKERFILE: ${{ steps.what.outputs.dockerfile }}
           RUNNER: ${{ steps.what.outputs.runner }}
           MODULE: ${{ steps.what.outputs.module }}
           SHORT_TAG: ${{ steps.what.outputs.short_tag }}
@@ -128,7 +129,7 @@ jobs:
           KB_READ_TOKEN: ${{ secrets.KB_READ_TOKEN }}
         run: |
           set -euo pipefail
-          build=(docker build --pull --no-cache
+          build=(docker build --pull --no-cache -f "$DOCKERFILE"
                  --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
                  --label "org.opencontainers.image.revision=${GITHUB_SHA}"
                  --label "org.opencontainers.image.version=${SHORT_TAG}"
