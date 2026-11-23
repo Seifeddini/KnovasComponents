@@ -35,7 +35,7 @@ image="$1" owner="$2" branch="$3" commit="$4"
 case "$image" in
   platform)       package=docbridge-web-clientbundle; folder=KnovasPlatform/components/docbridge_integration; context=$folder; runner=yes; module=brain_runner ;;
   knovas-link)    package=knovas-link;                folder=KnovasLink;                                     context=$folder; runner=no;  module=knovas_link ;;
-  sync-component) package=sync-component;             folder=KnovasPlatform/components/sync_component;       context=$folder; runner=yes; module=brain_runner ;;
+  sync-component) package=sync-component;             folder=KnovasPlatform/components/sync_component;       context=.;       runner=yes; module=brain_runner ;;
   jira-connector) package=jira-connector;             folder=KnovasConnectorJira;                            context=.;       runner=no;  module=knovas_connector_jira.connector ;;
   *) fail "unknown image: $image (platform, knovas-link, sync-component or jira-connector)" ;;
 esac

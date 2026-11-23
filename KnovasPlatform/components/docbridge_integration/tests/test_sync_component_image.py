@@ -1,15 +1,23 @@
-"""The sync component's image carries a pinned kustomize, checked before it is unpacked (V1-G6).
+"""The sync component's image carries a pinned kustomize, checked before it is unpacked (V1-G6), and the one connector
+kit, installed from KnovasConnectorKit.
 
 brain-runner's ``kustomize_build`` renders a kustomization with ``kustomize build``; without it the folder is read
 as files and the mapping is stopped. The Dockerfile installs one pinned release and checks the archive against the
-SHA-256 its release publishes before ``tar`` touches it. Static checks: they read the Dockerfile, never build it.
+SHA-256 its release publishes before ``tar`` touches it. The image is built from the repository's root, so that the
+connector kit is in its context, and its ``Dockerfile.dockerignore`` lets in nothing else. Static checks: they read
+the Dockerfile, never build it.
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
+import yaml
+
 DOCKERFILE = Path(__file__).resolve().parents[2] / "sync_component" / "Dockerfile"
+COMPONENT = DOCKERFILE.parent
+REPO = Path(__file__).resolve().parents[4]
+KIT = REPO / "KnovasConnectorKit"
 
 
 def _text() -> str:
@@ -59,3 +67,54 @@ def test_the_runtime_image_takes_only_the_binary_and_runs_it_once():
     assert "COPY --from=kustomize /usr/local/bin/kustomize /usr/local/bin/kustomize" in runtime
     assert "RUN kustomize version" in runtime
     assert "curl" not in runtime
+
+
+def test_the_image_installs_the_one_connector_kit_from_the_repositorys_root():
+    """No copy of the kit beside the component: the image installs KnovasConnectorKit itself (so its version is that
+    package's), checks its contracts against their lock while it is built, and copies nothing else of the repository."""
+    text = _text()
+    copied = re.findall(r"^COPY\s+(?!--from=)(\S+)\s", text, re.M)
+    assert copied == ["KnovasPlatform/components/sync_component/requirements.txt", "KnovasConnectorKit/",
+                      "KnovasPlatform/components/sync_component/src/"]
+    assert "pip install --no-cache-dir --no-deps --no-build-isolation /tmp/knovas-connector-kit" in text
+    assert "contracts.schemas(); print('kit', version('knovas-connector-kit'))" in text
+    assert re.search(r"^ENV PYTHONPATH=/app/src ", text, re.M)
+    assert not [p for p in (COMPONENT / "src" / "knovas_connector_kit").rglob("*") if p.suffix in (".py", ".json")]
+    service = yaml.safe_load((REPO / "docker-compose.yml").read_text(encoding="utf-8"))["services"]["sync-component"]
+    assert service["build"]["context"] == "."
+    assert service["build"]["dockerfile"] == "KnovasPlatform/components/sync_component/Dockerfile"
+
+
+def test_the_build_context_holds_only_what_the_image_needs():
+    lines = [line.strip() for line in (COMPONENT / "Dockerfile.dockerignore").read_text(encoding="utf-8").splitlines()
+             if line.strip() and not line.lstrip().startswith("#")]
+    assert lines[0] == "*"
+    assert {line for line in lines if line.startswith("!")} == {
+        "!KnovasPlatform/components/sync_component/requirements.txt", "!KnovasPlatform/components/sync_component/src",
+        "!KnovasConnectorKit/pyproject.toml", "!KnovasConnectorKit/README.md", "!KnovasConnectorKit/src"}
+    assert {"**/__pycache__", "**/*.pyc", "**/*.egg-info"} <= set(lines)
+
+
+def test_the_requirements_pin_every_dependency_of_the_kit_inside_its_range():
+    """The kit is installed without its dependencies, so the component's requirements carry them: each one at a
+    version, or between bounds, that the kit's pyproject allows."""
+    import tomllib
+
+    from packaging.requirements import Requirement
+    from packaging.version import Version
+
+    wanted = [Requirement(d) for d in
+              tomllib.loads((KIT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]]
+    lines = (COMPONENT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    pins = {r.name.lower(): r for r in (Requirement(line.strip()) for line in lines
+                                        if line.strip() and not line.lstrip().startswith("#"))}
+    assert wanted
+    for dep in wanted:
+        pin = pins.get(dep.name.lower())
+        assert pin is not None, f"{dep.name} is not in the component's requirements"
+        for spec in pin.specifier:
+            if spec.operator in ("==", ">="):
+                assert dep.specifier.contains(spec.version), (str(pin), str(dep))
+            elif spec.operator == "<":
+                uppers = [Version(s.version) for s in dep.specifier if s.operator == "<"]
+                assert uppers and all(Version(spec.version) <= u for u in uppers), (str(pin), str(dep))

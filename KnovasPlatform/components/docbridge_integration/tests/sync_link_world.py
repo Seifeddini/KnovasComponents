@@ -99,9 +99,15 @@ def probe_job() -> dict:
             "actor": {"kind": "component", "id": "knovas-link"}, "args": {}}
 
 
+#: The connector kit the image installs (KnovasConnectorKit), for a subprocess that does not inherit pytest's path.
+KIT_SRC = Path(__file__).resolve().parents[4] / "KnovasConnectorKit" / "src"
+
+
 def runner_env() -> dict[str, str]:
-    """The runner's command line in a subprocess finds this component and brain-runner as in the image."""
-    return {"PYTHONPATH": os.pathsep.join([str(SYNC_SRC), *filter(None, [os.environ.get("PYTHONPATH")])])}
+    """The runner's command line in a subprocess finds this component, the connector kit and brain-runner as in the
+    image."""
+    return {"PYTHONPATH": os.pathsep.join([str(SYNC_SRC), str(KIT_SRC),
+                                           *filter(None, [os.environ.get("PYTHONPATH")])])}
 
 
 def build(tmp_path: Path, monkeypatch, *, github_access: str = "read_write", fetch: bool = True,

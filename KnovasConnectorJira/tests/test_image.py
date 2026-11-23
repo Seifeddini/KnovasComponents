@@ -39,8 +39,8 @@ def test_the_image_installs_the_one_kit_at_the_version_the_connector_pins():
     pyproject pins exactly that package's version (CI checks the built image's installed version against it too)."""
     import tomllib
 
-    assert not (PACKAGE / "vendor").exists()
-    assert not [p for p in PACKAGE.rglob("knovas_connector_kit") if "__pycache__" not in p.parts]
+    for root in (PACKAGE / "src", PACKAGE / "vendor"):          # a leftover __pycache__ folder is no copy
+        assert not [p for p in root.rglob("*") if "knovas_connector_kit" in p.parts and p.suffix in (".py", ".json")]
     deps = tomllib.loads((PACKAGE / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
     assert [d for d in deps if d.startswith("knovas-connector-kit")] == [f"knovas-connector-kit=={kit_version()}"]
     text = (PACKAGE / "Dockerfile").read_text(encoding="utf-8")

@@ -1,6 +1,6 @@
 """The GitHub connector of connector protocol 2.0 (draft; FEAT-2026-11-10-write-back C-3, BET-2026-11-write-back WB-12),
-built on the connector kit (``knovas_connector_kit``, vendored beside this package). Only while ``SYNC_PROTOCOL_V2``
-is on; protocol 1.x's fetch and write jobs (``github_jobs.py``) are unchanged.
+built on the connector kit (``knovas_connector_kit`` from KnovasConnectorKit, installed in the image). Only while
+``SYNC_PROTOCOL_V2`` is on; protocol 1.x's fetch and write jobs (``github_jobs.py``) are unchanged.
 
 Everything specific to GitHub lives here, none of it in the protocol (SPEC-write-back-16):
 

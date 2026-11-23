@@ -9,7 +9,9 @@ requires-python = ">=3.11"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# The connector kit for the sync component's tests (its image installs KnovasConnectorKit; the Platform's own image
+# does not, and tests/test_sync_component_github_v2.py checks that the Platform's code never imports it).
+pythonpath = ["src", "../../../KnovasConnectorKit/src"]
 addopts = "-q --tb=short"
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
