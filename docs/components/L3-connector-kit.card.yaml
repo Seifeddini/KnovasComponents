@@ -13,8 +13,6 @@ source_paths:
 - KnovasConnectorKit/src/knovas_connector_kit
 - KnovasConnectorKit/pyproject.toml
 - KnovasConnectorKit/requirements.txt
-- KnovasPlatform/components/sync_component/src/knovas_connector_kit
-- KnovasConnectorJira/vendor/knovas_connector_kit
 purpose: The base every connector of protocol v2 is built on, and the conformance suite a connector package passes
   before its declaration may name a property, so that a new kind of source is one connector package and no change to
   the Brain, Knovas Link, the runner or the Platform.
@@ -57,19 +55,19 @@ operations:
 - id: call.knovas_connector_kit.PROTOCOL
   name: PROTOCOL
   entrance: call
-  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/__init__.py#PROTOCOL
+  ref: KnovasConnectorKit/src/knovas_connector_kit/__init__.py#PROTOCOL
 - id: call.knovas_connector_kit.SUITE_VERSION
   name: SUITE_VERSION
   entrance: call
-  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/__init__.py#SUITE_VERSION
+  ref: KnovasConnectorKit/src/knovas_connector_kit/__init__.py#SUITE_VERSION
 - id: call.knovas_connector_kit.connector.Connector
   name: Connector - the base class a connector subclasses; handle(job) answers one job
   entrance: call
-  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/connector.py#Connector
+  ref: KnovasConnectorKit/src/knovas_connector_kit/connector.py#Connector
 - id: call.knovas_connector_kit.connector.outcome
   name: outcome - a result without its duration
   entrance: call
-  ref: KnovasPlatform/components/sync_component/src/knovas_connector_kit/connector.py#outcome
+  ref: KnovasConnectorKit/src/knovas_connector_kit/connector.py#outcome
 - id: cli.knovas_connector_kit.conformance.__main__
   name: python -m knovas_connector_kit.conformance MODULE:FACTORY - run the suite on a connector's harness
   entrance: cli
@@ -200,7 +198,11 @@ review:
   why: Proposed owner; one role per component is confirmed by a person (Software Map K4).
 - at: /operations
   why: The code reader sees only the suite's command line; the base class, the permit functions and the reference
-    gate become operations of their own when a connector package (the GitHub connector, Phase C) imports them.
+    gate become operations of their own when a connector package (the GitHub connector, Phase C) imports them. Since
+    2026-11-23 no connector carries a copy of the kit, and the code reader does not follow an import from another of
+    its roots (KnovasConnectorJira/src, sync_component/src into KnovasConnectorKit/src), so it no longer sees PROTOCOL,
+    SUITE_VERSION, Connector and outcome used; they stay listed by hand, and map-check's complete check reports
+    PROTOCOL and SUITE_VERSION as operations without a contract line.
 - at: L3-CONNECTOR-KIT/cli.knovas_connector_kit.conformance.__main__/L-1
   why: No evidence; a known limit stated in the protocol text's open questions.
 - at: L3-CONNECTOR-KIT/*/A-3
@@ -226,5 +228,7 @@ review:
     confirms whether that is compatible (nothing of v2 was released; the example, GitHub and Jira connectors pass).
     Extended again by the amendment D-24 - the grouping checks of preview_equals_receipt (grouping item).
 - at: /source_paths
-  why: Added 2026-11-10 for FEAT-2026-11-10-write-back J-4 - the copy under KnovasConnectorJira/vendor/ for the Jira
-    connector's image, byte for byte (KnovasConnectorJira/tests/test_image.py), as the sync component's copy.
+  why: Changed 2026-11-23 (the founder - one package) - the copies under KnovasConnectorJira/vendor/ (added
+    2026-11-10 for J-4) and sync_component/src/ are gone; the Jira connector's and the sync component's images are
+    built from the repository's root and install this package, and their tests import it from
+    KnovasConnectorKit/src. The operations' refs name this package instead of the sync component's copy.

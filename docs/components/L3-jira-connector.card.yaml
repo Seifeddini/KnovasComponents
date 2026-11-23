@@ -14,6 +14,7 @@ source_paths:
 - KnovasConnectorJira/pyproject.toml
 - KnovasConnectorJira/requirements.txt
 - KnovasConnectorJira/Dockerfile
+- KnovasConnectorJira/Dockerfile.dockerignore
 - KnovasConnectorJira/deploy/docker-compose.jira.yml
 purpose: Reads one Jira Cloud project's issues as record streams and carries out three actions on an issue
   (set_assignee, transition_issue, set_due_date) under the Brain's permits, behind the site's Knovas Link, so that
@@ -53,10 +54,12 @@ responsible_for:
   - KnovasConnectorJira/src/knovas_connector_jira/dump.py
   - KnovasConnectorJira/src/knovas_connector_jira/__main__.py
 - id: L3-JIRA-CONNECTOR/R-6
-  statement: Its image and its place at a site - built from its folder alone with a byte-for-byte copy of the kit, no
-    secret in it, its own user; the site file that adds it beside the Builder's install package.
+  statement: Its image and its place at a site - built from the repository's root with the connector kit installed
+    from KnovasConnectorKit (its own ignore file lets nothing else in), no secret in it, its own user; the site file
+    that adds it beside the Builder's install package.
   code:
   - KnovasConnectorJira/Dockerfile
+  - KnovasConnectorJira/Dockerfile.dockerignore
   - KnovasConnectorJira/deploy/docker-compose.jira.yml
 not_responsible_for:
 - Checking permits; Knovas Link checks them before the connector sees an act (the kit's base class re-checks only that
@@ -404,8 +407,9 @@ contract:
         - test_the_credential_and_the_issues_stay_off_standard_error
         - test_in_the_image_layout_the_dump_refuses_without_a_credential_before_any_request
     - id: L3-JIRA-CONNECTOR/cli.knovas_connector_jira.__main__/P-5
-      statement: The image is built from the package's folder alone with a byte-for-byte copy of the kit and the kit's
-        pins, holds no secret, runs as its own user and serves by default; at a site it runs beside Link from the site
+      statement: The image is built from the repository's root, its context limited to the connector's requirements
+        and source and the kit's package; it installs the one connector kit (KnovasConnectorKit, at the version the
+        connector's pyproject pins) with the kit's pins, holds no secret, runs as its own user and serves by default; at a site it runs beside Link from the site
         file - its own folder of the token volume read only, the internal and egress networks, credentials from its
         own knovas-jira.env only (the file the Builder names for a source of its kind; no other service reads it, so
         the sync component never holds the Jira credential), Link told LINK_PROTOCOL_V2 and LINK_COMPONENTS; in the
@@ -416,10 +420,11 @@ contract:
       - kind: test
         ref: KnovasConnectorJira/tests/test_image.py
         checks:
-        - test_the_vendored_kit_is_the_kit_byte_for_byte
+        - test_the_image_installs_the_one_kit_at_the_version_the_connector_pins
+        - test_the_build_context_holds_only_what_the_image_needs
         - test_the_image_installs_the_kits_pins_and_its_own
         - test_the_image_holds_no_secret_runs_as_its_own_user_and_serves_by_default
-        - test_in_the_image_layout_the_command_prints_the_declaration_from_the_vendored_kit
+        - test_in_the_image_layout_the_command_prints_the_declaration_from_the_kit
         - test_at_a_site_it_is_its_own_component_beside_link_with_the_site_credentials_only
         - test_the_site_file_names_the_builders_network_volume_and_link_address
         - test_in_the_repositorys_compose_file_it_is_off_unless_named_and_has_no_credential_unless_a_file_is_named
@@ -513,6 +518,10 @@ review:
 - at: L3-JIRA-CONNECTOR/cli.knovas_connector_jira.__main__/N-1
   why: New for J-4 - what serve needs at a site (Link's address, its token, LINK_PROTOCOL_V2); map-check reports a
     need added on a new operation; nothing consumed it before.
+- at: L3-JIRA-CONNECTOR/cli.knovas_connector_jira.__main__/P-5
+  why: Changed 2026-11-23 (the founder - one connector kit) - the image is built from the repository's root and
+    installs KnovasConnectorKit instead of carrying the copy under vendor/; its contents are otherwise the same (same
+    user, entry point, command and declaration). A person marks it compatible or not.
 - at: L3-JIRA-CONNECTOR/cli.knovas_connector_jira.__main__/P-3
   why: New for J-4 - the dump-stream interface a mapping run builds on (brain_mapping_local.sh jira on the
     KnowledgeBase side); a person confirms it as the stable interface.

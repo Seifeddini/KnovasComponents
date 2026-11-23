@@ -1,0 +1,3 @@
+# Contract files are pinned by their bytes (v2/contracts.lock, checked by contracts.py): keep LF on every checkout,
+# as KnovasLink/contracts/.gitattributes does for Link's copy. A CRLF checkout (Windows, core.autocrlf) fails the lock.
+* text eol=lf

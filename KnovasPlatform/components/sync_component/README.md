@@ -96,7 +96,8 @@ A new kind of source answers jobs with one function and one entry in `HANDLERS` 
 FEAT-2026-11-10-write-back C-3 ([the protocol](../../docs/connector-protocol-v2.md)). With `SYNC_PROTOCOL_V2=true`
 (and Knovas Link's `LINK_PROTOCOL_V2=true`) the component also registers the GitHub connector's declaration and
 answers `preview`, `act`, `reread` and `review_outcome` (`src/sync_component/github_v2.py`), built on the connector kit
-(a byte-for-byte copy under `src/knovas_connector_kit/`, because the image is built from this folder):
+(`KnovasConnectorKit`, which the image installs; it is built from the repository's root so that the kit is in its
+context, and `Dockerfile.dockerignore` lets nothing else in):
 
 - one action, `set_front_matter`: parameter `mapping` plus one optional parameter per fact a published mapping
   `writes`; brain-runner's compile-write decides what may change, as for the 1.x write job;

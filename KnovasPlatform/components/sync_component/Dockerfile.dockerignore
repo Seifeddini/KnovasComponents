@@ -1,0 +1,12 @@
+# The ignore file of Dockerfile beside it (BuildKit reads <Dockerfile>.dockerignore before the context's own). The
+# image is built from the repository's root, so everything is left out but what it needs: the component's requirements
+# and source, and the connector kit's package. No tests, no knovas.env, no secrets/, nothing else of the repository.
+*
+!KnovasPlatform/components/sync_component/requirements.txt
+!KnovasPlatform/components/sync_component/src
+!KnovasConnectorKit/pyproject.toml
+!KnovasConnectorKit/README.md
+!KnovasConnectorKit/src
+**/__pycache__
+**/*.pyc
+**/*.egg-info

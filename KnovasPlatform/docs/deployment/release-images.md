@@ -16,6 +16,12 @@ branch, and how a deployment takes them by digest (V1-G10; the Jira connector si
 `all` builds the four, `site` the last three. `<owner>` is the repository's owner in lower case. The package names are
 the image names the deployment already uses.
 
+- **Build context:** the Platform and Knovas Link are built from their own folder. The sync component and the Jira
+  connector are built from the repository's root (`docker build -f <their Dockerfile> .`), so that both install the
+  one connector kit, `KnovasConnectorKit`; a `Dockerfile.dockerignore` beside each Dockerfile lets only the image's
+  requirements, its source and the kit's package into that context. `release_image.sh` names the context and the
+  Dockerfile (`context`, `dockerfile`), the same ones `docker-compose.yml` builds with.
+
 - **Tags:** the first 12 characters of the commit, and the branch name made into a tag (`cl/x-y` → `cl-x-y`). Tags
   move with the next run; a deployment always names the **digest**.
 - **brain-runner:** the Platform (Brain Builder, Sync von GitHub) and the sync component install it from the private

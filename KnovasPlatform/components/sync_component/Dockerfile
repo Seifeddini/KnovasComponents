@@ -1,7 +1,10 @@
 # A sync component: one deployable connection between a company's source and its Brain (connector protocol v1).
-# Build (the mapping runner comes from the private knowledge base, read with a build secret that stays in no layer):
-#   docker build --secret id=kb_read_token,env=KB_READ_TOKEN -t sync-component:0.1.0 KnovasPlatform/components/sync_component
+# Build from the repository's root, so that the connector kit (KnovasConnectorKit) is in the context; the mapping runner
+# comes from the private knowledge base, read with a build secret that stays in no layer:
+#   docker build --secret id=kb_read_token,env=KB_READ_TOKEN -f KnovasPlatform/components/sync_component/Dockerfile \
+#     -t sync-component:0.1.0 .
 # or with the repository's compose file: docker compose --env-file knovas.env --profile sync-component build sync-component
+# Dockerfile.dockerignore beside this file lets only what the image needs into that context.
 
 # kustomize for the runner's kustomize_build extractor (V1-G6). Without it a kustomization is read as files, its
 # patches and components are not applied, and a mapping that needs them (a company's `runtime` mapping) is stopped.
@@ -34,7 +37,7 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
+COPY KnovasPlatform/components/sync_component/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # The same release of the runner as the Platform's image (docbridge_integration/Dockerfile). The component needs
@@ -52,7 +55,16 @@ RUN --mount=type=secret,id=kb_read_token,required=true \
 COPY --from=kustomize /usr/local/bin/kustomize /usr/local/bin/kustomize
 RUN kustomize version
 
-COPY src/ ./src/
+# The connector kit, the base of the GitHub connector of protocol 2.0 (src/sync_component/github_v2.py), from its own
+# folder. Its dependencies are pinned in requirements.txt above, so it is installed without them, and built with the
+# base image's setuptools (nothing more is downloaded). The contracts are checked against their lock here, so an image
+# whose contract files changed on the way (CRLF) is not built.
+COPY KnovasConnectorKit/ /tmp/knovas-connector-kit/
+RUN pip install --no-cache-dir --no-deps --no-build-isolation /tmp/knovas-connector-kit \
+    && rm -rf /tmp/knovas-connector-kit \
+    && python -c "from importlib.metadata import version; from knovas_connector_kit import connector, contracts; contracts.schemas(); print('kit', version('knovas-connector-kit'))"
+
+COPY KnovasPlatform/components/sync_component/src/ ./src/
 ENV PYTHONPATH=/app/src PYTHONUNBUFFERED=1 SYNC_DATA_DIR=/data
 
 RUN useradd --system --uid 10001 component && mkdir -p /data && chown component /data

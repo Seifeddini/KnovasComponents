@@ -20,7 +20,7 @@ responsible_for:
   code:
   - .github/workflows/release-images.yml
 - id: L2-IMAGE-RELEASE/R-3
-  statement: Names, per image, the package, the build context and the two tags (release_image.sh).
+  statement: Names, per image, the package, the build context, the Dockerfile and the two tags (release_image.sh).
   code:
   - scripts/ci/release_image.sh
 not_responsible_for:
@@ -33,8 +33,8 @@ operations:
   entrance: job
   ref: .github/workflows/release-images.yml
 - id: release-image-helper
-  name: release_image.sh IMAGE OWNER BRANCH COMMIT, prints package, repository, context, runner, module, short_tag and
-    branch_tag as KEY=value lines
+  name: release_image.sh IMAGE OWNER BRANCH COMMIT, prints package, repository, context, dockerfile, runner, module,
+    short_tag and branch_tag as KEY=value lines
   entrance: cli
   ref: scripts/ci/release_image.sh
 contract:
@@ -164,6 +164,16 @@ contract:
         ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
         checks:
         - test_the_branch_tag_is_a_valid_docker_tag
+    - id: L2-IMAGE-RELEASE/release-image-helper/P-3
+      statement: Each image is built (docker build -f DOCKERFILE CONTEXT) from the context and with the Dockerfile the
+        repository's compose file builds it with, the Dockerfile inside the context; the sync component and the Jira
+        connector from the repository's root, so that the connector kit is in their context.
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_release_images_workflow.py
+        checks:
+        - test_the_release_builds_each_image_as_the_compose_file_does
 uses:
 - component: L3-KNOVAS-LINK
   expects:
@@ -171,14 +181,15 @@ uses:
   method: docker build of the component's folder
 - component: L3-SYNC-COMPONENT
   expects:
-  - KnovasPlatform/components/sync_component/Dockerfile builds the sync-component image and installs brain-runner from
-    the kb_read_token build secret.
-  method: docker build of the component's folder
+  - KnovasPlatform/components/sync_component/Dockerfile builds the sync-component image from the repository's root
+    (the connector kit installed from KnovasConnectorKit) and installs brain-runner from the kb_read_token build
+    secret.
+  method: docker build of the repository's root with the component's Dockerfile (-f)
 - component: L3-JIRA-CONNECTOR
   expects:
-  - KnovasConnectorJira/Dockerfile builds the jira-connector image from its folder alone (the kit vendored), and
-    `import knovas_connector_jira.connector` gives its VERSION.
-  method: docker build of the component's folder
+  - KnovasConnectorJira/Dockerfile builds the jira-connector image from the repository's root (the connector kit
+    installed from KnovasConnectorKit), and `import knovas_connector_jira.connector` gives its VERSION.
+  method: docker build of the repository's root with the component's Dockerfile (-f)
 - component: L2-BRAIN-BUILDER
   expects:
   - The site package the Builder writes names the images knovas-link and sync-component (builder/sites.py CONTAINERS),
@@ -214,3 +225,7 @@ review:
     compatible or not.
 - at: L2-IMAGE-RELEASE/release-images/P-4
   why: Changed for J-4 - the summary also names JIRA_CONNECTOR_DIGEST; a person marks it compatible or not.
+- at: L2-IMAGE-RELEASE/release-image-helper/P-3
+  why: New 2026-11-23 (the founder - one connector kit) - the helper names each image's Dockerfile, and the sync
+    component and the Jira connector are built from the repository's root so that they install KnovasConnectorKit
+    instead of carrying a copy. A person confirms the line.

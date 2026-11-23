@@ -297,15 +297,20 @@ def test_a_source_that_only_reads_is_never_written():
     assert (res["status"], res["code"]) == ("refused", "write_disabled") and h.writes("pages/a.md") == 0
 
 
-def test_the_vendored_kit_is_the_kit_byte_for_byte():
-    """The image's build context is the component's folder, so it carries a copy of the kit; it must be the kit."""
-    kit = Path(__file__).resolve().parents[4] / "KnovasConnectorKit" / "src" / "knovas_connector_kit"
-    copy = SYNC_SRC / "knovas_connector_kit"
-    files = lambda root: sorted(p.relative_to(root) for p in root.rglob("*")  # noqa: E731
-                                if p.is_file() and "__pycache__" not in p.parts)
-    assert files(copy) == files(kit)
-    for rel in files(kit):
-        assert (copy / rel).read_bytes() == (kit / rel).read_bytes(), rel
+def test_the_component_runs_on_the_one_connector_kit():
+    """No copy of the kit beside the component: its image installs KnovasConnectorKit (built from the repository's
+    root, test_sync_component_image.py), and these tests import the kit from there (pyproject.toml's pythonpath). The
+    Platform's own image does not install the kit, so the Platform's code never imports it."""
+    import knovas_connector_kit
+
+    kit = Path(__file__).resolve().parents[4] / "KnovasConnectorKit" / "src"
+    assert not [p for p in (SYNC_SRC / "knovas_connector_kit").rglob("*") if p.suffix in (".py", ".json", ".lock")]
+    assert Path(knovas_connector_kit.__file__).resolve().is_relative_to(kit.resolve())
+    platform_src = Path(__file__).resolve().parents[1] / "src"
+    importers = [p.relative_to(platform_src).as_posix() for p in platform_src.rglob("*.py")
+                 if re.search(r"^\s*(from|import)\s+knovas_connector_kit\b",
+                              p.read_text(encoding="utf-8", errors="replace"), re.M)]
+    assert importers == []
 
 
 def test_sync_protocol_v2_adds_the_write_path_and_keeps_reading_fetch_and_the_1x_jobs(tmp_path):
