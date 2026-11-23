@@ -18,6 +18,8 @@ approvals; fetching originals and writing changes back as pull requests): start 
 [KnovasPlatform/docs/connection-layer.md](KnovasPlatform/docs/connection-layer.md). Built on this branch, not yet
 released.
 
+**Setting up the Knovas Brain for a client:** the step-by-step guide is [Client_Brain_Setup](https://github.com/Seifeddini/KnowledgeBase/blob/develop/docs/Docs/08_RUNBOOKS/Semantix_Runbooks/Ops/Client_Brain_Setup.md); how source data becomes the Brain, level by level: [From source to Brain](https://github.com/Seifeddini/KnowledgeBase/blob/develop/docs/Docs/04_COMPONENTS/source_to_brain_mapping.md) (both in KnowledgeBase).
+
 **Send to clients:** [docs/client/](docs/client/) — one page, Demo-Kanzlei from files to search.
 
 **Typical setup:** ingest with Knovas Connector, then deploy KnovasPlatform for search. Both need credentials from Knovas (mTLS, tokens).
