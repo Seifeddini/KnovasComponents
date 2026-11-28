@@ -1,0 +1,33 @@
+id: kanzleidb-ablauf-mandat
+version: 1
+description: >-
+  Weisung 1 (Mandatsannahme) against every matter opened since the Weisung and kept electronically: the
+  matter's step is the first whose evidence (r.fields.belege: the matter's document types and invoice kinds) is
+  missing, else the final step. The views then list what is missing at that step.
+edit_policy: source_owned
+freshness: {window: 7 d}
+deletion_guard: {max_retire_share: 0.2}
+source: {extractor: records, glob: "*", select: "@", as: r, options: {record_kind: akte}}
+emits:
+# Weisung 1: matters opened since the Weisung (2023-03-11) and kept electronically
+- type: Akte
+  identify: [key]
+  key: "r.fields.elektronisch == 'ja' && to_number(replace(str(r.fields.eroeffnet_am), '-', '')) >= `20230311` && r.external_id || null"
+  name: left(str(r.fields.name), `500`)
+  relations:
+  - {relation: instance_of, to_type: Process, to_key: "'PROC-mandatsannahme'"}
+  state:
+    step: >-
+      !contains(r.fields.belege || `[]`, 'Konfliktpruefung') && 'konfliktpruefung' ||
+      !contains(r.fields.belege || `[]`, 'Mandatsvereinbarung') && 'mandatsvereinbarung' ||
+      !contains(r.fields.belege || `[]`, 'Vollmacht') && 'vollmacht' ||
+      !(contains(r.fields.belege || `[]`, 'RE-V') || contains(r.fields.belege || `[]`, 'Kostenvorschuss')) && 'kostenvorschuss' ||
+      'angenommen'
+    relation: in_state
+    to_type: ProcessStep
+    to_key: "join('', ['STEP-mandatsannahme-', step])"
+    origin: logical
+    since: r.fields.eroeffnet_am
+    fact: annahme_schritt
+    history_fact: annahme_verlauf
+    priority: 10

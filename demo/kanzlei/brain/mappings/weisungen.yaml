@@ -1,0 +1,51 @@
+id: weisungen
+version: 1
+description: ontology/generated/process-definitions.json (from processes.yaml) -> Process and ProcessStep, one per Weisung and Schritt.
+edit_policy: source_owned
+freshness:
+  window: 30 d
+deletion_guard:
+  max_retire_share: 0.5
+source:
+  extractor: json_file
+  path: ontology/generated/process-definitions.json
+  select: data.processes[?key]
+  as: x
+  also:
+  - extractor: json_file
+    path: ontology/generated/process-definitions.json
+    select: 'data.processes[?key].extend(steps, {p_name: name, p_key: key, n: length(steps), t: extend(transitions, {slug: replace(key, ''PROC-'', '''')})})[]'
+emits:
+- type: Process
+  identify: [key]
+  key: x.steps && x.key || null
+  name: left(str(x.name), `500`)
+  description: left(str(x.description), `2000`)
+  facts:
+    instance_types: {value: "join(', ', x.instance_types)", priority: 10}
+    owner_role: {value: str(x.owner_role), priority: 10}
+    governing_fact: {value: str(x.governing_fact), priority: 10}
+    status_map: {value: json(x.status_map), priority: 10}
+    transitions: {value: json(x.transitions), priority: 10}
+    context: {value: "x.context && json(x.context) || null", priority: 10}
+    source: {value: "'ontology/processes.yaml'", priority: 10}
+  relations:
+  - {relation: has_step, to_type: ProcessStep, to_key: "x.steps[].key", origin: canonical}
+- type: ProcessStep
+  identify: [key]
+  key: x.p_key && x.key || null
+  name: "left(join(': ', [str(x.p_name), str(x.name)]), `500`)"
+  description: "left(join('', [str(x.description || x.name), ' (Schritt ', str(x.order), ' von ', str(x.n), ')']), `2000`)"
+  facts:
+    order: {value: str(x.order), priority: 10}
+    owner_role: {value: "x.owner_role && str(x.owner_role) || null", priority: 10}
+    resting: {value: "x.resting && 'yes' || 'no'", priority: 10}
+    requires: {value: "length(x.requires || `[]`) > `0` && json(x.requires) || null", priority: 10}
+    produces: {value: "length(x.produces || `[]`) > `0` && json(x.produces) || null", priority: 10}
+    exit_criteria: {value: "length(x.exit_criteria || `[]`) > `0` && join(', ', x.exit_criteria) || null", priority: 10}
+    source: {value: "'ontology/processes.yaml'", priority: 10}
+  relations:
+  - {relation: transitions_to, to_type: ProcessStep, origin: canonical,
+     to_key: "match(x.t, 'from', [x.id])[?!rework].join('', ['STEP-', slug, '-', to])"}
+  - {relation: reworks_to, to_type: ProcessStep, origin: canonical,
+     to_key: "match(x.t, 'from', [x.id])[?rework].join('', ['STEP-', slug, '-', to])"}

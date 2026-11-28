@@ -1,0 +1,207 @@
+# Quarzfels Advokatur: what the firm's Brain knows about (the ontology's types).
+#
+# Written by a Brain builder from the firm's sources: the practice software's database (KanzleiDB),
+# the AutoDoc store, the common drive (Weisungen, Kanzlei-ABC). Names are the firm's own words.
+# Keys: an Akte by its Aktenzeichen (2024-017), everything else by the practice software's number
+# with a prefix, so a key never changes when a name does.
+version: 1
+common_attributes:
+- {name: key, datatype: text, required: true, description: "Stabiler Schlüssel: Aktenzeichen (2024-017) oder Nummer der Praxissoftware mit Präfix (ADR-, MA-, FR-, TE-, RE-, DOK-)."}
+- {name: source, datatype: text, description: "Quelle, aus der der Knoten stammt (KanzleiDB-Tabelle, Datei)."}
+- {name: source_key, datatype: text, description: "Schlüssel des Eintrags in seiner Quelle."}
+- {name: mapping, datatype: text, description: "Die Zuordnung (mapping), die den Knoten schreibt."}
+- {name: in_source, datatype: text, description: "false, sobald die Quelle den Eintrag nicht mehr führt."}
+- {name: last_seen, datatype: date, description: "Letzter Tag, an dem die Quelle den Eintrag führte."}
+- {name: source_version, datatype: text, description: "Version des Eintrags in der Quelle."}
+- {name: provenance, datatype: text, description: "Wer welchen Fakt geschrieben hat (Buchhaltung des Runners)."}
+node_types:
+
+- name: Kanzlei
+  description: Die Kanzlei selbst, Wurzel der Übersicht.
+  id_prefixes: ['^KANZLEI$']
+  attributes:
+  - {name: adresse, datatype: text}
+
+- name: Rechtsgebiet
+  description: Rechtsgebiet einer Akte, wie es die Praxissoftware führt.
+  id_prefixes: ['^RG-[0-9]+$']
+  attributes: []
+
+- name: Mitarbeiter
+  description: Anwältin, Anwalt oder Mitarbeitende des Sekretariats, mit Kürzel (MB, AS, ...).
+  id_prefixes: ['^MA-[A-Z]{2,3}$']
+  attributes:
+  - {name: kuerzel, datatype: text}
+  - {name: funktion, datatype: text}
+  - {name: rolle, datatype: enum, enum_values: [Partner, Anwalt, Sekretariat]}
+  - {name: aktiv, datatype: enum, enum_values: ['ja', 'nein']}
+  - {name: eintritt, datatype: date}
+  - {name: austritt, datatype: date}
+  - {name: stundenansatz, datatype: text}
+  - {name: offene_akten, datatype: text, description: "Offene Akten, für die sie oder er verantwortlich ist."}
+  - {name: offene_fristen, datatype: text, description: "Unerledigte Fristen, für die sie oder er verantwortlich ist."}
+
+- name: Partei
+  description: >-
+    Jede Person oder Firma, die in einer Akte vorkommt: Mandantschaft, Gegenpartei, Gegenanwalt, Gericht,
+    Versicherung, Zeuge, Experte. Eine Partei, mehrere Rollen über alle Akten: das ist die Konfliktprüfung.
+  id_prefixes: ['^ADR-[0-9]+$']
+  attributes:
+  - {name: adresstyp, datatype: enum, enum_values: [Person, Firma, Anwalt, Behörde]}
+  - {name: anrede, datatype: text}
+  - {name: titel, datatype: text}
+  - {name: vorname, datatype: text}
+  - {name: nachname, datatype: text}
+  - {name: firma, datatype: text}
+  - {name: strasse, datatype: text}
+  - {name: plz, datatype: text}
+  - {name: ort, datatype: text}
+  - {name: telefon_geschaeft, datatype: text, description: "Geschäftliche Nummer aus der Adressverwaltung; private Nummern führt die Kanzlei nicht."}
+  - {name: email, datatype: text}
+  - {name: inaktiv, datatype: enum, enum_values: ['ja', 'nein']}
+  - {name: bemerkung, datatype: text}
+  - {name: erfasst_am, datatype: date}
+  - {name: anzahl_akten, datatype: text, description: "In wie vielen Akten die Partei vorkommt, in jeder Rolle."}
+  - {name: als_mandant, datatype: text, description: "Akten, in denen sie Mandantschaft ist."}
+  - {name: als_gegenpartei, datatype: text, description: "Akten, in denen sie Gegenpartei ist."}
+  - {name: stammkunde, datatype: enum, enum_values: ['ja', 'nein'], description: "Kanzlei-ABC: Mandantschaft mit mehr als drei Akten."}
+
+- name: Namensgruppe
+  description: >-
+    Adressen, deren Namen gleich lauten, wenn man Schreibweise, Rechtsform und Umlaute weglässt. Die
+    Praxissoftware führt dieselbe Partei oft zweimal; die Konfliktprüfung muss beide finden.
+  id_prefixes: ['^NAME-[a-z0-9-]+$']
+  attributes:
+  - {name: normalform, datatype: text}
+  - {name: anzahl_adressen, datatype: text}
+
+- name: Akte
+  description: Ein Mandat der Kanzlei mit allem, was dazugehört. Schlüssel ist das Aktenzeichen (AZ).
+  id_prefixes: ['^[0-9]{4}-[0-9]{3}$']
+  attributes:
+  - {name: aktenzeichen, datatype: text}
+  - {name: bezeichnung, datatype: text}
+  - {name: status, datatype: enum, enum_values: [offen, sistiert, abgeschlossen]}
+  - {name: eroeffnet_am, datatype: date}
+  - {name: abgeschlossen_am, datatype: date}
+  - {name: streitwert, datatype: text}
+  - {name: honoraransatz, datatype: text}
+  - {name: honorarform, datatype: text, description: "Aus der Bemerkung der Akte, etwa Pauschalhonorar."}
+  - {name: sperrakte, datatype: enum, enum_values: ['ja', 'nein'], description: "Kanzlei-ABC: nur das Mandatsteam kann die Akte öffnen."}
+  - {name: schranke, datatype: enum, enum_values: ['ja', 'nein'], description: "Kanzlei-ABC: eine Person ist von der Akte ausgeschlossen (Informationsschranke)."}
+  - {name: archiv_nr, datatype: text}
+  - {name: bemerkung, datatype: text}
+  - {name: geschaeftsnummer_gericht, datatype: text}
+  - {name: referenz_mandant, datatype: text}
+  - {name: rechtsschutz_police, datatype: text}
+  - {name: akquise_durch, datatype: text}
+  - {name: archivschachtel, datatype: text}
+  - {name: stunden_total, datatype: text, description: "Erfasste Stunden über alle Leistungen."}
+  - {name: leistungen_chf, datatype: text, description: "Wert aller erfassten Leistungen."}
+  - {name: nicht_verrechnet_chf, datatype: text, description: "Erfasste, verrechenbare Leistungen ohne Rechnung."}
+  - {name: verrechnet_chf, datatype: text, description: "Total aller Honorarnoten."}
+  - {name: offen_chf, datatype: text, description: "Offener Betrag aus Honorarnoten und Kostenvorschüssen (offen oder gemahnt)."}
+  - {name: gemahnt, datatype: text, description: "Gemahnte Rechnungen."}
+  - {name: offene_fristen, datatype: text}
+  - {name: naechste_frist, datatype: date}
+  - {name: naechste_frist_art, datatype: text}
+  - {name: ampel, datatype: enum, enum_values: [rot, gelb, grün], description: "Kanzlei-ABC: rote Akte = Frist in den nächsten zehn Tagen; grüne Akte = ohne laufende Frist."}
+  - {name: letzte_leistung, datatype: date}
+  - {name: anzahl_dokumente, datatype: text}
+  - {name: elektronisch, datatype: enum, enum_values: ['ja', 'nein'], description: "Die Akte wird elektronisch in AutoDoc geführt (Dokumente, die Knovas lesen kann)."}
+  - {name: belege, datatype: text, description: "Welche Belege der Weisungen die Akte hat (Dokumenttypen und Rechnungsarten)."}
+  - {name: annahme_schritt, datatype: text}
+  - {name: annahme_verlauf, datatype: text}
+  - {name: faktura_schritt, datatype: text}
+  - {name: faktura_verlauf, datatype: text}
+  - {name: rechtsschrift_schritt, datatype: text}
+  - {name: rechtsschrift_verlauf, datatype: text}
+  - {name: abschluss_schritt, datatype: text}
+  - {name: abschluss_verlauf, datatype: text}
+
+- name: Frist
+  description: Eine Frist der Fristenkontrolle (Gerichtsfrist, Rechtsmittelfrist, Verjährung, Zahlungsfrist, Wiedervorlage, Vertragsfrist).
+  id_prefixes: ['^FR-[0-9]+$']
+  attributes:
+  - {name: datum, datatype: date}
+  - {name: fristart, datatype: text}
+  - {name: text, datatype: text}
+  - {name: erledigt, datatype: enum, enum_values: ['ja', 'nein']}
+  - {name: erledigt_am, datatype: date}
+  - {name: erfasst_am, datatype: date}
+  - {name: rot, datatype: enum, enum_values: ['ja', 'nein'], description: "Unerledigt und in den nächsten zehn Tagen fällig."}
+  - {name: verpasst, datatype: enum, enum_values: ['ja', 'nein'], description: "Unerledigt und das Datum ist vorbei."}
+  - {name: kontroll_schritt, datatype: text}
+  - {name: kontroll_verlauf, datatype: text}
+
+- name: Termin
+  description: Besprechung, Verhandlung oder interner Termin zu einer Akte.
+  id_prefixes: ['^TE-[0-9]+$']
+  attributes:
+  - {name: beginn, datatype: date}
+  - {name: zeit, datatype: text}
+  - {name: ende, datatype: text}
+  - {name: terminart, datatype: enum, enum_values: [Besprechung, Verhandlung, Intern]}
+  - {name: betreff, datatype: text}
+  - {name: ort, datatype: text}
+
+- name: Rechnung
+  description: Honorarnote (HN) oder Kostenvorschuss (KV) einer Akte.
+  id_prefixes: ['^RE-[0-9]+$']
+  attributes:
+  - {name: rechnungsart, datatype: enum, enum_values: [Honorarnote, Kostenvorschuss]}
+  - {name: datum, datatype: date}
+  - {name: honorar, datatype: text}
+  - {name: auslagen, datatype: text}
+  - {name: mwst_satz, datatype: text}
+  - {name: total, datatype: text}
+  - {name: zahlstatus, datatype: enum, enum_values: [offen, gemahnt, bezahlt, abgeschrieben]}
+  - {name: bezahlt_am, datatype: date}
+  - {name: tage_offen, datatype: text, description: "Tage seit dem Rechnungsdatum, solange offen oder gemahnt."}
+
+- name: Dokument
+  description: Ein Dokument der elektronischen Akte in AutoDoc, mit seinem Dokumenttyp aus der Praxissoftware.
+  id_prefixes: ['^DOK-[0-9]+$']
+  attributes:
+  - {name: doktyp, datatype: text}
+  - {name: bezeichnung, datatype: text}
+  - {name: dateiname, datatype: text}
+  - {name: pfad, datatype: text, description: "Pfad im AutoDoc-Speicher, wie ihn Knovas als Zeiger führt."}
+  - {name: erstellt_am, datatype: date}
+  - {name: groesse, datatype: text}
+  - {name: lesbar, datatype: enum, enum_values: ['ja', 'nein'], description: "Ein Format, das Knovas liest (docx, pdf, txt, msg, xlsx)."}
+
+- name: Begriff
+  description: Ein Begriff oder eine Abkürzung aus dem Kanzlei-ABC.
+  id_prefixes: ['^BEGRIFF-[a-z0-9-]+$']
+  attributes:
+  - {name: begriff, datatype: text}
+  - {name: bedeutung, datatype: text}
+  - {name: stand, datatype: date}
+
+- name: Process
+  description: Eine Weisung der Kanzlei als Ablauf mit Schritten (Definition).
+  meta: true
+  id_prefixes: ['^PROC-[a-z-]+$']
+  attributes:
+  - {name: governing_fact, datatype: text}
+  - {name: status_map, datatype: text}
+  - {name: transitions, datatype: text}
+  - {name: rules, datatype: text}
+  - {name: owner_role, datatype: text}
+  - {name: instance_types, datatype: text}
+  - {name: context, datatype: text}
+  - {name: weisung, datatype: text}
+  - {name: stand, datatype: date}
+
+- name: ProcessStep
+  description: Ein Schritt einer Weisung, mit den Belegen, die er verlangt.
+  meta: true
+  id_prefixes: ['^STEP-[a-z-]+-[a-z-]+$']
+  attributes:
+  - {name: owner_role, datatype: text}
+  - {name: order, datatype: text}
+  - {name: resting, datatype: enum, enum_values: ['yes', 'no']}
+  - {name: produces, datatype: text}
+  - {name: requires, datatype: text}
+  - {name: exit_criteria, datatype: text}

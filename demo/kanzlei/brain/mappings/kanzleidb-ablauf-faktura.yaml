@@ -1,0 +1,28 @@
+id: kanzleidb-ablauf-faktura
+version: 1
+description: >-
+  Weisung 4 (Fakturierung) against every electronic matter: nothing billed yet -> leistungen; an invoice open
+  or reminded -> zahlungskontrolle; everything billed is paid or written off -> bezahlt.
+edit_policy: source_owned
+freshness: {window: 7 d}
+deletion_guard: {max_retire_share: 0.2}
+source: {extractor: records, glob: "*", select: "@", as: r, options: {record_kind: akte}}
+emits:
+- type: Akte
+  identify: [key]
+  key: "r.fields.elektronisch == 'ja' && r.external_id || null"
+  name: left(str(r.fields.name), `500`)
+  relations:
+  - {relation: instance_of, to_type: Process, to_key: "'PROC-fakturierung'"}
+  state:
+    step: >-
+      to_number(r.fields.verrechnet_chf || '0') == `0` && 'leistungen' ||
+      to_number(r.fields.offen_chf || '0') > `0` && 'zahlungskontrolle' ||
+      'bezahlt'
+    relation: in_state
+    to_type: ProcessStep
+    to_key: "join('', ['STEP-fakturierung-', step])"
+    origin: logical
+    fact: faktura_schritt
+    history_fact: faktura_verlauf
+    priority: 10

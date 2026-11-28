@@ -1,0 +1,30 @@
+id: kanzleidb-ablauf-abschluss
+version: 1
+description: >-
+  Weisung 5 (Aktenabschluss) against every closed electronic matter: the first step whose evidence is missing
+  (Erledigung, Abschlussmitteilung, Schlussrechnung), else archiviert.
+edit_policy: source_owned
+freshness: {window: 7 d}
+deletion_guard: {max_retire_share: 0.2}
+source: {extractor: records, glob: "*", select: "@", as: r, options: {record_kind: akte}}
+emits:
+- type: Akte
+  identify: [key]
+  key: "r.fields.elektronisch == 'ja' && r.fields.status == 'abgeschlossen' && r.external_id || null"
+  name: left(str(r.fields.name), `500`)
+  relations:
+  - {relation: instance_of, to_type: Process, to_key: "'PROC-aktenabschluss'"}
+  state:
+    step: >-
+      !(contains(r.fields.belege || `[]`, 'Urteil') || contains(r.fields.belege || `[]`, 'Entscheid') || contains(r.fields.belege || `[]`, 'Vergleich')) && 'erledigung' ||
+      !contains(r.fields.belege || `[]`, 'Abschlussmitteilung') && 'abschlussmitteilung' ||
+      !contains(r.fields.belege || `[]`, 'RE-R') && 'schlussrechnung' ||
+      'archiviert'
+    relation: in_state
+    to_type: ProcessStep
+    to_key: "join('', ['STEP-aktenabschluss-', step])"
+    origin: logical
+    since: r.fields.abgeschlossen_am
+    fact: abschluss_schritt
+    history_fact: abschluss_verlauf
+    priority: 10

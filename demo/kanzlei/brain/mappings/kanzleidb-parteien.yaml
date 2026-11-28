@@ -1,0 +1,45 @@
+id: kanzleidb-parteien
+version: 1
+description: KanzleiDB ADRESSEN -> Partei (with its counts across all matters), and the same-name groups the conflict check needs.
+edit_policy: source_owned
+freshness: {window: 7 d}
+deletion_guard: {max_retire_share: 0.05}
+source: {extractor: records, glob: "*", select: "@", as: r}
+emits:
+- type: Partei
+  identify: [key]
+  key: "r.record_kind == 'partei' && r.external_id || null"
+  name: left(str(r.fields.name), `500`)
+  description: "left(join('', [str(r.fields.adresstyp), ', ', str(r.fields.ort || '-'), '; in ', str(r.fields.anzahl_akten), ' Akten (', str(r.fields.als_mandant), ' als Mandantschaft, ', str(r.fields.als_gegenpartei), ' als Gegenpartei)']), `2000`)"
+  facts:
+    adresstyp: {value: r.fields.adresstyp, priority: 10}
+    anrede: {value: r.fields.anrede, priority: 10}
+    titel: {value: r.fields.titel, priority: 10}
+    vorname: {value: r.fields.vorname, priority: 10}
+    nachname: {value: r.fields.nachname, priority: 10}
+    firma: {value: r.fields.firma, priority: 10}
+    strasse: {value: r.fields.strasse, priority: 10}
+    plz: {value: r.fields.plz, priority: 10}
+    ort: {value: r.fields.ort, priority: 10}
+    telefon_geschaeft: {value: r.fields.telefon_geschaeft, priority: 10}
+    email: {value: r.fields.email, priority: 10}
+    inaktiv: {value: r.fields.inaktiv, priority: 10}
+    bemerkung: {value: r.fields.bemerkung, priority: 10}
+    erfasst_am: {value: r.fields.erfasst_am, priority: 10}
+    anzahl_akten: {value: r.fields.anzahl_akten, priority: 10}
+    als_mandant: {value: r.fields.als_mandant, priority: 10}
+    als_gegenpartei: {value: r.fields.als_gegenpartei, priority: 10}
+    stammkunde: {value: r.fields.stammkunde, priority: 10}
+    source: {value: "'KanzleiDB ADRESSEN'", priority: 10}
+    source_key: {value: r.external_id, priority: 10}
+  relations:
+  - {relation: gleicher_name, to_type: Namensgruppe, to_key: "r.links[?relation=='gleicher_name'].external_id"}
+- type: Namensgruppe
+  identify: [key]
+  key: "r.record_kind == 'namensgruppe' && r.external_id || null"
+  name: "left(join('', ['Name «', str(r.fields.normalform), '»']), `500`)"
+  description: "join('', [str(r.fields.anzahl_adressen), ' Adressen mit diesem Namen in Normalform: vermutlich dieselbe Partei, mehrfach erfasst.'])"
+  facts:
+    normalform: {value: r.fields.normalform, priority: 10}
+    anzahl_adressen: {value: r.fields.anzahl_adressen, priority: 10}
+    source: {value: "'KanzleiDB ADRESSEN (Normalform der Namen)'", priority: 10}

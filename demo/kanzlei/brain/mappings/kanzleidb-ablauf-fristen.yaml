@@ -1,0 +1,26 @@
+id: kanzleidb-ablauf-fristen
+version: 1
+description: >-
+  Weisung 2 (Fristenkontrolle) against every open deadline that is not itself a Wiedervorlage: overseen when a
+  Wiedervorlage lies five working days or more before it and a person is responsible, else erfasst.
+edit_policy: source_owned
+freshness: {window: 7 d}
+deletion_guard: {max_retire_share: 0.3}
+source: {extractor: records, glob: "*", select: "@", as: r, options: {record_kind: frist}}
+emits:
+- type: Frist
+  identify: [key]
+  key: "r.fields.erledigt == 'nein' && r.fields.ist_wiedervorlage == 'nein' && r.external_id || null"
+  name: left(str(r.fields.name), `500`)
+  relations:
+  - {relation: instance_of, to_type: Process, to_key: "'PROC-fristenkontrolle'"}
+  state:
+    step: "r.fields.wiedervorlage == 'ja' && r.fields.hat_verantwortung == 'ja' && 'ueberwacht' || 'erfasst'"
+    relation: in_state
+    to_type: ProcessStep
+    to_key: "join('', ['STEP-fristenkontrolle-', step])"
+    origin: logical
+    since: r.fields.erfasst_am
+    fact: kontroll_schritt
+    history_fact: kontroll_verlauf
+    priority: 10

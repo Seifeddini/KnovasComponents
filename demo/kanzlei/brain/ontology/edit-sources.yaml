@@ -1,0 +1,18 @@
+# Where each fact is corrected: in the firm's sources, never in the Brain.
+types:
+  Akte: {editable: true, source: "Praxissoftware (KanzleiDB AKTEN)", key_path: Akte}
+  Partei: {editable: true, source: "Praxissoftware, Adressverwaltung (KanzleiDB ADRESSEN)", key_path: Adresse}
+  Frist: {editable: true, source: "Praxissoftware, Fristenkontrolle (KanzleiDB FRISTEN)", key_path: Frist}
+  Termin: {editable: true, source: "Praxissoftware, Agenda (KanzleiDB TERMINE)", key_path: Termin}
+  Rechnung: {editable: true, source: "Praxissoftware, Fakturierung (KanzleiDB RECHNUNGEN)", key_path: Rechnung}
+  Dokument: {editable: true, source: "AutoDoc (KanzleiDB DOKUMENTE)", key_path: Dokument}
+  Mitarbeiter: {editable: true, source: "Praxissoftware (KanzleiDB MITARBEITER)", key_path: Mitarbeiter}
+  Begriff: {editable: true, source: "Kanzlei-ABC (Ablage G, 02-Organisation)", key_path: Begriff}
+  Process: {editable: true, source: "Weisungen (Ablage G, 02-Organisation/Weisungen)", key_path: Weisung}
+facts:
+  '*.annahme_schritt': {editable: false, source: loader, key_path: '-', reason: aus den Belegen der Akte abgeleitet, fix_at: Dokumente der Akte}
+  '*.faktura_schritt': {editable: false, source: loader, key_path: '-', reason: aus den Rechnungen abgeleitet, fix_at: Rechnungen}
+  '*.rechtsschrift_schritt': {editable: false, source: loader, key_path: '-', reason: aus den Belegen der Akte abgeleitet, fix_at: Dokumente der Akte}
+  '*.abschluss_schritt': {editable: false, source: loader, key_path: '-', reason: aus den Belegen der Akte abgeleitet, fix_at: Dokumente der Akte}
+  '*.kontroll_schritt': {editable: false, source: loader, key_path: '-', reason: aus der Fristenkontrolle abgeleitet, fix_at: Fristen}
+  'Akte.ampel': {editable: false, source: loader, key_path: '-', reason: aus den offenen Fristen berechnet, fix_at: Fristen}

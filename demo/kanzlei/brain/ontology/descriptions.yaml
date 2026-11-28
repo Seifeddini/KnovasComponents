@@ -1,0 +1,14 @@
+types:
+  Kanzlei: {de: Kanzlei, en: Firm, text: "Quarzfels Advokatur, Zürich."}
+  Rechtsgebiet: {de: Rechtsgebiet, en: Field of law, text: "Rechtsgebiet einer Akte."}
+  Mitarbeiter: {de: Mitarbeiterin/Mitarbeiter, en: Staff member, text: "Anwältin, Anwalt oder Sekretariat, mit Kürzel."}
+  Partei: {de: Partei, en: Party, text: "Jede Person oder Firma in einer Akte, in jeder Rolle."}
+  Namensgruppe: {de: Namensgruppe, en: Name group, text: "Adressen mit gleichem Namen in Normalform: vermutlich dieselbe Partei."}
+  Akte: {de: Akte, en: Matter, text: "Ein Mandat mit allem, was dazugehört."}
+  Frist: {de: Frist, en: Deadline, text: "Eine Frist der Fristenkontrolle."}
+  Termin: {de: Termin, en: Appointment, text: "Besprechung, Verhandlung oder interner Termin."}
+  Rechnung: {de: Rechnung, en: Invoice, text: "Honorarnote oder Kostenvorschuss."}
+  Dokument: {de: Dokument, en: Document, text: "Ein Dokument der elektronischen Akte."}
+  Begriff: {de: Begriff, en: Term, text: "Ein Begriff aus dem Kanzlei-ABC."}
+  Process: {de: Weisung, en: Rule, text: "Eine Weisung der Kanzlei als Ablauf."}
+  ProcessStep: {de: Schritt, en: Step, text: "Ein Schritt einer Weisung."}

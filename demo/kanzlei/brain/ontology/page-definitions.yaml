@@ -1,0 +1,185 @@
+# The pages of the Brain: one per kind of thing a lawyer opens.
+version: 1
+pages:
+
+- key: PAGE-akte
+  type: Akte
+  name: {de: Akte, en: Matter}
+  sections:
+  - id: ueberblick
+    title: {de: Überblick, en: Overview}
+    render: text
+    facts: [bezeichnung, status, eroeffnet_am, abgeschlossen_am, streitwert, honoraransatz, honorarform, sperrakte, schranke, ampel, naechste_frist, naechste_frist_art]
+    required: true
+  - id: mandantschaft
+    title: {de: Mandantschaft, en: Client}
+    render: table
+    columns: [adresstyp, ort, anzahl_akten, stammkunde]
+    paths:
+    - path: [{relation: mandant, direction: out, to_type: Partei}]
+    required: true
+  - id: gegenseite
+    title: {de: Gegenseite, en: Other side}
+    render: table
+    columns: [adresstyp, ort, anzahl_akten]
+    paths:
+    - path: [{relation: gegenpartei, direction: out, to_type: Partei}]
+    - path: [{relation: gegenanwalt, direction: out, to_type: Partei}]
+  - id: weitere
+    title: {de: Gericht, Versicherung, Zeugen, Experten, en: Court and others}
+    render: table
+    columns: [adresstyp, ort]
+    paths:
+    - path: [{relation: gericht_behoerde, direction: out, to_type: Partei}]
+    - path: [{relation: versicherung, direction: out, to_type: Partei}]
+    - path: [{relation: zeuge, direction: out, to_type: Partei}]
+    - path: [{relation: experte, direction: out, to_type: Partei}]
+  - id: team
+    title: {de: Team, en: Team}
+    render: table
+    columns: [kuerzel, funktion, aktiv]
+    paths:
+    - path: [{relation: verantwortlich, direction: out, to_type: Mitarbeiter}]
+    - path: [{relation: sachbearbeitung, direction: out, to_type: Mitarbeiter}]
+    - path: [{relation: mandatsteam, direction: out, to_type: Mitarbeiter}]
+  - id: schranke
+    title: {de: Informationsschranke, en: Information barrier}
+    render: table
+    columns: [kuerzel, funktion]
+    paths:
+    - path: [{relation: ausgeschlossen, direction: out, to_type: Mitarbeiter}]
+  - id: fristen
+    title: {de: Fristen, en: Deadlines}
+    render: table
+    columns: [datum, fristart, text, erledigt, rot, verpasst]
+    paths:
+    - path: [{relation: frist_von, direction: in, to_type: Frist}]
+  - id: termine
+    title: {de: Termine, en: Appointments}
+    render: table
+    columns: [beginn, zeit, terminart, betreff, ort]
+    paths:
+    - path: [{relation: termin_von, direction: in, to_type: Termin}]
+  - id: geld
+    title: {de: Leistungen und Rechnungen, en: Time and invoices}
+    render: text
+    facts: [stunden_total, leistungen_chf, nicht_verrechnet_chf, verrechnet_chf, offen_chf, gemahnt, letzte_leistung]
+  - id: rechnungen
+    title: {de: Rechnungen, en: Invoices}
+    render: table
+    columns: [rechnungsart, datum, total, zahlstatus, bezahlt_am, tage_offen]
+    paths:
+    - path: [{relation: rechnung_von, direction: in, to_type: Rechnung}]
+  - id: dokumente
+    title: {de: Dokumente, en: Documents}
+    render: table
+    columns: [doktyp, erstellt_am, dateiname, lesbar]
+    paths:
+    - path: [{relation: dokument_von, direction: in, to_type: Dokument}]
+  - id: weisungen
+    title: {de: Stand nach den Weisungen, en: Status by the firm's rules}
+    render: table
+    columns: [order]
+    paths:
+    - path: [{relation: in_state, direction: out, to_type: ProcessStep}]
+
+- key: PAGE-partei
+  type: Partei
+  name: {de: Partei, en: Party}
+  sections:
+  - id: adresse
+    title: {de: Adresse, en: Address}
+    render: text
+    facts: [adresstyp, titel, vorname, nachname, firma, strasse, plz, ort, telefon_geschaeft, email, inaktiv, bemerkung]
+    required: true
+  - id: konflikt
+    title: {de: Konfliktprüfung, en: Conflict check}
+    render: text
+    facts: [anzahl_akten, als_mandant, als_gegenpartei, stammkunde]
+  - id: als-mandant
+    title: {de: Akten als Mandantschaft, en: Matters as client}
+    render: table
+    columns: [status, eroeffnet_am, ampel]
+    paths:
+    - path: [{relation: mandant, direction: in, to_type: Akte}]
+  - id: als-gegenpartei
+    title: {de: Akten als Gegenpartei, en: Matters as opponent}
+    render: table
+    columns: [status, eroeffnet_am]
+    paths:
+    - path: [{relation: gegenpartei, direction: in, to_type: Akte}]
+  - id: andere-rollen
+    title: {de: Weitere Rollen, en: Other roles}
+    render: table
+    columns: [status, eroeffnet_am]
+    paths:
+    - path: [{relation: gegenanwalt, direction: in, to_type: Akte}]
+    - path: [{relation: zeuge, direction: in, to_type: Akte}]
+    - path: [{relation: experte, direction: in, to_type: Akte}]
+    - path: [{relation: versicherung, direction: in, to_type: Akte}]
+    - path: [{relation: gericht_behoerde, direction: in, to_type: Akte}]
+  - id: gleiche
+    title: {de: Vermutlich dieselbe Partei, en: Probably the same party}
+    render: table
+    columns: [adresstyp, ort, anzahl_akten]
+    paths:
+    - path: [{relation: moeglicherweise_identisch, direction: out, to_type: Partei}]
+    - path: [{relation: moeglicherweise_identisch, direction: in, to_type: Partei}]
+    - path: [{relation: moeglicherweise_identisch_mit, direction: out, to_type: Partei}]
+    - path: [{relation: moeglicherweise_identisch_mit, direction: in, to_type: Partei}]
+  - id: gegner
+    title: {de: Vertreten gegen, en: Represented against}
+    render: table
+    columns: [adresstyp, ort]
+    paths:
+    - path: [{relation: vertreten_gegen, direction: out, to_type: Partei}]
+    - path: [{relation: auch_vertreten_gegen, direction: out, to_type: Partei}]
+  - id: gegner-von
+    title: {de: Von der Kanzlei bekämpft für, en: Opposed on behalf of}
+    render: table
+    columns: [adresstyp, ort]
+    paths:
+    - path: [{relation: vertreten_gegen, direction: in, to_type: Partei}]
+    - path: [{relation: auch_vertreten_gegen, direction: in, to_type: Partei}]
+
+- key: PAGE-mitarbeiter
+  type: Mitarbeiter
+  name: {de: Mitarbeiterin, Mitarbeiter, en: Staff member}
+  sections:
+  - id: person
+    title: {de: Person, en: Person}
+    render: text
+    facts: [kuerzel, funktion, rolle, aktiv, eintritt, austritt, stundenansatz, offene_akten, offene_fristen]
+    required: true
+  - id: akten
+    title: {de: Verantwortlich für, en: Responsible for}
+    render: table
+    columns: [status, ampel, naechste_frist, offen_chf]
+    paths:
+    - path: [{relation: verantwortlich, direction: in, to_type: Akte}]
+      where: {fact: status, equals: offen}
+  - id: fristen
+    title: {de: Offene Fristen, en: Open deadlines}
+    render: table
+    columns: [datum, fristart, text, rot, verpasst]
+    paths:
+    - path: [{relation: verantwortlich, direction: in, to_type: Frist}]
+      where: {fact: erledigt, equals: nein}
+  - id: ausgeschlossen
+    title: {de: Ausgeschlossen von (Informationsschranke), en: Barred from}
+    render: table
+    columns: [status]
+    paths:
+    - path: [{relation: ausgeschlossen, direction: in, to_type: Akte}]
+
+- key: PAGE-rechtsgebiet
+  type: Rechtsgebiet
+  name: {de: Rechtsgebiet, en: Field of law}
+  sections:
+  - id: akten
+    title: {de: Offene Akten, en: Open matters}
+    render: table
+    columns: [status, ampel, eroeffnet_am]
+    paths:
+    - path: [{relation: rechtsgebiet, direction: in, to_type: Akte}]
+      where: {fact: status, equals: offen}

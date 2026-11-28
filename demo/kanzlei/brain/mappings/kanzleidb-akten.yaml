@@ -1,0 +1,60 @@
+id: kanzleidb-akten
+version: 1
+description: KanzleiDB AKTEN (with AKTENBETEILIGTE, AKTENRECHTE, ZUSATZFELDWERTE and the totals the source computes) -> Akte with its parties, team and field of law.
+edit_policy: source_owned
+freshness: {window: 7 d}
+deletion_guard: {max_retire_share: 0.05}
+source: {extractor: records, glob: "*", select: "@", as: r, options: {record_kind: akte}}
+emits:
+- type: Akte
+  identify: [key]
+  key: r.external_id
+  name: left(str(r.fields.name), `500`)
+  description: "left(join('', [str(r.fields.bezeichnung), ' (', str(r.fields.status), ', eröffnet ', str(r.fields.eroeffnet_am), ')']), `2000`)"
+  facts:
+    aktenzeichen: {value: r.fields.aktenzeichen, priority: 10}
+    bezeichnung: {value: r.fields.bezeichnung, priority: 10}
+    status: {value: r.fields.status, priority: 10}
+    eroeffnet_am: {value: r.fields.eroeffnet_am, priority: 10}
+    abgeschlossen_am: {value: r.fields.abgeschlossen_am, priority: 10}
+    streitwert: {value: r.fields.streitwert, priority: 10}
+    honoraransatz: {value: r.fields.honoraransatz, priority: 10}
+    honorarform: {value: r.fields.honorarform, priority: 10}
+    sperrakte: {value: r.fields.sperrakte, priority: 10}
+    schranke: {value: r.fields.schranke, priority: 10}
+    archiv_nr: {value: r.fields.archiv_nr, priority: 10}
+    bemerkung: {value: r.fields.bemerkung, priority: 10}
+    geschaeftsnummer_gericht: {value: r.fields.geschaeftsnummer_gericht, priority: 10}
+    referenz_mandant: {value: r.fields.referenz_mandant, priority: 10}
+    rechtsschutz_police: {value: r.fields.rechtsschutz_police, priority: 10}
+    akquise_durch: {value: r.fields.akquise_durch, priority: 10}
+    archivschachtel: {value: r.fields.archivschachtel, priority: 10}
+    stunden_total: {value: r.fields.stunden_total, priority: 10}
+    leistungen_chf: {value: r.fields.leistungen_chf, priority: 10}
+    nicht_verrechnet_chf: {value: r.fields.nicht_verrechnet_chf, priority: 10}
+    verrechnet_chf: {value: r.fields.verrechnet_chf, priority: 10}
+    offen_chf: {value: r.fields.offen_chf, priority: 10}
+    gemahnt: {value: r.fields.gemahnt, priority: 10}
+    offene_fristen: {value: r.fields.offene_fristen, priority: 10}
+    naechste_frist: {value: r.fields.naechste_frist, priority: 10}
+    naechste_frist_art: {value: r.fields.naechste_frist_art, priority: 10}
+    ampel: {value: r.fields.ampel, priority: 10}
+    letzte_leistung: {value: r.fields.letzte_leistung, priority: 10}
+    anzahl_dokumente: {value: r.fields.anzahl_dokumente, priority: 10}
+    elektronisch: {value: r.fields.elektronisch, priority: 10}
+    belege: {value: "join(', ', r.fields.belege || `[]`)", priority: 10}
+    source: {value: "'KanzleiDB AKTEN'", priority: 10}
+    source_key: {value: r.external_id, priority: 10}
+  relations:
+  - {relation: mandant, to_type: Partei, to_key: "r.links[?relation=='mandant'].external_id"}
+  - {relation: gegenpartei, to_type: Partei, to_key: "r.links[?relation=='gegenpartei'].external_id"}
+  - {relation: gegenanwalt, to_type: Partei, to_key: "r.links[?relation=='gegenanwalt'].external_id"}
+  - {relation: gericht_behoerde, to_type: Partei, to_key: "r.links[?relation=='gericht_behoerde'].external_id"}
+  - {relation: versicherung, to_type: Partei, to_key: "r.links[?relation=='versicherung'].external_id"}
+  - {relation: zeuge, to_type: Partei, to_key: "r.links[?relation=='zeuge'].external_id"}
+  - {relation: experte, to_type: Partei, to_key: "r.links[?relation=='experte'].external_id"}
+  - {relation: verantwortlich, to_type: Mitarbeiter, to_key: "r.links[?relation=='verantwortlich'].external_id"}
+  - {relation: sachbearbeitung, to_type: Mitarbeiter, to_key: "r.links[?relation=='sachbearbeitung'].external_id"}
+  - {relation: mandatsteam, to_type: Mitarbeiter, to_key: "r.links[?relation=='mandatsteam'].external_id"}
+  - {relation: ausgeschlossen, to_type: Mitarbeiter, to_key: "r.links[?relation=='ausgeschlossen'].external_id"}
+  - {relation: rechtsgebiet, to_type: Rechtsgebiet, to_key: "r.links[?relation=='rechtsgebiet'].external_id"}
