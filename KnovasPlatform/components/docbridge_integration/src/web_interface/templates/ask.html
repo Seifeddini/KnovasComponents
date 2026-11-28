@@ -7,7 +7,10 @@
    level, each answer as it was drawn when new:
    answered:  the assistant's lead-in when it gave one; each statement with its numbered reference; the reference
               opens the statement's quote right under it (a card: the document's title and page, the quote, a link
-              that opens the document); then the passages.
+              that opens the document); then, under an answer of «Wissensgraph» that has one (PMVP-20 brain-graph),
+              the block «Im Wissensgraphen» (open; static/js/ask_graph.js draws its data-graph as a small SVG with
+              a legend and hides the list, which stands without JavaScript: each node, its passage number, its
+              dossier link while the Brain views are on); then the passages.
    no_answer: the assistant's reply when it gave one (PMVP-20 conversation), else the service's sentence; then the
               nearest passages, at most five (none under a reply of kind chat: the service sends none).
    A reply is the assistant speaking (ask-reply: its name and the label «Hinweis – ohne Quelle» over its words), never
@@ -55,6 +58,19 @@
     <p class="ask-reply-text" dir="auto">{{ text }}</p>
 </div>
 {% endmacro %}
+{% macro graph_block(t) %}
+<details class="ask-graph" open>
+    <summary class="ask-graph-title">Im Wissensgraphen</summary>
+    <div class="ask-graph-canvas" data-graph="{{ t.graph_json }}"></div>
+    <ul class="ask-graph-list">
+        {% for node in t.graph.nodes %}
+        <li class="ask-graph-item">{% if node.passage %}<span class="ask-num">{{ node.passage }}</span> {% endif %}
+            {%- if node.href %}<a class="k-link" href="{{ node.href }}" target="_blank" rel="noopener" dir="auto">{{ node.label }}</a>{% else %}<span dir="auto">{{ node.label }}</span>{% endif %}
+            {%- if node.type and node.label != node.type %} <span class="k-muted">· {{ node.type }}</span>{% endif %}</li>
+        {% endfor %}
+    </ul>
+</details>
+{% endmacro %}
 {% macro answer(t) %}
 {% if t.status == 'answered' %}
 {% if t.reply %}{{ said(t.reply) }}{% endif %}
@@ -78,6 +94,7 @@
     {% endfor %}
 </div>
 {% if t.removed %}<p class="ask-removed k-muted k-small">{{ t.removed }}</p>{% endif %}
+{% if t.graph %}{{ graph_block(t) }}{% endif %}
 {% if t.passages %}
 {% call parts.section('Quellen') %}{{ sources(t.passages) }}{% endcall %}
 {% endif %}
@@ -162,5 +179,6 @@
     </div>
 </div>
 <script src="{{ url_for('static', filename='js/ask.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/ask_graph.js') }}?v={{ asset_version }}"></script>
 </body>
 </html>

@@ -36,11 +36,13 @@ def test_the_template_marks_nothing_safe():
 
 
 def test_every_href_of_the_page_is_built_by_the_app():
+    # node.href: a node of the block "Im Wissensgraphen" (PMVP-20 brain-graph), built by assistant_routes.shown_graph
+    # with url_for, as p.href is.
     hrefs = re.findall(r'href="([^"]*)"', _read(TEMPLATE))
     assert hrefs
     for href in hrefs:
-        assert re.fullmatch(r"\{\{ (url_for\([^}]*\)|p\.href|s\.passage\.href) \}\}(\?v=\{\{ asset_version \}\})?",
-                            href), href
+        assert re.fullmatch(r"\{\{ (url_for\([^}]*\)|p\.href|s\.passage\.href|node\.href) \}\}"
+                            r"(\?v=\{\{ asset_version \}\})?", href), href
 
 
 def test_the_form_actions_are_built_by_the_app():

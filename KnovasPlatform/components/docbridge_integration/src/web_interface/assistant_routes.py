@@ -29,7 +29,9 @@ The addresses (blueprint ``assistant``):
   chats, grouped by their last change; "Alle Gespraeche" when there are more. A failed read draws no block.
 
 How an answer is stored (no migration): the assistant message's text is one JSON object, the answer as shown
-(``stored_answer``; since PMVP-20 conversation with the assistant's checked reply and its kind, when it gave one);
+(``stored_answer``; since PMVP-20 conversation with the assistant's checked reply and its kind, when it gave one;
+since PMVP-20 brain-graph with ``graph``, the small graph under an answer of <<Wissensgraph>>, drawn again when the
+chat is opened: ``assistant.answer_graph``; an older answer without it draws none);
 its references are the reply's passages with the passage text as search returned it
 (decision D2: read by its owner only, deleted with the chat). A message that does not parse is drawn as one plain
 paragraph without chips. Before anything is stored, NUL characters are removed, a page outside 1 to 2^31-1 becomes
@@ -199,7 +201,9 @@ class ShownTurn:
     plain paragraph) or ``""`` (a question without an answer). ``anchor``: the element id the 303 lands on.
     ``notice``: a line under the answer (``NOT_SAVED_TEXT``). ``reply``: the assistant's own checked words (PMVP-20
     conversation), drawn as the assistant speaking and without a source: above the statements of an ``answered``
-    turn, in place of the no-answer sentence of a ``no_answer`` turn.
+    turn, in place of the no-answer sentence of a ``no_answer`` turn. ``graph``: the block <<Im Wissensgraphen>>
+    under an ``answered`` turn of <<Wissensgraph>> (``shown_graph``: its nodes with their labels and addresses),
+    ``graph_json`` the same as the JSON ``static/js/ask_graph.js`` draws; None and "" for every other turn.
     """
 
     question: str
@@ -211,6 +215,8 @@ class ShownTurn:
     anchor: str = ""
     notice: str = ""
     reply: str = ""
+    graph: Optional[Dict[str, Any]] = None
+    graph_json: str = ""
 
 
 def _open_href(passage: Passage, pdf_preview: bool) -> str:
@@ -260,6 +266,30 @@ def _graph_href(passage: Passage) -> Optional[str]:
     return url_for("brain_views.dossier", node_id=node_id)
 
 
+def shown_graph(graph: Any) -> Tuple[Optional[Dict[str, Any]], str]:
+    """What ``ask.html`` draws of an answer's graph (<<Im Wissensgraphen>>, PMVP-20 brain-graph): ``(graph, json)``.
+
+    Each node gets ``label`` (its name, else its type: a node whose name the person was not shown has none) and
+    ``href``: a node's dossier while the Brain views are on (the address the chips use), else "" (and always "" for
+    a count). ``(None, "")`` for no graph or one of fewer than two nodes. The JSON is the data attribute
+    ``ask_graph.js`` reads (autoescaped in the attribute, never marked safe)."""
+    from assistant.answer_graph import clean_graph
+    from assistant.graph_reads import NODE_POINTER_PREFIX, node_of_pointer
+
+    cleaned = clean_graph(graph)
+    if cleaned is None:
+        return None, ""
+    views_on = brain_views_on()
+    nodes = []
+    for node in cleaned["nodes"]:
+        href = ""
+        if views_on and node.get("kind") != "count" and node_of_pointer(NODE_POINTER_PREFIX + node["id"]):
+            href = url_for("brain_views.dossier", node_id=node["id"])
+        nodes.append({**node, "label": node["name"] or node["type"] or "Knoten", "href": href})
+    shown = {"nodes": nodes, "edges": cleaned["edges"]}
+    return shown, json.dumps(shown, ensure_ascii=False, separators=(",", ":"))
+
+
 def shown_reply(reply: Reply, pdf_preview: bool, *, turn: Optional[int] = None,
                 href: Optional[Callable[[Passage], str]] = None) -> Dict[str, Any]:
     """What ``ask.html`` draws of a reply: plain values, the addresses built here.
@@ -295,8 +325,9 @@ def shown_reply(reply: Reply, pdf_preview: bool, *, turn: Optional[int] = None,
         quote_id = f"zitat-{index}" if turn is None else f"zitat-{turn}-{index}"
         statements.append(ShownStatement(head=head, stop=stop, number=number, quote=sentence.quote,
                                          quote_id=quote_id, passage=by_number.get(number)))
+    graph, graph_json = shown_graph(getattr(reply, "graph", None)) if reply.status == "answered" else (None, "")
     return {"statements": statements, "passages": passages, "removed": removed_line(reply.removed),
-            "reply": getattr(reply, "reply_text", "") or ""}
+            "reply": getattr(reply, "reply_text", "") or "", "graph": graph, "graph_json": graph_json}
 
 
 def _plain(status: str, message: str) -> Reply:
@@ -336,7 +367,9 @@ def stored_answer(reply: Reply) -> Tuple[str, List[Dict[str, Any]]]:
 
     ``text`` is one JSON object, the answer as shown: ``{"v": 1, "status", "statements": [{"text", "source",
     "quote"}], "removed", "sentences": {"<passage number>": <sentence number>}}``, and ``"reply"`` and ``"kind"``
-    when the assistant gave a checked reply (PMVP-20 conversation; an older reader ignores them). ``references`` are
+    when the assistant gave a checked reply (PMVP-20 conversation; an older reader ignores them), and ``"graph"``
+    (``{"nodes", "edges"}``, ``assistant.answer_graph``) under an ``answered`` reply of <<Wissensgraph>> that has
+    one (PMVP-20 brain-graph). ``references`` are
     the reply's
     passages: number, pointer, page, title and the passage text as search returned it (D2). Cleaned first (FU-01):
     no NUL anywhere, a page outside 1 to 2^31-1 as no page, a reference without a pointer left out.
@@ -360,6 +393,12 @@ def stored_answer(reply: Reply) -> Tuple[str, List[Dict[str, Any]]]:
     if said:
         stored["reply"] = said
         stored["kind"] = _clean(getattr(reply, "reply_kind", "") or "")
+    if reply.status == "answered" and getattr(reply, "graph", None):
+        from assistant.answer_graph import clean_graph
+
+        graph = clean_graph(reply.graph)
+        if graph is not None:
+            stored["graph"] = graph
     return json.dumps(stored, ensure_ascii=False), references
 
 
@@ -397,9 +436,14 @@ def stored_reply(message: Any) -> Reply:
     message_text = ""
     if status == "no_answer":
         message_text = said or NO_ANSWER_TEXT
+    graph = None
+    if status == "answered" and data.get("graph") is not None:
+        from assistant.answer_graph import clean_graph
+
+        graph = clean_graph(data["graph"])  # a graph not in the stored shape draws nothing; the answer stands
     return Reply(status=status, sentences=sentences if status == "answered" else [], passages=passages,
                  removed=max(0, _int_value(data.get("removed", 0))), message=message_text,
-                 reply_text=said, reply_kind=kind if said and kind in KINDS else "")
+                 reply_text=said, reply_kind=kind if said and kind in KINDS else "", graph=graph)
 
 
 def _read_stored(message: Any) -> Optional[Reply]:
@@ -902,5 +946,6 @@ def install_assistant(app: Flask, *, client: Any, identity_gate: Any, split: Cal
 __all__: Sequence[str] = (
     "EXPIRED_TEXT", "NOT_SAVED_TEXT", "SWITCH_ENV", "AsTheAssistant", "ShownTurn", "SidebarChats",
     "assistant_enabled", "chat_title", "create_assistant_blueprint", "follow_up_search_text", "group_label",
-    "history_of", "install_assistant", "removed_line", "shown_reply", "split_tail", "stored_answer", "stored_reply",
+    "history_of", "install_assistant", "removed_line", "shown_graph", "shown_reply", "split_tail", "stored_answer",
+    "stored_reply",
 )

@@ -296,7 +296,8 @@ class Reply:
     ``failed``: ``message`` is a plain text, nothing else is set. ``removed``
     counts what the check took out; ``removed_by`` says why, a count for each
     reason of ``assistant.check.REASONS`` (counts only, for the harness and
-    the log line).
+    the log line). ``graph``: the small graph under an ``answered`` reply of <<Wissensgraph>>
+    (``assistant.answer_graph``: ``{"nodes", "edges"}``), None for every other reply.
     """
 
     status: str
@@ -307,6 +308,7 @@ class Reply:
     removed_by: Dict[str, int] = field(default_factory=lambda: dict.fromkeys(REASONS, 0))
     reply_text: str = ""
     reply_kind: str = ""
+    graph: Optional[Dict[str, Any]] = None
 
 
 SearchFn = Callable[[str, int], List[Mapping[str, Any]]]

@@ -20,7 +20,9 @@ loop). This module holds the reads and the tools' logic, and nothing of Claude:
   Claude reads, and every node it returns becomes a ``Passage`` of the answer (``PassageBook``) whose text is the
   node's type, name, description and facts as plain lines (``node_text``) and whose pointer is ``brain:<node id>``
   (``node_pointer``), so the unchanged ``check.check_answer`` can find a quote in it. A count is a passage too
-  (``count_text``: the query in words, "Anzahl der Treffer: N" and the names), so a number can be quoted.
+  (``count_text``: the query in words, "Anzahl der Treffer: N" and the names), so a number can be quoted; what
+  each count asked is kept as a ``CountRead`` (``GraphSession.counts``) for the graph under the answer
+  (``assistant.answer_graph``).
 
 The code is generic: no type, relation or fact name of any tenant is written here. Types and relations come from the
 graph at run time; the only fact names the code knows are the brain-runner's own bookkeeping (``key`` is shown
@@ -474,10 +476,14 @@ def node_text(node: Node, type_name: str, facts: Optional[Mapping[str, List[str]
     return "\n".join(lines)
 
 
+#: The first words of a count's passage (``count_text``).
+COUNT_HEAD = "Abfrage im Wissensgraphen: "
+
+
 def count_text(description: str, total: int, names: Sequence[str], *, incomplete: str = "") -> str:
     """A count as a passage: the query in words, "Anzahl der Treffer: N" and the names (at most
     ``MAX_LISTED_NAMES``)."""
-    lines = ["Abfrage im Wissensgraphen: " + description, f"Anzahl der Treffer: {total}"]
+    lines = [COUNT_HEAD + description, f"Anzahl der Treffer: {total}"]
     if names:
         listed = "; ".join(names[:MAX_LISTED_NAMES])
         more = total - min(len(names), MAX_LISTED_NAMES)
@@ -521,6 +527,10 @@ class PassageBook:
     def numbered(self) -> Dict[int, str]:
         return {p.number: p.text for p in self.passages}
 
+    def number_of(self, pointer: str, text: str) -> Optional[int]:
+        """The number of the passage with this pointer and text, or None (no such passage)."""
+        return self._index.get((pointer, text))
+
     @property
     def documents(self) -> int:
         return len({p.pointer for p in self.passages})
@@ -529,6 +539,21 @@ class PassageBook:
 # ---------------------------------------------------------------------------
 # One answer's graph
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CountRead:
+    """What one count passage asked (``GraphSession.counts``, for the graph under the answer, ``answer_graph``):
+    the query in words, the total, the node it was asked about (``neighbours``; None for ``list_nodes``), the
+    relation and direction it followed from there, the type it counted (when it named one) and every match."""
+
+    description: str
+    total: int
+    about: Optional[str] = None
+    relation: Optional[str] = None
+    direction: Optional[str] = None
+    type_id: Optional[str] = None
+    matched: Tuple[str, ...] = ()
 
 
 @dataclass
@@ -554,6 +579,12 @@ class GraphSession:
         self.today = today
         self._topology: Optional[_Topology] = None
         self._facts: Dict[str, Optional[Dict[str, List[str]]]] = {}
+        #: Each numbered count passage's query (its passage number -> ``CountRead``).
+        self.counts: Dict[int, CountRead] = {}
+
+    def topology_if_read(self) -> Optional[_Topology]:
+        """The topology when a tool has read it in this answer, else None; never reads."""
+        return self._topology
 
     # -- reads -------------------------------------------------------------------------------------------------------
 
@@ -810,7 +841,7 @@ class GraphSession:
         return kept, unread
 
     def _result(self, description: str, matched: List[str], limit: Any, *, pointer: str, unread: int = 0,
-                extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                extra: Optional[Dict[str, Any]] = None, asked: Optional[CountRead] = None) -> Dict[str, Any]:
         """The answer of a list or neighbours tool: a count passage and up to ``limit`` node passages."""
         size = _limit(limit, DEFAULT_RESULT_NODES, MAX_RESULT_NODES)
         shown = matched[:size]
@@ -824,6 +855,10 @@ class GraphSession:
         names = [self.display(n) for n in matched[:MAX_LISTED_NAMES]]
         text = count_text(description, len(matched), names, incomplete=incomplete)
         number = self.book.add(pointer, "Abfrage: " + _cut(description, 160), text)
+        if number is not None and asked is not None:
+            self.counts.setdefault(number, CountRead(description=description, total=len(matched), about=asked.about,
+                                                     relation=asked.relation, direction=asked.direction,
+                                                     type_id=asked.type_id, matched=tuple(matched)))
         result: Dict[str, Any] = {"count": len(matched), "count_passage": {"passage": number, "text": text}}
         if unread:
             result["incomplete"] = True
@@ -951,7 +986,9 @@ class GraphSession:
         if type_id is not None:
             parts.append("Typ " + topo.type_name[type_id])
         parts += _condition_words(conditions, text)
-        return self._result(", ".join(parts), matched, limit, pointer=node_pointer(node.id), unread=unread)
+        asked = CountRead(description="", total=0, about=node.id, relation=name, direction=way, type_id=type_id)
+        return self._result(", ".join(parts), matched, limit, pointer=node_pointer(node.id), unread=unread,
+                            asked=asked)
 
     def list_nodes(self, type: Any, where: Any = None, contains: Any = None,  # noqa: A002
                    with_relation: Any = None, without_relation: Any = None, via: Any = None,
@@ -979,7 +1016,7 @@ class GraphSession:
         pointer = QUERY_POINTER_PREFIX + type_id
         if not path:
             return self._result(description, sorted(matched, key=lambda n: topo.nodes[n].name.casefold()), limit,
-                                pointer=pointer, unread=unread)
+                                pointer=pointer, unread=unread, asked=CountRead("", 0, type_id=type_id))
         reached = matched
         for hop in path:
             reached = list(dict.fromkeys(o for n in reached for o in self._related(n, hop)))
@@ -987,7 +1024,8 @@ class GraphSession:
                             for relation, way, t in path)
         description = f"erreicht von {len(matched)} Knoten ({description}) \u00fcber {hops}"
         return self._result(description, sorted(reached, key=lambda n: topo.nodes[n].name.casefold()), limit,
-                            pointer=pointer, unread=unread, extra={"start_count": len(matched)})
+                            pointer=pointer, unread=unread, extra={"start_count": len(matched)},
+                            asked=CountRead("", 0, type_id=path[-1][2]))
 
 
 def _condition_words(conditions: Sequence[Tuple[str, str, str]], contains: str) -> List[str]:

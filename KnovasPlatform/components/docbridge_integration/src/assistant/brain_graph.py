@@ -30,8 +30,10 @@ One question, one reply (``BrainGraphService.answer``, the signature and ``Reply
    return cannot be cited. A reply (``conversation.check_replies``) is checked against every passage and everything
    else the tools returned.
 5. **Reply** (``GraphReply``, built by ``service.finished``): ``answered`` with the statements and only the passages
-   they cite, renumbered; ``no_answer`` with a reply or the no-answer sentence and the nearest passages (the first of
-   each pointer, at most ``CLOSEST_PASSAGES``); ``busy``; ``failed``. Like ``brain_tools.ToolsReply`` it is never
+   they cite, renumbered, and ``graph``: the part of the knowledge graph they stand on (``answer_graph.build_graph``,
+   from what the answer read: no further read), drawn under the answer as <<Im Wissensgraphen>>; ``no_answer`` with
+   a reply or the no-answer sentence and the nearest passages (the first of each pointer, at most
+   ``CLOSEST_PASSAGES``); ``busy``; ``failed``. Like ``brain_tools.ToolsReply`` it is never
    granted (``opens_directly`` False): a document opens through a stored chat's ``source`` route after the Core said
    the person may read it, a node through its dossier (the brain views' route, which reads as the person).
 
@@ -48,10 +50,10 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, Tuple
 
-from assistant import check
+from assistant import answer_graph, check
 from assistant import core as _core
 from assistant import graph_reads as gr
 from assistant.brain_tools import cited, closest
@@ -379,8 +381,19 @@ class BrainGraphService:
         said, dropped = check_replies(text, list(book.passages) + book.seen, statements_shown=len(sentences))
         removed_by[check.REPLY_DROPPED] += dropped
         stats.reply = (said.kind or "lead_in") if said is not None else "-"
-        return finished(sentences, removed_by, said, answered_passages=passages,
-                        nearest_passages=closest(book.passages)[:CLOSEST_PASSAGES], make=GraphReply)
+        reply = finished(sentences, removed_by, said, answered_passages=passages,
+                         nearest_passages=closest(book.passages)[:CLOSEST_PASSAGES], make=GraphReply)
+        if reply.status != "answered":
+            return reply
+        try:
+            graph = answer_graph.build_graph(run.session, reply.passages)
+        except Exception as exc:  # noqa: BLE001 - the answer stands without its graph
+            logger.warning("Knovas Assistent: brain graph drawing failed (%s)", type(exc).__name__)
+            graph = None
+        if graph is None:
+            return reply
+        stats.graph_nodes, stats.graph_edges = len(graph["nodes"]), len(graph["edges"])
+        return replace(reply, graph=graph)
 
 
 @dataclass
@@ -560,17 +573,21 @@ class _Stats:
     book: Optional[gr.PassageBook] = None
     port: Any = None
     reply: str = "-"
+    graph_nodes: int = 0
+    graph_edges: int = 0
 
     def log(self, reply: Reply, started: float) -> None:
         book = self.book or gr.PassageBook()
         logger.info(
             "Knovas Assistent: brain graph status=%s messages=%s stop=%s rounds=%d tool_calls=%d calls=%s errors=%s "
             "passages=%d pointers=%d not_numbered=%d question_bytes=%d history_sent=%d answer_bytes=%d statements=%d "
-            "removed=%d %s cited_passages=%d graph_reads=%d fact_nodes=%d waits=%d total_ms=%d reply=%s",
+            "removed=%d %s cited_passages=%d graph_reads=%d fact_nodes=%d waits=%d total_ms=%d reply=%s "
+            "graph_nodes=%d graph_edges=%d",
             reply.status, ",".join(self.message_ids) or "-", self.stop, self.rounds, sum(self.calls.values()),
             _codes(self.calls), _codes(self.errors), len(book.passages), book.documents, book.not_numbered,
             self.question_bytes, self.history_sent, self.answer_bytes, len(reply.sentences), reply.removed,
             " ".join(f"{reason}={reply.removed_by.get(reason, 0)}" for reason in check.REASONS),
             len(reply.passages), _count(self.port, "calls"), _count(self.port, "nodes_with_facts"),
             _count(self.port, "busy"), int((time.monotonic() - started) * 1000), self.reply,
+            self.graph_nodes, self.graph_edges,
         )

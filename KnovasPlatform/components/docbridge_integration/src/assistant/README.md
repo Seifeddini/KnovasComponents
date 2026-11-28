@@ -25,6 +25,7 @@ numbers all stand in their cited passage. No routes, no pages (PMVP-22a, 22b), n
 | `providers.py` | `make_anthropic_generate` (Claude, the provider `anthropic`), `connection_test` ("Verbindung testen"), `settings_problems`, the four settings' names and values (PMVP-25); `make_brain_mcp_ask`, `make_brain_graph_turn`. |
 | `brain_tools.py` | «Brain-Werkzeuge» (`brain_mcp`): Claude with the MCP connector against the Knovas gateway. |
 | `brain_graph.py`, `graph_reads.py` | «Wissensgraph» (`brain_graph`): Claude with client tools that read the knowledge graph through the Core (below). |
+| `answer_graph.py` | «Im Wissensgraphen»: the small graph under an answer of «Wissensgraph» (`build_graph`, `clean_graph`; below). |
 | `../knovas_client.py` | `llm_generate` (`POST /secured/llm/generate`), `keeping_snippets()` and `_snippet_from_hit` (the passage text in the row), `document_text` (`GET /secured/document/<uuid>/text`, one part). |
 
 ## The five steps
@@ -303,13 +304,44 @@ a 429 or 503 is waited out 1, 2, 4 seconds, never into the reserve, then the too
 `busy` when no passage was read). At most 150 passages, 200,000 characters; one tool result at most 40,000
 characters. Nothing is cached beyond one answer (the reads are the person's).
 
+**The graph under the answer («Im Wissensgraphen»).** An `answered` reply carries `graph` (`Reply.graph`,
+`answer_graph.build_graph`), built from what the answer already read (the session's topology and passages, no
+further call to the Core): the nodes of the cited node passages (`cited: true`, with the number the page shows);
+a cited count as one summary node (`kind: "count"`, "97 × <Typ>", or "97 Treffer" when its matches are of several
+types; never its 97 nodes), joined to the node it was asked about (a `neighbours` count; edge labelled with the
+relation the count followed, else «Abfrage») or, for a count over a type, to its matches («Treffer»); a count of at
+most `SMALL_COUNT` (6) matches draws them too (their names stand in the count's passage); then every node of the
+topology joined by an edge to two or more of these (the single hop between them), most joined first; the edges are
+the topology's among them (relation, direction). At most `MAX_NODES` (30) nodes and `MAX_EDGES` (60) edges, the
+cited and count nodes first; fewer than two nodes is no graph. A name appears only when the person was shown it: a
+cited node's (its passage begins with it), else only a name that stands in the text of a passage the answer cites;
+any other node keeps only its type. Generic code: types, relations and names come from the graph. A failure while
+building it leaves the answer without its graph. The chat stores it in the answer's JSON (`"graph"`,
+`assistant_routes.stored_answer`; read back through `clean_graph`, which keeps the shape and the caps or gives
+None), so a reopened chat draws it again; an older answer without it draws nothing.
+
+The page (`ask.html`, `assistant_routes.shown_graph`) draws it under the statements of that answer, before the
+sources, as the open block «Im Wissensgraphen»: the graph as JSON in the attribute `data-graph` (autoescaped, never
+marked safe) and a plain list of the nodes that stands without JavaScript. `static/js/ask_graph.js` (no library,
+no CDN) draws an inline SVG of 320 to 420 pixels at the answer's width and hides the list: the cited node with the
+most edges in the middle, the others on rings by their distance from it, then a few hundred steps of a force layout
+without randomness, fitted to the box (the same graph at the same width is the same picture). Colour by type (the
+palette and hash of the views page, `views_core.js`), with a legend; a cited node is filled and carries its passage
+number, a count is a box with its number, any other node a ring; names cut to 26 characters (full in the tooltip);
+relation names on the edges when there is room (always with at most eight edges), else on hover or focus of a node,
+which also dims the rest. Every node is focusable with an accessible name; a click opens its dossier in a new tab
+(the address the chips use, built by the route) while the Brain views are on, else nothing; the script accepts no
+other address. Colours of lines, texts and surfaces are the brand tokens (`ask.css`), so the block follows the light
+and the dark theme. No block for another mode, a `no_answer`, or fewer than two nodes.
+
 **The logs.** One line per answer (`brain graph status=… rounds=… tool_calls=… calls=<tool>:<n> errors=<code>:<n>
-passages=… graph_reads=… fact_nodes=… waits=…`, the check's counts, Anthropic's message ids, durations) and the
-provider's line per request. Never a question, a tool's input, a node's name, a fact, a passage, an answer or a key;
+passages=… graph_reads=… fact_nodes=… waits=… graph_nodes=… graph_edges=…`, the check's counts, Anthropic's message
+ids, durations) and the provider's line per request. Never a question, a tool's input, a node's name, a fact, a passage, an answer or a key;
 `graph_reads` logs nothing, `knovas_client.graph_read` is quiet.
 
 **Tests:** `tests/test_assistant_brain_graph.py` (a fake Core with an invented graph, a fake client with the SDK's
-block types, and the real SDK over an in-process transport).
+block types, and the real SDK over an in-process transport); `tests/test_assistant_answer_graph.py` (the graph under
+the answer: building, caps, names, storing and reading back, the page and the script).
 
 ## The design: statements with a source and a quote
 
@@ -770,7 +802,8 @@ is before a centred chunk begins: the model would see the text before the hit bu
   (the statements with their source and quote, the removed count, each passage's sentence number); its references
   are the reply's passages with their text (decision D2: owner only, deleted with the chat, never sent again). A
   follow-up's history is the chat's turns as text: a question as typed, an answer as its statements, one per line,
-  a `no_answer` as its reply (PMVP-20 conversation; the stored JSON keeps `reply` and `kind`), else as
+  a `no_answer` as its reply (PMVP-20 conversation; the stored JSON keeps `reply` and `kind`; an answer of
+  «Wissensgraph» also `graph`, drawn again, never sent), else as
   `NO_ANSWER_TEXT`; never a quote, a passage or the JSON. The route hands over the whole chat; the
   service fits it (above). The instruction tells the model to keep the form even where earlier answers look
   different.
