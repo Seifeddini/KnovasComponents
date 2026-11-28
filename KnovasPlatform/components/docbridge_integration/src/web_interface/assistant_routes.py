@@ -21,7 +21,9 @@ The addresses (blueprint ``assistant``):
 - ``GET /fragen/<chat id>/quelle/<turn>/<number>`` (``source``): opens the document of reference ``number`` of answer
   ``turn`` (1 is the first answer). It asks the Core whether the person may read that document
   (``document_readable``, as the person), grants that one document, and redirects where ``_open_href`` sends a
-  passage (the dossier's pattern, PMVP-30a). A stored chat outlives the grants of its answer (an hour).
+  passage (the dossier's pattern, PMVP-30a). A stored chat outlives the grants of its answer (an hour). A reference
+  to a node of the knowledge graph (<<Wissensgraph>>, PMVP-20 brain-graph: ``brain:<node id>``) redirects to that
+  node's dossier while the Brain views are on (the dossier reads as the person) and is the same 404 otherwise.
 - ``GET /fragen/verlauf`` (``history``): every chat of the person, 50 a page, newest first.
 - the sidebar's block (``assistant_chats``, for ``_sidebar.html``): "+ Neue Frage" and the person's newest 20
   chats, grouped by their last change; "Alle Gespraeche" when there are more. A failed read draws no block.
@@ -230,6 +232,34 @@ def _open_href(passage: Passage, pdf_preview: bool) -> str:
     return url_for("download_document", doc_id=pointer, path=pointer)
 
 
+def brain_views_on() -> bool:
+    """Whether the members' Brain views answer (PMVP-30a): the dossier's route is registered and ``brain_views.enabled``
+    is on. Whatever cannot be read counts as off."""
+    try:
+        if "brain_views.dossier" not in current_app.view_functions:
+            return False
+        from web_interface.brain_views_routes import SWITCH, switch_on
+
+        settings = current_app.extensions.get("platform_settings")
+        return settings is not None and switch_on(settings.value(SWITCH))
+    except Exception as exc:  # noqa: BLE001 - an unreadable switch is off
+        logger.warning("Fragen: the brain views switch is not readable (%s)", type(exc).__name__)
+        return False
+
+
+def _graph_href(passage: Passage) -> Optional[str]:
+    """For a passage of the knowledge graph (<<Wissensgraph>>, pointer ``brain:...``): the node's dossier while the
+    Brain views are on, else "" (the title alone; a count has no page). None for any other passage (a document's)."""
+    from assistant.graph_reads import NODE_POINTER_PREFIX, node_of_pointer
+
+    if not isinstance(passage.pointer, str) or not passage.pointer.startswith(NODE_POINTER_PREFIX):
+        return None
+    node_id = node_of_pointer(passage.pointer)
+    if node_id is None or not brain_views_on():
+        return ""
+    return url_for("brain_views.dossier", node_id=node_id)
+
+
 def shown_reply(reply: Reply, pdf_preview: bool, *, turn: Optional[int] = None,
                 href: Optional[Callable[[Passage], str]] = None) -> Dict[str, Any]:
     """What ``ask.html`` draws of a reply: plain values, the addresses built here.
@@ -238,14 +268,20 @@ def shown_reply(reply: Reply, pdf_preview: bool, *, turn: Optional[int] = None,
     on a page of several answers. ``href``: the address of a passage's document (a stored chat's ``source`` route);
     without it, ``_open_href``, unless the reply's passages may not be opened directly (a reply of the Brain's tools,
     ``opens_directly`` False: read with the company's key, never granted): then no address, and the page shows the
-    title alone.
+    title alone. A passage of the knowledge graph (<<Wissensgraph>>, ``brain:<node id>``) always opens as the node's
+    dossier while the Brain views are on (the dossier reads as the person), else shows its title alone.
     """
     if href is not None:
-        open_href = href
+        document_href = href
     elif getattr(reply, "opens_directly", True):
-        open_href = lambda passage: _open_href(passage, pdf_preview)  # noqa: E731
+        document_href = lambda passage: _open_href(passage, pdf_preview)  # noqa: E731
     else:
-        open_href = lambda passage: ""  # noqa: E731
+        document_href = lambda passage: ""  # noqa: E731
+
+    def open_href(passage: Passage) -> str:
+        graph = _graph_href(passage)
+        return document_href(passage) if graph is None else graph
+
     listed = list(reply.passages)
     if reply.status != "answered":  # "Die naechsten Stellen": at most five (PMVP-20 conversation), stored ones too
         listed = listed[:NEAREST_PASSAGES]
@@ -762,6 +798,12 @@ def create_assistant_blueprint(*, csrf_valid: Callable[[str], bool], grant: Call
         reference = next((r for r in message.references if r.get("number") == number), None)
         if reference is None:
             not_found()
+        graph = _graph_href(Passage(number=number, pointer=reference["pointer"], title="", page=None, text=""))
+        if graph is not None:  # a node of the knowledge graph: its dossier, which reads as the person
+            if not graph:
+                not_found()
+            logger.info("Fragen: a stored graph source was opened")
+            return redirect(graph)
         try:
             readable = client is not None and client.document_readable(reference["pointer"]) is True
         except Exception as exc:  # noqa: BLE001 - the door stays shut

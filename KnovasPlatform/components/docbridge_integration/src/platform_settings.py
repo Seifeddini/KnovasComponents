@@ -191,9 +191,11 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
     Setting("assistant.model", "Claude-Modell des Knovas Assistenten",
             "Nur mit anthropic. Preise von Anthropic je Million Tokens (Eingabe / Ausgabe, US-Dollar, Stand November "
             "2026): claude-opus-5-5 4 / 20, der Standard und am genauesten; claude-sonnet-5-5 2 / 10; "
-            "claude-haiku-5-5 0,10 / 0,50, am günstigsten.",
+            "claude-haiku-5-5 0,10 / 0,50, am g\u00fcnstigsten; claude-haiku-4-5 1 / 5, \u00e4ltere Generation, zum "
+            "Vergleich mit einem kleineren Modell.",
             "choice", "installation", env=("ASSISTANT_MODEL",),
-            choices=("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"), fallback="claude-opus-5-5"),
+            choices=("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-haiku-4-5"),
+            fallback="claude-opus-5-5"),
     Setting("assistant.anthropic_api_key", "Schlüssel für die Claude API (Knovas Assistent)",
             "Nur mit anthropic. Ein eigener Schlüssel, nicht der des Ansichten-Assistenten: Dieser hier bekommt "
             "Textstellen aus den Dokumenten des Mandanten. Wird nur geschrieben, nie angezeigt. „Verbindung testen“ "
@@ -201,11 +203,16 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
             "secret", "installation"),
     # \u00abBrain-Werkzeuge\u00bb (PMVP-20 brain-mcp): Claude reads the Brain itself through the Knovas MCP gateway, with the
     # company's gateway key (src/assistant/brain_tools.py). Only with anthropic; the settings page warns under the mode.
+    # \u00abWissensgraph\u00bb (PMVP-20 brain-graph): Claude reads the tenant's knowledge graph with tools the Platform runs
+    # (src/assistant/brain_graph.py, graph_reads.py). Only with anthropic; the same warning line names it.
     Setting("assistant.mode", "Antwortweise des Knovas Assistenten",
             "passages (Standard): Der Knovas Assistent sucht mit den Rechten der fragenden Person und gibt dem "
             "Sprachmodell die gefundenen Textstellen. brain_mcp (\u00abBrain-Werkzeuge\u00bb): Claude sucht und liest selbst "
-            "\u00fcber das MCP-Gateway von Knovas, mit dem Gateway-Schl\u00fcssel unten; nur mit anthropic.",
-            "choice", "installation", env=("ASSISTANT_MODE",), choices=("passages", "brain_mcp"),
+            "\u00fcber das MCP-Gateway von Knovas, mit dem Gateway-Schl\u00fcssel unten; nur mit anthropic. brain_graph "
+            "(\u00abWissensgraph\u00bb): Claude liest den Wissensgraphen Ihres Unternehmens (z\u00e4hlen, vollst\u00e4ndige Listen, "
+            "Pr\u00fcfungen \u00fcber alle Eintr\u00e4ge) und sucht in den Dokumenten; die Plattform f\u00fchrt die Abfragen mit "
+            "dem Zertifikat des Unternehmens aus; nur mit anthropic.",
+            "choice", "installation", env=("ASSISTANT_MODE",), choices=("passages", "brain_mcp", "brain_graph"),
             fallback="passages"),
     Setting("assistant.brain_mcp_url", "Adresse des Knovas-Gateways (Brain-Werkzeuge)",
             "Nur mit brain_mcp. Das MCP-Gateway von Knovas, das Claude f\u00fcr Sie aufruft (Standard: "

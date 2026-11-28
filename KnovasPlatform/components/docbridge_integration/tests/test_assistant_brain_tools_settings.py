@@ -24,6 +24,9 @@ from web_interface.settings_routes import create_settings_blueprint
 
 ROLES = ("admin", "approver", "ingestion_manager", "member")
 WARNING = ("Brain-Werkzeuge lesen alles, was der Schl\u00fcssel Ihres Unternehmens sieht, unabh\u00e4ngig von den "
+           "Rollen der Person. Nur ohne \u00abEin\u00bb verwenden. "
+           # PMVP-20 brain-graph: the same line names \u00abWissensgraph\u00bb too
+           "Wissensgraph liest den Wissensgraphen mit dem Zertifikat Ihres Unternehmens, unabh\u00e4ngig von den "
            "Rollen der Person. Nur ohne \u00abEin\u00bb verwenden.")
 needs_db = pytest.mark.skipif(not platform_db_reachable(), reason="No PostgreSQL for the Platform's tests")
 
@@ -123,7 +126,8 @@ ANTHROPIC_READY = {"assistant.provider": "anthropic", "assistant.anthropic_api_k
 def test_the_three_entries_are_registered_for_the_whole_installation():
     mode, url, key = (ps.REGISTRY[k] for k in ("assistant.mode", "assistant.brain_mcp_url", "assistant.brain_mcp_key"))
     assert all(s.scope == "installation" and s.label and s.help for s in (mode, url, key))
-    assert mode.kind == "choice" and mode.choices == ("passages", "brain_mcp") and mode.fallback == "passages"
+    assert mode.kind == "choice" and mode.choices == ("passages", "brain_mcp", "brain_graph")  # PMVP-20 brain-graph
+    assert mode.fallback == "passages"
     assert mode.env == ("ASSISTANT_MODE",)
     assert url.kind == "text" and url.env == ("ASSISTANT_BRAIN_MCP_URL",)
     assert url.fallback == "https://mcp.knovas.ch/mcp"

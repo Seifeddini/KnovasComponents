@@ -397,7 +397,9 @@ assistant:
   enabled: "${ASSISTANT_ENABLED:-aus}"
   provider: "${ASSISTANT_PROVIDER:-knovas}"
   model: "${ASSISTANT_MODEL:-claude-opus-5-5}"
-  # «Brain-Werkzeuge» (PMVP-20 brain-mcp): passages (the default) or brain_mcp, and the Knovas MCP gateway Claude calls.
+  # «Brain-Werkzeuge» (PMVP-20 brain-mcp): passages (the default), brain_mcp, or brain_graph («Wissensgraph»,
+  # PMVP-20 brain-graph: Claude reads the knowledge graph with tools the Platform runs), and the Knovas MCP gateway
+  # Claude calls for brain_mcp.
   # The gateway key is a secret of the registry (assistant.brain_mcp_key), never a value here.
   mode: "${ASSISTANT_MODE:-passages}"
   brain_mcp_url: "${ASSISTANT_BRAIN_MCP_URL:-https://mcp.knovas.ch/mcp}"

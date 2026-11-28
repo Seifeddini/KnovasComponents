@@ -76,6 +76,11 @@ With ``assistant.mode`` ``brain_mcp`` (<<Brain-Werkzeuge>>, PMVP-20 brain-mcp) `
 ``brain_tools.BrainToolsService`` instead: Claude calls the Knovas MCP gateway's tools itself with the
 company's gateway key (``providers.make_brain_mcp_ask``) and nothing is searched here. Only with
 ``anthropic``; another provider, or a mode that is not offered, fails every answer and sends nothing.
+
+With ``assistant.mode`` ``brain_graph`` (<<Wissensgraph>>, PMVP-20 brain-graph) it returns
+``brain_graph.BrainGraphService``: Claude calls client tools that the Platform runs, reading the tenant's knowledge
+graph through this client (``assistant.graph_reads``) and the documents through ``make_search``. Only with
+``anthropic`` and the secured API.
 """
 
 from __future__ import annotations
@@ -373,6 +378,9 @@ def make_service(settings: Any, client: Any, *, split: SplitFn, user_key: UserKe
     provider = providers.chosen_provider(settings.value(providers.SETTING_PROVIDER))
     raw_mode = settings.value(providers.SETTING_MODE)
     mode = providers.chosen_mode(raw_mode) if raw_mode not in (None, "") else providers.MODE_PASSAGES
+    if mode == providers.MODE_BRAIN_GRAPH:
+        return _brain_graph_service(settings, client, provider, split=split, user_key=user_key,
+                                    anthropic_client=anthropic_client, deadline=deadline)
     if mode != providers.MODE_PASSAGES:
         return _brain_tools_service(settings, provider, mode, anthropic_client, deadline)
     if provider == providers.PROVIDER_KNOVAS:
@@ -412,6 +420,32 @@ def _brain_tools_service(settings: Any, provider: Optional[str], mode: Optional[
             client_factory=anthropic_client,
         )
     return BrainToolsService(ask=ask, deadline=deadline)
+
+
+def _brain_graph_service(settings: Any, client: Any, provider: Optional[str], *, split: SplitFn,
+                         user_key: UserKey, anthropic_client: Optional[Callable[..., Any]],
+                         deadline: Optional[Deadline] = None) -> Any:
+    """The service of <<Wissensgraph>> (PMVP-20 brain-graph): Claude with client tools the Platform runs, on the
+    settings' key and model, read on every call. The graph is read through ``client`` (``assistant.graph_reads``),
+    the documents through ``make_search`` (the person's own search, as the passages mode searches). Only with
+    ``anthropic`` and the secured API; otherwise every answer fails (``failed``) and nothing is read or sent. The
+    route's ``deadline`` (PMVP-24) bounds the whole loop."""
+    from assistant import providers
+    from assistant.brain_graph import BrainGraphService
+
+    if provider != providers.PROVIDER_ANTHROPIC:
+        turn = providers.unavailable_turn("brain_graph_needs_anthropic")
+    elif not _secured(client):
+        turn = providers.unavailable_turn("secured_api_required")
+    else:
+        turn = providers.make_brain_graph_turn(
+            api_key=lambda: settings.secret(providers.SETTING_API_KEY),
+            model=lambda: settings.value(providers.SETTING_MODEL),
+            client_factory=anthropic_client,
+        )
+    return BrainGraphService(turn=turn, client=client,
+                             search=make_search(client, split=split, user_key=user_key, deadline=deadline),
+                             deadline=deadline)
 
 
 def _secured(client: Any) -> bool:

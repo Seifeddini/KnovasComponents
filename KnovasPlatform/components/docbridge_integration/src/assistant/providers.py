@@ -52,6 +52,10 @@ tool results and checks the answer. ``settings_problems``, ``settings_warnings``
 settings page's lines and its refusal. Then Anthropic receives the gateway key with every question and calls the
 gateway with it; the gateway reads with the company's key, not as the person.
 
+<<Wissensgraph>> (PMVP-20 brain-graph): with ``assistant.mode`` ``brain_graph`` (only with ``anthropic``),
+``make_brain_graph_turn`` makes one request of a tool loop with client tools (``assistant.brain_graph`` runs the loop,
+``assistant.graph_reads`` the reads of the tenant's knowledge graph through the Core): no MCP server, no second key.
+
 The SDK is imported when a call is made, not when this module is imported: the settings page imports this module.
 This module is ASCII-only: umlauts are ``\\u`` escapes.
 """
@@ -82,13 +86,22 @@ SETTING_BRAIN_MCP_KEY = "assistant.brain_mcp_key"
 
 MODE_PASSAGES = "passages"
 MODE_BRAIN_MCP = "brain_mcp"
-MODES = (MODE_PASSAGES, MODE_BRAIN_MCP)
+#: \u00abWissensgraph\u00bb (PMVP-20 brain-graph): Claude reads the tenant's knowledge graph with tools the Platform runs.
+MODE_BRAIN_GRAPH = "brain_graph"
+MODES = (MODE_PASSAGES, MODE_BRAIN_MCP, MODE_BRAIN_GRAPH)
 
 PROVIDER_KNOVAS = "knovas"
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDERS = (PROVIDER_KNOVAS, PROVIDER_ANTHROPIC)
 
-ANTHROPIC_MODELS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")
+#: The models the customer may choose. ``claude-haiku-4-5`` (previous generation, still served) is offered as an
+#: approximate stand-in for a smaller, self-hosted open model (the founder, 2026-11-28): it is asked without the
+#: fields it does not take (``model_fields``).
+ANTHROPIC_MODELS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-haiku-4-5")
+#: The offered models of the previous generation: no ``output_config.effort``, no server-side refusal fallback (no
+#: ``fallbacks``, no fallback beta) and no adaptive thinking (no thinking setting is sent to any model; extended
+#: thinking would need ``budget_tokens`` and stays off). 200K context, 64K output; tool use as the others.
+PREVIOUS_GENERATION_MODELS = frozenset({"claude-haiku-4-5"})
 DEFAULT_ANTHROPIC_MODEL = "claude-opus-5-5"
 
 #: What switches the assistant on. The page offers "an" and "aus"; a deployment's ASSISTANT_ENABLED may also say
@@ -111,6 +124,17 @@ ANTHROPIC_MIN_MAX_TOKENS = 8_000
 ANTHROPIC_EFFORT = "medium"
 ANTHROPIC_BETAS = ("server-side-fallback-2026-07-01",)
 ANTHROPIC_FALLBACKS = "default"
+
+
+def model_fields(name: str, extra_betas: tuple = ()) -> Dict[str, Any]:
+    """The request fields that depend on the model, in the order every request sends them: ``output_config`` (effort
+    medium), ``betas`` (the server-side fallback's, then ``extra_betas``) and ``fallbacks``. A model of
+    ``PREVIOUS_GENERATION_MODELS`` takes none of the three: it gets only ``betas`` with ``extra_betas`` (the MCP
+    connector's), and nothing when there are none. The current models' requests are exactly as before."""
+    if name in PREVIOUS_GENERATION_MODELS:
+        return {"betas": list(extra_betas)} if extra_betas else {}
+    return {"output_config": {"effort": ANTHROPIC_EFFORT}, "betas": list(ANTHROPIC_BETAS) + list(extra_betas),
+            "fallbacks": ANTHROPIC_FALLBACKS}
 #: HTTP answers that mean "busy, ask again later": rate limited, overloaded.
 BUSY_STATUSES = frozenset({429, 529})
 
@@ -165,9 +189,7 @@ def make_anthropic_generate(*, api_key: Value, model: Value = DEFAULT_ANTHROPIC_
             "max_tokens": max(int(max_tokens), ANTHROPIC_MIN_MAX_TOKENS),
             "system": system_instruction,
             "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
-            "output_config": {"effort": ANTHROPIC_EFFORT},
-            "betas": list(ANTHROPIC_BETAS),
-            "fallbacks": ANTHROPIC_FALLBACKS,
+            **model_fields(name),
         }
         import anthropic  # the SDK; imported here so that the settings page does not load it
 
@@ -362,9 +384,7 @@ def make_brain_mcp_ask(*, api_key: Value, model: Value = DEFAULT_ANTHROPIC_MODEL
             "max_tokens": max(int(max_tokens), ANTHROPIC_MIN_MAX_TOKENS),
             "system": system_instruction,
             "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
-            "output_config": {"effort": ANTHROPIC_EFFORT},
-            "betas": list(ANTHROPIC_BETAS) + [BRAIN_MCP_BETA],
-            "fallbacks": ANTHROPIC_FALLBACKS,
+            **model_fields(name, (BRAIN_MCP_BETA,)),
             "mcp_servers": [{"type": "url", "url": url, "name": BRAIN_MCP_SERVER_NAME,
                              "authorization_token": token}],
             "tools": [{"type": "mcp_toolset", "mcp_server_name": BRAIN_MCP_SERVER_NAME,
@@ -523,6 +543,87 @@ def _close(client: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
+# \u00abWissensgraph\u00bb: Claude reads the knowledge graph with tools the Platform runs (PMVP-20 brain-graph)
+# ---------------------------------------------------------------------------
+
+#: The warning under the mode for \u00abWissensgraph\u00bb, in the words of \u00abBrain-Werkzeuge\u00bb's warning.
+BRAIN_GRAPH_WARNING = (
+    "Wissensgraph liest den Wissensgraphen mit dem Zertifikat Ihres Unternehmens, unabh\u00e4ngig von den Rollen der "
+    "Person. Nur ohne \u00abEin\u00bb verwenden."
+)
+BRAIN_GRAPH_NEEDS_ANTHROPIC = (
+    "Wissensgraph geht nur mit dem Sprachmodell anthropic: Claude ruft die Werkzeuge der Plattform selbst auf."
+)
+BRAIN_GRAPH_NEEDS_API_KEY = (
+    "Wissensgraph braucht den Schl\u00fcssel f\u00fcr die Claude API (Knovas Assistent): bitte zuerst setzen."
+)
+
+TurnFn = Callable[..., Any]
+
+
+def make_brain_graph_turn(*, api_key: Value, model: Value = DEFAULT_ANTHROPIC_MODEL,
+                          client_factory: Optional[ClientFactory] = None,
+                          clock: Callable[[], float] = time.monotonic) -> TurnFn:
+    """``turn(*, system_instruction, messages, tools, tool_choice, max_tokens, deadline_at, min_seconds) -> response``:
+    one request of \u00abWissensgraph\u00bb's tool loop (``assistant.brain_graph``), with client tools the Platform runs.
+
+    The request is today's (``make_anthropic_generate``: the model, effort medium, the server-side fallback, no
+    temperature, no thinking setting, at least ``ANTHROPIC_MIN_MAX_TOKENS``) plus ``tools`` (client tools, no MCP
+    server) and ``tool_choice`` (``auto``, or ``none`` for the last request; a forced tool is refused by the current
+    models). The messages go as they are: the assistant's content of earlier rounds unchanged (its thinking blocks
+    included) and the tool results. Not started with less than ``min_seconds`` before ``deadline_at``
+    (``CoreBusy``); waited for until ``deadline_at`` by the wall clock (``_request_by_deadline``: a timeout is busy,
+    every other error mapped as ``make_anthropic_generate`` maps it). ``stop_reason`` ``refusal`` -> ``CoreFailed``.
+    Without a key nothing is sent (``CoreFailed``). The key is never logged; the one log line per request carries
+    the model, the stop reason, token counts and milliseconds.
+    """
+
+    def turn(*, system_instruction: str, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]],
+             tool_choice: Dict[str, Any], max_tokens: int, deadline_at: float, min_seconds: float) -> Any:
+        key = _text(_read(api_key))
+        if not key:
+            logger.warning("Knovas Assistent: the knowledge graph mode needs the Claude API key")
+            raise CoreFailed("anthropic_key_missing")
+        name = _text(_read(model)) or DEFAULT_ANTHROPIC_MODEL
+        if name not in ANTHROPIC_MODELS:
+            logger.warning("Knovas Assistent: the model is not one of %s", ", ".join(ANTHROPIC_MODELS))
+            raise CoreFailed("anthropic_model_unknown")
+        left = deadline_at - clock()
+        if left < min_seconds:
+            logger.warning("Knovas Assistent: deadline step=brain_graph not started left_ms=%d", int(left * 1000))
+            raise CoreBusy("no_time_to_generate")
+        request: Dict[str, Any] = {
+            "model": name,
+            "max_tokens": max(int(max_tokens), ANTHROPIC_MIN_MAX_TOKENS),
+            "system": system_instruction,
+            "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
+            "tools": list(tools),
+            "tool_choice": dict(tool_choice),
+            **model_fields(name),
+        }
+        import anthropic  # the SDK; imported here so that the settings page does not load it
+
+        response = _request_by_deadline(client_factory or _sdk_client, key, request, deadline_at, clock, anthropic,
+                                        name)
+        if getattr(response, "stop_reason", None) == "refusal":
+            raise CoreFailed("anthropic_refusal")
+        return response
+
+    return turn
+
+
+def unavailable_turn(reason: str) -> TurnFn:
+    """A turn that always fails: \u00abWissensgraph\u00bb is chosen without what it needs (another provider, no
+    secured API)."""
+
+    def turn(**_kwargs: Any) -> Any:
+        logger.warning("Knovas Assistent: the knowledge graph mode is not usable (%s)", reason)
+        raise CoreFailed(reason)
+
+    return turn
+
+
+# ---------------------------------------------------------------------------
 # The settings page: "Verbindung testen" and what is missing
 # ---------------------------------------------------------------------------
 
@@ -611,7 +712,10 @@ def settings_problems(settings: Any) -> Dict[str, str]:
         provider = chosen_provider(settings.value(SETTING_PROVIDER))
         if provider == PROVIDER_ANTHROPIC and not _text(settings.secret(SETTING_API_KEY)):
             problems[SETTING_API_KEY] = KEY_MISSING_TEXT
-        if chosen_mode(settings.value(SETTING_MODE)) == MODE_BRAIN_MCP:
+        mode = chosen_mode(settings.value(SETTING_MODE))
+        if mode == MODE_BRAIN_GRAPH and provider != PROVIDER_ANTHROPIC:
+            problems[SETTING_MODE] = BRAIN_GRAPH_NEEDS_ANTHROPIC
+        if mode == MODE_BRAIN_MCP:
             if provider != PROVIDER_ANTHROPIC:
                 problems[SETTING_MODE] = BRAIN_MCP_NEEDS_ANTHROPIC
             if not _text(settings.secret(SETTING_BRAIN_MCP_KEY)):
@@ -626,8 +730,9 @@ def settings_problems(settings: Any) -> Dict[str, str]:
 
 
 def settings_warnings() -> Dict[str, str]:
-    """The lines the settings page always shows under a setting: the warning under the answer mode."""
-    return {SETTING_MODE: BRAIN_MCP_WARNING}
+    """The lines the settings page always shows under a setting: the warning under the answer mode (both modes
+    that read with the company's own credentials, \u00abBrain-Werkzeuge\u00bb and \u00abWissensgraph\u00bb)."""
+    return {SETTING_MODE: BRAIN_MCP_WARNING + " " + BRAIN_GRAPH_WARNING}
 
 
 #: What a removed page value falls back to (config.yaml's defaults of the two choices).
@@ -636,7 +741,8 @@ _FALLBACKS = {SETTING_MODE: MODE_PASSAGES, SETTING_PROVIDER: PROVIDER_KNOVAS}
 
 def brain_mcp_refusal(settings: Any, values: Any) -> Optional[str]:
     """Why a save of the settings page is refused, or None: it would leave \u00abBrain-Werkzeuge\u00bb chosen without
-    the provider anthropic, the Claude API key or the gateway key.
+    the provider anthropic, the Claude API key or the gateway key, or \u00abWissensgraph\u00bb without the provider
+    anthropic or the Claude API key.
 
     ``values`` is what the page sends (a key's new value, or None or an empty text to remove the page's value);
     what it leaves out is read from ``settings``. Only a save that touches the mode, the provider or one of the two
@@ -659,7 +765,14 @@ def brain_mcp_refusal(settings: Any, values: Any) -> Optional[str]:
             return not removed(values[key])
         return bool(_text(settings.secret(key)))
 
-    if chosen_mode(choice(SETTING_MODE)) != MODE_BRAIN_MCP:
+    mode = chosen_mode(choice(SETTING_MODE))
+    if mode == MODE_BRAIN_GRAPH:
+        if chosen_provider(choice(SETTING_PROVIDER)) != PROVIDER_ANTHROPIC:
+            return BRAIN_GRAPH_NEEDS_ANTHROPIC
+        if not has_secret(SETTING_API_KEY):
+            return BRAIN_GRAPH_NEEDS_API_KEY
+        return None
+    if mode != MODE_BRAIN_MCP:
         return None
     if chosen_provider(choice(SETTING_PROVIDER)) != PROVIDER_ANTHROPIC:
         return BRAIN_MCP_NEEDS_ANTHROPIC

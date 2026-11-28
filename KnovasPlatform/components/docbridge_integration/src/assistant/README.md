@@ -22,7 +22,9 @@ numbers all stand in their cited passage. No routes, no pages (PMVP-22a, 22b), n
 | `errors.py` | `CoreBusy`, `CoreFailed` (base `CoreError`): an HTTP status and a reason code, never a body. |
 | `core.py` | `make_search`, `make_generate`, `make_read_text`: the callables, built from `KnovasAPIClient`. `make_service` and `OFF`: the switch and the provider the settings choose (PMVP-25). |
 | `context.py` | `widen_passages`: the context around each hit, read from its document's text under the five limits (PMVP-20 context); `find_chunk`, `cut_around`, the three settings. Imports nothing of the service. |
-| `providers.py` | `make_anthropic_generate` (Claude, the provider `anthropic`), `connection_test` ("Verbindung testen"), `settings_problems`, the four settings' names and values (PMVP-25). |
+| `providers.py` | `make_anthropic_generate` (Claude, the provider `anthropic`), `connection_test` ("Verbindung testen"), `settings_problems`, the four settings' names and values (PMVP-25); `make_brain_mcp_ask`, `make_brain_graph_turn`. |
+| `brain_tools.py` | «Brain-Werkzeuge» (`brain_mcp`): Claude with the MCP connector against the Knovas gateway. |
+| `brain_graph.py`, `graph_reads.py` | «Wissensgraph» (`brain_graph`): Claude with client tools that read the knowledge graph through the Core (below). |
 | `../knovas_client.py` | `llm_generate` (`POST /secured/llm/generate`), `keeping_snippets()` and `_snippet_from_hit` (the passage text in the row), `document_text` (`GET /secured/document/<uuid>/text`, one part). |
 
 ## The five steps
@@ -110,7 +112,7 @@ each time it is called, so build the service per request and a change applies wi
 |---|---|---|---|
 | `assistant.enabled` | `an`, `aus` (the environment also takes `true`, `on`, `yes`, `ja`, `1`; anything else is off) | `aus` | `ASSISTANT_ENABLED` |
 | `assistant.provider` | `knovas` (the Core's `/secured/llm/generate`, `make_generate`, unchanged), `anthropic` (Claude) | `knovas` | `ASSISTANT_PROVIDER` |
-| `assistant.model` | `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5` (with `anthropic`) | `claude-opus-5-5` | `ASSISTANT_MODEL` |
+| `assistant.model` | `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, `claude-haiku-4-5` (with `anthropic`; the last of the previous generation, below) | `claude-opus-5-5` | `ASSISTANT_MODEL` |
 | `assistant.anthropic_api_key` | the key, sealed by the registry's `SecretBox`, never shown | none | nothing (the page only) |
 
 Off, `make_service` returns `OFF`: nothing is built, nothing is searched, and the assistant's routes (PMVP-22a)
@@ -127,6 +129,13 @@ client.beta.messages.create(model=..., max_tokens=max(max_tokens, 8000), system=
                             betas=["server-side-fallback-2026-07-01"], fallbacks="default")
 ```
 
+- `claude-haiku-4-5` (founder, 2026-11-28: an approximate stand-in for a smaller, self-hosted model, to test the
+  assistant with a weaker, older one) is of the previous generation: it takes no `output_config.effort`, no
+  server-side refusal fallback and no adaptive thinking. `providers.model_fields(name)` gives every request
+  (passages, `brain_mcp`, `brain_graph`, "Verbindung testen") its model-dependent fields: for it none of
+  `output_config`, `betas` (except the MCP connector's) and `fallbacks`; for the current models exactly the fields
+  above, in the same place. Thinking stays off for it (no `budget_tokens`). Tests:
+  `tests/test_assistant_model_fields.py`.
 - No `temperature` (the current models refuse it) and no thinking setting (adaptive is the default and cannot be
   switched off on Opus 5.5). `max_tokens` is at least 8,000 because thinking counts against it; the service asks for
   1,536 (sized for the Core's model) and this path raises it. For `claude-haiku-5-5` the fallback does nothing (it
@@ -166,7 +175,7 @@ passages of the person's own search (work order `docs/platform-mvp/work-orders/P
 
 | Entry | Values | Default | Pinned by |
 |---|---|---|---|
-| `assistant.mode` | `passages` (the five steps above), `brain_mcp` («Brain-Werkzeuge», only with `anthropic`) | `passages` | `ASSISTANT_MODE` |
+| `assistant.mode` | `passages` (the five steps above), `brain_mcp` («Brain-Werkzeuge», only with `anthropic`), `brain_graph` («Wissensgraph», only with `anthropic`; next section) | `passages` | `ASSISTANT_MODE` |
 | `assistant.brain_mcp_url` | the gateway's address: `https://` on `knovas.ch` or a name under it, no user, query or fragment | `https://mcp.knovas.ch/mcp` | `ASSISTANT_BRAIN_MCP_URL` |
 | `assistant.brain_mcp_key` | the company's gateway key (`knovas_gw_…`), sealed by the registry's `SecretBox`, never shown | none | nothing (the page only) |
 
@@ -212,6 +221,95 @@ client.beta.messages.create(..., betas=["server-side-fallback-2026-07-01", "mcp-
 - **The settings page** refuses a save that would leave `brain_mcp` without `anthropic`, the Claude API key or the
   gateway key (`providers.brain_mcp_refusal`, its own words, nothing saved) and names what a deployment's
   `brain_mcp` lacks (`settings_problems`).
+
+## «Wissensgraph»: Claude reads the knowledge graph with tools the Platform runs (PMVP-20 brain-graph)
+
+A third answer mode, for questions a search cannot answer: counts and complete lists ("Wie viele offene Akten führt
+…?"), a check across every thing of a kind ("Haben wir je gegen … gearbeitet?"), what a rule asks for and is missing
+("In welchen Akten fehlt …?"), joins along relations ("Welche Mandanten haben gemahnte Rechnungen?") and a certain
+"no" (a count of 0 for exactly the question). Built for the law-firm demo; the code is generic (no type, relation or
+fact name of any tenant in it: they come from the graph at run time).
+
+| Entry | Value | Needs |
+|---|---|---|
+| `assistant.mode` | `brain_graph` («Wissensgraph»; `ASSISTANT_MODE=brain_graph` pins it) | `assistant.provider` `anthropic` and `assistant.anthropic_api_key`; the secured API (mTLS) |
+
+`assistant.model` chooses the model as for `anthropic`. No second key: the graph is read through the Platform's own
+`KnovasAPIClient` with the tenant's certificate. To see a node passage's dossier from the chat, switch on
+`brain_views.enabled` too.
+
+**The files.** `brain_graph.py`: `BrainGraphService` (the loop, the check, the reply `GraphReply`), `TOOLS`,
+`GRAPH_SYSTEM_INSTRUCTION`. `graph_reads.py`: `GraphPort` (the reads, paced and bounded), `GraphSession` (one answer's
+graph and the tools' logic), `PassageBook`, the passage texts. `providers.make_brain_graph_turn`: one request of the
+loop. `core._brain_graph_service`: the wiring. `knovas_client.graph_read`: one quiet read-only
+`GET /secured/graph<path>`.
+
+**The loop** (Messages API, client tools, a manual loop because the answer's wall-clock deadline and the passages
+must stay in the Platform's hands): at most `MAX_ROUNDS` (8) requests with `tool_choice` `auto`, then one with
+`tool_choice` `none` that must answer (a forced tool is refused by the current models). Each round sends the
+assistant's content back unchanged (thinking blocks included) and every tool result of the round in one user
+message; the last tool result of the first `CACHED_ROUNDS` (3) rounds carries a cache breakpoint (append-only, never
+moved). The request is `make_anthropic_generate`'s (effort medium, the server-side fallback, no temperature, at least
+8,000 tokens) plus `tools` and `tool_choice`; no MCP server.
+
+**The tools** (all read-only):
+
+| Tool | Reads | Returns |
+|---|---|---|
+| `describe_graph(type?)` | the topology; with `type` its schema (`GET /node-types/<id>/schema`) | every type with description and count, every relation with the types it joins and its count, a type's fact names, meanings, values. No passage. |
+| `search_documents(query)` | `core.make_search`: the person's own search, as the passages mode searches (at most `MAX_SEARCHES` 3, `SEARCH_LIMIT` 8 hits) | one passage per hit, pointer the document's |
+| `find_nodes(text, type?, limit?)` | the topology; with `type` and no name match the facts of that type (at most 200 nodes) | nodes whose name or description holds every word (case, accents, ä/ae ignored; a match at a word's start first), one short passage each, their ids |
+| `read_node(node_id)` | the node's facts | one passage: type, name, description, facts, then its connections by relation and direction with names and counts; the neighbours' ids |
+| `neighbours(node_id, relation?, direction?, type?, where?, contains?, limit?)` | facts only when filtering by them | a count passage (pointer `brain:<node id>`) and up to `limit` node passages |
+| `list_nodes(type, where?, contains?, with_relation?, without_relation?, via?, limit?)` | facts only when filtering by them | a count passage (pointer `brain:abfrage:<type id>`) and up to `limit` node passages; with `via` (up to three hops) the distinct nodes reached |
+
+`where` is a list of `{fact, op, value}` (`equals`, `not_equals`, `contains`, `present`, `missing`, `before`,
+`after`); `with_relation`/`without_relation`/`via` are lists of `{relation, direction (out|in), type?}`.
+
+**The passages.** Every node a tool returns, every count and every search hit becomes a `Passage`, numbered 1..n in
+the order returned (the same pointer and text is one passage); Claude sees the number and the text in the tool
+result and cites the number as `source`. A node's text is plain lines: `<Type>: <name>`, `Beschreibung: …`,
+`key: …` first, then `<fact>: <value>` (facts in force today, not rejected; the brain-runner's bookkeeping facts
+`source`, `source_key`, `mapping`, `in_source`, `last_seen`, `source_version`, `provenance` left out; at most 40, each
+cut to 300 characters), and with `read_node` `Verbindungen:` and one line per relation (`mandant -> Partei (1): …`).
+A count's text: `Abfrage im Wissensgraphen: <the query in words>`, `Anzahl der Treffer: N`, `Treffer: <names>` (at
+most 100) and, when facts could not be read, `Unvollständig: …`. So a count, a list and a "no" are quotable, and their
+numbers stand in the cited passage. The check (`check.check_answer`) and the reply rules (`conversation`) are
+unchanged; a reply is checked against the passages and the graph's description too.
+
+**Opening a source.** A `GraphReply` is never granted (`opens_directly` False). A node passage (`brain:<node id>`)
+opens the node's dossier (`brain_views.dossier`, which reads as the person) while the Brain views are on, in an
+unsaved reply and in a stored chat (`/fragen/<chat>/quelle/<turn>/<n>` redirects there); otherwise, and for a count,
+the title alone. A document passage opens as `brain_mcp`'s do: through a stored chat's `source` route after the
+Core said the person may read it.
+
+**What it reads, as whom.** The graph with the tenant's certificate; inside `AsTheAssistant` every call carries the
+assistant's claim for the signed-in person, which the Core narrows by only under enforcement. So, like
+`brain_mcp`, it reads what the company's credentials see, whatever the person's roles: the settings page's warning
+line under the mode says so («Wissensgraph liest den Wissensgraphen mit dem Zertifikat Ihres Unternehmens, unabhängig
+von den Rollen der Person. Nur ohne «Ein» verwenden.»). The settings page refuses `brain_graph` without `anthropic`
+or the Claude API key (`providers.brain_mcp_refusal`) and names a deployment's `brain_graph` without `anthropic`
+(`settings_problems`).
+
+**The bounds.** The answer's deadline (PMVP-24: the route's `core.Deadline`, 150 s): no request to Claude starts with
+less than `MIN_GENERATE_SECONDS` (30) left; no graph read with less than that plus `TOOL_RESERVE_SECONDS` (10) — the
+tool then says the time is up and the next request is the last. Every read runs inside `client.within_time`. At most
+`MAX_TOOL_CALLS` (30) tool calls. The topology (`GET /node-types`, `/nodes`, `/edges`) is read once per answer, on the
+first tool that needs it; a graph of more than 50,000 nodes or 250,000 edges refuses the tools. Facts of at most
+`MAX_FACT_NODES` (300) nodes per answer, through `POST /facts/batch` (20 ids a request; node by node when the Core
+has no batch route); a filter that would need more is refused with a hint to narrow it. Reads are paced by one
+process-wide token bucket (480 a minute, burst 20; a facts batch costs one token per node, as the Core counts it);
+a 429 or 503 is waited out 1, 2, 4 seconds, never into the reserve, then the tool answers busy (and the answer is
+`busy` when no passage was read). At most 150 passages, 200,000 characters; one tool result at most 40,000
+characters. Nothing is cached beyond one answer (the reads are the person's).
+
+**The logs.** One line per answer (`brain graph status=… rounds=… tool_calls=… calls=<tool>:<n> errors=<code>:<n>
+passages=… graph_reads=… fact_nodes=… waits=…`, the check's counts, Anthropic's message ids, durations) and the
+provider's line per request. Never a question, a tool's input, a node's name, a fact, a passage, an answer or a key;
+`graph_reads` logs nothing, `knovas_client.graph_read` is quiet.
+
+**Tests:** `tests/test_assistant_brain_graph.py` (a fake Core with an invented graph, a fake client with the SDK's
+block types, and the real SDK over an in-process transport).
 
 ## The design: statements with a source and a quote
 
@@ -700,3 +798,11 @@ is before a centred chunk begins: the model would see the text before the hit bu
 - The answer budget and the prompt budget are arithmetic on bytes, not measured against the model's tokenizer;
   the history weighs digits as tokens (FU-06), the passages and the question do not (unchanged by PMVP-23).
   Nothing here was run against a live Core.
+- «Wissensgraph» (`brain_graph`): the whole topology (node headers and edges) is read once per answer, three
+  requests that grow with the tenant; fine for the demo tenant (some thousand nodes), a cap refuses graphs over
+  50,000 nodes. A filter over facts reads the facts of every candidate (one rate-limit token per node, about 8 a
+  second): a type of more than 300 nodes cannot be filtered by facts in one answer, only narrowed by relations,
+  text in names or the neighbours of a node first. Typed facts that carry only an `attribute_id` and no `label` are
+  not shown (the live tenants write labels). A count is over the nodes the tenant's certificate sees as they are now:
+  while a graph is still being loaded, a "0" is a 0 of what is loaded. Not yet run end to end with Claude against the
+  live Core (the reads were smoke-tested read-only against the demo tenant on 2026-11-28 while it was filling).

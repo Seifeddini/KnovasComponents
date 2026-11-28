@@ -119,7 +119,8 @@ def test_the_four_entries_are_registered_for_the_whole_installation():
     assert ps.REGISTRY["assistant.enabled"].choices == ("aus", "an")
     assert ps.REGISTRY["assistant.enabled"].env == ("ASSISTANT_ENABLED",)
     assert ps.REGISTRY["assistant.provider"].choices == ("knovas", "anthropic")
-    assert ps.REGISTRY["assistant.model"].choices == ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")
+    assert ps.REGISTRY["assistant.model"].choices == ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5",
+                                                      "claude-haiku-4-5")
     assert ps.REGISTRY["assistant.anthropic_api_key"].kind == "secret"
     assert ps.REGISTRY["assistant.anthropic_api_key"].file_key is None     # never read from a file
 
@@ -145,7 +146,7 @@ def test_the_defaults_are_off_knovas_and_opus(resolver):
 def test_the_model_help_names_each_price_and_opus_as_the_default():
     help_text = ps.REGISTRY["assistant.model"].help
     for model, price in (("claude-opus-5-5", "4 / 20"), ("claude-sonnet-5-5", "2 / 10"),
-                         ("claude-haiku-5-5", "0,10 / 0,50")):
+                         ("claude-haiku-5-5", "0,10 / 0,50"), ("claude-haiku-4-5", "1 / 5")):
         assert f"{model} {price}" in help_text
     assert "je Million Tokens" in help_text and "claude-opus-5-5 4 / 20, der Standard" in help_text
 

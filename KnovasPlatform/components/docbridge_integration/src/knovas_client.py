@@ -2866,6 +2866,24 @@ class KnovasAPIClient:
         name = node.get('name')
         return name.strip() or None if isinstance(name, str) else None
 
+    def graph_read(self, path: str) -> Tuple[int, Any]:
+        """One read-only ``GET /secured/graph<path>`` as the principal in force: ``(status, payload)``.
+
+        For the Knovas Assistent's graph tools (``assistant.graph_reads``, PMVP-20 brain-graph), which read the
+        graph on the request thread inside ``within_time`` and ``asserting_for`` and wait out a 429 themselves: no
+        retry, no raise for a status and nothing logged (``_request_quiet``). ``path`` starts with ``/`` and holds no
+        query (the caller builds it from ids only). ``payload`` is None when the body is not JSON. A network error
+        or a timeout raises as ``_send`` raises it; PermissionError when nobody is signed in (nothing is sent).
+        """
+        if not isinstance(path, str) or not path.startswith('/') or '?' in path or '#' in path:
+            raise ValueError("graph_read takes a path under /secured/graph without a query")
+        response = self._request_quiet('GET', f'/secured/graph{path}')
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        return response.status_code, payload
+
     def graph_edges(self) -> List[Dict[str, Any]]:
         """GET /secured/graph/edges - typisierte Relationen."""
         return _graph_payload_list(self._graph_request('GET', '/edges'), 'edges')
