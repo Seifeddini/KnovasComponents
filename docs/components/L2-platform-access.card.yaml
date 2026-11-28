@@ -1,0 +1,394 @@
+card: 2
+id: L2-PLATFORM-ACCESS
+name: Zugriff
+kind: code
+owner: ROLE-ENGINE-OWNER
+level: 2
+parent: L1-WORKSPACE
+source_paths:
+- KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py
+- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access_groups.html
+- KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_documents.html
+- KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_documents.js
+purpose: Who may read what, as the firm's administrator sets it in the Platform's console - the access groups as a tree,
+  the folder rules and a document's access groups - and the console's document list with its fields drawer and the
+  erasing of the corpus.
+responsible_for:
+- id: L2-PLATFORM-ACCESS/R-1
+  aliases:
+  - L2-PLATFORM-ADMIN/R-2
+  statement: 'Access (A-03, A-04): the access groups as a tree, the folder rules and a document''s access groups, written
+    through the Brain''s access routes; a document''s fields drawer.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access_groups.html
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_documents.html
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_documents.js
+- id: L2-PLATFORM-ACCESS/R-2
+  statement: 'Erasing the tenant''s whole corpus at Knovas, from the Dokumente page: only with the tenant''s id typed in,
+    as a guarded action, and recorded after the call returns.'
+  code:
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py
+  - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_documents.html
+not_responsible_for:
+- The console's blueprint, its role gates and run_guarded (L2-PLATFORM-ADMIN); the routes here are attached to that blueprint
+  with its require_admin, and every write that needs a second person goes through run_guarded.
+- Whether a person may read a document; the Brain decides, per customer, where enforcement is on. The document list shows
+  only what the administrator may see.
+- The document fields' registry, packs and rules (admin_doc_fields.py, the Dokumentfelder page; no card yet), whose views
+  the drawer reuses.
+- «Was sieht …?» and the enforcement posture, on the page «Zugriff» (L2-PLATFORM-ACCESS-CHECK; PMVP-41 and PMVP-42).
+terms:
+- access group (a group of readers at Knovas; a document or a folder rule names the groups that may read it, by id)
+- folder rule (a path prefix whose documents take the rule's access groups, at ingest and, for documents already there,
+  with a reconciliation)
+operations:
+- id: http.GET.documents
+  name: 'GET /admin/documents - Dokumente: the documents with their access groups (A-04)'
+  entrance: http
+  ref: GET /admin/documents
+- id: http.GET.documents.page
+  name: GET /admin/documents/page - one further page of the document list, as JSON
+  entrance: http
+  ref: GET /admin/documents/page
+- id: http.POST.documents.acl
+  name: POST /admin/documents/acl - replace a document's access groups, a guarded action (A-04)
+  entrance: http
+  ref: POST /admin/documents/acl
+- id: http.POST.documents.purge
+  name: POST /admin/documents/purge - erase the tenant's whole corpus, a guarded action
+  entrance: http
+  ref: POST /admin/documents/purge
+- id: http.POST.documents.fields.read
+  name: POST /admin/documents/fields/read - a document's fields drawer
+  entrance: http
+  ref: POST /admin/documents/fields/read
+- id: http.POST.documents.fields.edit
+  name: POST /admin/documents/fields/edit - one manual edit of a document's field
+  entrance: http
+  ref: POST /admin/documents/fields/edit
+- id: http.POST.documents.fields.find
+  name: POST /admin/documents/fields/find - documents by field values
+  entrance: http
+  ref: POST /admin/documents/fields/find
+- id: http.GET.access-groups
+  name: 'GET /admin/access-groups - Zugriffsgruppen: the group tree and the folder rules (A-03, A-04)'
+  entrance: http
+  ref: GET /admin/access-groups
+- id: http.POST.access-groups.create
+  name: POST /admin/access-groups/create - create an access group (A-03)
+  entrance: http
+  ref: POST /admin/access-groups/create
+- id: http.POST.folder-rules.save
+  name: POST /admin/folder-rules/save - assign a folder to a group (A-04)
+  entrance: http
+  ref: POST /admin/folder-rules/save
+- id: http.POST.folder-rules.delete
+  name: POST /admin/folder-rules/delete - remove a folder rule (A-04)
+  entrance: http
+  ref: POST /admin/folder-rules/delete
+- id: call.web_interface.admin_documents.attach_document_routes
+  name: attach_document_routes - attaches the routes above to the console's blueprint, behind the gate it is given
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py#attach_document_routes
+- id: call.web_interface.admin_documents.execute_acl_change
+  name: execute_acl_change - carries out a change of a document's access groups or of a folder rule, and records it; the
+    one function the route and the Freigaben page both call; a role's data (role_data_add, role_data_remove, RB-5) it
+    hands to L2-PLATFORM-ROLE-DATA's execute_role_data
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py#execute_acl_change
+- id: call.web_interface.admin_documents.execute_corpus_purge
+  name: execute_corpus_purge - erases the tenant's corpus at Knovas and records it after the call returns; the one function
+    the route and the Freigaben page both call
+  entrance: call
+  ref: KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py#execute_corpus_purge
+contract:
+  http.GET.documents:
+    needs:
+    - id: L2-PLATFORM-ACCESS/http.GET.documents/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.GET.documents/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+        - TestAdministrator::test_an_administrator_gets_the_page
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
+        checks:
+        - TestRouteAuthorisation::test_every_route_is_admin_gated_not_merely_hidden
+  http.GET.documents.page:
+    needs:
+    - id: L2-PLATFORM-ACCESS/http.GET.documents.page/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.GET.documents.page/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+        - TestAdministrator::test_an_administrator_gets_the_page
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
+        checks:
+        - TestRouteAuthorisation::test_every_route_is_admin_gated_not_merely_hidden
+  http.POST.documents.acl:
+    needs:
+    - id: L2-PLATFORM-ACCESS/http.POST.documents.acl/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.documents.acl/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+        - TestAdministrator::test_an_administrator_gets_through_the_form
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
+        checks:
+        - TestRouteAuthorisation::test_every_route_is_admin_gated_not_merely_hidden
+  http.POST.documents.purge:
+    needs:
+    - id: L2-PLATFORM-ACCESS/http.POST.documents.purge/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.documents.purge/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+        - TestAdministrator::test_an_administrator_gets_through_the_form
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
+        checks:
+        - TestRouteAuthorisation::test_every_route_is_admin_gated_not_merely_hidden
+  http.POST.documents.fields.read:
+    needs:
+    - id: L2-PLATFORM-ACCESS/http.POST.documents.fields.read/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.documents.fields.read/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestSignedOut::test_the_fields_routes_send_a_signed_out_visitor_to_sign_in
+        - TestRefused::test_every_role_but_the_administrator_is_refused_the_fields_routes
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
+        checks:
+        - TestDocFieldsLive::test_a_member_is_refused
+        - TestDocFieldsLive::test_read_shows_the_layers_with_the_pointer_in_the_body
+  http.POST.documents.fields.edit:
+    needs:
+    - id: L2-PLATFORM-ACCESS/http.POST.documents.fields.edit/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.documents.fields.edit/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestSignedOut::test_the_fields_routes_send_a_signed_out_visitor_to_sign_in
+        - TestRefused::test_every_role_but_the_administrator_is_refused_the_fields_routes
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
+        checks:
+        - TestDocFieldsLive::test_a_member_is_refused
+        - TestDocFieldsLive::test_an_edit_is_non_strict_shows_warnings_and_reads_again
+  http.POST.documents.fields.find:
+    needs:
+    - id: L2-PLATFORM-ACCESS/http.POST.documents.fields.find/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.documents.fields.find/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestSignedOut::test_the_fields_routes_send_a_signed_out_visitor_to_sign_in
+        - TestRefused::test_every_role_but_the_administrator_is_refused_the_fields_routes
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
+        checks:
+        - TestDocFieldsLive::test_a_member_is_refused
+        - TestDocFieldsLive::test_the_feldfilter_lists_by_name_and_says_what_it_understood
+  http.GET.access-groups:
+    needs:
+    - id: L2-PLATFORM-ACCESS/http.GET.access-groups/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.GET.access-groups/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestSignedOut::test_a_page_sends_a_signed_out_visitor_to_sign_in
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_page
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+        - TestAdministrator::test_an_administrator_gets_the_page
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
+        checks:
+        - TestAccessGroupsTab::test_routes_exist_and_are_admin_gated
+  http.POST.access-groups.create:
+    needs:
+    - id: L2-PLATFORM-ACCESS/http.POST.access-groups.create/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.access-groups.create/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+        - TestAdministrator::test_an_administrator_gets_through_the_form
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
+        checks:
+        - TestAccessGroupsTab::test_routes_exist_and_are_admin_gated
+  http.POST.folder-rules.save:
+    needs:
+    - id: L2-PLATFORM-ACCESS/http.POST.folder-rules.save/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.folder-rules.save/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+        - TestAdministrator::test_an_administrator_gets_through_the_form
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
+        checks:
+        - TestAccessGroupsTab::test_routes_exist_and_are_admin_gated
+  http.POST.folder-rules.delete:
+    needs:
+    - id: L2-PLATFORM-ACCESS/http.POST.folder-rules.delete/N-1
+      aliases:
+      - L2-PLATFORM-ADMIN/http.POST.folder-rules.delete/N-1
+      statement: 'The caller is signed in and holds the role admin (require_admin): a signed-out caller is sent to the login,
+        anyone else gets 403, whatever the page shows.'
+      risk_class: standard
+      evidence:
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_gates.py
+        checks:
+        - TestSignedOut::test_a_form_sends_a_signed_out_visitor_to_sign_in_and_runs_nothing
+        - TestRefused::test_every_role_but_the_administrator_is_refused_a_form_and_nothing_runs
+        - TestTheGate::test_the_route_lets_in_the_administrator_alone
+        - TestAdministrator::test_an_administrator_gets_through_the_form
+      - kind: test
+        ref: KnovasPlatform/components/docbridge_integration/tests/test_web_admin_documents.py
+        checks:
+        - TestAccessGroupsTab::test_routes_exist_and_are_admin_gated
+uses:
+- component: L2-PLATFORM-ADMIN
+  operations:
+  - call.web_interface.guarded.run_guarded
+  expects: []
+  method: 'imported: every write that a second person must confirm (a document''s access groups, a folder rule, erasing
+    the corpus) goes through run_guarded; the routes are attached to the blueprint and the gate create_admin_blueprint
+    passes in'
+  protocol: in-process call
+- component: L2-PLATFORM-ROLE-DATA
+  operations:
+  - call.web_interface.admin_role_data.execute_role_data
+  expects:
+  - L2-PLATFORM-ROLE-DATA/call.web_interface.admin_role_data.execute_role_data/P-1
+  method: 'imported when it runs: execute_acl_change hands the two actions of a role''s data (role_data_add,
+    role_data_remove; RB-5) to execute_role_data, which plans them again and carries them out'
+  protocol: in-process call
+- component: EXT-BRAIN-API
+  operations:
+  - access-routes
+  - graph-routes
+  expects:
+  - EXT-BRAIN-API/access-routes/P-1
+  method: 'through the Platform''s own client on the Platform''s certificate (knovas_client, passed in by the app as client_factory):
+    access groups and folder rules; a document''s fields (/secured/graph/doc-values); the document list (GET /secured/documents),
+    a document''s access (PUT /secured/document_access) and erasing the corpus (DELETE /secured/delete_all_documents)'
+  protocol: HTTPS with mTLS
+hides:
+- The German texts of the access pages.
+- How the flat list of groups the Brain returns is drawn as a tree (admin_access_groups.html); a group whose parent is not
+  in the list is drawn at the top, and each group once.
+- 'Which state of a document carries a mark on the Dokumente page: every state but "active".'
+review:
+- at: /owner
+  why: Proposed owner, as for every card in this repository; one role per component is confirmed by a person (Software Map
+    K4).
+- at: /status
+  why: Live or planned is not read from the code; the console is on main and runs where the Platform runs.
+- at: /source_paths
+  why: 'Split from L2-PLATFORM-ADMIN by PMVP-40 (2026-11-21, FU-17): together the card was over its context budget, the
+    code alone (16,724 tokens) over 16,000. This card took admin_documents.py, its two templates and admin_documents.js,
+    the responsibility L2-PLATFORM-ADMIN/R-2 and the contract lines of their routes, each with its old id as its first
+    alias. The parent L1-WORKSPACE (KnowledgeBase) does not list this card yet.'
+- at: /operations
+  why: The routes of admin_documents.py are attached to the blueprint admin.py passes in, so the code reader shows them
+    without the prefix /admin (e.g. GET /access-groups @web_interface.admin_documents.bp); the refs here name the served
+    path. Backlog row B33 of the Software Map plan.
+- at: /operations
+  why: 'attach_document_routes, execute_acl_change and execute_corpus_purge have no line: plan § 7 gives none. They became
+    operations of their own when the card was split (admin.py on L2-PLATFORM-ADMIN imports them).'
+- at: /contract
+  why: 'Plan § 7 names Verwaltung only in SHELL POST-01, whose server half ("the server refuses the page otherwise") is
+    each route''s N-1 here. Every other line of these routes has no source in § 7. Since PMVP-40 each N-1 has live tests
+    in tests/test_web_admin_gates.py: the view the app registered lets in admin alone (allowed_roles); every other role
+    the console gives and an account with no role get 403 and nothing runs; an administrator gets 200 (for the three
+    fields routes, which answer JSON, that 200 is TestDocFieldsLive''s). The signed-out test cannot catch a missing
+    route gate on its own: the app''s sign-in check answers first. The source check of test_web_admin_documents.py
+    (every @bp.route carries @require_admin) stays as a second piece of evidence.'
+- at: /responsible_for
+  why: 'PMVP-40 (2026-11-21): both pages are one column of the shared page parts (_parts.html); the group tree stays a tree,
+    a folder rule and a document are rows of a list, their access groups in words. Marks only for exceptions: a document
+    whose state is not "active" carries a tag with its state; admin_documents.js draws the rows it loads the same way. The
+    access groups are shown as the data holds them (by id), as before.'
+- at: /uses
+  why: 'Not declared because they have no card yet: the Platform''s identity package (audit, approvals), the web app''s client
+    (knovas_client.py) and the document-fields modules (doc_fields_capability.py, doc_fields_view.py, admin_doc_fields.py).
+    L2-PLATFORM-ADMIN''s run_guarded has no line to expect: plan § 7 gives none. EXT-BRAIN-API lists neither /secured/document_access
+    nor /secured/delete_all_documents, and its ingest-routes promise is written for Link''s relays, not for the console''s
+    document list.'

@@ -4,20 +4,21 @@ Handles communication with Knovas knowledge base API.
 """
 
 import contextlib
+import re
 import requests
 import logging
 from typing import Iterator, List, Dict, Any, Optional, Tuple, Union
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from datetime import datetime, timezone
 import time
 import os
 import threading
+import uuid as _uuid
 from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID
 from tempfile import NamedTemporaryFile
 from tenacity import (
     RetryError,
@@ -27,9 +28,9 @@ from tenacity import (
     retry_if_exception_type
 )
 
+from assistant.errors import CoreBusy, CoreFailed
 from config_loader import get_config
 from doc_fields_view import display_title as _doc_fields_display_title
-from part_metadata import enrich_transmit_parts_with_location
 
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,216 @@ _RETRYABLE_REQUEST_EXCEPTIONS = (
     requests.exceptions.ConnectionError,
     requests.exceptions.Timeout,
 )
+
+
+# -- What a log line may say about a call to the Core (FU-43) ------------------------------------------------------
+# A path can hold an id a customer chose (a group's id can be speaking, so can a node's, a field's or a pack's), a
+# query string a document's pointer, and an answer's body can quote a group's name, which since RB-4 is a role's
+# name. A log line therefore names the route, never the path, and says of an answer only its status, the Core's
+# error code when it is a short identifier, the Core's request id (``X-Request-ID``, to find the Core's own lines)
+# and the body's size: never body text, at any level, DEBUG included.
+
+_ROUTE_ID = '{id}'
+#: The Core's routes this client calls, with ``{id}`` where the path carries an id.
+_ROUTE_TEMPLATES = (
+    '/secured/health', '/secured/query', '/secured/llm/generate', '/secured/sign_certificate',
+    '/secured/init_document_transmission', '/secured/transmit_document_part',
+    '/secured/delete_information_object', '/secured/delete_all_documents',
+    '/secured/agents/{id}/claims',
+    '/secured/access_groups', '/secured/access_groups/{id}',
+    '/secured/document_access', '/secured/document_readable', '/secured/documents', '/secured/rbac/posture',
+    '/secured/folder_rules', '/secured/folder_rules/{id}', '/secured/document/{id}/text',
+    '/secured/graph', '/secured/graph/node-types', '/secured/graph/node-types/{id}',
+    '/secured/graph/node-types/{id}/schema', '/secured/graph/node-types/{id}/schema/{id}',
+    '/secured/graph/nodes', '/secured/graph/nodes/{id}', '/secured/graph/nodes/{id}/neighbors',
+    '/secured/graph/nodes/{id}/facts', '/secured/graph/nodes/{id}/knowledge', '/secured/graph/nodes/{id}/filters',
+    '/secured/graph/nodes/{id}/placements', '/secured/graph/placements/{id}/reject',
+    '/secured/graph/edges', '/secured/graph/edges/{id}', '/secured/graph/facts/batch',
+    '/secured/graph/doc-values', '/secured/graph/doc-values/find',
+    '/secured/graph/doc-fields', '/secured/graph/doc-fields/{id}', '/secured/graph/doc-fields/{id}/deprecate',
+    '/secured/graph/doc-fields/packs', '/secured/graph/doc-fields/packs/{id}/install',
+    '/secured/graph/doc-fields/settings', '/secured/graph/doc-field-rules',
+)
+# Fewest ids first, so a fixed word wins over an id in the same place (``doc-fields/packs`` before ``doc-fields/{id}``).
+_ROUTES = tuple(sorted((tuple(t.strip('/').split('/')) for t in _ROUTE_TEMPLATES),
+                       key=lambda route: route.count(_ROUTE_ID)))
+_ROUTE_WORDS = frozenset(word for route in _ROUTES for word in route if word != _ROUTE_ID)
+_SHORT_CODE = re.compile(r'[A-Za-z][A-Za-z0-9_.:-]{0,63}')
+_SHORT_REQUEST_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}')
+
+
+def _route_name(endpoint: Any) -> str:
+    """The route of ``endpoint`` as a log line may name it: ``/secured/access_groups/{id}``, never the id itself.
+
+    The query string and a base URL are dropped. A path no template knows keeps only the route's own words; every
+    other segment becomes ``{id}``.
+    """
+    segments = tuple(s for s in urlsplit(str(endpoint or '')).path.split('/') if s)
+    for route in _ROUTES:
+        if len(route) == len(segments) and all(r in (_ROUTE_ID, s) for r, s in zip(route, segments)):
+            return '/' + '/'.join(route)
+    return '/' + '/'.join(s if s in _ROUTE_WORDS else _ROUTE_ID for s in segments)
+
+
+def _short_code(value: Any) -> str:
+    """An error code fit for a log line (``NOT_FOUND``, ``knowledge_graph_disabled``), else ``-``."""
+    return value if isinstance(value, str) and _SHORT_CODE.fullmatch(value) else '-'
+
+
+def _code_or_none(value: Any) -> Optional[str]:
+    """An error code the client's own errors may carry: a short identifier, else None (RB-FIX-2)."""
+    return value if isinstance(value, str) and _SHORT_CODE.fullmatch(value) else None
+
+
+#: Inside ``KnovasAPIClient.within_time`` a retry is made only when at least this many seconds remain after its wait
+#: (PMVP-24): an attempt with less would only use up the answer's deadline.
+MIN_ATTEMPT_SECONDS = 5.0
+
+
+def _upcoming_wait(retry_state: Any) -> float:
+    """The wait tenacity makes before the next attempt, computed by the retry's own ``wait`` strategy.
+
+    tenacity 8 (the pinned 8.2.3) asks ``stop`` before it computes the wait and has no ``upcoming_sleep``; 9 computes
+    it first. Both call the same strategy with the same state (``wait_exponential`` reads the attempt number), so
+    asking it here gives the wait either version is about to make. Anything unreadable counts as no wait.
+    """
+    wait = getattr(getattr(retry_state, "retry_object", None), "wait", None)
+    try:
+        return max(0.0, float(wait(retry_state))) if callable(wait) else 0.0
+    except Exception:  # noqa: BLE001 - a strategy that cannot say counts as no wait
+        return 0.0
+
+
+def _out_of_time(retry_state: Any) -> bool:
+    """tenacity's second stop for ``_make_request``: inside ``within_time``, no retry without ``MIN_ATTEMPT_SECONDS``
+    after its wait. Outside it (no bound on the thread) it never stops anything: three tries, as before."""
+    client = retry_state.args[0] if getattr(retry_state, "args", None) else None
+    left_of = getattr(client, "_time_left", None)
+    left = left_of() if callable(left_of) else None
+    return left is not None and left - _upcoming_wait(retry_state) < MIN_ATTEMPT_SECONDS
+
+
+def _read_part(timeout: Any) -> float:
+    """The read part of a request's timeout (a number or a (connect, read) pair); none is no limit."""
+    if isinstance(timeout, tuple):
+        timeout = timeout[-1]
+    return float("inf") if timeout is None else float(timeout)
+
+
+def _read_body(response: requests.Response, time_left: Any) -> None:
+    """Read a streamed answer's body in the pieces the peer sends, and stop once no time is left (PMVP-24).
+
+    ``read1`` returns whatever one read of the socket brought, so a peer that sends one byte at a time is looked at
+    after every byte. The body ends up where ``requests`` keeps it (``content``, ``json()``). urllib3's errors
+    become the ``requests`` errors ``iter_content`` would raise, a read that times out a ``ReadTimeout``. A body
+    already in hand (a test's prepared answer) is left as it is.
+    """
+    import urllib3.exceptions as u3
+
+    raw = getattr(response, "raw", None)
+    if raw is None or getattr(response, "_content", False) is not False:
+        return
+    read1 = getattr(raw, "read1", None)
+    pieces: List[bytes] = []
+    try:
+        while True:
+            if time_left() <= 0:
+                raise requests.exceptions.ReadTimeout("no time left while the answer was read")
+            piece = read1(65536, decode_content=True) if callable(read1) else raw.read(1, decode_content=True)
+            if not piece:
+                break
+            pieces.append(piece)
+    except u3.ReadTimeoutError as exc:
+        raise requests.exceptions.ReadTimeout(str(exc)) from None
+    except u3.ProtocolError as exc:
+        raise requests.exceptions.ChunkedEncodingError(str(exc)) from None
+    except u3.DecodeError as exc:
+        raise requests.exceptions.ContentDecodingError(str(exc)) from None
+    except u3.SSLError as exc:
+        raise requests.exceptions.SSLError(str(exc)) from None
+    response._content = b"".join(pieces)
+    response._content_consumed = True
+    release = getattr(raw, "release_conn", None)
+    if callable(release):
+        release()
+
+
+def _capped(timeout: Any, left: float) -> Any:
+    """``timeout`` (a number, a (connect, read) pair or None) no longer than ``left`` seconds."""
+    if isinstance(timeout, tuple):
+        return tuple(left if part is None else min(float(part), left) for part in timeout)
+    return left if timeout is None else min(float(timeout), left)
+
+
+def _transport_error(exc: requests.exceptions.RequestException, method: str,
+                     endpoint: str) -> requests.exceptions.RequestException:
+    """The same kind of error ``requests`` raised for no answer, saying only the route and the kind (RB-FIX-2).
+
+    The original's text quotes the whole URL -- the path's ids and the query string (``?q=<a name>``) -- and its
+    ``request`` holds the URL and the body; a caller that logs the exception, or a route that logs its traceback,
+    would write them. The new error has neither, keeps the class (so retries and ``except Timeout`` stay as they
+    were) and is raised outside the handler, so nothing of the original is chained.
+    """
+    kind = type(exc)
+    text = f"Knovas API {method} {_route_name(endpoint)}: no answer ({kind.__name__})"
+    try:
+        clean = kind(text)
+        if type(clean) is kind and str(clean) == text:
+            return clean
+    except Exception:  # noqa: BLE001 - a class that takes other arguments: its nearest plain base below
+        pass
+    for base in (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout,
+                 requests.exceptions.Timeout, requests.exceptions.SSLError,
+                 requests.exceptions.ConnectionError):
+        if isinstance(exc, base):
+            return base(text)
+    return requests.exceptions.RequestException(text)
+
+
+def _error_code(response: Any) -> str:
+    """The Core's ``error_code`` of an answer when it is a short identifier, else ``-``. Never raises."""
+    try:
+        body = response.json()
+    except Exception:  # noqa: BLE001 - never fail while reporting a failure
+        return '-'
+    return _short_code(body.get('error_code') if isinstance(body, dict) else None)
+
+
+def _request_id(response: Any) -> str:
+    """The Core's request id of an answer (``X-Request-ID``), or ``-``. Never raises."""
+    try:
+        value = response.headers.get('X-Request-ID')
+    except Exception:  # noqa: BLE001 - a response double without headers
+        return '-'
+    return value if isinstance(value, str) and _SHORT_REQUEST_ID.fullmatch(value) else '-'
+
+
+def _body_size(response: Any) -> int:
+    """How many characters the answer's body has (-1: unreadable): whether the Core said anything, not what."""
+    try:
+        return len(response.text or '')
+    except Exception:  # noqa: BLE001 - never fail while reporting a failure
+        return -1
+
+
+def _raise_for_status(response: Any, method: str, endpoint: str) -> None:
+    """``response.raise_for_status()``, with an error that names the route instead of the URL.
+
+    The error ``requests`` raises quotes the whole URL (the path's ids, the query's pointer), and a caller that logs
+    the exception writes it. The new error keeps the ``response``; nothing else of the old one is chained.
+    """
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as exc:
+        answer = exc.response if exc.response is not None else response
+    else:
+        return
+    # Raised outside the handler: the original is not even the hidden context (RB-FIX-2).
+    raise requests.exceptions.HTTPError(
+        f"Knovas API {method} {_route_name(endpoint)} -> HTTP {getattr(answer, 'status_code', '?')} "
+        f"(request_id={_request_id(answer)})",
+        response=answer,
+    )
 
 
 def _normalize_semantix_similarity_value(raw: Any) -> float:
@@ -345,18 +556,215 @@ def _ingested_summary_from_hit(item: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _chunk_text_from_hit(item: Dict[str, Any]) -> Optional[str]:
-    """First non-empty chunk/snippet field from a query hit or nested metadata."""
-    for k in ("snippet", "text", "chunk", "content", "body", "preview", "matched_text", "excerpt", "highlight"):
-        v = item.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    nest = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    for k in ("snippet", "text", "chunk", "content", "matched_text", "excerpt"):
-        v = nest.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
+def _snippet_from_hit(item: Dict[str, Any]) -> Optional[str]:
+    """The passage text of one /secured/query hit, or None (``_snippet_with_location``).
+
+    Knovas attaches its verbatim text (``QUERY_RETURN_CHUNK_SNIPPETS``, on by
+    default since 2026-10-02; KnowledgeBase ``query_two_stage.attach_chunk_snippets``)
+    as ``snippet`` on each of the first three served ``top_chunks`` entries,
+    and the first of those as the hit's own ``snippet``: a window of at most
+    240 characters cut from the chunk's ``original_text`` (whole rows for a
+    table chunk, none for an auto summary). Only ``original_text`` and
+    ``snippet`` are read -- not ``text``, ``content`` or other chunk keys
+    a hit may carry: GI-QUERY-04 promises that served text
+    is ``original_text``, and the BM25 ``text`` field has its digits
+    stripped.
+    """
+    found = _snippet_with_location(item)
+    return found[0] if found else None
+
+
+#: The most characters one part of ``GET /secured/document/<uuid>/text`` holds (KnowledgeBase ``secure_api.py``,
+#: ``DOCUMENT_TEXT_MAX_PART_CHARS``); a larger ``max_chars`` is the Core's ``422 invalid_paging``.
+DOCUMENT_TEXT_MAX_PART_CHARS = 20_000
+#: The most bytes of one document-text answer that are read: a part of 20,000 characters is at most about 240 KB of
+#: JSON (every character escaped); a larger answer is not a part, and reading it is stopped.
+DOCUMENT_TEXT_MAX_BODY_BYTES = 1_000_000
+
+
+class _StopReading(Exception):
+    """The worker of ``_get_by_deadline`` stops: the deadline passed, the body is too large, or it was abandoned."""
+
+
+def _whole_number(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _document_text_part(payload: Any) -> Optional[Dict[str, Any]]:
+    """``{"text", "offset", "next_offset", "total_chars", "truncated"}`` of a document-text answer, or None.
+
+    The Core merges the part into its success envelope (``text``, ``offset``, ``next_offset``, ``total_chars``,
+    ``page_from``, ``page_to``, ``source``, ``truncated``, with ``document_uuid``, ``pointer`` and ``title``); an
+    envelope that nests it under ``data`` is read too. Only the paging and the text are kept: the pointer and the
+    title are not needed, the search row has them.
+    """
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    text, offset, next_offset, total = (data.get("text"), data.get("offset"), data.get("next_offset"),
+                                        data.get("total_chars"))
+    if not isinstance(text, str) or not _whole_number(offset) or not _whole_number(total):
+        return None
+    if next_offset is not None and not (_whole_number(next_offset) and next_offset > offset):
+        return None
+    return {"text": text, "offset": offset, "next_offset": next_offset, "total_chars": total,
+            "truncated": data.get("truncated") is True}
+
+
+#: The most characters of the passage one hit gives the Knovas Assistent
+#: (PMVP-20 passages). The setting ``ASSISTANT_PASSAGE_CHARS`` replaces it: a
+#: whole number from ``MIN_PASSAGE_CHARS`` to ``MAX_PASSAGE_CHARS``; a larger
+#: one is cut to ``MAX_PASSAGE_CHARS`` (PMVP-20 context's verification), and
+#: anything else is the default; either with one warning per search that
+#: names the setting and not its value.
+DEFAULT_PASSAGE_CHARS = 1_200
+MIN_PASSAGE_CHARS = 100
+MAX_PASSAGE_CHARS = 2_000
+#: The least words of a passage: the reference check's least quote
+#: (``assistant.check.MIN_QUOTE_WORDS``; a test keeps the two equal).
+MIN_PASSAGE_WORDS = 3
+#: Between two snippets of one chunk; and the mark of a passage that was cut
+#: (the reference check reads it as a closing mark).
+_PASSAGE_JOIN = " \u2026 "
+_PASSAGE_CUT = "\u2026"
+
+
+def _passage_chars() -> int:
+    """``ASSISTANT_PASSAGE_CHARS``, read per search (inside ``keeping_snippets()`` only)."""
+    raw = (os.environ.get("ASSISTANT_PASSAGE_CHARS") or "").strip()
+    if not raw:
+        return DEFAULT_PASSAGE_CHARS
+    if raw.isascii() and raw.isdigit() and int(raw) >= MIN_PASSAGE_CHARS:
+        if int(raw) <= MAX_PASSAGE_CHARS:
+            return int(raw)
+        logger.warning("ASSISTANT_PASSAGE_CHARS is above %d; using %d", MAX_PASSAGE_CHARS, MAX_PASSAGE_CHARS)
+        return MAX_PASSAGE_CHARS
+    logger.warning("Invalid ASSISTANT_PASSAGE_CHARS (a whole number from %d to %d); using %d",
+                   MIN_PASSAGE_CHARS, MAX_PASSAGE_CHARS, DEFAULT_PASSAGE_CHARS)
+    return DEFAULT_PASSAGE_CHARS
+
+
+def _passage_words(text: str) -> int:
+    """Words as the reference check counts them: runs between white space
+    with a letter or a digit in them."""
+    return sum(1 for word in text.split() if any(char.isalnum() for char in word))
+
+
+def _cut_passage(text: str, limit: int) -> str:
+    """``text`` cut to at most ``limit`` characters at the end of a word,
+    with ``_PASSAGE_CUT``; inside a word only when the first word is longer."""
+    if len(text) <= limit:
+        return text
+    room = max(1, limit - len(_PASSAGE_CUT))
+    end = room
+    while end > 0 and not text[end].isspace():
+        end -= 1
+    head = text[:end].rstrip() if end > 0 else text[:room]
+    return head + _PASSAGE_CUT
+
+
+def _chunk_text(entries: List[Dict[str, Any]]) -> Optional[str]:
+    """The longest text the answer carries for one chunk: its
+    ``original_text`` when Knovas sends it, else its snippets in order,
+    joined with ``_PASSAGE_JOIN``."""
+    for entry in entries:
+        full = entry.get("original_text")
+        if isinstance(full, str) and full.strip():
+            return full.strip()
+    snippets: List[str] = []
+    for entry in entries:
+        value = entry.get("snippet")
+        if isinstance(value, str) and value.strip() and value.strip() not in snippets:
+            snippets.append(value.strip())
+    return _PASSAGE_JOIN.join(snippets) or None
+
+
+def _chunk_rank(entries: List[Tuple[int, Dict[str, Any]]]) -> Tuple[int, float]:
+    """Best first: the reranker's score where Knovas has one, then the rest
+    in the order it sent them -- its own citation order (``query_two_stage``).
+    Not the stage-1 cosine: the reranker disagrees with it on purpose."""
+    ranks: List[Tuple[int, float]] = []
+    for index, entry in entries:
+        score = entry.get("rerank_score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            ranks.append((0, -float(score)))
+        else:
+            ranks.append((1, float(index)))
+    return min(ranks)
+
+
+def _snippet_with_location(
+    item: Dict[str, Any], limit: int = DEFAULT_PASSAGE_CHARS,
+) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """``(passage, location of the chunk it is from)`` of one hit, or None.
+
+    PMVP-20 passages: the passage is the longest text the answer carries for
+    ONE chunk (``_chunk_text``; entries with the same ``chunk_uuid`` are one
+    chunk), cut at a word to ``limit`` characters. Of the hit's chunks the
+    best ranked (``_chunk_rank``) whose passage has at least
+    ``MIN_PASSAGE_WORDS`` words is taken -- the reference check needs that
+    many for a quote. Text and location come from the same chunk, never
+    from two (rework 1, item 5: the row's ``page_number`` is
+    ``top_chunks[0]``'s, which may carry no text). A row-level ``snippet`` is
+    the last resort, with an unknown location (``{}``). A hit with nothing
+    of that many words has no passage.
+    """
+    chunks = item.get("top_chunks")
+    if not isinstance(chunks, list):
+        chunks = item.get("topChunks")
+    by_chunk: Dict[str, List[Tuple[int, Dict[str, Any]]]] = {}
+    for index, chunk in enumerate(chunks if isinstance(chunks, list) else ()):
+        if isinstance(chunk, dict):
+            cid = chunk.get("chunk_uuid") or chunk.get("uuid")
+            by_chunk.setdefault(str(cid) if cid else f"#{index}", []).append((index, chunk))
+    candidates: List[Tuple[Tuple[int, float], str, Dict[str, Any]]] = []
+    for entries in by_chunk.values():
+        text = _chunk_text([entry for _, entry in entries])
+        if text is not None:
+            candidates.append((_chunk_rank(entries), text, entries[0][1]))
+    candidates.sort(key=lambda candidate: candidate[0])
+    for _rank, text, chunk in candidates:
+        passage = _cut_passage(text, limit)
+        if _passage_words(passage) >= MIN_PASSAGE_WORDS:
+            return passage, _location_from_mapping(_coalesce_secured_query_keys(chunk))
+    value = item.get("snippet")
+    if isinstance(value, str) and value.strip():
+        passage = _cut_passage(value.strip(), limit)
+        if _passage_words(passage) >= MIN_PASSAGE_WORDS:
+            return passage, {}
     return None
+
+
+def _llm_generate_result(payload: Any) -> Optional[Dict[str, Any]]:
+    """``{"content", "model", "prompt_tokens", "completion_tokens"}`` from a
+    /secured/llm/generate answer, or None when it is not a success envelope
+    with text content.
+
+    The Core answers flat (``{"status": "success", "message": ..., "content":
+    ..., ...}``: ``APIResponseService.create_success_response`` merges the
+    data into the envelope); an envelope that nests them under ``data`` is
+    read as well.
+    """
+    if not isinstance(payload, dict) or payload.get("status") != "success":
+        return None
+    data = payload.get("data")
+    source = data if isinstance(data, dict) and "content" in data else payload
+    content = source.get("content")
+    if not isinstance(content, str):
+        return None
+
+    def _count(value: Any) -> Optional[int]:
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+        return None
+
+    model = source.get("model")
+    return {
+        "content": content,
+        "model": model if isinstance(model, str) else None,
+        "prompt_tokens": _count(source.get("prompt_tokens")),
+        "completion_tokens": _count(source.get("completion_tokens")),
+    }
 
 
 def _document_date_from_hit(item: Dict[str, Any]) -> Any:
@@ -381,13 +789,6 @@ def _document_date_from_hit(item: Dict[str, Any]) -> Any:
     return None
 
 
-def _cap_path_keep_suffix(path: str, max_chars: int = 300) -> str:
-    """Truncate long paths from the beginning so the end (e.g. filename) is kept."""
-    if len(path) <= max_chars:
-        return path
-    return "…" + path[-(max_chars - 1) :]
-
-
 def _normalize_semantix_path_for_init(raw: Optional[Any]) -> Optional[str]:
     """Path for init_document_transmission (max 2000, forward slashes)."""
     if raw is None:
@@ -402,103 +803,6 @@ def _normalize_semantix_path_for_init(raw: Optional[Any]) -> Optional[str]:
     if len(s) > 2000:
         s = s[:1999] + "…"
     return s
-
-
-def _secured_init_fields_from_document(document: Dict[str, Any]) -> Dict[str, str]:
-    """title, path, description for secured init (Client Integration Guide)."""
-    out: Dict[str, str] = {}
-    title = document.get("display_name") or document.get("title")
-    if title is not None:
-        title = str(title).strip()[:500] or None
-    if not title:
-        path_hint = document.get("path")
-        if path_hint:
-            ps = str(path_hint).strip()
-            if ps.startswith("http://") or ps.startswith("https://"):
-                try:
-                    from urllib.parse import parse_qs, unquote, urlparse
-
-                    qs = parse_qs(urlparse(ps).query)
-                    vals = qs.get("file") or []
-                    if vals:
-                        raw = unquote(vals[0].split(";")[0]).strip()
-                        title = raw[:500] if raw else None
-                except Exception:
-                    title = None
-            if not title:
-                stem = ps.replace("\\", "/").rstrip("/").split("/")[-1].split("?")[0]
-                title = stem[:500] if stem else None
-    if not title:
-        did = document.get("doc_id")
-        if did is not None:
-            title = str(did).strip()[:500] or None
-    if title:
-        out["title"] = title
-    path = _normalize_semantix_path_for_init(document.get("path"))
-    if path:
-        out["path"] = path
-    desc = document.get("description")
-    if desc is not None:
-        ds = str(desc).strip()
-        if ds:
-            out["description"] = ds[:2000]
-    return out
-
-
-def _secured_transmit_parts_from_document(
-    document: Dict[str, Any],
-) -> Tuple[List[Dict[str, Any]], Dict[str, str], Optional[Dict[str, Any]]]:
-    """
-    Build init fields and transmit parts for secured single-document sync.
-
-    Uses knovas_extract_upload when it is importable and content_base64 is
-    present (extraction runs in a guarded child process with a wall-clock
-    ceiling); otherwise one Markdown fallback part. The third value is the
-    extraction's partial note (counts only: OCR pages skipped, backend) or
-    None for a complete document.
-    """
-    init_fields = _secured_init_fields_from_document(document)
-    identifier = str(document.get("doc_id") or document.get("path") or "unknown")
-    b64 = document.get("content_base64")
-    ext = (document.get("type") or document.get("extension") or "").strip().lower().lstrip(".")
-
-    if b64 and ext:
-        try:
-            from knovas_extract_upload import extract_parts_from_base64
-        except ImportError:
-            extract_parts_from_base64 = None  # type: ignore[misc,assignment]
-        else:
-            try:
-                use_ocr: bool | str = "auto"
-                ocr_language = "deu+eng"
-                try:
-                    cfg = get_config()
-                    use_ocr = "auto" if cfg.get_bool("advanced.extraction.use_ocr", True) else False
-                    ocr_language = str(cfg.get("advanced.extraction.ocr_language") or ocr_language)
-                except Exception:
-                    pass
-                extracted = extract_parts_from_base64(
-                    str(b64),
-                    ext,
-                    pointer=identifier,
-                    path=str(init_fields.get("path") or identifier),
-                    use_ocr=use_ocr,
-                    ocr_language=ocr_language,
-                )
-                if extracted.parts:
-                    return extracted.parts, init_fields, extracted.partial
-            except Exception as exc:
-                logger.warning("Secured single-doc extract failed for %s: %s", identifier, exc)
-
-    path_line = init_fields.get("path") or identifier
-    lines = [path_line]
-    if document.get("akten_id"):
-        lines.append(f"Akte: {document.get('akten_id')}")
-    if document.get("doc_type"):
-        lines.append(f"Typ: {document.get('doc_type')}")
-    snippet = "\n".join(lines)
-    parts = enrich_transmit_parts_with_location([{"snippet": snippet}], full_text=snippet)
-    return parts, init_fields, None
 
 
 _MAX_TABLES_PER_PART = 50
@@ -916,14 +1220,24 @@ class GraphError(Exception):
     that. What callers cannot currently distinguish is a 422 they should show
     the user from a 503 that means "retry once the operator finishes", which is
     what error_code carries.
+
+    It carries the status, the Core's error code when it is a short
+    identifier, and the Core's request id (RB-FIX-2) -- never the Core's
+    text. ``message`` is accepted for the callers that pass one and not
+    kept: the Core's text can quote what was sent (a name, a value), and
+    this error reaches logs and tracebacks. A page says what happened in its
+    own words, from the code; an operator finds the Core's full message in
+    the Core's own logs by the request id.
     """
 
-    def __init__(self, status: int, error_code: Optional[str], message: str,
-                 *, details: Optional[Dict[str, Any]] = None):
-        super().__init__(f"{status} {error_code or ''}: {message}".strip())
+    def __init__(self, status: int, error_code: Optional[str], message: str = "",
+                 *, details: Optional[Dict[str, Any]] = None, request_id: Optional[str] = None):
         self.status = status
-        self.error_code = error_code
-        self.message = message
+        self.error_code = _code_or_none(error_code)
+        self.request_id = request_id if request_id and request_id != '-' else None
+        self.message = ""
+        super().__init__(f"Knovas graph call failed: HTTP {status}, error_code {self.error_code or '-'}, "
+                         f"request_id {self.request_id or '-'}")
         # Only what says WHERE the request went wrong (a JSON path, field
         # keys, a version) -- never anything that could carry a value.
         self.details = _error_details(details)
@@ -983,7 +1297,7 @@ class DocFieldsUnavailable(RuntimeError):
                  status: int = 404, error_code: Optional[str] = "HTTP_404"):
         super().__init__(message)
         self.status = status
-        self.error_code = error_code
+        self.error_code = _code_or_none(error_code)   # a short code only (RB-FIX-2)
 
 
 class DocFieldsError(GraphError):
@@ -1006,10 +1320,11 @@ class QueryRejected(Exception):
     """
 
     def __init__(self, status: int, error_code: Optional[str],
-                 details: Optional[Dict[str, Any]] = None):
-        super().__init__(f"{status} {error_code or ''}".strip())
+                 details: Optional[Dict[str, Any]] = None, *, request_id: Optional[str] = None):
         self.status = status
-        self.error_code = error_code
+        self.error_code = _code_or_none(error_code)   # a short code only (RB-FIX-2)
+        self.request_id = request_id if request_id and request_id != '-' else None
+        super().__init__(f"{status} {self.error_code or ''}".strip())
         self.details = _error_details(details)
 
 
@@ -1052,7 +1367,7 @@ def _query_rejection(exc: requests.exceptions.HTTPError, *,
     # A query with ``where`` is always relevance-gated (QP:1085-1096), so a
     # missing relevance calibration is part of what ``where`` asked for.
     if _is_doc_fields_code(code) or (where_sent and code == "relevance_mode_calibration_missing"):
-        return QueryRejected(response.status_code, code, body)
+        return QueryRejected(response.status_code, code, body, request_id=_request_id(response))
     return None
 
 
@@ -1176,6 +1491,22 @@ def _graph_payload_list(payload: Any, *candidate_keys: str,
 # silent break that surfaces as "search returns nothing" on a BROKERED tenant.
 ASSERTION_FIELD = "principal_assertion"
 
+# The declared actor (KnowledgeBase services/request_actor.py): the body's
+# ``actor`` on a POST, ``?actor=<base64url JSON>`` on a GET -- never both, the
+# Core refuses that. Declared, not verified: the Core records it and decides
+# nothing on it. Sent only while an agent acts (RB-6: the Knovas Assistent
+# answering a person, ``asserting_for(AgentPrincipal)``).
+ACTOR_FIELD = "actor"
+
+
+def _encode_actor(actor: Dict[str, Any]) -> str:
+    """The ``?actor=`` form of an actor: base64url of compact UTF-8 JSON, no padding."""
+    import base64
+    import json as _json
+
+    raw = _json.dumps(actor, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
 # /secured/query refuses a limit above 50 with 422 (QP:91-103).
 _SECURED_QUERY_MAX_LIMIT = 50
 # POST /secured/graph/doc-values/find caps its page at 200
@@ -1249,8 +1580,6 @@ class KnovasAPIClient:
         self.base_url = self.config.get('api.base_url', 'http://localhost:5000')
         self.auth_type = self.config.get('api.auth_type', 'bearer')
         self.api_key = self.config.get('api.api_key', '')
-        self.use_secured_api = self.config.get_bool('api.use_secured_api', True)
-        self.allow_legacy_api_fallback = self.config.get_bool('api.allow_legacy_api_fallback', False)
         self.cert_path = self.config.get('api.cert_path', '')
         self.key_path = self.config.get('api.key_path', '')
         self.ca_cert_path = self.config.get('api.ca_cert_path', '')
@@ -1268,12 +1597,6 @@ class KnovasAPIClient:
         self.cert_auto_renew_enabled = self.config.get_bool('api.cert_auto_renew_enabled', True)
         self.cert_renew_threshold_days = self.config.get_int('api.cert_renew_threshold_days', 30)
         self.cert_check_interval_seconds = self.config.get_int('api.cert_check_interval_seconds', 3600)
-        self.cert_renew_method = (
-            (self.config.get('api.cert_renew_method', '') or '').strip().lower()
-            or (os.getenv('SEMANTIX_CERT_RENEW_METHOD') or 'csr').strip().lower()
-        )
-        if self.cert_renew_method not in ('csr', 'legacy'):
-            self.cert_renew_method = 'csr'
         self._last_cert_check_at = 0.0
         # Serialize the certificate freshness check / renewal / session swap so
         # concurrent request threads can't race on _last_cert_check_at or _session.
@@ -1285,14 +1608,10 @@ class KnovasAPIClient:
         self._cert_lock = threading.RLock()
 
         self.endpoints = {
-            'full_sync': self.config.get('api.endpoints.full_sync', '/api/docs/full-sync'),
-            'new_doc': self.config.get('api.endpoints.new_doc', '/api/docs/new'),
-            'search': self.config.get('api.endpoints.search', '/api/search'),
             'health': self.config.get('api.endpoints.health', '/secured/health'),
             'init_transmission': self.config.get('api.endpoints.init_transmission', '/secured/init_document_transmission'),
             'transmit_part': self.config.get('api.endpoints.transmit_part', '/secured/transmit_document_part'),
             'query': self.config.get('api.endpoints.query', '/secured/query'),
-            'generate_certificate': self.config.get('api.endpoints.generate_certificate', '/secured/generate_certificate'),
             'sign_certificate': self.config.get(
                 'api.endpoints.sign_certificate', '/secured/sign_certificate'
             ),
@@ -1366,18 +1685,6 @@ class KnovasAPIClient:
             logger.warning("Could not parse cert expiry: %s", exc)
             return None
 
-    def _extract_customer_id_from_cert(self) -> Optional[str]:
-        try:
-            with open(self.cert_path, "rb") as f:
-                cert = x509.load_pem_x509_certificate(f.read(), default_backend())
-            for oid in (NameOID.COMMON_NAME, NameOID.ORGANIZATIONAL_UNIT_NAME):
-                attrs = cert.subject.get_attributes_for_oid(oid)
-                if attrs:
-                    return str(attrs[0].value)
-        except Exception:
-            return None
-        return None
-
     def _atomic_write(self, path: str, content: str) -> None:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1428,11 +1735,6 @@ class KnovasAPIClient:
         finally:
             session.close()
 
-    def _attempt_certificate_renewal(self) -> bool:
-        if self.cert_renew_method == 'legacy':
-            return self._attempt_certificate_renewal_legacy()
-        return self._attempt_certificate_renewal_csr()
-
     def _csr_subject_from_current_cert(self) -> x509.Name:
         with open(self.cert_path, "rb") as f:
             cert = x509.load_pem_x509_certificate(f.read(), default_backend())
@@ -1458,7 +1760,8 @@ class KnovasAPIClient:
         ).decode("utf-8")
         return csr_pem, key_pem
 
-    def _attempt_certificate_renewal_csr(self) -> bool:
+    def _attempt_certificate_renewal(self) -> bool:
+        """Renew by CSR: a new key pair here, signed by /secured/sign_certificate."""
         try:
             csr_pem, private_key_pem = self._generate_csr_key_pair()
             payload = self.sign_certificate(csr_pem, validity_days=365)
@@ -1476,41 +1779,6 @@ class KnovasAPIClient:
         return self._install_renewed_certificate_pair(
             str(certificate_pem).strip() + "\n",
             str(private_key_pem).strip() + "\n",
-        )
-
-    def _attempt_certificate_renewal_legacy(self) -> bool:
-        endpoint = self.endpoints.get('generate_certificate', '/secured/generate_certificate')
-        customer_id = self.customer_id or self._extract_customer_id_from_cert()
-        if not customer_id:
-            logger.warning("Auto-renew skipped: customer_id unavailable")
-            return False
-
-        try:
-            response = self._session.request(
-                method='POST',
-                url=f"{self.base_url}{endpoint}",
-                json={'certificate_data': {'customer_id': customer_id}},
-                headers=self._get_headers(),
-                timeout=self.http_read_timeout,
-                allow_redirects=False,
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except Exception as exc:
-            logger.error("Auto-renew request failed: %s", exc)
-            return False
-
-        certificate_pem = payload.get('certificate_pem')
-        private_key = payload.get('private_key') or payload.get('private_key_pem')
-        if not certificate_pem or not private_key:
-            logger.error("Auto-renew response missing certificate/key")
-            return False
-        if "ENCRYPTED PRIVATE KEY" in str(private_key):
-            logger.error("Auto-renew returned encrypted private key; cannot install automatically")
-            return False
-        return self._install_renewed_certificate_pair(
-            str(certificate_pem).strip() + "\n",
-            str(private_key).strip() + "\n",
         )
 
     def _install_renewed_certificate_pair(self, certificate_pem: str, private_key_pem: str) -> bool:
@@ -1590,9 +1858,11 @@ class KnovasAPIClient:
     def asserting_for(self, user):
         """Requests in this block carry ``user``'s principal assertion instead of the signed-in person's.
 
-        For the access window's "explain access" (Brain Builder B14) only: an administrator asks the Brain
-        whether *that* person may read a document, and the Brain answers with its own policy. Per thread, so a
-        concurrent request of someone else keeps its own principal.
+        For the access window's "explain access" (Brain Builder B14): an administrator asks the Brain
+        whether *that* person may read a document, and the Brain answers with its own policy. And for the
+        Knovas Assistent (RB-6): ``user`` is an ``identity.agents.AgentPrincipal``, every call of the block
+        carries the assistant's claim narrowed to the person and declares the agent as its actor
+        (``_with_principal``). Per thread, so a concurrent request of someone else keeps its own principal.
         """
         import threading
 
@@ -1606,6 +1876,59 @@ class KnovasAPIClient:
         finally:
             local.user = previous
 
+    @contextlib.contextmanager
+    def within_time(self, time_left):
+        """Every request in this block ends in time (PMVP-24, FU-08): ``time_left()`` gives the seconds that remain.
+
+        For the Knovas Assistent, whose search with its retries and generation together have a deadline under the
+        web server's (``assistant.core.ANSWER_DEADLINE_SECONDS``). Each request's timeout is the smaller of its own
+        and the time left; with no time left nothing is sent and the request times out at once
+        (``requests.exceptions.ReadTimeout``). ``_make_request`` (the search) retries only when, after its wait, at
+        least ``MIN_ATTEMPT_SECONDS`` remain. Per thread, like ``keeping_snippets``. Off by default: outside the
+        block a request waits ``http_read_timeout`` and a search tries three times, exactly as before.
+        """
+        local = getattr(self, "_time_local", None)
+        if local is None:
+            local = self._time_local = threading.local()
+        previous = getattr(local, "left", None)
+        local.left = time_left
+        try:
+            yield
+        finally:
+            local.left = previous
+
+    def _time_left(self) -> Optional[float]:
+        """The seconds ``within_time`` leaves this thread, or None outside it."""
+        left = getattr(getattr(self, "_time_local", None), "left", None)
+        return None if left is None else float(left())
+
+    @contextlib.contextmanager
+    def keeping_snippets(self):
+        """Searches in this block keep each hit's passage text in its row as ``"snippet"``.
+
+        For the Knovas Assistent (PMVP-20), which cites only what it can show
+        and searches through the search page's own path (``run_search``). The
+        request Knovas receives is the same; only the row keeps ``snippet``
+        -- the longest text the answer carries for one chunk, at most
+        ``ASSISTANT_PASSAGE_CHARS`` (default 1,200) characters, at least three
+        words -- and the location of that chunk, ``snippet_page_number``
+        and ``snippet_sentence_number`` (``_snippet_with_location``). Outside
+        the block rows have none of them:
+        the search page reads that key when it matches words
+        (``_search_result_haystack``) and must behave as before. Per
+        thread, like ``asserting_for``, so a concurrent search page request
+        keeps its rows unchanged.
+        """
+        local = getattr(self, "_snippets_local", None)
+        if local is None:
+            local = self._snippets_local = threading.local()
+        previous = getattr(local, "on", False)
+        local.on = True
+        try:
+            yield
+        finally:
+            local.on = previous
+
     def attach_principal_broker(self, broker) -> None:
         """Bind the broker that signs the current user into every outbound body.
 
@@ -1615,13 +1938,35 @@ class KnovasAPIClient:
         """
         self._principal_broker = broker
 
-    def _with_principal(self, data):
+    def _declared_actor(self) -> Optional[Dict[str, Any]]:
+        """The actor the principal in force declares, or None.
+
+        Only an agent declares one (RB-6): the principal ``asserting_for``
+        names offers ``declared_actor`` as a dict (``AgentPrincipal``). A
+        person, the signed-in user included, declares none, as before.
+        """
+        principal = getattr(getattr(self, "_principal_local", None), "user", None)
+        actor = getattr(principal, "declared_actor", None) if principal is not None else None
+        return dict(actor) if isinstance(actor, dict) else None
+
+    def _actor_params(self, method: Optional[str], params: Optional[Dict] = None) -> Optional[Dict]:
+        """``params`` with ``?actor=`` on a GET while an agent acts (its body carries none), else unchanged."""
+        actor = self._declared_actor()
+        if actor is None or str(method or '').upper() != 'GET':
+            return params
+        return {**(params or {}), ACTOR_FIELD: _encode_actor(actor)}
+
+    def _with_principal(self, data, method=None):
         """Attach the caller's assertion to an outgoing body.
 
         Fail closed when there is no authenticated user. An unsigned call
         resolves to asserted=False at the Secure API -- "unrestricted
         documents only" -- and returns *more* than a correctly scoped one.
         A wall that widens under failure is not a wall.
+
+        While an agent acts (``asserting_for(AgentPrincipal)``, RB-6) the body
+        also declares it as ``actor``, except on a GET (``method``), which
+        declares it in the query string (``_actor_params``).
         """
         if self._principal_broker is None:
             return data
@@ -1634,15 +1979,20 @@ class KnovasAPIClient:
             )
         assertion = self._principal_broker.assertion_for(user)
         if data is None:
-            return {ASSERTION_FIELD: assertion}
-        if not isinstance(data, dict):
+            body = {ASSERTION_FIELD: assertion}
+        elif not isinstance(data, dict):
             # Every secured endpoint takes a JSON object. A non-dict body is a
             # caller we have not accounted for; guessing how to attach the
             # assertion is how one route would quietly lose it.
             raise TypeError(
                 f"Cannot attach a principal assertion to a {type(data).__name__} body."
             )
-        return {**data, ASSERTION_FIELD: assertion}
+        else:
+            body = {**data, ASSERTION_FIELD: assertion}
+        actor = self._declared_actor()
+        if actor is not None and str(method or 'POST').upper() != 'GET':
+            body[ACTOR_FIELD] = actor
+        return body
 
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers for API requests."""
@@ -1670,7 +2020,8 @@ class KnovasAPIClient:
         self._last_request_time = time.time()
     
     @retry(
-        stop=stop_after_attempt(3),
+        # PMVP-24: inside within_time a retry also needs MIN_ATTEMPT_SECONDS left after its wait.
+        stop=(stop_after_attempt(3) | _out_of_time),
         wait=wait_exponential(multiplier=2, min=1, max=30),
         retry=retry_if_exception_type(_RETRYABLE_REQUEST_EXCEPTIONS)
     )
@@ -1699,11 +2050,12 @@ class KnovasAPIClient:
         url = f"{self.base_url}{endpoint}"
         headers = self._get_headers()
         
-        logger.debug(f"Making {method} request to {url}")
-        data = self._with_principal(data)
+        logger.debug("Knovas API %s %s", method, _route_name(endpoint))
+        data = self._with_principal(data, method)
+        params = self._actor_params(method, params)
 
-        response = self._session.request(
-            method=method,
+        response = self._send(
+            method, endpoint,
             url=url,
             json=data,
             params=params,
@@ -1713,20 +2065,16 @@ class KnovasAPIClient:
         )
 
         if response.status_code >= 400:
-            # raise_for_status discards the body, and the body is where the API
-            # says what went wrong. Without this an upstream 500 reaches the log
-            # as "500 Server Error for url ..." and nothing else, which is
-            # indistinguishable from a fault in this deployment.
-            detail = ""
-            try:
-                detail = (response.text or "")[:600]
-            except Exception:  # noqa: BLE001 - never fail while reporting a failure
-                detail = "<response body unreadable>"
+            # Says which call failed and how, so an upstream 500 is not taken for
+            # a fault in this deployment: the route, the status, the Core's error
+            # code and its request id (the Core's own log line has the rest). Not
+            # the body: it can quote a group's name, a question or a document (FU-43).
             logger.error(
-                "Knovas API %s %s -> %s. Response body: %s",
-                method, endpoint, response.status_code, detail or "<empty>",
+                "Knovas API %s %s -> %s (error_code=%s, request_id=%s; body %d chars, not logged)",
+                method, _route_name(endpoint), response.status_code,
+                _error_code(response), _request_id(response), _body_size(response),
             )
-        response.raise_for_status()
+        _raise_for_status(response, method, endpoint)
         return response
 
     def _request_no_retry(
@@ -1749,9 +2097,10 @@ class KnovasAPIClient:
         self._ensure_certificate_freshness()
         url = f"{self.base_url}{endpoint}"
         if as_person:
-            data = self._with_principal(data)
-        response = self._session.request(
-            method=method,
+            data = self._with_principal(data, method)
+            params = self._actor_params(method, params)
+        response = self._send(
+            method, endpoint,
             url=url,
             json=data,
             params=params,
@@ -1759,7 +2108,17 @@ class KnovasAPIClient:
             timeout=self.http_read_timeout if timeout is None else timeout,
             allow_redirects=False,
         )
-        response.raise_for_status()
+        status = getattr(response, 'status_code', None)
+        if isinstance(status, int) and status >= 400:
+            # The caller logs what the failure means; this line keeps the Core's code and request id, by which an
+            # operator finds the Core's own message in the Core's logs (RB-FIX-2). INFO: the caller's line is the
+            # warning, and some of these answers are expected (a feature off, a route the Core lacks yet).
+            logger.info(
+                "Knovas API %s %s -> %s (error_code=%s, request_id=%s; body %d chars, not logged)",
+                method, _route_name(endpoint), status,
+                _error_code(response), _request_id(response), _body_size(response),
+            )
+        _raise_for_status(response, method, endpoint)
         return response
 
     def _request_quiet(
@@ -1781,25 +2140,107 @@ class KnovasAPIClient:
         """
         # The assertion first: with nobody signed in nothing is sent, and a
         # refused call should not cost a rate-limit slot either.
-        data = self._with_principal(data)
+        data = self._with_principal(data, method)
+        # ?actor= only while an agent acts on a GET: otherwise the call is exactly as before.
+        extra = {}
+        params = self._actor_params(method)
+        if params:
+            extra['params'] = params
         self._rate_limit()
         self._ensure_certificate_freshness()
-        return self._session.request(
-            method=method,
+        return self._send(
+            method, endpoint,
             url=f"{self.base_url}{endpoint}",
             json=data,
             headers=self._get_headers(),
             timeout=self.http_read_timeout if timeout is None else timeout,
             allow_redirects=False,
+            **extra,
         )
 
-    def secured_mode(self) -> bool:
-        """Whether this client speaks the secured API over mTLS.
+    def _send(self, method: str, endpoint: str, **kwargs: Any) -> requests.Response:
+        """``self._session.request(method=method, **kwargs)``; no answer raises ``_transport_error`` (RB-FIX-2).
 
-        Document fields exist only there: the legacy GET search has nowhere
-        to carry ``where`` (D13).
+        Every request path of the client goes through here, so an error for no answer (no connection, a timeout, a
+        TLS failure) never carries the URL -- the path's ids and the query string -- into a caller's log line or a
+        route's traceback. ``endpoint`` is the path the route's name is read from.
         """
-        return bool(self.use_secured_api and self.mtls_enabled)
+        left = self._time_left()
+        if left is not None:  # within_time (PMVP-24): no longer than the time left, and nothing sent without any
+            if left <= 0:
+                raise _transport_error(requests.exceptions.ReadTimeout("no time left"), method, endpoint)
+            kwargs["timeout"] = _capped(kwargs.get("timeout"), left)
+            return self._send_in_time(method, endpoint, left, kwargs)
+        try:
+            return self._session.request(method=method, **kwargs)
+        except requests.exceptions.RequestException as exc:
+            failure = _transport_error(exc, method, endpoint)
+        raise failure
+
+    def _send_in_time(self, method: str, endpoint: str, left: float, kwargs: Dict[str, Any]) -> requests.Response:
+        """A request inside ``within_time``: it ends by the wall clock, however slowly the peer answers (PMVP-24).
+
+        A read timeout bounds each read only: a peer that sends its headers and then a byte every few seconds would
+        keep the request, and the person, waiting past the deadline. So the request runs in a worker thread
+        (``assistant.core.call_within``) with its body streamed and read in the pieces the peer sends
+        (``_read_body``), and the caller waits no longer than the request's own read timeout or the time left,
+        whichever is smaller. Past it the caller gets a ``ReadTimeout`` (the assistant reads it as busy, and the
+        search makes no retry without time for it); the worker stops at the peer's next byte and closes the answer.
+        A peer that trickles even its headers keeps only that worker, never the caller.
+        """
+        from assistant.core import OutOfTime, call_within
+
+        time_left = self._time_local.left
+        session = self._session
+        kwargs = {k: v for k, v in kwargs.items() if k != "stream"}
+
+        def request() -> requests.Response:
+            response = session.request(method=method, stream=True, **kwargs)
+            try:
+                _read_body(response, time_left)
+            except BaseException:
+                response.close()
+                raise
+            return response
+
+        try:
+            return call_within(min(left, _read_part(kwargs.get("timeout"))), request, name="request")
+        except OutOfTime:
+            failure: requests.exceptions.RequestException = requests.exceptions.ReadTimeout("past the deadline")
+        except requests.exceptions.RequestException as exc:
+            failure = exc
+        raise _transport_error(failure, method, endpoint)
+
+    def secured_mode(self) -> bool:
+        """Whether this client speaks the secured API over mTLS (client
+        certificate, key and CA configured). Without them it searches nothing.
+        """
+        return bool(self.mtls_enabled)
+
+    # -- External agents' claims for the Core's MCP gateway (RB-7, CR-R5) ----------------------------------------
+    # The Platform's own calls: no person's principal_assertion, no access_groups and no actor
+    # (as_person=False). The claims carry the authority; the Core verifies each with the tenant's broker key.
+    # Sent once, never retried (the next push replaces the pool anyway), and no body is logged: it holds
+    # bearer claims.
+
+    def put_agent_claims(self, agent_id: str, claims: List[str], *, timeout: Optional[float] = None) -> None:
+        """``PUT /secured/agents/<agent id>/claims`` with exactly ``{"claims": [...]}``: the agent's whole pool.
+
+        Replaces the pool the Core holds for the agent (CR-R5). Raises the
+        ``requests`` error of a refusal (404 without CR-R5, 409
+        ``not_brokered``, 400 ``invalid_claims``, 5xx) or of no connection;
+        the caller logs its class and status, never its text.
+        """
+        self._request_no_retry('PUT', f"/secured/agents/{quote(str(agent_id), safe='')}/claims",
+                               data={'claims': list(claims)}, timeout=timeout, as_person=False)
+
+    def delete_agent_claims(self, agent_id: str, *, timeout: Optional[float] = None) -> None:
+        """``DELETE /secured/agents/<agent id>/claims``: the Core drops the agent's pool at once (CR-R5).
+
+        No body. Raises as ``put_agent_claims``.
+        """
+        self._request_no_retry('DELETE', f"/secured/agents/{quote(str(agent_id), safe='')}/claims",
+                               timeout=timeout, as_person=False)
 
     def delete_all_documents(self, confirm_client_id: str) -> Dict[str, Any]:
         """DELETE /secured/delete_all_documents — erase the whole corpus.
@@ -1929,7 +2370,8 @@ class KnovasAPIClient:
             payload = _secured_transmit_part_payload(transmission_key_id, idx, part)
             self._request_no_retry(method='POST', endpoint=part_endpoint, data=payload)
 
-        logger.info("Text document uploaded: %s (%d part(s))", ident, len(clean_parts))
+        # Not the identifier: it names the document (FU-43). The init's request id finds it at the Core.
+        logger.info("Text document uploaded: %d part(s), request_id=%s", len(clean_parts), _request_id(init_resp))
         return {'status': 'success', 'identifier': ident, 'part_count': len(clean_parts)}
 
     def sign_certificate(
@@ -1961,81 +2403,6 @@ class KnovasAPIClient:
         response = self._request_no_retry('POST', endpoint, data=body, as_person=as_person)
         return response.json() if response.content else {}
     
-    def sync_document_batch(
-        self, 
-        documents: List[Dict[str, Any]],
-        endpoint_type: str = 'full_sync'
-    ) -> Dict[str, Any]:
-        """
-        Synchronize a batch of documents to Knovas.
-        
-        Args:
-            documents: List of document dictionaries
-            endpoint_type: Type of endpoint ('full_sync' or 'new_doc')
-            
-        Returns:
-            API response data
-        """
-        endpoint = self.endpoints.get(endpoint_type, self.endpoints['full_sync'])
-        
-        try:
-            response = self._make_request(
-                method='POST',
-                endpoint=endpoint,
-                data={'documents': documents}
-            )
-            
-            result = response.json()
-            logger.info(
-                f"Batch sync successful: {len(documents)} documents to {endpoint}"
-            )
-            return result
-            
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error during batch sync: {e}")
-            if e.response is not None:
-                logger.error(f"Response body: {e.response.text}")
-            raise
-        except Exception as e:
-            logger.error(f"Error during batch sync: {e}")
-            raise
-    
-    def sync_single_document(
-        self, 
-        document: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Synchronize a single document to Knovas.
-        
-        Args:
-            document: Document dictionary
-            
-        Returns:
-            API response data
-        """
-        if self.use_secured_api and self.mtls_enabled:
-            return self._sync_single_document_secured(document)
-
-        endpoint = self.endpoints['new_doc']
-        
-        try:
-            response = self._make_request(
-                method='POST',
-                endpoint=endpoint,
-                data=document
-            )
-            
-            result = response.json()
-            logger.info(f"Single document sync successful: {document.get('doc_id')}")
-            return result
-            
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error during single document sync: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error during single document sync: {e}")
-            raise
-    
     def search_documents(
         self,
         query: Union[str, List[str]],
@@ -2051,58 +2418,277 @@ class KnovasAPIClient:
         Args:
             query: Search query string
             limit: Maximum number of results
-            filters: Query parameters of the legacy GET search. /secured/query
-                reads no filters, so the secured path does not send them
-                (spec F7); the Platform applies its own filters to the answer.
-            where: Document-fields filter; sent only when given. Only the
-                secured API carries it.
+            filters: Not sent: /secured/query reads no filters (spec F7); the
+                Platform applies its own filters to the answer.
+            where: Document-fields filter; sent only when given.
             return_fields: Document-field keys to return per hit; sent only
-                when given. Only the secured API carries it.
+                when given.
+
+        Inside ``keeping_snippets()`` the secured rows also carry the Core's
+        passage text as ``"snippet"``.
             
         Returns:
             Search results
 
         Raises:
-            ValueError: ``where`` or ``return_fields`` in legacy mode (D13).
+            RuntimeError: no mTLS certificate paths are configured; nothing
+                was sent.
             QueryRejected: Knovas refused a request that carried ``where``
                 or ``return_fields`` with a document-fields error code.
         """
-        if self.use_secured_api and self.mtls_enabled:
-            extra: Dict[str, Any] = {}
-            if where is not None:
-                extra['where'] = where
-            if return_fields is not None:
-                extra['return_fields'] = return_fields
-            return self._search_documents_secured(query=query, limit=limit, **extra)
-
-        if where is not None or return_fields is not None:
-            # The legacy GET has nowhere to carry them; dropping them would
-            # turn a filtered search into an unfiltered one that looks filtered.
-            raise ValueError(
-                "where/return_fields need the secured API (use_secured_api with mTLS)."
-            )
-
-        if self.use_secured_api and not self.allow_legacy_api_fallback:
+        if not self.mtls_enabled:
             raise RuntimeError(
-                "Secured API mode is enabled but mTLS cert paths are not configured. "
-                "Set SEMANTIX_CLIENT_CERT, SEMANTIX_CLIENT_KEY and SEMANTIX_CA_CERT, "
-                "or explicitly enable legacy fallback for mock/dev."
+                "mTLS cert paths are not configured. "
+                "Set SEMANTIX_CLIENT_CERT, SEMANTIX_CLIENT_KEY and SEMANTIX_CA_CERT."
             )
+        extra: Dict[str, Any] = {}
+        if where is not None:
+            extra['where'] = where
+        if return_fields is not None:
+            extra['return_fields'] = return_fields
+        return self._search_documents_secured(query=query, limit=limit, **extra)
 
-        endpoint = self.endpoints['search']
-        params = {'query': query, 'limit': limit}
-        if filters:
-            params.update(filters)
+    def llm_generate(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        system_instruction: Optional[str] = None,
+        max_tokens: int = 512,
+        temperature: Optional[float] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """POST /secured/llm/generate: one generation, as the signed-in person.
+
+        Body: ``messages`` (``role`` and ``content`` of each), ``max_tokens``,
+        and ``system_instruction`` and ``temperature`` when given; the
+        principal assertion is attached as on every secured call. Keeping the
+        Core's limits (32 messages, roles user/assistant, 50,000 bytes per
+        message, 4,000 bytes of system instruction, max_tokens <= 2,048) is
+        the caller's job: a 400 is a CoreFailed like any other.
+
+        One request, never retried (``_request_no_retry``): a generation
+        repeated behind the caller's back is billed twice and may answer
+        differently. No response body is logged -- an error body of this route
+        could hold generated text -- only the status, the duration and the
+        token counts. ``timeout`` defaults to ``api.llm_generate_timeout``
+        (120 s), at least ``http_read_timeout``: an answer of a thousand
+        tokens takes longer than a search.
+
+        Returns ``{"content", "model", "prompt_tokens", "completion_tokens"}``
+        (see ``_llm_generate_result``; the model name is for operators, never
+        for the person asking).
+
+        Raises:
+            CoreBusy: HTTP 429 or 503.
+            CoreFailed: a timeout, a connection error, any other HTTP error,
+                or an answer that is not a success envelope with text content.
+            PermissionError: nobody is signed in (``_with_principal``).
+        """
+        endpoint = self.config.get('api.endpoints.llm_generate', '/secured/llm/generate')
+        body: Dict[str, Any] = {
+            'messages': [{'role': m['role'], 'content': m['content']} for m in messages],
+            'max_tokens': int(max_tokens),
+        }
+        if system_instruction is not None:
+            body['system_instruction'] = system_instruction
+        if temperature is not None:
+            body['temperature'] = float(temperature)
+        if timeout is None:
+            timeout = max(self.http_read_timeout,
+                          self.config.get_int('api.llm_generate_timeout', 120))
+
+        started = time.monotonic()
+
+        def elapsed_ms() -> int:
+            return int((time.monotonic() - started) * 1000)
 
         try:
-            response = self._make_request(method='GET', endpoint=endpoint, params=params)
-            result = response.json()
-            logger.info(f"Legacy search successful: query='{query}', results={len(result.get('results', []))}")
-            return result
-        except Exception as e:
-            logger.error(f"Error during search: {e}")
-            raise
-    
+            response = self._request_no_retry('POST', endpoint, data=body, timeout=timeout)
+        except requests.exceptions.HTTPError as exc:
+            status = getattr(getattr(exc, 'response', None), 'status_code', None)
+            logger.warning("Knovas generation refused: HTTP %s after %d ms", status, elapsed_ms())
+            if status in (429, 503):
+                raise CoreBusy(status=status) from None
+            raise CoreFailed('http_error', status=status) from None
+        except requests.exceptions.Timeout:
+            logger.warning("Knovas generation timed out after %d ms", elapsed_ms())
+            raise CoreFailed('timeout') from None
+        except requests.exceptions.RequestException as exc:
+            logger.warning("Knovas generation failed (%s) after %d ms",
+                           type(exc).__name__, elapsed_ms())
+            raise CoreFailed('transport') from None
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        result = _llm_generate_result(payload)
+        if result is None:
+            logger.warning("Knovas generation: HTTP %s but no success envelope with text",
+                           response.status_code)
+            raise CoreFailed('malformed', status=response.status_code)
+        logger.info("Knovas generation: HTTP %s, %d ms, prompt_tokens=%s completion_tokens=%s",
+                    response.status_code, elapsed_ms(),
+                    result['prompt_tokens'], result['completion_tokens'])
+        return result
+
+    def document_text(
+        self,
+        document_uuid: Any,
+        *,
+        offset: int = 0,
+        max_chars: int = DOCUMENT_TEXT_MAX_PART_CHARS,
+        timeout: Optional[float] = None,
+        deadline: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """GET /secured/document/<uuid>/text: one part of a document's indexed text (PMVP-20 context).
+
+        For the Knovas Assistent only (``assistant.core.make_read_text``), under the founder's limits of 2026-11-22
+        (``assistant/context.py``): it reads the documents the person's own search just returned, to give the model
+        the text around each hit. The Core answers the text in reading order, at most 20,000 characters a part
+        (``offset``, ``max_chars``); the tenant is the certificate's, and a document the principal may not see
+        answers the 404 of a missing one.
+
+        As the person: the principal in force is attached as on every call (``_with_principal``; inside
+        ``asserting_for`` the assistant's claim, and ``?actor=``), through the same client as the search. The Core
+        takes no claim on this GET yet (Core request CR-1c). One request, never retried: the caller has a time
+        budget, and every read is billed.
+
+        By the wall clock (``_get_by_deadline``): the answer is in by ``deadline`` (a ``time.monotonic()`` value;
+        else ``timeout`` seconds from now, else ``http_read_timeout``) or the read is given up there with a
+        ``ReadTimeout``. A socket timeout alone restarts with every packet, so a Core that trickles its answer held one
+        question for 47.6 s against a budget of 8 (PMVP-20 context's verification).
+
+        ``document_uuid`` must be a UUID; the path holds its canonical form only, so no other value reaches the
+        address. A failure is logged as every call's is (RB-FIX-1, RB-FIX-2): the route as a template, the status,
+        the Core's short code, its request id and the body's size -- never the document's id, the text or the body.
+
+        Returns ``{"text", "offset", "next_offset", "total_chars", "truncated"}`` (``next_offset`` None on the last
+        part).
+
+        Raises:
+            ValueError: ``document_uuid`` is not a UUID or the paging is out of range (nothing was sent); or the
+                answer is not a document-text part.
+            RuntimeError: the secured API is not configured (nothing was sent).
+            PermissionError: nobody is signed in (nothing was sent).
+            requests.exceptions.HTTPError: any status of 400 or more (the error names the route, not the id).
+            requests.exceptions.RequestException: no answer (a timeout, no connection, not complete by the
+                deadline), without the address.
+        """
+        if deadline is None:
+            deadline = time.monotonic() + (self.http_read_timeout if timeout is None else timeout)
+        try:
+            document = str(_uuid.UUID(document_uuid)) if isinstance(document_uuid, str) else None
+        except ValueError:
+            document = None
+        if document is None:
+            raise ValueError("document_uuid is not a UUID")
+        if not _whole_number(offset) or not (_whole_number(max_chars)
+                                             and 1 <= max_chars <= DOCUMENT_TEXT_MAX_PART_CHARS):
+            raise ValueError("offset must be a whole number and max_chars from 1 to 20000")
+        if not self.mtls_enabled:
+            raise RuntimeError("mTLS cert paths are not configured; the document text is read on the secured API only")
+        endpoint = f"/secured/document/{document}/text"
+        response = self._get_by_deadline(endpoint, {'offset': offset, 'max_chars': max_chars}, deadline)
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        part = _document_text_part(payload)
+        if part is None:
+            logger.info(
+                "Knovas API GET %s -> %s but no document text part (request_id=%s; body %d chars, not logged)",
+                _route_name(endpoint), response.status_code, _request_id(response), _body_size(response),
+            )
+            raise ValueError(f"Knovas API GET {_route_name(endpoint)}: the answer is not a document text part")
+        return part
+
+    def _get_by_deadline(self, endpoint: str, params: Dict[str, Any], deadline: float) -> requests.Response:
+        """One GET as the person in force, complete by ``deadline`` (``time.monotonic()``) or given up there.
+
+        ``_request_no_retry``'s steps, with the waiting bounded by the wall clock, for ``document_text``. The rate
+        limit, the certificate check, the principal and the actor run on the caller's thread (``asserting_for`` is
+        per thread). The request and the reading of its body run on a worker thread, and the caller waits for it only
+        until ``deadline``: a socket timeout restarts with every packet, so neither the headers nor the body of a
+        trickling answer can hold the caller longer. The worker streams the body and stops itself at its next piece
+        after the deadline, past ``DOCUMENT_TEXT_MAX_BODY_BYTES``, or at its socket timeout (the time left when the
+        read began), and closes an answer it did not read to the end (its connection is not reused). Nothing it reads
+        after the deadline is used or logged.
+
+        Raises ``ReadTimeout`` naming the route when nothing complete came by the deadline, ``ValueError`` for an
+        answer larger than ``DOCUMENT_TEXT_MAX_BODY_BYTES``, what ``_send`` raises for no answer (without the
+        address), and ``HTTPError`` naming the route for a status of 400 or more (after the line every failed call
+        gets: route, status, short code, request id, body size).
+        """
+        route = _route_name(endpoint)
+        late = f"Knovas API GET {route}: no complete answer by the deadline (ReadTimeout)"
+        self._rate_limit()
+        self._ensure_certificate_freshness()
+        data = self._with_principal(None, 'GET')
+        params = self._actor_params('GET', params)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise requests.exceptions.ReadTimeout(late)
+        box: Dict[str, Any] = {}
+
+        def fetch() -> None:
+            try:
+                response = self._send(
+                    'GET', endpoint, url=f"{self.base_url}{endpoint}", json=data, params=params,
+                    headers=self._get_headers(), timeout=(left, left), allow_redirects=False, stream=True)
+                box['response'] = response
+                if isinstance(getattr(response, '_content', False), (bytes, bytearray)):
+                    body = bytes(response._content)            # already read (a test double, or a cached answer)
+                else:
+                    pieces = bytearray()
+                    for piece in response.iter_content(chunk_size=1024):
+                        pieces += piece
+                        if box.get('abandoned') or time.monotonic() >= deadline:
+                            raise _StopReading('late')
+                        if len(pieces) > DOCUMENT_TEXT_MAX_BODY_BYTES:
+                            raise _StopReading('large')
+                    body = bytes(pieces)
+                if len(body) > DOCUMENT_TEXT_MAX_BODY_BYTES:
+                    raise _StopReading('large')
+                response._content = body
+                box['done'] = True
+            except _StopReading as stop:
+                box['stop'] = str(stop)
+            except requests.exceptions.RequestException as exc:
+                box['error'] = _transport_error(exc, 'GET', endpoint)
+            except Exception as exc:  # noqa: BLE001 - handed to the caller as it is
+                box['error'] = exc
+            finally:
+                # Not read to its end: close it here, on the worker (its connection is not reused). The caller never
+                # closes it: that would wait on the reader the worker is blocked in.
+                if not box.get('done') and box.get('response') is not None:
+                    try:
+                        box['response'].close()
+                    except Exception:  # noqa: BLE001 - a connection that is already gone
+                        pass
+
+        worker = threading.Thread(target=fetch, name="knovas-document-text", daemon=True)
+        worker.start()
+        worker.join(max(0.0, deadline - time.monotonic()))
+        if worker.is_alive():
+            box['abandoned'] = True      # the worker stops at its next piece, or at its socket timeout
+            raise requests.exceptions.ReadTimeout(late)
+        if box.get('stop') == 'late':
+            raise requests.exceptions.ReadTimeout(late)
+        if box.get('stop') == 'large':
+            raise ValueError(f"Knovas API GET {route}: the answer is larger than a document text part")
+        if 'error' in box:
+            raise box['error']
+        response = box['response']
+        status = getattr(response, 'status_code', None)
+        if isinstance(status, int) and status >= 400:
+            logger.info(
+                "Knovas API GET %s -> %s (error_code=%s, request_id=%s; body %d chars, not logged)",
+                route, status, _error_code(response), _request_id(response), _body_size(response),
+            )
+        _raise_for_status(response, 'GET', endpoint)
+        return response
+
     def health_check(self) -> bool:
         """
         Check if Knovas API is healthy.
@@ -2158,16 +2744,14 @@ class KnovasAPIClient:
                     failure = {}
                 if not isinstance(failure, dict):
                     failure = {}
+                # The status, a short code and the request id; not the Core's
+                # text, which can quote what was sent (RB-FIX-2). _make_request
+                # logged the route; the Core's own log has the text by the id.
                 raise GraphError(
                     response.status_code,
                     failure.get('error_code'),
-                    # Knovas puts its fixed text under "error" (the doc-fields
-                    # envelope) or "message"; either is better than nothing.
-                    # getattr, because a response double in the tests carries no
-                    # reason and an AttributeError here would hide the real status.
-                    failure.get('message') or failure.get('error')
-                    or getattr(response, 'reason', '') or '',
                     details=failure,
+                    request_id=_request_id(response),
                 ) from exc
             body: Dict[str, Any] = {}
             try:
@@ -2184,12 +2768,13 @@ class KnovasAPIClient:
                 # None -- which is why a refused curation looked like a missing
                 # name in the console.
                 logger.error(
-                    "Knovas API %s %s -> 404, so nothing was written. "
-                    "Response body: %s",
-                    method, endpoint, (response.text or "")[:600] or "<empty>",
+                    "Knovas API %s %s -> 404, so nothing was written "
+                    "(error_code=%s, request_id=%s; body %d chars, not logged)",
+                    method, _route_name(endpoint), _error_code(response),
+                    _request_id(response), _body_size(response),
                 )
             else:
-                logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, endpoint)
+                logger.info("Graph 404 (unbekannte oder fremde Id): %s %s", method, _route_name(endpoint))
             return None
         if response.status_code in (204, 205):
             # Documented "done, nothing to say". Parsing it fails, and the {}
@@ -2200,8 +2785,9 @@ class KnovasAPIClient:
             payload = response.json()
         except ValueError:
             logger.warning(
-                "Graph-Antwort ohne JSON-Body: %s %s -> %s. Body: %s",
-                method, endpoint, response.status_code, (response.text or "")[:300] or "<empty>",
+                "Graph-Antwort ohne JSON-Body: %s %s -> %s (request_id=%s; body %d chars, not logged)",
+                method, _route_name(endpoint), response.status_code,
+                _request_id(response), _body_size(response),
             )
             return {}
         if method.upper() != 'GET' and not payload:
@@ -2212,9 +2798,9 @@ class KnovasAPIClient:
             # fails in complete silence.
             logger.error(
                 "Knovas API %s %s -> %s with an empty body; treating "
-                "the write as failed. Body: %s",
-                method, endpoint, response.status_code,
-                (response.text or "")[:300] or "<empty>",
+                "the write as failed (request_id=%s; body %d chars, not logged)",
+                method, _route_name(endpoint), response.status_code,
+                _request_id(response), _body_size(response),
             )
         return payload or {}
 
@@ -2272,12 +2858,31 @@ class KnovasAPIClient:
             payload = None
         if response.status_code >= 400:
             code = payload.get('error_code') if isinstance(payload, dict) else None
-            raise GraphError(response.status_code, code if isinstance(code, str) else None, '')
+            raise GraphError(response.status_code, code if isinstance(code, str) else None,
+                             request_id=_request_id(response))
         node = payload.get('node') if isinstance(payload, dict) else None
         if not isinstance(node, dict):
             node = payload if isinstance(payload, dict) else {}
         name = node.get('name')
         return name.strip() or None if isinstance(name, str) else None
+
+    def graph_read(self, path: str) -> Tuple[int, Any]:
+        """One read-only ``GET /secured/graph<path>`` as the principal in force: ``(status, payload)``.
+
+        For the Knovas Assistent's graph tools (``assistant.graph_reads``, PMVP-20 brain-graph), which read the
+        graph on the request thread inside ``within_time`` and ``asserting_for`` and wait out a 429 themselves: no
+        retry, no raise for a status and nothing logged (``_request_quiet``). ``path`` starts with ``/`` and holds no
+        query (the caller builds it from ids only). ``payload`` is None when the body is not JSON. A network error
+        or a timeout raises as ``_send`` raises it; PermissionError when nobody is signed in (nothing is sent).
+        """
+        if not isinstance(path, str) or not path.startswith('/') or '?' in path or '#' in path:
+            raise ValueError("graph_read takes a path under /secured/graph without a query")
+        response = self._request_quiet('GET', f'/secured/graph{path}')
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        return response.status_code, payload
 
     def graph_edges(self) -> List[Dict[str, Any]]:
         """GET /secured/graph/edges - typisierte Relationen."""
@@ -2341,24 +2946,28 @@ class KnovasAPIClient:
         if not calls:
             return []
         self._ensure_certificate_freshness()
-        bodies = [self._with_principal(None) for _ in calls]
+        bodies = [self._with_principal(None, 'GET') for _ in calls]
+        actor_params = self._actor_params('GET', {}) or {}
         headers = self._get_headers()
 
         def one(index: int) -> Tuple[int, Any]:
             path, params = calls[index]
+            if actor_params:
+                params = {**(params or {}), **actor_params}
             url = f"{self.base_url}/secured/graph{path}"
             status, payload = 599, None
             for attempt in range(max_retries + 1):
                 if acquire is not None:
                     acquire()
                 try:
-                    response = self._session.request(
-                        method='GET', url=url, json=bodies[index], params=params,
+                    response = self._send(
+                        'GET', f"/secured/graph{path}", url=url, json=bodies[index], params=params,
                         headers=headers, timeout=self.http_read_timeout,
                         allow_redirects=False,
                     )
                 except _RETRYABLE_REQUEST_EXCEPTIONS as exc:
-                    logger.warning("Graph read %s failed: %s", path, type(exc).__name__)
+                    logger.warning("Graph read %s failed: %s",
+                                   _route_name(f"/secured/graph{path}"), type(exc).__name__)
                     continue
                 status = response.status_code
                 if status in (429, 503) and attempt < max_retries:
@@ -2389,10 +2998,10 @@ class KnovasAPIClient:
         if len(ids) > 500:
             raise ValueError("graph_facts_batch takes at most 500 node ids")
         self._ensure_certificate_freshness()
-        body = self._with_principal({"node_ids": ids})
+        body = self._with_principal({"node_ids": ids}, 'POST')
         try:
-            response = self._session.request(
-                method='POST', url=f"{self.base_url}/secured/graph/facts/batch",
+            response = self._send(
+                'POST', '/secured/graph/facts/batch', url=f"{self.base_url}/secured/graph/facts/batch",
                 json=body, headers=self._get_headers(),
                 timeout=self.http_read_timeout, allow_redirects=False,
             )
@@ -2533,36 +3142,6 @@ class KnovasAPIClient:
             return None
         return _graph_payload_list(payload, 'facts')
 
-    def graph_create_fact(self, node_id: str, value: Any,
-                          attribute_id: Optional[str] = None,
-                          label: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """POST /secured/graph/nodes/<id>/facts.
-
-        Der CHECK des Servers verlangt attribute_id ODER label. Hier abzulehnen
-        heisst, der Aufrufer sieht die Regel - statt eines 422 aus drei Schichten
-        Entfernung.
-        """
-        if not attribute_id and not label:
-            raise ValueError("a fact needs an attribute_id or a label")
-        data: Dict[str, Any] = {'value': value}
-        if attribute_id:
-            data['attribute_id'] = attribute_id
-        else:
-            data['label'] = label
-        return self._graph_request(
-            'POST', f'/nodes/{quote(str(node_id), safe="")}/facts', data=data)
-
-    def graph_update_fact(self, fact_id: str,
-                          **fields: Any) -> Optional[Dict[str, Any]]:
-        """PATCH /secured/graph/facts/<fid>."""
-        return self._graph_request(
-            'PATCH', f'/facts/{quote(str(fact_id), safe="")}', data=dict(fields))
-
-    def graph_delete_fact(self, fact_id: str) -> Optional[Dict[str, Any]]:
-        """DELETE /secured/graph/facts/<fid>."""
-        return self._graph_request(
-            'DELETE', f'/facts/{quote(str(fact_id), safe="")}')
-
     def graph_delete_edge(self, edge_id: str) -> Optional[Dict[str, Any]]:
         """DELETE /secured/graph/edges/<id> - nur manuelle Kanten."""
         return self._graph_request(
@@ -2601,12 +3180,6 @@ class KnovasAPIClient:
             'POST', f'/nodes/{quote(str(node_id), safe="")}/filters',
             data={'query_text': query_text, 'child_node_name': child_node_name})
 
-    def graph_delete_filter(self, node_id: str, filter_id: str) -> Optional[Dict[str, Any]]:
-        """DELETE /secured/graph/nodes/<id>/filters/<fid>."""
-        return self._graph_request(
-            'DELETE',
-            f'/nodes/{quote(str(node_id), safe="")}/filters/{quote(str(filter_id), safe="")}')
-
     def graph_placements(self, node_id: str,
                          status: str = 'active') -> List[Dict[str, Any]]:
         """GET /secured/graph/nodes/<id>/placements?status=active|rejected."""
@@ -2620,11 +3193,6 @@ class KnovasAPIClient:
         """POST /secured/graph/placements/<pid>/reject - dauerhaft."""
         return self._graph_request(
             'POST', f'/placements/{quote(str(placement_id), safe="")}/reject')
-
-    def graph_restore_placement(self, placement_id: str) -> Optional[Dict[str, Any]]:
-        """POST /secured/graph/placements/<pid>/restore - expliziter Override."""
-        return self._graph_request(
-            'POST', f'/placements/{quote(str(placement_id), safe="")}/restore')
 
     # -- Document fields (typed values per document) -------------------------
     # Contract: KnowledgeBase docs/Knovas_Developer_Kit/api/Knowledge_Graph_API.md
@@ -2677,17 +3245,16 @@ class KnovasAPIClient:
                 if code == 'NOT_FOUND':
                     return None
                 if code != 'pack_not_found':
-                    logger.info("Document fields off at Knovas: %s %s -> 404 %s",
-                                method, endpoint, code or '<no code>')
+                    logger.info("Document fields off at Knovas: %s %s -> 404 %s (request_id=%s)",
+                                method, _route_name(endpoint), _short_code(code),
+                                _request_id(response))
                     raise DocFieldsUnavailable(status=404, error_code=code) from exc
             if code is None and status == 429:
                 code = 'too_many_requests'  # the rate-limit body has no error_code
-            raise DocFieldsError(
-                status, code,
-                body.get('message') or body.get('error')
-                or getattr(response, 'reason', '') or '',
-                details=body,
-            ) from exc
+            # No Core text (RB-FIX-2): the page says it in its own words from
+            # the code; the operator finds the text by the request id.
+            raise DocFieldsError(status, code, details=body,
+                                 request_id=_request_id(response)) from exc
         except (requests.exceptions.RequestException, RetryError) as exc:
             raise DocFieldsError(
                 503, 'transport_error', type(exc).__name__) from exc
@@ -2952,16 +3519,21 @@ class KnovasAPIClient:
         path: str,
         data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
+        once: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """RBAC-Aufruf. Gibt den geparsten Body zurueck.
 
         404 heisst 'unbekannt oder nicht deins' und liefert None - ein
         normaler Zustand, kein Fehler. Das entspricht der 404-statt-403-Regel
         der Secure API: keine Route verraet, dass eine Id existiert.
+
+        ``once``: genau ein Versuch, keine Wiederholung bei Timeout oder Verbindungsfehler (PMVP-42: das Umschalten
+        der Durchsetzung, dessen Antwort verloren gehen kann, nachdem der Core schon umgeschaltet hat).
         """
         try:
-            response = self._make_request(method=method, endpoint=path,
-                                          data=data, params=params)
+            send = (type(self)._make_request.retry_with(stop=stop_after_attempt(1), reraise=True).__get__(self)
+                    if once else self._make_request)
+            response = send(method=method, endpoint=path, data=data, params=params)
         except requests.exceptions.HTTPError as exc:
             response = exc.response
             if response is None or response.status_code != 404:
@@ -2972,13 +3544,16 @@ class KnovasAPIClient:
                 # nichts geschrieben wurde -- und der Aufrufer sieht nur None.
                 # Genau so meldete die Konsole 'Gruppe wurde angelegt' fuer eine
                 # Gruppe, die es nie gab.
+                # Ohne Antworttext und ohne die Id im Pfad: beide koennen den Namen
+                # einer Gruppe tragen, seit RB-4 den einer Rolle (FU-43).
                 logger.error(
-                    "Knovas API %s %s -> 404, es wurde nichts geschrieben. "
-                    "Antwort: %s",
-                    method, path, (response.text or "")[:600] or "<leer>",
+                    "Knovas API %s %s -> 404, es wurde nichts geschrieben "
+                    "(error_code=%s, request_id=%s; Antwort %d Zeichen, nicht protokolliert)",
+                    method, _route_name(path), _error_code(response),
+                    _request_id(response), _body_size(response),
                 )
             else:
-                logger.info("RBAC 404 (unbekannt oder fremd): %s %s", method, path)
+                logger.info("RBAC 404 (unbekannt oder fremd): %s %s", method, _route_name(path))
             return None
         if response.status_code == 204:
             return {}
@@ -2986,9 +3561,9 @@ class KnovasAPIClient:
             return response.json() or {}
         except ValueError:
             logger.warning(
-                "RBAC-Antwort ohne JSON-Body: %s %s -> %s. Body: %s",
-                method, path, response.status_code,
-                (response.text or "")[:300] or "<leer>",
+                "RBAC-Antwort ohne JSON-Body: %s %s -> %s (request_id=%s; Antwort %d Zeichen, nicht protokolliert)",
+                method, _route_name(path), response.status_code,
+                _request_id(response), _body_size(response),
             )
             return {}
 
@@ -3032,6 +3607,41 @@ class KnovasAPIClient:
             'DELETE', f'/secured/access_groups/{quote(str(identifier), safe="")}')
         return result is not None
 
+    #: What the Platform keeps of the Core's posture answer (CR-R1a); nothing else of it.
+    RBAC_POSTURE_FIELDS = ('mode', 'backfill_complete', 'broker_key_registered', 'not_ready', 'tenant_switch')
+
+    def rbac_posture(self) -> Optional[Dict[str, Any]]:
+        """GET /secured/rbac/posture (CR-R1a, PMVP-42): the answer's five RBAC_POSTURE_FIELDS, nothing else; None on
+        a 404 (no such route yet). Other failures raise, naming the route and status only (RB-FIX-2)."""
+        payload = self._rbac_request('GET', '/secured/rbac/posture')
+        if payload is None:
+            return None
+        return {key: payload.get(key) for key in self.RBAC_POSTURE_FIELDS}
+
+    def set_rbac_posture(self, mode: str) -> Optional[Dict[str, Any]]:
+        """PUT /secured/rbac/posture (CR-R8, PMVP-42) - the tenant switches its own posture, for one administrator.
+
+        ``mode`` is ``brokered`` («Ein») or ``disabled`` («Aus»). Anything else - ``enforcing`` above all, which ignores
+        the Platform's claims - raises ValueError and sends nothing. The Core checks its own preconditions for
+        ``brokered``. Returns ``{"mode": <the new mode>}`` when the Core switched; ``{"refused": <code>}`` when it
+        refused (409: its ``error_code`` when that is a short identifier, else ``unknown``); None when it has no such
+        route (404). Every other failure raises, naming the route and the status only. Sent **once**: never retried,
+        since a lost answer may follow a switch the Core made (the caller then says the outcome is unknown).
+        """
+        if mode not in ('brokered', 'disabled'):
+            raise ValueError('set_rbac_posture switches to brokered or disabled only')
+        try:
+            payload = self._rbac_request('PUT', '/secured/rbac/posture', data={'mode': mode}, once=True)
+        except requests.exceptions.HTTPError as exc:
+            response = exc.response
+            if response is None or response.status_code != 409:
+                raise
+            code = _error_code(response)
+            return {'refused': code if code != '-' else 'unknown'}
+        if payload is None:
+            return None
+        return {'mode': payload.get('mode')}
+
     def document_access(self, pointer: str) -> Optional[Dict[str, Any]]:
         """GET /secured/document_access - die ACL genau eines Dokuments."""
         return self._rbac_request(
@@ -3055,9 +3665,13 @@ class KnovasAPIClient:
                 params={'pointer': str(pointer)},
             )
         except Exception as exc:  # noqa: BLE001 - transport, TLS, HTTP, JSON
+            # Neither the pointer (it names the document) nor the error's text (it
+            # quoted the URL with the pointer): the class, and the status of an
+            # HTTP error, whose route and request id _make_request logged (FU-43).
             logger.warning(
-                "document_readable failed for %r; refusing the document: %s",
-                pointer, exc,
+                "document_readable failed (%s, HTTP %s); refusing the document",
+                type(exc).__name__,
+                getattr(getattr(exc, 'response', None), 'status_code', '-'),
             )
             return False
         if not isinstance(payload, dict):
@@ -3208,48 +3822,6 @@ class KnovasAPIClient:
             'DELETE', f'/secured/folder_rules/{quote(str(rule_id), safe="")}')
         return result is not None
 
-    def format_document_payload(
-        self,
-        doc_id: str,
-        akten_id: Optional[str],
-        doc_type: Optional[str],
-        file_path: str,
-        timestamp: datetime,
-        file_size: int,
-        file_hash: str,
-        additional_metadata: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Format document data for API submission.
-        
-        Args:
-            doc_id: Document ID
-            akten_id: Akten ID
-            doc_type: Document type
-            file_path: Relative file path
-            timestamp: Document timestamp
-            file_size: File size in bytes
-            file_hash: File hash (SHA256)
-            additional_metadata: Additional metadata fields
-            
-        Returns:
-            Formatted document payload
-        """
-        payload = {
-            'doc_id': str(doc_id),
-            'akten_id': str(akten_id) if akten_id else None,
-            'type': doc_type,
-            'path': file_path,
-            'timestamp': timestamp.isoformat() if isinstance(timestamp, datetime) else timestamp,
-            'size': file_size,
-            'hash': file_hash
-        }
-        
-        if additional_metadata:
-            payload.update(additional_metadata)
-        
-        return payload
-
     def _search_documents_secured(
         self,
         query: Union[str, List[str]],
@@ -3258,6 +3830,7 @@ class KnovasAPIClient:
         return_fields: Optional[Union[bool, List[str]]] = None,
     ) -> Dict[str, Any]:
         endpoint = self.endpoints.get('query', '/secured/query')
+        snippets = bool(getattr(getattr(self, "_snippets_local", None), "on", False))
         # The new keys reach the body builder only when given, so a query
         # without them takes exactly the path it always took.
         extra: Dict[str, Any] = {}
@@ -3281,10 +3854,19 @@ class KnovasAPIClient:
         raw_hits = (result.get("results") or [])[:limit]
 
         normalized_results = []
+        passage_chars = _passage_chars() if snippets else DEFAULT_PASSAGE_CHARS
         for raw in raw_hits:
             if not isinstance(raw, dict):
                 continue
             row = _secured_query_hit_to_row(raw)
+            if snippets:
+                found = _snippet_with_location(raw, passage_chars)
+                if found:
+                    # The passage's own page and sentence, from its chunk (None
+                    # when unknown); page_number stays the row's (top_chunks[0]).
+                    row["snippet"] = found[0]
+                    row["snippet_page_number"] = found[1].get("page_number")
+                    row["snippet_sentence_number"] = found[1].get("sentence_number")
             # The server's own ranking (ColBERT rerank, name-prefilter boost).
             # `score` is the stage-1 cosine of the best chunk and sorts
             # differently; the UI keeps this order (PLATFORM_KEEP_SERVER_ORDER).
@@ -3298,13 +3880,16 @@ class KnovasAPIClient:
             for r in normalized_results[:3]
         ):
             raw0 = raw_hits[0] if raw_hits and isinstance(raw_hits[0], dict) else {}
+            chunks = raw0.get("top_chunks")
+            # The chunks' count, not the chunks: a chunk carries its snippet, the
+            # document's own text (FU-09, FU-43).
             logger.info(
                 "Secured query: no page/sentence in first hits; raw[0] keys=%s "
-                "page_number=%r sentence_number=%r top_chunks=%r",
-                sorted(raw0.keys()) if raw0 else [],
+                "page_number=%r sentence_number=%r top_chunks=%d item(s), not logged",
+                sorted(str(k) for k in raw0.keys()) if raw0 else [],
                 raw0.get("page_number"),
                 raw0.get("sentence_number"),
-                raw0.get("top_chunks") if isinstance(raw0.get("top_chunks"), list) else raw0.get("top_chunks"),
+                len(chunks) if isinstance(chunks, list) else 0,
             )
 
         semantix_meta = {
@@ -3321,134 +3906,3 @@ class KnovasAPIClient:
             'total': len(normalized_results),
             'semantix': semantix_meta,
         }
-
-    def _sync_single_document_secured(self, document: Dict[str, Any]) -> Dict[str, Any]:
-        identifier = str(document.get('doc_id') or document.get('path') or 'unknown')
-        parts, init_fields, partial = _secured_transmit_parts_from_document(document)
-        if partial:
-            logger.warning(
-                "Secured single document %s is partial: %s",
-                identifier,
-                " ".join(f"{k}={v}" for k, v in sorted(partial.items())),
-            )
-
-        init_endpoint = self.endpoints.get('init_transmission', '/secured/init_document_transmission')
-        init_body: Dict[str, Any] = {
-            'identifier': identifier,
-            'part_count': len(parts),
-        }
-        init_body.update(init_fields)
-
-        # Non-idempotent: never retry init/transmit — a retried 4xx/5xx (or a
-        # retried connection error after the server already committed) would
-        # create duplicate document parts. Use the no-retry request path.
-        init_resp = self._request_no_retry(
-            method='POST',
-            endpoint=init_endpoint,
-            data=init_body,
-        ).json()
-
-        transmission_key_id = init_resp.get('transmission_key_id')
-        if not transmission_key_id:
-            raise RuntimeError('init_document_transmission returned no transmission_key_id')
-
-        part_endpoint = self.endpoints.get('transmit_part', '/secured/transmit_document_part')
-        for idx, part in enumerate(parts):
-            payload = _secured_transmit_part_payload(transmission_key_id, idx, part)
-            if idx == 0 and ('page_number' in payload or 'sentence_number' in payload):
-                logger.info(
-                    "Secured transmit part 0 location page=%s sentence=%s doc=%s",
-                    payload.get('page_number'),
-                    payload.get('sentence_number'),
-                    identifier,
-                )
-            self._request_no_retry(method='POST', endpoint=part_endpoint, data=payload)
-
-        logger.info(f"Secured single document sync successful: {identifier}")
-        result: Dict[str, Any] = {'status': 'success', 'identifier': identifier, 'mode': 'secured'}
-        if partial:
-            # Counts only (GI-EXTRACT-04): the caller can tell the operator
-            # that the scan pages did not all make it.
-            result['partial'] = dict(partial)
-        return result
-
-
-class BatchProcessor:
-    """Process documents in batches for API submission."""
-    
-    def __init__(
-        self, 
-        api_client: KnovasAPIClient,
-        batch_size: Optional[int] = None
-    ):
-        """
-        Initialize batch processor.
-        
-        Args:
-            api_client: KnovasAPIClient instance
-            batch_size: Number of documents per batch
-        """
-        self.api_client = api_client
-        
-        config = get_config()
-        self.batch_size = batch_size or config.get_int('api.rate_limit.batch_size', 100)
-    
-    def process_documents_in_batches(
-        self,
-        documents: List[Dict[str, Any]],
-        endpoint_type: str = 'full_sync',
-        progress_callback: Optional[callable] = None
-    ) -> Dict[str, Any]:
-        """
-        Process list of documents in batches.
-        
-        Args:
-            documents: List of document dictionaries
-            endpoint_type: API endpoint type
-            progress_callback: Optional callback function(current, total, batch_result)
-            
-        Returns:
-            Summary of processing results
-        """
-        total_docs = len(documents)
-        processed = 0
-        failed = 0
-        results = []
-        
-        logger.info(f"Starting batch processing: {total_docs} documents, batch_size={self.batch_size}")
-        
-        for i in range(0, total_docs, self.batch_size):
-            batch = documents[i:i + self.batch_size]
-            batch_num = (i // self.batch_size) + 1
-            total_batches = (total_docs + self.batch_size - 1) // self.batch_size
-            
-            try:
-                logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} documents)")
-                
-                result = self.api_client.sync_document_batch(batch, endpoint_type)
-                results.append(result)
-                
-                processed += len(batch)
-                
-                if progress_callback:
-                    progress_callback(processed, total_docs, result)
-                
-            except Exception as e:
-                logger.error(f"Batch {batch_num} failed: {e}")
-                failed += len(batch)
-        
-        summary = {
-            'total': total_docs,
-            'processed': processed,
-            'failed': failed,
-            'success_rate': (processed / total_docs * 100) if total_docs > 0 else 0,
-            'batches': len(results),
-            'results': results
-        }
-        
-        logger.info(
-            f"Batch processing complete: {processed}/{total_docs} successful, "
-            f"{failed} failed ({summary['success_rate']:.1f}% success rate)"
-        )
-        
-        return summary

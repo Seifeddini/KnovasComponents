@@ -1,122 +1,57 @@
-{# Plattform-Seitenleiste: eine Quelle fuer alle Module.
-   Erwartet: active_nav ('suche' | 'cortex' | 'experiments' | 'custom_views'
-   | 'einstellungen' | 'admin'), company_name, optional console_url (nur fuer
-   Administratoren gesetzt), optional experiments_nav (Experimente: Modul
-   eingeschaltet und die angemeldete Person hat eine Experimente-Rolle). Fehlt
-   experiments_nav, gibt es keinen Eintrag -- anders als Cortex ist das Modul
-   standardmaessig aus und fuer alle ohne Rolle unsichtbar. Optional
-   custom_views_nav (Eigene Ansichten): eingeschaltet, Benutzerkonten an,
-   Wissensnetz-Modus und mindestens eine gueltige Ansicht fuer diese Person
-   (Administratoren: irgendein Ansichtsordner, auch ein ungueltiger, damit sie
-   den Grund lesen koennen); sonst kein Eintrag. Optional builder_nav: die angemeldete Person hat eine
-   Builder-Rolle (bis Schritt B11: admin). #}
-<aside class="app-sidebar">
+{# The Platform's navigation: one partial for every page, showing only the area the page is in (PMVP-11).
+
+   Areas: 'work' (the Workspace) and 'admin' (Verwaltung). The Builder's pages keep a menu of their own
+   (templates/builder/_base.html), with their way back to the Workspace.
+
+   Expects: app_title, company_name. Everything else is optional, and what is missing draws nothing:
+   - nav_area ('work' | 'admin'): the area. The web app sets it from the address (a page under /admin is
+     'admin'). Without it, a page that names its Admin page (admin_tab) is 'admin', every other one 'work'.
+   - Workspace: active_nav ('suche' marks the search as the current page); console_url (the first Admin page
+     the person may open) and builder_nav (the person may open the Builder) draw the two area links.
+   - Verwaltung: admin_pages (the Admin pages the person may open, each with key, label, url and
+     if_doc_fields) and admin_tab (the key of the current one; each Admin template sets it before this include).
+     An entry with if_doc_fields is drawn only while Knovas offers document fields (doc_fields_capability, from
+     the console's context processor; asked only for a person whose menu holds that entry).
+
+   A link is presentation. Whether a person may open a page is decided by the page's route, and the web app
+   reads "may open" from those routes (app.py: _admin_pages, _builder_nav); nothing here names a role.
+   Cortex, Experimente, Eigene Ansichten, Einstellungen and Feedback have no entry until a later item places
+   them (founder, 2026-11-20); their addresses answer as before.
+
+   The person's chats (PMVP-23, Workspace only): assistant_chats(open_chat) (web_interface/assistant_routes.py)
+   hands in «+ Neue Frage», the newest 20 chats grouped by their last change, and «Alle Gespräche» when there are
+   more; None (the assistant off, nobody signed in, the list unreadable) draws nothing. open_chat, set by a chat's
+   page, marks that chat. The block stands after the menu and after the script that follows it (the script finds
+   the menu as its previous sibling), in a <nav> of its own: the first <nav> stays the menu. Titles are the
+   person's text, escaped and isolated (dir="auto"), one line cut by shell.css. In a narrow window the list folds
+   behind «Gespräche» (a checkbox and its label, shell.css; no script). #}
+{% set shell_area = nav_area if nav_area is defined else ('admin' if admin_tab is defined else 'work') %}
+<aside class="app-sidebar" data-area="{{ shell_area }}">
     <a class="app-brand" href="{{ url_for('index') }}" aria-label="{{ app_title }}">
         <img src="{{ url_for('static', filename='img/knovas-logo.svg') }}"
              alt="Knovas" width="120" height="16">
     </a>
 
-    <nav class="app-nav" aria-label="Hauptnavigation">
-        <a href="{{ url_for('index') }}" class="app-nav-item{% if active_nav == 'suche' %} active{% endif %}"
-           {% if active_nav == 'suche' %}aria-current="page"{% endif %}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 aria-hidden="true" focusable="false">
-                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
-            </svg>
-            Suche
-        </a>
-        {# 'nicht gesetzt' heisst hier 'an': eine Seite, die die Variable
-           vergisst, soll die Navigation nicht stillschweigend verlieren. Der
-           Schalter wirkt ohnehin serverseitig -- refuse_cortex_when_switched_off
-           weist die Route ab, ob der Link nun sichtbar ist oder nicht. #}
-        {% if cortex_enabled is not defined or cortex_enabled %}
-        <a href="{{ url_for('ontology_page') }}" class="app-nav-item{% if active_nav == 'cortex' %} active{% endif %}"
-           {% if active_nav == 'cortex' %}aria-current="page"{% endif %}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 aria-hidden="true" focusable="false">
-                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-            </svg>
-            Cortex
-        </a>
+    {% if shell_area == 'admin' %}
+    <a href="{{ url_for('index') }}" class="app-nav-item app-nav-back"><span aria-hidden="true">←</span> Arbeitsbereich</a>
+
+    <nav class="app-nav" aria-labelledby="app-nav-group">
+        <span class="app-nav-group" id="app-nav-group">Verwaltung</span>
+        {% for page in (admin_pages if admin_pages is defined else []) %}
+        {% if not page.if_doc_fields or (doc_fields_capability is defined and doc_fields_capability.shows_values) %}
+        <a href="{{ page.url }}" class="app-nav-item{% if admin_tab is defined and admin_tab == page.key %} active{% endif %}"
+           {% if admin_tab is defined and admin_tab == page.key %}aria-current="page"{% endif %}>{{ page.label }}</a>
         {% endif %}
-        {% if experiments_nav is defined and experiments_nav %}
-        <a href="{{ url_for('experiments.list_page') }}" class="app-nav-item{% if active_nav == 'experiments' %} active{% endif %}"
-           {% if active_nav == 'experiments' %}aria-current="page"{% endif %}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 aria-hidden="true" focusable="false">
-                <path d="M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3M7 15h10"/>
-            </svg>
-            Experimente
-        </a>
-        {% endif %}
-        {% if custom_views_nav is defined and custom_views_nav %}
-        <a href="{{ url_for('custom_views.page') }}" class="app-nav-item{% if active_nav == 'custom_views' %} active{% endif %}"
-           {% if active_nav == 'custom_views' %}aria-current="page"{% endif %}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 aria-hidden="true" focusable="false">
-                <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
-                <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
-            </svg>
-            Eigene Ansichten
-        </a>
-        {% endif %}
-        {% if builder_nav is defined and builder_nav %}
-        <a href="{{ url_for('builder.home') }}" class="app-nav-item">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 aria-hidden="true" focusable="false">
-                <rect x="9" y="2.5" width="6" height="5" rx="1"/><rect x="2.5" y="16.5" width="6" height="5" rx="1"/>
-                <rect x="15.5" y="16.5" width="6" height="5" rx="1"/><path d="M12 7.5v4M5.5 16.5v-2.5h13v2.5"/>
-            </svg>
-            Builder
-        </a>
-        {% endif %}
-        <a href="{{ url_for('settings_page') }}" class="app-nav-item{% if active_nav == 'einstellungen' %} active{% endif %}"
-           {% if active_nav == 'einstellungen' %}aria-current="page"{% endif %}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 aria-hidden="true" focusable="false">
-                <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
-                <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
-                <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
-                <line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/>
-                <line x1="17" y1="16" x2="23" y2="16"/>
-            </svg>
-            Einstellungen
-        </a>
-        {% if console_url %}
-        <a href="{{ console_url }}" class="app-nav-item{% if active_nav == 'admin' %} active{% endif %}"
-           {% if active_nav == 'admin' %}aria-current="page"{% endif %}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 aria-hidden="true" focusable="false">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-            Verwaltung
-        </a>
-        {% endif %}
-        {% if feedback_url %}
-        <a href="{{ feedback_url }}" class="app-nav-item" target="_blank" rel="noopener noreferrer"
-           title="Feedback über Jira senden">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 aria-hidden="true" focusable="false">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-            </svg>
-            Feedback
-        </a>
-        {% endif %}
+        {% endfor %}
     </nav>
-    {# Schmale Fenster: die Navigation scrollt in sich (style.css). Den
-       aktuellen Eintrag an ihren Anfang ruecken, ohne die Seite zu bewegen --
-       noch einmal, wenn die Schriften geladen sind (sie verbreitern die
-       Eintraege). #}
+    {% else %}
+    <nav class="app-nav" aria-label="Hauptnavigation">
+        <a href="{{ url_for('index') }}" class="app-nav-item{% if active_nav is defined and active_nav == 'suche' %} active{% endif %}"
+           {% if active_nav is defined and active_nav == 'suche' %}aria-current="page"{% endif %}>Suche</a>
+    </nav>
+    {% endif %}
+    {# Narrow windows: the entries stand in a row that scrolls in itself (shell.css). Move the current entry to
+       its start without moving the page, and once more when the fonts have loaded (they widen the entries). #}
     <script>
     (function () {
         var nav = document.currentScript && document.currentScript.previousElementSibling;
@@ -133,7 +68,42 @@
     })();
     </script>
 
+    {% if shell_area == 'work' and assistant_chats is defined %}
+    {% set chat_list = assistant_chats(open_chat if open_chat is defined else none) %}
+    {% if chat_list %}
+    <nav aria-label="Gespräche" data-chats>
+        <a href="{{ chat_list.new_href }}" class="app-nav-item" data-chats-new>+ Neue Frage</a>
+        {% if chat_list.groups %}
+        <input type="checkbox" id="app-chats-fold" data-chats-fold>
+        <label for="app-chats-fold" data-chats-toggle>Gespräche</label>
+        <div data-chats-list>
+            {% for label, items in chat_list.groups %}
+            <span class="app-nav-group">{{ label }}</span>
+            {% for item in items %}
+            <a href="{{ item.href }}" class="app-nav-item{% if item.current %} active{% endif %}"
+               {% if item.current %}aria-current="page"{% endif %}><span dir="auto">{{ item.title or 'Ohne Titel' }}</span></a>
+            {% endfor %}
+            {% endfor %}
+            {% if chat_list.more_href %}
+            <a href="{{ chat_list.more_href }}" class="app-nav-item" data-chats-all>Alle Gespräche</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </nav>
+    {% endif %}
+    {% endif %}
+
     <div class="app-sidebar-foot">
+        {% if shell_area == 'work' and ((console_url is defined and console_url) or (builder_nav is defined and builder_nav)) %}
+        <div class="app-areas">
+            {% if console_url is defined and console_url %}
+            <a href="{{ console_url }}" class="app-nav-item">Verwaltung</a>
+            {% endif %}
+            {% if builder_nav is defined and builder_nav %}
+            <a href="{{ url_for('builder.home') }}" class="app-nav-item">Builder</a>
+            {% endif %}
+        </div>
+        {% endif %}
         <a class="app-user" href="{{ url_for('settings_page') }}">
             <span class="app-avatar" aria-hidden="true">{{ company_name[0] | upper }}</span>
             <span class="app-user-text">

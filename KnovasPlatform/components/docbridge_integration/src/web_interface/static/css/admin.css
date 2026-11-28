@@ -137,47 +137,6 @@
     margin-top: 2px;
 }
 
-/* ── Zustaende ─────────────────────────────────────────────────────────── */
-
-.admin .state-active,
-.admin .state-disabled,
-.admin .state-locked {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    padding: 3px 9px;
-    border-radius: 999px;
-    white-space: nowrap;
-}
-
-.admin .state-active::before,
-.admin .state-disabled::before,
-.admin .state-locked::before {
-    content: "";
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-}
-
-.admin .state-active   { color: var(--success-color); background: rgba(26, 107, 74, 0.10); }
-.admin .state-disabled { color: var(--error-color);   background: rgba(196, 30, 30, 0.09); }
-.admin .state-locked   { color: var(--admin-warn);    background: rgba(var(--admin-warn-rgb), 0.10); }
-
-/* Rollen als Chips: eine Zeile mit vier Rollen liest sich sonst als Fliesstext. */
-.admin .role-chip {
-    display: inline-block;
-    padding: 2px 8px;
-    margin: 0 4px 4px 0;
-    border-radius: 999px;
-    font-size: 0.76rem;
-    font-weight: 500;
-    color: var(--primary-color);
-    background: var(--highlight);
-    white-space: nowrap;
-}
-
 /* ── Panels und Formulare ──────────────────────────────────────────────── */
 
 .admin .panel {
@@ -281,15 +240,14 @@
     border: 1px solid transparent;
 }
 
+/* The brand's own tints (FU-28): the text keeps 4.5 to 1 on them (danger 5.9, success 4.8). */
 .admin .msg.error {
-    background: rgba(196, 30, 30, 0.07);
-    border-color: rgba(196, 30, 30, 0.28);
+    background: var(--k-danger-bg);
     color: var(--error-color);
 }
 
 .admin .msg.ok {
-    background: rgba(26, 107, 74, 0.08);
-    border-color: rgba(26, 107, 74, 0.28);
+    background: var(--k-success-bg);
     color: var(--success-color);
 }
 
@@ -390,9 +348,10 @@
     white-space: nowrap;
     flex: none;
 }
-.admin .check-ok   .check-state { color: var(--success-color); background: rgba(26, 107, 74, 0.10); }
+/* The brand's own tints (FU-28): success 4.8 to 1, danger 5.9 to 1. */
+.admin .check-ok   .check-state { color: var(--success-color); background: var(--k-success-bg); }
 .admin .check-warn .check-state { color: var(--admin-warn);    background: rgba(var(--admin-warn-rgb), 0.10); }
-.admin .check-fail .check-state { color: var(--error-color);   background: rgba(196, 30, 30, 0.09); }
+.admin .check-fail .check-state { color: var(--error-color);   background: var(--k-danger-bg); }
 .admin .check-skip .check-state { color: var(--text-secondary); background: var(--surface-sunken); }
 
 .admin .admin-pre {
@@ -400,7 +359,7 @@
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
     padding: 11px 13px;
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     overflow-x: auto;
     margin: 10px 0;
@@ -413,7 +372,7 @@
    Knopfes sagen dasselbe. */
 .admin .danger-zone {
     border-color: rgba(196, 30, 30, 0.35);
-    background: rgba(196, 30, 30, 0.03);
+    background: var(--k-danger-bg);
     margin-top: 48px;
 }
 
@@ -422,7 +381,7 @@
 .admin .danger-zone input[type=text] {
     border-color: rgba(196, 30, 30, 0.35);
     background: var(--card-bg);
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
 }
 
 .admin .danger-zone input[type=text]:focus {
@@ -431,7 +390,7 @@
 }
 
 .admin .danger-zone code {
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.82rem;
     background: var(--surface-sunken);
     padding: 2px 6px;
@@ -530,7 +489,7 @@
     background: transparent;
     border-color: transparent;
     padding-left: 0;
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.82rem;
 }
 
@@ -799,16 +758,8 @@
     transition: background-color .12s ease;
 }
 
-.admin-page .admin tbody tr.is-selected {
-    background: #DDE4FA;
-}
-
 .admin-page .admin tbody tr:hover {
     background: rgba(var(--accent-rgb), 0.055);
-}
-
-.admin-page .admin tbody tr.is-selected:hover {
-    background: #D8E0F8;
 }
 
 .admin-page .admin td .sub,
@@ -823,7 +774,7 @@
     max-width: 360px;
     overflow: hidden;
     color: var(--text-secondary);
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.72rem;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -912,6 +863,9 @@
     flex: 0 0 auto;
 }
 
+/* .role-chip and .document-status are drawn by no page since PMVP-40 (roles in words, a state as a tag); they
+   stay in this list only because tests/test_shell_tokens.py (MONO_RULES) names both. Drop them with those two
+   lines there. */
 .admin-page .admin .role-chip,
 .admin-page .admin .access-chip,
 .admin-page .admin .document-status {
@@ -922,15 +876,10 @@
     padding: 2px 7px;
     border: 1px solid transparent;
     border-radius: 5px;
-    font-family: var(--font-heading);
+    font-family: var(--font-mono);
     font-size: 0.65rem;
     line-height: 1.2;
     white-space: nowrap;
-}
-
-.admin-page .admin .role-chip {
-    color: var(--primary-color);
-    background: #E7EBFA;
 }
 
 .admin-page .admin .access-chip {
@@ -945,13 +894,7 @@
     border-color: var(--border-color);
 }
 
-.admin-page .admin .document-status {
-    color: var(--success-color);
-    background: #E7F5EE;
-}
-
-.admin-page .admin .row-action,
-.admin-page .admin .people-row-action {
+.admin-page .admin .row-action {
     text-align: right;
     white-space: nowrap;
 }
@@ -962,10 +905,9 @@
     gap: 9px;
     min-height: 48px;
     margin: 0 0 16px;
-    padding: 8px 10px;
-    border: 1px solid #D8DEE9;
-    border-radius: 7px;
-    background: #F4F6FC;
+    padding: var(--k-space-xs) var(--k-space-sm);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-gray-50);
 }
 
 .admin-page .admin .admin-toolbar label {
@@ -1013,35 +955,12 @@
     white-space: nowrap;
 }
 
-.admin-page .admin .state-active,
-.admin-page .admin .state-disabled,
-.admin-page .admin .state-locked {
-    padding: 3px 8px;
-    font-size: 0.66rem;
-}
-
 /* Personen */
-.people-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(270px, 310px);
-    gap: 16px;
-    align-items: start;
-}
-
-.people-table-wrap {
-    margin: 0;
-}
-
-.admin-page .admin .people-table-wrap table {
-    min-width: 500px;
-}
-
 .person-detail-panel {
-    min-height: 360px;
-    padding: 18px;
-    border: 1px solid #D8DEE9;
-    border-radius: 7px;
-    background: var(--card-bg);
+    padding: var(--k-space-md) calc(var(--k-space-md) + var(--k-space-3xs));
+    border: 1px solid var(--k-color-border);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-color-surface);
 }
 
 .person-detail-header {
@@ -1058,7 +977,7 @@
     display: grid;
     place-items: center;
     border-radius: 50%;
-    background: var(--primary-color);
+    background: var(--k-navy);
     color: #fff;
     font-family: var(--font-heading);
     font-size: 0.78rem;
@@ -1079,12 +998,12 @@
 
 .person-detail-form {
     padding: 13px 0;
-    border-top: 1px solid #E3E7EE;
+    border-top: 1px solid var(--k-gray-100);
 }
 
 .person-detail-form fieldset {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 8px;
     margin-bottom: 11px;
 }
@@ -1105,7 +1024,7 @@
     display: grid;
     gap: 8px;
     padding-top: 13px;
-    border-top: 1px solid #E3E7EE;
+    border-top: 1px solid var(--k-gray-100);
 }
 
 .person-account-actions h3 {
@@ -1206,9 +1125,9 @@
     gap: 8px;
     margin-bottom: 12px;
     padding: 10px 12px;
-    border: 1px solid #95AFE9;
-    border-radius: 7px;
-    background: #E9EEFB;
+    border: 1px solid var(--k-color-accent-ring);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-color-accent-soft);
     color: var(--text-primary);
     font-size: 0.72rem;
 }
@@ -1255,18 +1174,13 @@
 
 .choice-chip input:checked + span {
     border-color: var(--accent);
-    background: #E3EAFB;
+    background: var(--k-color-accent-soft);
     color: var(--primary-color);
 }
 
 .choice-chip input:focus-visible + span {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
-}
-
-.select-column {
-    width: 36px;
-    text-align: center !important;
 }
 
 .admin-page .admin .more {
@@ -1279,6 +1193,8 @@
 .admin-page .admin .danger-zone {
     margin-top: 34px;
 }
+
+.danger-zone .inline-form-row > label { flex: none; }
 
 .inline-form-row {
     display: flex;
@@ -1307,18 +1223,6 @@
 .admin-page .admin .inline-form-grid select {
     width: 100%;
     max-width: none;
-}
-
-.folder-rules-section {
-    margin-top: 28px !important;
-}
-
-.folder-rules-section > .hint {
-    margin-bottom: 10px;
-}
-
-.folder-rule-form {
-    grid-template-columns: minmax(240px, 1.3fr) minmax(260px, 1fr) auto;
 }
 
 .chip-fieldset {
@@ -1460,16 +1364,6 @@
 }
 
 @media (max-width: 900px) {
-    .people-layout {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .person-detail-panel {
-        min-height: 0;
-    }
-}
-
-@media (max-width: 900px) {
     .admin-page .app-sidebar {
         width: 100%;
         height: auto;
@@ -1506,12 +1400,10 @@
         padding: 24px 20px 52px;
     }
 
-    .folder-rule-form,
     .inline-form-grid {
         grid-template-columns: 1fr 1fr;
     }
 
-    .folder-rule-form > button,
     .inline-form-grid > button {
         justify-self: start;
     }
@@ -1570,7 +1462,6 @@
 
     .profile-meta-grid,
     .profile-options,
-    .folder-rule-form,
     .inline-form-grid {
         grid-template-columns: 1fr;
     }
@@ -1626,6 +1517,152 @@
     }
 }
 
+/* ── Personen, Zugriffsgruppen, Dokumente in the shared parts (PMVP-40) ──
+   The three pages are one column of the parts (_parts.html, parts.css): page, page head, section, card, row
+   line, tag. What follows is only what the parts do not draw: the spacing the console's own rules would add
+   to the column, a list whose rows carry the script's data (people), the group tree and the lines of a row.
+   Values from the brand tokens. Marks are for exceptions only; an active person or document carries none. */
+
+/* The three pages' <main> is .admin-column. Its one child is the parts' column, which spaces what it holds
+   (its gap); the console's own margins would add to it. No rule here names a class of the parts (k-...). */
+.admin-page .admin-column > div > .msg,
+.admin-page .admin-column > div > .panel,
+.admin-page .admin-column > div > .admin-toolbar,
+.admin-page .admin-column > div > form {
+    margin: 0;
+}
+
+/* The page head and the one main action beside it: the head takes the room, the action keeps its width and goes
+   below the head when there is not room for both (a long lede, a phone). */
+.admin-head-text {
+    flex: 1 1 24rem;
+    min-width: 0;
+}
+
+/* A path or a folder: one line, cut at the end; with no width of its own, so a long path never widens the
+   page on a narrow window (below 900 px the shell sizes its content by what is in it). */
+.admin-page .admin .rule-summary .ptr,
+.admin-page .admin .document-text .ptr {
+    display: block;
+    width: 0;
+    min-width: 100%;
+    max-width: none;
+    font-size: var(--k-text-xs);
+    color: var(--k-color-text-muted);
+}
+
+/* Personen: each row is a person-row around the parts' row line. The row carries the data the script
+   filters on (admin_people.js), so the hairline between rows hangs on it. */
+.people-list .person-row { padding: var(--k-space-sm) 0; }
+.people-list .person-row:first-child { padding-top: 0; }
+.people-list .person-row:last-child { padding-bottom: 0; }
+.people-list .person-row + .person-row { border-top: 1px solid var(--k-gray-100); }
+
+.person-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--k-space-2xs) var(--k-space-xs);
+    font-weight: var(--k-weight-semibold);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+.person-access { margin-top: var(--k-space-3xs); }
+.knovas-admin-badge { cursor: help; }   /* the hint's wrapper; the tag inside draws it */
+
+/* The person whose details are open below: the name and the button in the accent. */
+.people-list .person-row.is-selected .person-name > span:first-child { color: var(--k-color-accent); }
+.admin-page .admin .people-list .person-row.is-selected [data-person-select] {
+    border-color: var(--k-color-accent);
+    background: var(--k-color-accent-soft);
+    color: var(--k-color-accent);
+}
+
+.person-state {
+    display: grid;
+    gap: var(--k-space-2xs);
+    margin: 0 0 var(--k-space-sm);
+    padding: 0;
+    list-style: none;
+    font-size: var(--k-text-sm);
+    color: var(--k-color-text);
+}
+
+.admin-page .admin .role-choice { align-items: flex-start; }
+.admin-page .admin .role-choice input { margin-top: var(--k-space-3xs); }
+.role-choice-name {
+    font-weight: var(--k-weight-semibold);
+    color: var(--k-color-text-strong);
+}
+.role-choice-text {
+    display: block;
+    font-size: var(--k-text-xs);
+}
+
+/* Zugriffsgruppen: the tree, one level per indent, with a line to show what hangs under what. */
+.group-tree {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.group-tree .group-tree {
+    margin-left: var(--k-space-xs);
+    padding-left: var(--k-space-md);
+    border-left: 1px solid var(--k-color-border);
+}
+.group-tree li { padding-top: var(--k-space-2xs); }
+.group-tree-root > .group-tree:first-child > li:first-child { padding-top: 0; }
+.group-name {
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+
+.access-note { margin-bottom: var(--k-space-xs); }
+
+.access-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: var(--k-space-sm);
+    align-items: end;
+}
+.admin-page .admin .access-form > label { margin: 0; }
+.admin-page .admin .access-form input[type=text],
+.admin-page .admin .access-form select {
+    width: 100%;
+    max-width: none;
+}
+.access-form > .chip-fieldset { grid-column: 1 / -1; }
+.access-form > button { justify-self: start; }
+
+/* Dokumente: the box, then title, path and groups; the end of the row is the fields button. */
+.document-selection-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--k-space-sm);
+}
+.admin-page .admin .document-selection-form > .document-bulk-bar,
+.admin-page .admin .document-selection-form > .more {
+    margin: 0;
+}
+.document-line {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--k-space-sm);
+    min-width: 0;
+}
+.document-line > input { flex: none; margin-top: var(--k-space-2xs); }
+.document-text { flex: 1 1 auto; min-width: 0; }
+.document-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--k-space-2xs) var(--k-space-xs);
+    font-weight: var(--k-weight-semibold);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+
 /* ── Dokumentfelder (Reiter, Schublade, Feldfilter) ─────────────────────── */
 
 .admin .msg.warn {
@@ -1647,8 +1684,7 @@
 
 .admin .warn-text { color: var(--admin-warn); }
 
-.admin .field-badge,
-.admin .knovas-admin-badge {
+.admin .field-badge {
     display: inline-block;
     margin: 2px 4px 2px 0;
     padding: 1px 7px;
@@ -1664,13 +1700,6 @@
 .admin .field-badge.in-use { border-color: var(--accent); color: var(--primary-color); }
 .admin .field-badge.special { border-color: rgba(var(--admin-warn-rgb), 0.45); color: var(--admin-warn); }
 .admin .field-badge.layer-manual { border-color: var(--accent); color: var(--primary-color); }
-
-.admin .knovas-admin-badge {
-    border-color: var(--accent);
-    background: #E9EEFB;
-    color: var(--primary-color);
-    cursor: help;
-}
 
 .admin .field-status { font-size: 0.8rem; }
 .admin .field-status.status-deprecated { color: var(--text-secondary); }
@@ -1937,3 +1966,428 @@
 
     .admin .folder-fields textarea { min-width: 0; }
 }
+
+/* ── Rollen (RB-3, RB-4; mock-up docs/platform-mvp/reference-screens/07-rollen.html) ──────────────────────
+   One column of the parts: the head with «+ Rolle anlegen», the row of roles (tabs), the card of the shown role
+   with its three parts, the closing sentence. Every form opens on request in a <details> (no script): the
+   summary is the link of the mock-up («Umbenennen», «Ändern», «+ Mitglied hinzufügen»), placed at the top right of
+   its part, and the form opens in the part's flow. Values from the brand tokens; no rule names a class of the
+   parts. Nothing here is wider than the column, so nothing scrolls sideways at 390 px. */
+
+/* The main action: the summary is the button. Open, its form takes the whole row below the head. */
+.role-create { flex: 0 0 auto; max-width: 100%; }
+.role-create[open] { flex: 1 1 100%; }
+.role-create[open] > summary { display: flex; width: fit-content; margin-left: auto; }
+.role-create > summary,
+.role-edit > summary,
+.role-people > summary,
+.role-delete > summary { list-style: none; cursor: pointer; }
+.role-create > summary::-webkit-details-marker,
+.role-edit > summary::-webkit-details-marker,
+.role-people > summary::-webkit-details-marker,
+.role-delete > summary::-webkit-details-marker { display: none; }
+
+/* A form of the page: a panel in the create case, the part's own flow otherwise. */
+.role-form {
+    display: grid;
+    gap: var(--k-space-xs);
+    min-width: 0;
+    margin-top: var(--k-space-sm);
+}
+.role-create > .role-form {
+    padding: var(--k-space-md);
+    border: 1px solid var(--k-color-border);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-color-surface);
+}
+.admin-page .admin .role-form > label { margin: 0; }
+.admin-page .admin .role-form > input[type=text],
+.admin-page .admin .role-form > select { margin-top: 0; }
+.role-form > p { margin: 0; }
+.role-form > button { justify-self: start; }
+.admin-page .admin .role-choices {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: var(--k-space-xs) var(--k-space-md);
+    margin: var(--k-space-2xs) 0 0;
+    padding: 0;
+}
+.admin-page .admin .role-choices > legend { grid-column: 1 / -1; }
+
+/* While Administration or Mitglied has no group at Knovas: one line and its button. */
+.role-connect {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-space-xs) var(--k-space-md);
+    padding: var(--k-space-sm) var(--k-space-md);
+    border: 1px solid var(--k-color-border);
+    border-radius: var(--k-radius-md);
+    background: var(--k-color-surface-sunken);
+}
+.role-connect > p { flex: 1 1 16rem; min-width: 0; margin: 0; color: var(--k-color-text); }
+.role-connect > form { flex: none; }
+
+/* The card: its head (name, description, «Umbenennen»), then the parts. The link of a head or part sits at its
+   top right; the heading leaves it the room. */
+.role-card { min-width: 0; }
+.role-card-head,
+.role-part { position: relative; min-width: 0; }
+.role-card-head {
+    padding: 0 7.5rem var(--k-space-sm) 0;
+    border-bottom: 1px solid var(--k-color-border);
+}
+.role-name {
+    margin: 0;
+    font-size: var(--k-text-lg);
+    font-weight: var(--k-weight-semibold);
+    line-height: var(--k-leading-snug);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+.role-description { margin: var(--k-space-2xs) 0 0; overflow-wrap: anywhere; }
+.role-part { padding-top: var(--k-space-md); }
+.role-part > h3 { padding-right: 11rem; }
+.role-edit > summary {
+    position: absolute;
+    top: var(--k-space-md);
+    right: 0;
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    line-height: var(--k-leading-snug);
+    color: var(--k-color-accent);
+}
+.role-card-head .role-edit > summary { top: 0; }
+.role-edit > summary:hover { color: var(--k-color-accent-hover); text-decoration: underline; }
+.role-edit > summary:focus-visible,
+.role-people > summary:focus-visible,
+.role-delete > summary:focus-visible {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: 2px;
+    border-radius: var(--k-radius-xs);
+}
+
+/* Darf tun: the functions in words, one line that wraps. */
+.role-functions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--k-space-2xs) var(--k-space-xs);
+    margin: 0;
+    color: var(--k-color-text);
+    overflow-wrap: anywhere;
+}
+.role-sep { color: var(--k-color-text-muted); }
+
+/* Mitglieder: one row per kind of member (people now; the assistant and external agents with RB-6, RB-7). The
+   people's row opens the full list, each person with «Entfernen». */
+.role-members > * + * { border-top: 1px solid var(--k-gray-100); }
+.role-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--k-space-2xs) var(--k-space-sm);
+    padding: var(--k-space-xs) 0;
+}
+.role-row-text { flex: 1 1 12rem; min-width: 0; color: var(--k-color-text); overflow-wrap: anywhere; }
+.role-row-end { flex: none; margin-left: auto; }
+.role-people > summary .role-row-end::after {
+    content: "";
+    display: inline-block;
+    width: 0.4em;
+    height: 0.4em;
+    margin-left: var(--k-space-xs);
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: translateY(-0.15em) rotate(45deg);
+}
+.role-people[open] > summary .role-row-end::after { transform: translateY(0.1em) rotate(-135deg); }
+.role-faces { display: flex; flex: none; }
+.role-face {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin-left: calc(var(--k-space-2xs) * -1);
+    border: 2px solid var(--k-color-surface);
+    border-radius: var(--k-radius-full);
+    background: var(--k-navy);
+    color: var(--k-white);
+    font-size: var(--k-text-2xs);
+    font-weight: var(--k-weight-semibold);
+    line-height: 1;
+}
+.role-face:first-child { margin-left: 0; }
+.role-people-list { margin: 0; padding: 0; list-style: none; }
+.role-person {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-space-xs) var(--k-space-md);
+    padding: var(--k-space-xs) 0;
+    border-top: 1px solid var(--k-gray-100);
+}
+.role-person-text {
+    display: flex;
+    flex: 1 1 12rem;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--k-space-3xs) var(--k-space-xs);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.role-person-name { font-weight: var(--k-weight-semibold); color: var(--k-color-text-strong); }
+.role-person > form { flex: none; }
+
+/* Mitglieder: the role's agents (RB-6, RB-7), one row each, then «+ Agent hinzufügen» as a link in the flow (the part's
+   corner holds «+ Mitglied hinzufügen»). */
+.role-agent > form { flex: none; }
+.role-agent-icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--k-radius-xs);
+    background: var(--k-gray-100);
+    color: var(--k-color-text-strong);
+    font-size: var(--k-text-2xs);
+    font-weight: var(--k-weight-semibold);
+    line-height: 1;
+}
+.role-agent-icon--assistant { background: var(--k-color-accent); color: var(--k-white); }
+.role-agent-add { padding: var(--k-space-xs) 0; }
+.role-agent-add > summary {
+    width: fit-content;
+    list-style: none;
+    cursor: pointer;
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-accent);
+}
+.role-agent-add > summary::-webkit-details-marker { display: none; }
+.role-agent-add > summary:hover { color: var(--k-color-accent-hover); text-decoration: underline; }
+.role-agent-add > summary:focus-visible {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: 2px;
+    border-radius: var(--k-radius-xs);
+}
+.role-agent-add > .role-form { margin-top: var(--k-space-xs); }
+.role-agent-note { margin: 0; padding: var(--k-space-xs) 0; }
+
+/* Deleting: the order in words and the button, behind one more click. */
+.role-delete {
+    margin-top: var(--k-space-md);
+    padding-top: var(--k-space-sm);
+    border-top: 1px solid var(--k-gray-100);
+}
+.role-delete > summary {
+    width: fit-content;
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-danger-fg);
+}
+.role-delete > p { margin: var(--k-space-xs) 0; color: var(--k-color-text); }
+
+@media (max-width: 480px) {
+    .role-card-head { padding-right: 0; }
+    .role-card-head .role-edit > summary { position: static; display: inline-block; margin-top: var(--k-space-xs); }
+    .role-part > h3 { padding-right: 0; }
+    .role-part > .role-edit > summary { position: static; display: inline-block; margin-top: var(--k-space-2xs); }
+}
+
+/* ── Rollen: Darf lesen (RB-5; mock-up 07-rollen.html, «Darf lesen» with «+ Daten hinzufügen») ─────────────────
+   One row per folder or document as Knovas holds it, with «Entfernen …» (its dry run first); the dry run as a
+   panel in the part (counts, warnings, the people on request, the form that carries the change out); «Gruppe
+   übernehmen» as a link in the flow (the part's corner holds «+ Daten hinzufügen»); the offer to move direct grants
+   above the row of roles. Brand tokens only; nothing wider than the column, so nothing scrolls sideways at 390 px. */
+
+.role-data-rows { margin: 0; padding: 0; list-style: none; }
+.role-data-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-space-2xs) var(--k-space-md);
+    padding: var(--k-space-xs) 0;
+    border-top: 1px solid var(--k-gray-100);
+}
+.role-data-row:first-child { border-top: 0; }
+.role-data-text {
+    display: flex;
+    flex: 1 1 14rem;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--k-space-3xs) var(--k-space-xs);
+    min-width: 0;
+}
+.role-data-name {
+    min-width: 0;
+    font-family: var(--k-font-mono);
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+.role-data-row > form { flex: none; }
+.role-data-error { margin: var(--k-space-xs) 0 0; color: var(--k-color-danger-fg); }
+.role-part[data-role-part="data"] > p { margin: var(--k-space-xs) 0 0; overflow-wrap: anywhere; }
+
+/* The dry run: a panel in the flow of its part (or above the row of roles, for the move). */
+.role-dry-run {
+    display: grid;
+    gap: var(--k-space-xs);
+    min-width: 0;
+    margin-top: var(--k-space-sm);
+    padding: var(--k-space-sm) var(--k-space-md);
+    border: 1px solid var(--k-color-border-strong);
+    border-radius: var(--k-radius-md);
+    background: var(--k-color-surface);
+    color: var(--k-color-text);
+    overflow-wrap: anywhere;
+}
+.role-dry-run > p { margin: 0; }
+.role-dry-title { color: var(--k-color-text-strong); }
+.role-dry-head { margin: 0; font-weight: var(--k-weight-medium); color: var(--k-color-text-strong); }
+.role-dry-warning {
+    padding: var(--k-space-xs) var(--k-space-sm);
+    border-left: 3px solid var(--k-color-warning-fg);
+    border-radius: var(--k-radius-xs);
+    background: var(--k-color-surface-sunken);
+    color: var(--k-color-text-strong);
+    font-size: var(--k-text-sm);
+}
+.role-dry-list {
+    margin: var(--k-space-2xs) 0 0;
+    padding-left: var(--k-space-lg);
+    font-size: var(--k-text-sm);
+}
+.role-dry-list > li { margin: var(--k-space-3xs) 0; }
+.role-dry-people > summary,
+.role-adopt > summary {
+    width: fit-content;
+    cursor: pointer;
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-accent);
+}
+.role-dry-people > summary:hover,
+.role-adopt > summary:hover { color: var(--k-color-accent-hover); text-decoration: underline; }
+.role-dry-people > summary:focus-visible,
+.role-adopt > summary:focus-visible {
+    outline: 2px solid var(--k-color-accent);
+    outline-offset: 2px;
+    border-radius: var(--k-radius-xs);
+}
+.role-dry-run > .role-form { margin-top: var(--k-space-2xs); }
+.admin-page .admin .role-dry-confirm { align-items: flex-start; }
+
+/* «Gruppe übernehmen»: a link in the part's flow, its form below it. */
+.role-adopt { margin-top: var(--k-space-sm); }
+.role-adopt > summary { list-style: none; }
+.role-adopt > summary::-webkit-details-marker { display: none; }
+.role-adopt > .role-form { margin-top: var(--k-space-xs); }
+
+/* The offer to move direct grants: the line of «Mit Knovas verbinden», above the row of roles. */
+.role-grants-offer { margin-top: var(--k-space-sm); }
+
+/* ── Zugriff: «Was sieht …?» (PMVP-41; mock-up 05-zugriff.html, the card «Prüfen») ─────────────────────────────
+   Three questions, each a form of its own in the one card (the grid of .access-form), a hairline between them; the
+   answer below in a card of its own: a row per folder rule or document X reads, a hit per search result, or yes or
+   no with the reason. Names and paths wrap anywhere, so nothing scrolls sideways at 390 px. Brand tokens only. */
+
+.what-sees-asks { display: grid; gap: var(--k-space-md); }
+.what-sees-ask + .what-sees-ask {
+    padding-top: var(--k-space-md);
+    border-top: 1px solid var(--k-gray-100);
+}
+.what-sees-question,
+.what-sees-ask > .what-sees-wide { grid-column: 1 / -1; }
+.what-sees-question {
+    margin: 0;
+    font-weight: var(--k-weight-semibold);
+    color: var(--k-color-text-strong);
+}
+.admin-page .admin .what-sees-ask select { min-width: 0; }
+
+.what-sees-note { margin: 0 0 var(--k-space-xs); }
+.what-sees-nothing,
+.what-sees-pointer,
+.what-sees-reason,
+.what-sees-differs,
+.what-sees-search-note,
+.what-sees-partial { margin: var(--k-space-xs) 0 0; overflow-wrap: anywhere; }
+.what-sees-nothing { color: var(--k-color-text-strong); }
+.what-sees-pointer { font-size: var(--k-text-sm); }
+.what-sees-pointer code, .what-sees-reason code { font-size: var(--k-text-xs); }
+.what-sees-answer { margin: var(--k-space-xs) 0 0; font-size: var(--k-text-base); }
+.what-sees-answer--ja > strong { color: var(--k-color-success-fg); }
+.what-sees-answer--nein > strong { color: var(--k-color-danger-fg); }
+.what-sees-group { font-weight: var(--k-weight-medium); color: var(--k-color-text-strong); }
+.what-sees-partial { color: var(--k-color-warning-fg); }
+
+.what-sees-rows { margin: 0; padding: 0; list-style: none; }
+.what-sees-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-space-2xs) var(--k-space-md);
+    padding: var(--k-space-xs) 0;
+    border-top: 1px solid var(--k-gray-100);
+}
+.what-sees-row:first-child { border-top: 0; }
+.what-sees-text {
+    display: grid;
+    flex: 1 1 14rem;
+    gap: var(--k-space-3xs);
+    min-width: 0;
+}
+.what-sees-title {
+    font-weight: var(--k-weight-medium);
+    color: var(--k-color-text-strong);
+    overflow-wrap: anywhere;
+}
+.what-sees-ptr {
+    min-width: 0;
+    font-family: var(--k-font-mono);
+    font-size: var(--k-text-xs);
+    color: var(--k-color-text-muted);
+    overflow-wrap: anywhere;
+}
+.what-sees-pointer code,
+.what-sees-title code { overflow-wrap: anywhere; }
+.what-sees-groups { overflow-wrap: anywhere; }
+.what-sees-pages { display: flex; flex-wrap: wrap; gap: var(--k-space-xs); margin-top: var(--k-space-xs); }
+.what-sees-pages:empty { display: none; }
+
+/* Zugriff: Durchsetzung (PMVP-42; 05-zugriff.html, the state line): the position, why «Ein» waits, the switch. */
+.access-state {
+    display: grid;
+    gap: var(--k-space-xs);
+    padding: var(--k-space-sm) var(--k-space-md);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-gray-50);
+    overflow-wrap: anywhere;
+}
+.access-position, .access-waits, .access-switch fieldset > p { margin: 0; }
+.access-position strong, .access-not-ready > p { color: var(--k-color-text-strong); }
+.access-not-ready > p { margin: 0; font-weight: var(--k-weight-medium); }
+.access-not-ready > ul { margin: var(--k-space-3xs) 0 0; padding-left: var(--k-space-lg); }
+.access-switch > summary { width: fit-content; cursor: pointer; font-weight: var(--k-weight-medium); color: var(--k-color-accent); }
+.access-switch > summary:focus-visible { outline: 2px solid var(--k-color-accent); outline-offset: 2px; }
+.access-switch fieldset {
+    display: grid;
+    gap: var(--k-space-xs);
+    min-width: 0;
+    margin: var(--k-space-xs) 0 0;
+    padding: var(--k-space-sm) var(--k-space-md);
+    border: 1px solid var(--k-color-border-strong);
+    border-radius: var(--k-radius-md);
+    background: var(--k-color-surface);
+}
+.access-switch legend { font-weight: var(--k-weight-semibold); color: var(--k-color-text-strong); }
+.admin-page .admin .access-confirm { display: flex; gap: var(--k-space-xs); align-items: flex-start; margin: 0; }
+.admin-page .admin .access-confirm input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.access-switch fieldset > button { justify-self: start; }

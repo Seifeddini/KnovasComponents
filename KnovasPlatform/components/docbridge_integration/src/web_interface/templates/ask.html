@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="de">
+{# The pages of the Knovas Assistent (PMVP-22a, PMVP-23; web_interface/assistant_routes.py).
+
+   view 'turns': a chat (GET /fragen/<id>) or one reply that is not stored (busy, failed, an expired form, a write
+   that failed). Every turn in order: the first question as the page head, later ones as a heading of the next
+   level, each answer as it was drawn when new:
+   answered:  the assistant's lead-in when it gave one; each statement with its numbered reference; the reference
+              opens the statement's quote right under it (a card: the document's title and page, the quote, a link
+              that opens the document); then, under an answer of «Wissensgraph» that has one (PMVP-20 brain-graph),
+              the block «Im Wissensgraphen» (open; static/js/ask_graph.js draws its data-graph as a small SVG with
+              a legend and hides the list, which stands without JavaScript: each node, its passage number, its
+              dossier link while the Brain views are on; with the assistant's selection its caption as text under
+              the title, «Auswahl des Assistenten: …»); then the passages.
+              «Ohne Beleg» (the founder, 2026-11-28; only while assistant.show_unchecked is on): under the line of
+              removed statements, before the graph, a closed block of the statements the check removed, each marked
+              «nicht belegt» with its reason and «behauptete Quelle n» as plain text when it named a passage the
+              turn lists; never a chip, a quote, a link or part of the answer. Also under a no_answer.
+   no_answer: the assistant's reply when it gave one (PMVP-20 conversation), else the service's sentence; then the
+              nearest passages, at most five (none under a reply of kind chat: the service sends none).
+   A reply is the assistant speaking (ask-reply: its name and the label «Hinweis – ohne Quelle» over its words), never
+   a statement: no reference, no quote, no source; the label says so to whoever reads it. Titles are clean (assistant_routes.ShownPassage: no leading UUID, "2024-055 · Beilage-Vertrag").
+   busy, failed: the plain message and nothing else (POST-06).
+   stored:    a stored answer that does not parse, as one plain paragraph without chips.
+   Then the box: on a chat it asks a follow-up (POST /fragen/<id>), else a new question (POST /fragen); and on a
+   chat «Gespräch löschen» (static/js/ask.js asks first; without JavaScript it deletes at once). Under the box the
+   waiting line (PMVP-24): an empty status line that ask.js fills with its three fixed texts while a question is
+   on its way; its two times are its data- attributes (the form's start tag stays as PMVP-22a's tests read it).
+
+   view 'verlauf': all of the person's chats, newest first, 50 a page (GET /fragen/verlauf).
+
+   Statement, quote, title and question are text: autoescape is on and nothing here is marked safe (FU-11). Every
+   href is built with url_for, here or in the route (FU-34); a passage without one (a reply of the Brain's tools
+   that is not stored) shows its title without a link. Without JavaScript every quote stands open under its
+   statement and each reference says so (aria-expanded="true"); ask.js closes them and makes each reference open
+   its own. A reference and the full stop after it stay on one line (ask-tail, FU-35); the words before it wrap, a
+   long one anywhere. Titles, quotes and questions are isolated (dir="auto"): a right-to-left mark in a document
+   cannot reorder the rest of the line. Quote ids are unique on the page (zitat-<turn>-<i>). #}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if view == 'verlauf' %}Gespräche{% else %}Fragen{% endif %} · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ask.css') }}?v={{ asset_version }}">
+</head>
+<body>
+{% import "_parts.html" as parts %}
+{% macro sources(items) %}
+<ol class="ask-sources">
+    {% for p in items %}
+    <li class="ask-source">
+        <span class="ask-num">{{ p.number }}</span>
+        <span class="ask-source-name">{% if p.href %}<a class="k-link" href="{{ p.href }}" target="_blank" rel="noopener" dir="auto">{{ p.title }}</a>{% else %}<span dir="auto">{{ p.title }}</span>{% endif %}
+        {%- if p.page %}<span class="k-muted">, S.&nbsp;{{ p.page }}</span>{% endif %}</span>
+    </li>
+    {% endfor %}
+</ol>
+{% endmacro %}
+{% macro said(text) %}
+<div class="ask-reply">
+    <p class="ask-reply-head"><span class="ask-reply-who">Knovas Assistent</span> <span class="ask-reply-note">Hinweis – ohne Quelle</span></p>
+    <p class="ask-reply-text" dir="auto">{{ text }}</p>
+</div>
+{% endmacro %}
+{% macro graph_block(t) %}
+<details class="ask-graph" open>
+    <summary class="ask-graph-title">Im Wissensgraphen</summary>
+    {%- if t.graph.view and t.graph.view.caption %}<p class="ask-graph-caption" dir="auto">Auswahl des Assistenten: {{ t.graph.view.caption }}</p>{% endif %}
+    <div class="ask-graph-canvas" data-graph="{{ t.graph_json }}"></div>
+    <ul class="ask-graph-list">
+        {% for node in t.graph.nodes %}
+        <li class="ask-graph-item">{% if node.passage %}<span class="ask-num">{{ node.passage }}</span> {% endif %}
+            {%- if node.href %}<a class="k-link" href="{{ node.href }}" target="_blank" rel="noopener" dir="auto">{{ node.label }}</a>{% else %}<span dir="auto">{{ node.label }}</span>{% endif %}
+            {%- if node.type and node.label != node.type %} <span class="k-muted">· {{ node.type }}</span>{% endif %}</li>
+        {% endfor %}
+    </ul>
+</details>
+{% endmacro %}
+{% macro inline_items(items) %}{% for u in items %}<p class="ask-unchecked-inline"><span class="ask-unchecked-label">nicht belegt</span> <span class="ask-unchecked-text" dir="auto">{{ u.text }}</span> <span class="ask-unchecked-why">{{ u.reason }}{% if u.source %} · behauptete Quelle {{ u.source }}{% endif %}</span></p>{% endfor %}{% endmacro -%}
+{% macro unchecked_block(items) %}
+<details class="ask-unchecked">
+    <summary class="ask-unchecked-title">Ohne Beleg ({{ items|length }})</summary>
+    <p class="ask-unchecked-note">Diese Aussagen hat die Prüfung entfernt. Sie sind nicht Teil der Antwort.</p>
+    <ul class="ask-unchecked-list">
+        {% for u in items %}
+        <li class="ask-unchecked-item">
+            <span class="ask-unchecked-label">nicht belegt</span>
+            <span class="ask-unchecked-text" dir="auto">{{ u.text }}</span>
+            <span class="ask-unchecked-why">{{ u.reason }}{% if u.source %} · behauptete Quelle {{ u.source }}{% endif %}</span>
+        </li>
+        {% endfor %}
+    </ul>
+</details>
+{% endmacro -%}
+{% macro answer(t) %}
+{% if t.status == 'answered' %}
+{% if t.reply %}{{ said(t.reply) }}{% endif %}
+<div class="ask-answer">
+    {% for s in t.statements %}
+    {% if t.inline %}{{ inline_items(t.inline[loop.index0]) }}{% endif %}<p class="ask-statement">{{ s.head }}<span class="ask-tail">{{ parts.ref_chip(s.number, active=True, controls=s.quote_id) }}{{ s.stop }}</span></p>
+    <div class="ask-quote" id="{{ s.quote_id }}">
+        {% call parts.card() %}
+        {% if s.passage %}
+        <div class="ask-quote-head">
+            <span class="ask-quote-doc" dir="auto">{{ s.passage.title }}</span>
+            {%- if s.passage.page %}<span class="k-muted">Seite {{ s.passage.page }}</span>{% endif %}
+        </div>
+        {% endif %}
+        <p class="ask-quote-text">«<span dir="auto">{{ s.quote }}</span>»</p>
+        {% if s.passage and s.passage.href %}
+        <a class="k-link k-small" href="{{ s.passage.href }}" target="_blank" rel="noopener">Im Dokument zeigen <span aria-hidden="true">→</span></a>
+        {% endif %}
+        {% endcall %}
+    </div>
+    {% endfor %}
+{% if t.inline %}{{ inline_items(t.inline[-1]) }}{% endif %}</div>
+{% if t.removed %}<p class="ask-removed k-muted k-small">{{ t.removed }}</p>{% endif %}
+{%- if t.unchecked %}{{ unchecked_block(t.unchecked) }}{% endif %}
+{% if t.graph %}{{ graph_block(t) }}{% endif %}
+{% if t.passages %}
+{% call parts.section('Quellen') %}{{ sources(t.passages) }}{% endcall %}
+{% endif %}
+{% elif t.status == 'no_answer' %}
+{% if t.reply %}{{ said(t.reply) }}{% else %}<p class="ask-message">{{ t.message }}</p>{% endif %}
+{% if t.removed %}<p class="ask-removed k-muted k-small">{{ t.removed }}</p>{% endif %}
+{%- if t.inline %}<div class="ask-answer is-unchecked-only">{% for group in t.inline %}{{ inline_items(group) }}{% endfor %}</div>{% endif %}
+{%- if t.unchecked %}{{ unchecked_block(t.unchecked) }}{% endif %}
+{% if t.passages %}
+{% call parts.section('Die nächsten Stellen') %}{{ sources(t.passages) }}{% endcall %}
+{% endif %}
+{% elif t.status == 'stored' %}
+<p class="ask-plain" dir="auto">{{ t.message }}</p>
+{% elif t.status %}
+<p class="ask-message" role="status">{{ t.message }}</p>
+{% endif %}
+{% if t.notice %}<p class="ask-notice k-small" role="status">{{ t.notice }}</p>{% endif %}
+{% endmacro %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+
+    <div class="app-content">
+        <div class="container">
+            <main class="ask-main" data-status="{{ status }}">
+            {% call parts.page() %}
+            {% if view == 'verlauf' %}
+                {{ parts.page_head('Alle Gespräche') }}
+                {% if unavailable %}
+                <p class="ask-message" role="status">{{ unavailable_text }}</p>
+                {% elif chats %}
+                <ol class="ask-chats">
+                    {% for c in chats %}
+                    <li class="ask-chat">
+                        <a class="k-link ask-chat-title" href="{{ url_for('assistant.chat', chat_id=c.id) }}" dir="auto">{{ c.title or 'Ohne Titel' }}</a>
+                        <span class="k-muted k-small">{{ c.when }}</span>
+                    </li>
+                    {% endfor %}
+                </ol>
+                {% else %}
+                <p class="ask-message">Noch keine Gespräche.</p>
+                {% endif %}
+                {% if newer_page or older_page %}
+                <p class="ask-pages">
+                    {% if newer_page %}<a class="k-link" href="{{ url_for('assistant.history', seite=newer_page) }}"><span aria-hidden="true">←</span> Neuere</a>{% endif %}
+                    {% if older_page %}<a class="k-link" href="{{ url_for('assistant.history', seite=older_page) }}">Ältere <span aria-hidden="true">→</span></a>{% endif %}
+                </p>
+                {% endif %}
+            {% else %}
+                {% for t in turns %}
+                <section class="ask-turn"{% if t.anchor %} id="{{ t.anchor }}"{% endif %}>
+                {% if loop.first %}
+                {% if t.question %}{{ parts.page_head(t.question) }}{% endif %}
+                {% elif t.question %}
+                <h2 class="ask-turn-question" dir="auto">{{ t.question }}</h2>
+                {% endif %}
+                {{ answer(t) }}
+                </section>
+                {% endfor %}
+
+                {% if chat_id %}
+                <form class="ask-again" method="post" action="{{ url_for('assistant.follow_up', chat_id=chat_id) }}">
+                {% else %}
+                <form class="ask-again" method="post" action="{{ url_for('assistant.ask') }}">
+                {% endif %}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label class="ask-sr" for="askAgain">{% if chat_id %}Nachfrage{% else %}Neue Frage{% endif %}</label>
+                    <input class="ask-again-input" id="askAgain" name="question" type="text" autocomplete="off"
+                           value="{{ box_value }}"
+                           placeholder="{% if chat_id %}Nachfragen oder etwas Neues fragen …{% else %}Etwas Neues fragen …{% endif %}" required>
+                    <button type="submit" class="btn btn-primary">Fragen</button>
+                </form>
+                <p class="ask-wait" role="status" aria-live="polite" data-wait-slow-ms="20000" data-wait-giveup-ms="170000"></p>
+                {% if chat_id %}
+                <form class="ask-delete" method="post" action="{{ url_for('assistant.delete_chat', chat_id=chat_id) }}"
+                      data-confirm="Dieses Gespräch löschen? Das lässt sich nicht rückgängig machen.">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="ask-delete-button">Gespräch löschen</button>
+                </form>
+                {% endif %}
+            {% endif %}
+            {% endcall %}
+            </main>
+        </div>
+    </div>
+</div>
+<script src="{{ url_for('static', filename='js/ask.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/ask_graph.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>

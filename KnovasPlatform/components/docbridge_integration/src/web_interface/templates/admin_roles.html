@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rollen · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
+</head>
+<body class="admin-page">
+<div class="app-shell">
+{% set admin_tab = 'roles' %}
+{% include '_sidebar.html' %}
+<div class="app-content">
+{% import "_parts.html" as parts %}
+{# RB-3, RB-4 (FEAT-2026-11-19-platform-mvp; work order docs/platform-mvp/work-orders/RB-3-4.md; mock-up
+   docs/platform-mvp/reference-screens/07-rollen.html). One column of the shared parts: the head with the one main
+   action «+ Rolle anlegen», the row of roles as tabs, the card of the shown role with its three parts (Darf tun,
+   Darf lesen, Mitglieder), the closing sentence. Every form opens on request (<details>, no script); the routes
+   decide, the page only offers. The functions are shown in words (design § 2.1), never as keys. Every name,
+   description and address is escaped; every href and action comes from url_for. #}
+{% set words = function_words %}
+{% macro initials(name) -%}
+{%- set bits = (name or '?').split() -%}
+{{- ((bits[0][:1] if bits else '?') ~ (bits[1][:1] if bits|length > 1 else ''))|upper -}}
+{%- endmacro %}
+{% import "_role_data.html" as role_data_parts with context %}
+
+<main class="admin admin-column roles-page">
+{% call parts.page(wide=True) %}
+    <div class="k-head">
+        <div class="admin-head-text">
+            {{ parts.page_head("Rollen", lede="Was jemand tun darf und was er lesen darf, in einer Rolle.") }}
+        </div>
+        <details class="role-create"{% if create %} open{% endif %}>
+            <summary class="admin-primary-action">+ Rolle anlegen</summary>
+            <form class="role-form" method="post" action="{{ url_for('admin.create_role') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label for="role-create-name">Name</label>
+                <input id="role-create-name" type="text" name="name" maxlength="80" required
+                       value="{{ create.name if create else '' }}">
+                <label for="role-create-description">Beschreibung <span class="k-muted">(freiwillig)</span></label>
+                <input id="role-create-description" type="text" name="description"
+                       value="{{ create.description if create else '' }}">
+                <fieldset class="role-choices">
+                    <legend>Darf tun</legend>
+                    {% for key in offered %}
+                    <label class="admin-check">
+                        <input type="checkbox" name="function" value="{{ key }}"{% if create and key in create.functions %} checked{% endif %}>
+                        <span>{{ words[key] }}</span>
+                    </label>
+                    {% endfor %}
+                </fieldset>
+                <p class="k-small k-muted">Knovas legt für die Rolle eine eigene Gruppe an; erst dann wird die Rolle gespeichert.</p>
+                <button type="submit">Rolle anlegen</button>
+            </form>
+        </details>
+    </div>
+
+    {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
+    {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
+
+    {% if unlinked %}
+    <div class="role-connect">
+        <p class="k-small">
+            {{ unlinked|map(attribute='name')|join(' und ') }} {{ 'haben' if unlinked|length > 1 else 'hat' }}
+            noch keine Gruppe bei Knovas. Die Administration erhält die Administratorgruppe des Mandanten, Mitglied
+            eine neue Gruppe «Mitglied». Hat Knovas schon eine Gruppe «Mitglied», übernimmt die Rolle Mitglied sie
+            mit «Gruppe übernehmen».
+        </p>
+        <form method="post" action="{{ url_for('admin.connect_roles') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="secondary compact">Mit Knovas verbinden</button>
+        </form>
+    </div>
+    {% endif %}
+
+    {{ role_data_parts.grants_offer() }}
+
+    {% set tab_items = [] %}
+    {% for r in roles %}{% set _ = tab_items.append({'key': r.id|string, 'label': r.name, 'count': r.members|length,
+                                                     'href': url_for('admin.role', role_id=r.id)}) %}{% endfor %}
+    {{ parts.tabs(tab_items, shown.id|string) }}
+
+    <article class="role-card" data-role-id="{{ shown.id }}" aria-labelledby="role-card-name">
+    {% call parts.card() %}
+        <div class="role-card-head">
+            <h2 class="role-name" id="role-card-name">{{ shown.name }}</h2>
+            {% if shown.description %}<p class="k-small k-muted role-description">{{ shown.description }}</p>{% endif %}
+            {% if shown.kind == 'custom' %}
+            <details class="role-edit">
+                <summary>Umbenennen</summary>
+                <form class="role-form" method="post" action="{{ url_for('admin.rename_role', role_id=shown.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label for="role-rename-name">Neuer Name</label>
+                    <input id="role-rename-name" type="text" name="name" maxlength="80" required value="{{ shown.name }}">
+                    <button type="submit" class="secondary">Umbenennen</button>
+                </form>
+            </details>
+            {% endif %}
+        </div>
+
+        <section class="role-part" data-role-part="functions" aria-labelledby="role-part-functions">
+            <h3 class="k-section-title" id="role-part-functions">Darf tun</h3>
+            <p class="role-functions">
+                {%- for key in words if key in shown.functions %}<span class="role-function">{{ words[key] }}</span>
+                {%- if not loop.last %}<span class="role-sep" aria-hidden="true">·</span>{% endif %}
+                {%- else %}<span class="k-muted">Noch keine Funktion.</span>{% endfor -%}
+            </p>
+            <details class="role-edit">
+                <summary>Ändern</summary>
+                <form class="role-form" method="post" action="{{ url_for('admin.set_role_functions', role_id=shown.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    {% if shown.kind == 'administration' %}
+                    {# «Verwaltung» belongs to this role alone and stays with it: sent as drawn, never a box. #}
+                    <input type="hidden" name="function" value="admin">
+                    <p class="k-small k-muted">«{{ words['admin'] }}» gehört allein zu dieser Rolle und bleibt.</p>
+                    {% endif %}
+                    <fieldset class="role-choices">
+                        <legend>Darf tun</legend>
+                        {% for key in offered %}
+                        <label class="admin-check">
+                            <input type="checkbox" name="function" value="{{ key }}"{% if key in shown.functions %} checked{% endif %}>
+                            <span>{{ words[key] }}</span>
+                        </label>
+                        {% endfor %}
+                    </fieldset>
+                    <button type="submit" class="secondary">Speichern</button>
+                </form>
+            </details>
+        </section>
+
+        <section class="role-part" data-role-part="data" aria-labelledby="role-part-data">
+            <h3 class="k-section-title" id="role-part-data">Darf lesen</h3>
+            {{ role_data_parts.data_part() }}
+        </section>
+
+        <section class="role-part" data-role-part="members" aria-labelledby="role-part-members">
+            <h3 class="k-section-title" id="role-part-members">Mitglieder</h3>
+            <details class="role-edit">
+                <summary>+ Mitglied hinzufügen</summary>
+                {% if candidates %}
+                <form class="role-form" method="post" action="{{ url_for('admin.add_role_member', role_id=shown.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label for="role-add-person">Person</label>
+                    <select id="role-add-person" name="user_id" required>
+                        {% for person in candidates %}
+                        <option value="{{ person.id }}">{{ person.display_name }} · {{ person.email }}{% if not person.is_active %} (deaktiviert){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="secondary">Hinzufügen</button>
+                </form>
+                {% else %}
+                <p class="k-small k-muted">Alle Personen sind schon in dieser Rolle.</p>
+                {% endif %}
+            </details>
+            <div class="role-members">
+            {#- === the role's members: one row per kind of member. People here (RB-4); the Knovas Assistent and
+                external agents (RB-6, RB-7) add their rows inside this block, before its end mark. === -#}
+                {% if members %}
+                <details class="role-people"{% if members|length <= 3 %} open{% endif %}>
+                    <summary class="role-row">
+                        <span class="role-faces" aria-hidden="true">
+                            {%- for person in members[:3] %}<span class="role-face">{{ initials(person.display_name) }}</span>{% endfor -%}
+                        </span>
+                        <span class="role-row-text">{{ members[:3]|map(attribute='display_name')|join(', ') }}
+                            {%- if members|length > 3 %} und {{ members|length - 3 }} weitere{% endif %}</span>
+                        <span class="k-small k-muted role-row-end">{{ members|length }} {{ 'Person' if members|length == 1 else 'Personen' }}</span>
+                    </summary>
+                    <ul class="role-people-list">
+                        {% for person in members %}
+                        <li class="role-person">
+                            <span class="role-person-text">
+                                <span class="role-person-name">{{ person.display_name }}</span>
+                                {% if not person.is_active %}{{ parts.tag('deaktiviert', 'bad') }}{% endif %}
+                                <span class="k-small k-muted role-person-email">{{ person.email }}</span>
+                            </span>
+                            <form method="post" action="{{ url_for('admin.remove_role_member', role_id=shown.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="user_id" value="{{ person.id }}">
+                                <button type="submit" class="secondary compact">Entfernen</button>
+                            </form>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </details>
+                {% else %}
+                <p class="k-small k-muted">Noch keine Personen in dieser Rolle.</p>
+                {% endif %}
+                {#- The role's agents (RB-6, RB-7): the Knovas Assistent first, then external agents, each with whom it
+                    acts for and «Entfernen» (the assistant too: «darf nicht von KI genutzt werden»); then «+ Agent
+                    hinzufügen». No agent joins Administration. The Platform holds no agent key, so none is shown. -#}
+                {% for agent in agents.members %}
+                <div class="role-row role-agent" data-agent-id="{{ agent.id }}">
+                    <span class="role-agent-icon{% if agent.kind == 'assistant' %} role-agent-icon--assistant{% endif %}" aria-hidden="true">
+                        {{- 'K' if agent.kind == 'assistant' else initials(agent.name) -}}
+                    </span>
+                    <span class="role-row-text"><span class="role-person-name">{{ agent.name }}</span>
+                        <span class="k-small k-muted">· {{ agent.note }}</span>
+                        {%- if agent.revoked %} {{ parts.tag('widerrufen', 'bad') }}{% endif %}</span>
+                    <form method="post" action="{{ url_for('admin.remove_agent_from_role', role_id=shown.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="agent_id" value="{{ agent.id }}">
+                        <button type="submit" class="secondary compact"
+                            {%- if agent.kind == 'assistant' %} title="Diese Rolle darf nicht von KI genutzt werden"{% endif %}>Entfernen</button>
+                    </form>
+                </div>
+                {% endfor %}
+                {% if shown.kind == 'administration' %}
+                <p class="k-small k-muted role-agent-note">Kein Agent gehört zur Administration.</p>
+                {% else %}
+                <details class="role-agent-add">
+                    <summary>+ Agent hinzufügen</summary>
+                    {% if agents.addable %}
+                    <form class="role-form" method="post" action="{{ url_for('admin.add_agent_to_role', role_id=shown.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <label for="role-add-agent">Agent</label>
+                        <select id="role-add-agent" name="agent_id" required>
+                            {% for agent in agents.addable %}
+                            <option value="{{ agent.id }}">{{ agent.name }} · {{ agent.note }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="secondary">Hinzufügen</button>
+                    </form>
+                    {% else %}
+                    <p class="k-small k-muted">Alle Agenten sind schon in dieser Rolle. Neue registrieren Sie unter
+                        {{ parts.link('Agenten', url_for('admin.agents')) }}.</p>
+                    {% endif %}
+                </details>
+                {% endif %}
+            {#- === end of the role's members === -#}
+            </div>
+        </section>
+
+        {% if shown.kind == 'custom' %}
+        <details class="role-delete">
+            <summary>Rolle löschen</summary>
+            <p class="k-small">
+                Zuerst verlassen alle Mitglieder die Rolle, dann löscht Knovas die Gruppe der Rolle, zuletzt wird die
+                Rolle gelöscht. Behält Knovas die Gruppe, zum Beispiel weil ihr noch Daten zugeordnet sind, bleibt die
+                Rolle ohne Mitglieder bestehen.
+            </p>
+            <form method="post" action="{{ url_for('admin.delete_role', role_id=shown.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="danger">Rolle endgültig löschen</button>
+            </form>
+        </details>
+        {% endif %}
+    {% endcall %}
+    </article>
+
+    <p class="k-small k-muted">Eine Rolle gibt nie mehr, als Sie selbst dürfen. Jede Änderung steht im Protokoll.</p>
+{% endcall %}
+</main>
+</div>
+</div>
+</body>
+</html>

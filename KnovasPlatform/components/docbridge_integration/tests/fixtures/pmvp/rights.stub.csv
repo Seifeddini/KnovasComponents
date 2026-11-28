@@ -1,0 +1,49 @@
+person,pointer,may_read,rule
+lz,Quarzfels/Gemeinsam/Buchhaltung/Abschluss/Jahresabschluss 2025 Kurzbericht.pdf,false,acl:Quarzfels/Gemeinsam/Buchhaltung
+mb,Quarzfels/Gemeinsam/Buchhaltung/Abschluss/Jahresabschluss 2025 Kurzbericht.pdf,true,group:GG-Partner
+nm,Quarzfels/Gemeinsam/Buchhaltung/Abschluss/Jahresabschluss 2025 Kurzbericht.pdf,false,acl:Quarzfels/Gemeinsam/Buchhaltung
+sk,Quarzfels/Gemeinsam/Buchhaltung/Abschluss/Jahresabschluss 2025 Kurzbericht.pdf,false,acl:Quarzfels/Gemeinsam/Buchhaltung
+lz,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Kanzlei-ABC.docx,true,group:GG-Kanzlei
+mb,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Kanzlei-ABC.docx,true,group:GG-Kanzlei
+nm,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Kanzlei-ABC.docx,true,group:GG-Kanzlei
+sk,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Kanzlei-ABC.docx,true,group:GG-Kanzlei
+lz,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 01 Mandatsannahme.docx,true,group:GG-Kanzlei
+mb,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 01 Mandatsannahme.docx,true,group:GG-Kanzlei
+nm,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 01 Mandatsannahme.docx,true,group:GG-Kanzlei
+sk,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 01 Mandatsannahme.docx,true,group:GG-Kanzlei
+lz,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 04 Fakturierung.pdf,true,group:GG-Kanzlei
+mb,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 04 Fakturierung.pdf,true,group:GG-Kanzlei
+nm,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 04 Fakturierung.pdf,true,group:GG-Kanzlei
+sk,Quarzfels/Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 04 Fakturierung.pdf,true,group:GG-Kanzlei
+lz,Quarzfels/Gemeinsam/Personal/Zimmermann Luca/Arbeitsvertrag Zimmermann.pdf,false,acl:Quarzfels/Gemeinsam/Personal
+mb,Quarzfels/Gemeinsam/Personal/Zimmermann Luca/Arbeitsvertrag Zimmermann.pdf,true,group:GG-Partner
+nm,Quarzfels/Gemeinsam/Personal/Zimmermann Luca/Arbeitsvertrag Zimmermann.pdf,false,acl:Quarzfels/Gemeinsam/Personal
+sk,Quarzfels/Gemeinsam/Personal/Zimmermann Luca/Arbeitsvertrag Zimmermann.pdf,false,acl:Quarzfels/Gemeinsam/Personal
+lz,Quarzfels/Praxis/Autodoc/000000-000500/0B7E2F15_2024-017_Mandatsvereinbarung.pdf,true,default:kanzlei
+mb,Quarzfels/Praxis/Autodoc/000000-000500/0B7E2F15_2024-017_Mandatsvereinbarung.pdf,true,default:kanzlei
+nm,Quarzfels/Praxis/Autodoc/000000-000500/0B7E2F15_2024-017_Mandatsvereinbarung.pdf,false,conflict:2024-017
+sk,Quarzfels/Praxis/Autodoc/000000-000500/0B7E2F15_2024-017_Mandatsvereinbarung.pdf,true,default:kanzlei
+lz,Quarzfels/Praxis/Autodoc/000000-000500/38D1F6A4_2024-055_Vollmacht.pdf,false,locked:2024-055
+mb,Quarzfels/Praxis/Autodoc/000000-000500/38D1F6A4_2024-055_Vollmacht.pdf,true,locked:2024-055
+nm,Quarzfels/Praxis/Autodoc/000000-000500/38D1F6A4_2024-055_Vollmacht.pdf,false,locked:2024-055
+sk,Quarzfels/Praxis/Autodoc/000000-000500/38D1F6A4_2024-055_Vollmacht.pdf,false,locked:2024-055
+lz,Quarzfels/Praxis/Autodoc/000000-000500/4C1D9A70_2024-017_Klage.pdf,true,default:kanzlei
+mb,Quarzfels/Praxis/Autodoc/000000-000500/4C1D9A70_2024-017_Klage.pdf,true,default:kanzlei
+nm,Quarzfels/Praxis/Autodoc/000000-000500/4C1D9A70_2024-017_Klage.pdf,false,conflict:2024-017
+sk,Quarzfels/Praxis/Autodoc/000000-000500/4C1D9A70_2024-017_Klage.pdf,true,default:kanzlei
+lz,Quarzfels/Praxis/Autodoc/000000-000500/61F0A8D3_2024-055_Stellungnahme.docx,false,locked:2024-055
+mb,Quarzfels/Praxis/Autodoc/000000-000500/61F0A8D3_2024-055_Stellungnahme.docx,true,locked:2024-055
+nm,Quarzfels/Praxis/Autodoc/000000-000500/61F0A8D3_2024-055_Stellungnahme.docx,false,locked:2024-055
+sk,Quarzfels/Praxis/Autodoc/000000-000500/61F0A8D3_2024-055_Stellungnahme.docx,false,locked:2024-055
+lz,Quarzfels/Praxis/Autodoc/000000-000500/9A44C3E8_2024-017_Verfuegung.pdf,true,default:kanzlei
+mb,Quarzfels/Praxis/Autodoc/000000-000500/9A44C3E8_2024-017_Verfuegung.pdf,true,default:kanzlei
+nm,Quarzfels/Praxis/Autodoc/000000-000500/9A44C3E8_2024-017_Verfuegung.pdf,false,conflict:2024-017
+sk,Quarzfels/Praxis/Autodoc/000000-000500/9A44C3E8_2024-017_Verfuegung.pdf,true,default:kanzlei
+lz,Quarzfels/Praxis/Autodoc/000000-000500/D2606B91_2024-017_Honorarnote.pdf,true,default:kanzlei
+mb,Quarzfels/Praxis/Autodoc/000000-000500/D2606B91_2024-017_Honorarnote.pdf,true,default:kanzlei
+nm,Quarzfels/Praxis/Autodoc/000000-000500/D2606B91_2024-017_Honorarnote.pdf,false,conflict:2024-017
+sk,Quarzfels/Praxis/Autodoc/000000-000500/D2606B91_2024-017_Honorarnote.pdf,false,role:sekretariat-keine-finanzen
+lz,Quarzfels/Praxis/Autodoc/000000-000500/E85B3C27_2024-055_Memo.docx,false,locked:2024-055
+mb,Quarzfels/Praxis/Autodoc/000000-000500/E85B3C27_2024-055_Memo.docx,true,locked:2024-055
+nm,Quarzfels/Praxis/Autodoc/000000-000500/E85B3C27_2024-055_Memo.docx,false,locked:2024-055
+sk,Quarzfels/Praxis/Autodoc/000000-000500/E85B3C27_2024-055_Memo.docx,false,locked:2024-055

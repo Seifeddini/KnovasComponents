@@ -4,6 +4,10 @@ The sidebar entry and the page exist only when all four hold: the switch is on,
 user accounts are on, the Cortex reads the graph, and the signed-in person may
 open at least one valid view. In every other combination there is no entry and
 all four routes answer 404, the same 404 as an address that does not exist.
+
+PMVP-11 (founder, 2026-11-20): the Workspace menu shows only the search, so
+Eigene Ansichten has no entry in any combination until a later item places it.
+The routes answer as before, and the web app still computes custom_views_nav.
 """
 from __future__ import annotations
 
@@ -72,7 +76,7 @@ def test_with_accounts_on_only_all_four_give_the_entry_and_the_routes(
     answers = _routes(client)
 
     if switch and graph_mode and has_view:
-        assert NAV_LABEL in home
+        assert NAV_LABEL not in home                     # PMVP-11: no entry until it is placed; the routes answer
         assert {name: r.status_code for name, r in answers.items()} == {
             "page": 200, "list": 200, "document": 200, "read": 200}
     else:
@@ -116,7 +120,7 @@ def test_without_a_valid_view_only_an_admin_gets_the_entry_and_the_page_while_a_
                  for view_id in ("kaputt", "niemand")]
 
     if offered and graph_mode:
-        assert NAV_LABEL in home
+        assert NAV_LABEL not in home                     # PMVP-11: no entry until it is placed; the page answers
         assert page.status_code == 200
         assert listing.status_code == 200
         body = listing.get_json()

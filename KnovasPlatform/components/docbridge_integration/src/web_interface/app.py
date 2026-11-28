@@ -20,12 +20,9 @@ from flask_cors import CORS
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
-import subprocess
-import platform
 import re
 
 import requests
-from urllib.parse import quote
 
 from config_loader import get_config
 import german_text
@@ -41,7 +38,6 @@ from knovas_client import KnovasAPIClient, QueryRejected
 from file_utils import AutoDocFileHandler
 from document_grants import DEFAULT_TTL_SECONDS as GRANT_TTL_DEFAULT
 from document_grants import DocumentGrantStore
-from open_tokens import OpenTokenManager
 from ontology_filters import get_filter_engine
 from ontology_store import get_ontology
 from web_interface import doc_fields_routes
@@ -65,6 +61,64 @@ from unc_path import (
 
 logger = logging.getLogger(__name__)
 
+#: Loggers that print customer text at DEBUG (FU-39): the Anthropic SDK logs every request's options (the
+#: assistant's instruction, passages and question; the views assistant's definitions) and a transport error's text,
+#: and the HTTP libraries their exceptions. ``urllib3`` (under ``requests``, the Core client's library) logs every
+#: request line with its path and query string: a group's id, a document's pointer (FU-43). Held at INFO or above,
+#: whatever LOG_LEVEL says.
+QUIET_LOGGERS = ('anthropic', 'httpx', 'httpx2', 'httpcore', 'httpcore2', 'urllib3')
+
+#: urllib3's own loggers, one per module. Its WARNINGs still pass the INFO hold above, and two of them name the
+#: address: "Failed to parse headers (url=<the whole URL>)", with the unparsed header text as the exception, and
+#: "Retrying ... : <path and query>". A filter on a logger sees only the records of that logger, so each gets one.
+URLLIB3_LOGGERS = ('urllib3', 'urllib3.connection', 'urllib3.connectionpool', 'urllib3.poolmanager',
+                   'urllib3.response', 'urllib3.util.retry', 'urllib3.contrib.pyopenssl')
+_URL_OR_PATH = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"<>()]+|(?<![\w.])/[^\s'\"<>()]*")
+
+
+class RedactUrls(logging.Filter):
+    """Keeps urllib3's warnings and takes the addresses out of them (RB-FIX-2).
+
+    Chosen over raising urllib3 to ERROR: its warnings are what an operator needs to see about the connection to
+    Knovas (an answer whose headers do not parse, a pool that is full, a certificate that does not match, a retry),
+    and at ERROR they would be gone. What they must not carry is an address: a URL or a path, with its ids and its
+    query string, becomes ``<url>``; an exception, as an argument of the message or as the record's own (the
+    unparsed header text, a broken connection's details), is named by its class only.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        named = False
+        if isinstance(args, tuple):
+            named = any(isinstance(a, BaseException) for a in args)
+            args = tuple(f"<{type(a).__name__}, not logged>" if isinstance(a, BaseException) else a for a in args)
+        try:
+            text = str(record.msg) % args if args else str(record.msg)
+        except Exception:  # noqa: BLE001 - a record whose arguments do not fit its message
+            text = str(record.msg)
+        clean = _URL_OR_PATH.sub("<url>", text)
+        if record.exc_info and record.exc_info[0] is not None and not named:
+            clean += f" (<{record.exc_info[0].__name__}, not logged>)"
+        record.msg, record.args = clean, ()
+        record.exc_info, record.exc_text, record.stack_info = None, None, None
+        return True
+
+
+def _hold_quiet_loggers(level: int) -> None:
+    """Hold QUIET_LOGGERS at ``level``, but never below INFO; urllib3's loggers redact addresses."""
+    try:
+        # The SDK sets its loggers' level from ANTHROPIC_LOG when it is first imported: import it first, so the
+        # levels set here are the last word.
+        import anthropic  # noqa: F401
+    except ImportError:
+        pass
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(max(level, logging.INFO))
+    for name in URLLIB3_LOGGERS:
+        target = logging.getLogger(name)
+        if not any(isinstance(f, RedactUrls) for f in target.filters):
+            target.addFilter(RedactUrls())
+
 
 def _configure_logging_for_wsgi(config) -> None:
     """
@@ -83,6 +137,7 @@ def _configure_logging_for_wsgi(config) -> None:
         root.addHandler(h)
     for name in ('web_interface', 'web_interface.app', 'knovas_client'):
         logging.getLogger(name).setLevel(level)
+    _hold_quiet_loggers(level)
 
 
 _search_enrichment_cache: Dict[str, dict] = {}
@@ -192,452 +247,6 @@ def _log_search_similarity_debug(query: str, results: List[Dict[str, Any]]) -> N
         min(scores),
         with_cosine,
     )
-
-
-def _demo_hit_locations(count: int = 15) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-    """Build primary + top_chunks for local multihit UI demo (distinct page/sentence pairs)."""
-    locations: List[Dict[str, Any]] = []
-    for i in range(count):
-        locations.append({
-            'page_number': (i // 5) + 1,
-            # Durchlaufend ueber das ganze Dokument, so wie Knovas sie meldet --
-            # nicht je Seite von vorne. Sonst fallen die Stellen auf Seite 2 mit
-            # denen auf Seite 1 zusammen, und die Attrappe zeigt etwas, das es
-            # im Betrieb nicht gibt.
-            'sentence_number': i + 1,
-            'cosine_similarity': round(max(0.55, 0.93 - i * 0.025), 2),
-        })
-    return locations[0], locations
-
-
-_demo_primary, _demo_top_chunks = _demo_hit_locations(15)
-
-
-def _demo_card_snippet(locations: List[Dict[str, Any]]) -> Optional[Dict[str, str]]:
-    """Der Kartenausschnitt: die beste Fundstelle, ohne Vorlauf.
-
-    So wie ``context_store.enrich_result_with_context`` ihn im Betrieb baut.
-    Vorher trug jede Attrappe ihren eigenen, festen Ausschnitt -- und dann
-    zeigte die Karte lokal einen anderen Satz als der Dialog, also genau den
-    Zustand, den die Aenderung beseitigt.
-    """
-    if not locations:
-        return None
-    best = locations[0]
-    return {
-        'before': '',
-        'match': str(best.get('match') or '').strip(),
-        'after': str(best.get('after') or '').strip(),
-    }
-
-
-def _demo_context_snippet(
-    before: str,
-    match: str,
-    after: str,
-) -> Dict[str, str]:
-    return {
-        'before': before.strip(),
-        'match': match.strip(),
-        'after': after.strip(),
-    }
-
-
-# Ein Demo-Dokument, Satz fuer Satz, so wie ein Kontext-Sidecar es haelt.
-# Wortgleich mit dem Text, den die lokale Vorschau anzeigt: nur dann findet die
-# Oberflaeche die Fundstelle im dargestellten Text wieder, und nur dann zeigt
-# das lokale Entwickeln, was der Betrieb zeigt. Ueberschrift und Aktenzeichen
-# stehen absichtlich mit drin -- an ihnen sieht man, dass die Liste sie weglaesst.
-_DEMO_SENTENCE_TEXTS = [
-    'MANDATSVEREINBARUNG',
-    'Aktenzeichen: 2019-021',
-    'In Sachen: Alpenblick Gastro GmbH ./. Paechterkollektiv',
-    'Der Hauptmietzins ist die periodisch zu entrichtende Gegenleistung.',
-    'Die Reaktionszeit bei Stoerungen der Prioritaetsstufe 1 betraegt vier Stunden.',
-    'Sie wird ab Eingang der Meldung gemessen, nicht ab Eintritt des Fehlers.',
-    'Fuer Wohnungen gilt das MRG mit besonderen Kuendigungsschutzbestimmungen.',
-    'Wird die Reaktionszeit ueberschritten, eskaliert der Auftragnehmer selbsttaetig.',
-    'Die Ansprechperson des Auftraggebers ist im Anhang benannt.',
-    'Mietzinsanpassungen beduerfen einer gesetzlichen Grundlage.',
-    'Die Messung der Reaktionszeit erfolgt ueber das Ticketsystem des Auftragnehmers.',
-    'Abweichende Fristen sind in Anlage 4 abschliessend geregelt.',
-    'Die Mandantin Alpenblick Gastro GmbH wird nach Zeitaufwand abgerechnet.',
-]
-
-_DEMO_SENTENCES = [
-    {'i': n + 1, 'p': (n // 5) + 1, 't': text}
-    for n, text in enumerate(_DEMO_SENTENCE_TEXTS)
-]
-
-
-def _demo_match_locations(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Fundstellen fuer die lokale UI-Entwicklung.
-
-    Ueber denselben Code wie im Betrieb: ``build_match_locations`` entscheidet,
-    welche der gemeldeten Stellen eine Fundstelle wird. Vorher baute diese
-    Attrappe die Liste selbst, und dann zeigte die lokale Oberflaeche acht
-    Eintraege, wo die echte zwei je Seite zeigt -- eine Aenderung an der Auswahl
-    war lokal gar nicht zu sehen.
-    """
-    from context_store import build_match_locations
-
-    return build_match_locations(_DEMO_SENTENCES, chunks)
-
-
-_TEST_SEARCH_FIXTURES: List[Dict[str, Any]] = [
-    {
-        'doc_id': 'corpus/demo/Mietrecht_Kommentar.pdf',
-        'path': 'corpus/demo/Mietrecht_Kommentar.pdf',
-        'title': 'Mietrecht Kommentar (Demo: 15 Trefferorte, 2 je Seite)',
-        'akten_id': '2024-050',
-        'type': 'Kommentar',
-        'score': _demo_primary['cosine_similarity'],
-        'cosine_similarity': _demo_primary['cosine_similarity'],
-        'cosine_distance': round(1.0 - float(_demo_primary['cosine_similarity']), 2),
-        'page_number': _demo_primary['page_number'],
-        'sentence_number': _demo_primary['sentence_number'],
-        'document_date': '2024-08-10T09:00:00',
-        'top_chunks': _demo_top_chunks,
-        'match_locations': _demo_match_locations(_demo_top_chunks),
-        'first_page_preview': (
-            'Kommentar zum österreichischen Mietrecht (MRG). Dieses Werk erläutert die '
-            'Hauptmietzinsregelung, Kündigungsgründe, Mietzinsanpassung und die '
-            'Rechte des Mieters bei Mängeln. Gegenstand sind Wohn- und Geschäftsraummieten '
-            'sowie die Abgrenzung zu Werkverträgen und Leasing.'
-        ),
-        'context_snippet': _demo_context_snippet(
-            '',
-            'Das Mietrecht regelt das entgeltliche Überlassen von Räumen zur Nutzung durch den Mieter.',
-            'Für Wohnungen gilt das MRG mit besonderen Kündigungsschutzbestimmungen. '
-            'Der Hauptmietzins ist die periodisch zu entrichtende Gegenleistung. '
-            'Mietzinsanpassungen bedürfen einer gesetzlichen oder vertraglichen Grundlage. '
-            'Bei wesentlichen Mängeln kann der Mieter eine angemessene Minderung verlangen.',
-        ),
-        'ingested_summary': (
-            'Demo-Dokument, zu dem Knovas 15 Trefferorte meldet. Die Liste zeigt '
-            'davon zwei je Seite; Briefkopf und Ueberschriften fallen weg. '
-            'Suche lokal mit „Mietrecht“ oder „Multitreffer“.'
-        ),
-        'file_size': 1048576,
-        'client_open_unc': r'\\fileserver\AutoDoc\corpus\demo\Mietrecht_Kommentar.pdf',
-    },
-    {
-        'doc_id': 'corpus/2024-001/Mustervertrag.pdf',
-        'path': 'corpus/2024-001/Mustervertrag.pdf',
-        'title': 'Mustervertrag Kaufvertrag Immobilie',
-        'akten_id': '2024-001',
-        'type': 'Vertrag',
-        'score': 0.91,
-        'cosine_similarity': 0.91,
-        'cosine_distance': 0.09,
-        'page_number': 3,
-        'sentence_number': 12,
-        'document_date': '2024-03-15T10:00:00',
-        'top_chunks': [
-            {'page_number': 3, 'sentence_number': 12, 'cosine_similarity': 0.91},
-            {'page_number': 2, 'sentence_number': 8, 'cosine_similarity': 0.78},
-        ],
-        'first_page_preview': (
-            'KAUFVERTRAG über eine Wohnimmobilie. Verkäufer: Immobilien GmbH, Käufer: Max Mustermann. '
-            'Gegenstand ist das Eigentumsrecht an der Liegenschaft EZ 1234 KG Musterstadt. '
-            'Der Vertrag wird im beiderseitigen Einvernehmen geschlossen.'
-        ),
-        'context_snippet': _demo_context_snippet(
-            'Die Vertragsparteien haben die Liegenschaft gemeinsam besichtigt und den Zustand protokolliert. '
-            'Der Verkäufer sichert zu, dass keine über die im Grundbuch eingetragenen hinausgehenden Lasten bestehen. '
-            'Die Übergabe der Liegenschaft erfolgt nach vollständiger Zahlung des Kaufpreises. '
-            'Lastenfreistellung und Gewährleistung richten sich nach den gesetzlichen Bestimmungen. '
-            'Ein Treuhandkonto wird bei der beurkundenden Notarin eingerichtet.',
-            'Der Kaufpreis in Höhe von EUR 485.000,00 ist spätestens bis zum vereinbarten Übergabetermin zu bezahlen.',
-            'Mit Übergabe gehen Nutzen und Lasten auf den Käufer über. Mängelansprüche verjähren nach den '
-            'gesetzlichen Fristen. Die Parteien vereinbaren einen Rücktrittsvorbehalt bei Finanzierungsausfall.',
-        ),
-        'ingested_summary': (
-            'Kaufvertrag über eine Wohnimmobilie mit Standardklauseln zu '
-            'Kaufpreis, Übergabe und Gewährleistung.'
-        ),
-        'file_size': 245760,
-        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Mustervertrag.pdf',
-    },
-    {
-        'doc_id': 'corpus/2024-001/Aktennotiz.txt',
-        'path': 'corpus/2024-001/Aktennotiz.txt',
-        # Ueber das Dokument verteilt, damit die Fundstellenliste lokal mehr als
-        # einen Eintrag zeigt. Satz 1 und 2 sind Ueberschrift und Aktenzeichen --
-        # sie werden gemeldet und fallen weg, genau darum stehen sie hier.
-        # Mit sentence_number_end, so wie Knovas meldet: ein Chunk deckt mehrere
-        # Saetze ab, und die Fundstelle wird darin gesucht.
-        'match_locations': _demo_match_locations([
-            {'page_number': 1, 'sentence_number': n, 'sentence_number_end': n + 2,
-             'cosine_similarity': c}
-            for n, c in ((1, 0.88), (3, 0.84), (5, 0.82), (8, 0.80),
-                         (11, 0.78), (13, 0.76))
-        ]),
-        'title': 'Aktennotiz Übergabetermin',
-        'akten_id': '2024-001',
-        'type': 'Aktennotiz',
-        'score': 0.88,
-        'cosine_similarity': 0.88,
-        'cosine_distance': 0.12,
-        'page_number': 1,
-        'sentence_number': 3,
-        'document_date': '2024-03-20T11:30:00',
-        'top_chunks': [
-            {'page_number': 1, 'sentence_number': 3, 'cosine_similarity': 0.88},
-        ],
-        'first_page_preview': (
-            'Aktennotiz vom 20.03.2024. Übergabetermin für die Liegenschaft laut '
-            'Kaufvertrag 2024-001 vereinbart für den 05.04.2024, 10:00 Uhr vor Ort.'
-        ),
-        'context_snippet': _demo_context_snippet(
-            'Der Käufer wurde telefonisch über den vorgeschlagenen Termin informiert.',
-            'Übergabe der Liegenschaft ist für den 05.04.2024 vorgesehen, vorbehaltlich '
-            'vollständiger Kaufpreiszahlung.',
-            'Die Schlüsselübergabe erfolgt direkt vor Ort. Ein Übergabeprotokoll wird von '
-            'beiden Seiten unterzeichnet.',
-        ),
-        'ingested_summary': (
-            'Aktennotiz zur Vereinbarung des Übergabetermins im Zusammenhang mit dem '
-            'Kaufvertrag 2024-001.'
-        ),
-        'file_size': 247,
-        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Aktennotiz.txt',
-    },
-    {
-        'doc_id': 'corpus/2024-001/Kaufvertrag.docx',
-        'path': 'corpus/2024-001/Kaufvertrag.docx',
-        'title': 'Kaufvertrag Immobilie (Entwurf)',
-        'akten_id': '2024-001',
-        'type': 'Vertrag',
-        'score': 0.93,
-        'cosine_similarity': 0.93,
-        'cosine_distance': 0.07,
-        'page_number': 1,
-        'sentence_number': 5,
-        'document_date': '2024-03-10T09:00:00',
-        'top_chunks': [
-            {'page_number': 1, 'sentence_number': 5, 'cosine_similarity': 0.93},
-            {'page_number': 2, 'sentence_number': 2, 'cosine_similarity': 0.81},
-        ],
-        'first_page_preview': (
-            'KAUFVERTRAG (Entwurf) über eine Wohnimmobilie. Verkäufer: Immobilien GmbH, '
-            'Käufer: Max Mustermann. Dieser Entwurf dient der Abstimmung vor Unterzeichnung.'
-        ),
-        'context_snippet': _demo_context_snippet(
-            'Die Vertragsparteien haben sich auf den nachstehenden Kaufpreis geeinigt.',
-            'Der Kaufpreis beträgt EUR 485.000,00 und ist bis zum Übergabetermin zu entrichten.',
-            'Änderungen an diesem Entwurf bedürfen der Schriftform und der Zustimmung beider Parteien.',
-        ),
-        'ingested_summary': (
-            'Entwurfsfassung des Kaufvertrags über die Wohnimmobilie EZ 1234 KG Musterstadt, '
-            'zur Abstimmung vor der Unterzeichnung.'
-        ),
-        'file_size': 36822,
-        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Kaufvertrag.docx',
-    },
-    {
-        'doc_id': 'corpus/2024-001/Rueckfrage.msg',
-        'path': 'corpus/2024-001/Rueckfrage.msg',
-        'title': 'Rückfrage zum Kaufvertrag',
-        'akten_id': '2024-001',
-        'type': 'E-Mail',
-        'score': 0.86,
-        'cosine_similarity': 0.86,
-        'cosine_distance': 0.14,
-        'page_number': 1,
-        'sentence_number': 2,
-        'document_date': '2024-03-18T15:20:00',
-        'top_chunks': [
-            {'page_number': 1, 'sentence_number': 2, 'cosine_similarity': 0.86},
-        ],
-        'first_page_preview': (
-            'E-Mail-Rückfrage des Käufers zu einzelnen Klauseln des Kaufvertrags, '
-            'insbesondere zur Fälligkeit des Kaufpreises und zum Übergabetermin.'
-        ),
-        'context_snippet': _demo_context_snippet(
-            'Der Käufer bedankt sich für die Zusendung des Entwurfs.',
-            'Er bittet um Klarstellung, ob der Übergabetermin verschoben werden kann, '
-            'falls sich die Finanzierung verzögert.',
-            'Eine Antwort wird bis Ende der Woche erbeten.',
-        ),
-        'ingested_summary': (
-            'Rückfrage des Käufers zu Fälligkeit und Übergabetermin im laufenden Kaufvertrag.'
-        ),
-        'file_size': 5120,
-        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Rueckfrage.msg',
-    },
-    {
-        'doc_id': 'corpus/2024-001/Schriftsatz_Klage.docx',
-        'path': 'corpus/2024-001/Schriftsatz_Klage.docx',
-        'title': 'Schriftsatz Klage',
-        'akten_id': '2024-001',
-        'type': 'Schriftsatz',
-        'score': 0.84,
-        'cosine_similarity': 0.84,
-        'cosine_distance': 0.16,
-        'page_number': 1,
-        'sentence_number': 4,
-        'document_date': '2024-05-02T14:30:00',
-        'top_chunks': [
-            {'page_number': 1, 'sentence_number': 4, 'cosine_similarity': 0.84},
-        ],
-        'first_page_preview': (
-            'An das Landesgericht Wien. In der Rechtssache Mustermann ./. Muster GmbH '
-            'erhebe ich namens und im Auftrag des Klägers Klage. Der Beklagte schuldet '
-            'Zahlung aus einem Werkvertrag über die Lieferung und Montage von Anlagen.'
-        ),
-        'context_snippet': _demo_context_snippet(
-            'Der Kläger ist Unternehmer im Sinne des UGB. Der Beklagte bestellte im Jänner 2024 '
-            'die Lieferung und Installation einer Lüftungsanlage.',
-            'Die Klage wird wegen Nichterfüllung der vertraglichen Leistungspflicht erhoben.',
-            'Der Beklagte verweigert die Restzahlung unter Berufung auf angebliche Mängel. '
-            'Diese Mängel sind nicht binnen der gesetzlichen Rügefrist angezeigt worden.',
-        ),
-        'file_size': 98304,
-        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2024-001\Schriftsatz_Klage.docx',
-    },
-    {
-        'doc_id': 'corpus/2023-088/Gutachten_Baumfaellung.pdf',
-        'path': 'corpus/2023-088/Gutachten_Baumfaellung.pdf',
-        'title': 'Gutachten Baumfällung Nachbargrundstück',
-        'akten_id': '2023-088',
-        'type': 'Gutachten',
-        'score': 0.77,
-        'cosine_similarity': 0.77,
-        'cosine_distance': 0.23,
-        'page_number': 7,
-        'sentence_number': 2,
-        'document_date': '2023-11-20T09:15:00',
-        'top_chunks': [
-            {'page_number': 7, 'sentence_number': 2, 'cosine_similarity': 0.77},
-        ],
-        'first_page_preview': (
-            'Sachverständigengutachten. Auftraggeber: Hausverwaltung Musterstraße 12. '
-            'Gegenstand: Beurteilung der Verkehrssicherungspflicht hinsichtlich einer '
-            'Grenzlinde auf dem Nachbargrundstück. Ort der Besichtigung: 5020 Salzburg.'
-        ),
-        'context_snippet': _demo_context_snippet(
-            'Im Rahmen der Ortsbesichtigung wurde festgestellt, dass mehrere Äste über die '
-            'Grundstücksgrenze ragen und bei Sturm Schaden verursachen könnten.',
-            'Die Verkehrssicherungspflicht des Grundeigentümers erfordert regelmäßige Kontrolle und fachgerechten Rückschnitt.',
-            'Eine sofortige Fällung wurde nicht als zwingend erachtet, wohl aber ein Rückschnitt '
-            'innerhalb von sechs Wochen. Die Kosten sind nach den Regeln der Nachbarschaftsrechte zu tragen.',
-        ),
-        'ingested_summary': 'Sachverständigengutachten zur Verkehrssicherungspflicht bei einem Grenzbaum.',
-        'file_size': 512000,
-        'client_open_unc': r'\\fileserver\AutoDoc\corpus\2023-088\Gutachten_Baumfaellung.pdf',
-    },
-    {
-        'doc_id': 'corpus/2024-010/Protokoll_Besprechung.docx',
-        'path': 'corpus/2024-010/Protokoll_Besprechung.docx',
-        'title': 'Besprechungsprotokoll Mandant',
-        'akten_id': '2024-010',
-        'type': 'Protokoll',
-        'score': 0.72,
-        'cosine_similarity': 0.72,
-        'cosine_distance': 0.28,
-        'page_number': 2,
-        'sentence_number': 8,
-        'document_date': '2024-06-01T16:45:00',
-        'top_chunks': [
-            {'page_number': 2, 'sentence_number': 8, 'cosine_similarity': 0.72},
-        ],
-        'first_page_preview': (
-            'Besprechungsprotokoll vom 01.06.2024. Teilnehmer: RA Dr. Huber, Mandantin Frau Berger, '
-            'Stellvertretung Kanzlei. Gegenstand: Vorbereitung der außergerichtlichen Einigung im '
-            'Schadenersatzverfahren. Nächster Termin mit der Gegenseite wird für KW 24 angestrebt.'
-        ),
-        'context_snippet': _demo_context_snippet(
-            'Die Mandantin berichtet über den aktuellen Gesundheitszustand und die fortbestehenden '
-            'Einschränkungen im Alltag. Unterlagen der Krankenanstalt liegen der Kanzlei vor.',
-            'Ein Vergleichsangebot in Höhe von EUR 18.500,00 wurde von der gegnerischen Versicherung unterbreitet.',
-            'Die Mandantin wünscht eine Stellungnahme innerhalb von zwei Wochen. '
-            'RA Dr. Huber wird eine Gegendarstellung und ein Gegenangebot vorbereiten.',
-        ),
-        'external_url': 'https://contoso.sharepoint.com/sites/legal/Shared%20Documents/Protokoll.docx',
-        'file_size': 45056,
-    },
-]
-
-# Karte und Dialog zeigen dieselbe Stelle -- im Betrieb, weil beide aus der
-# besten Fundstelle kommen, hier, weil die Attrappe es nachzieht. Sonst wuerde
-# lokal wieder auseinanderlaufen, was die Aenderung zusammengebracht hat.
-for _fixture in _TEST_SEARCH_FIXTURES:
-    _card = _demo_card_snippet(_fixture.get('match_locations') or [])
-    if _card:
-        _fixture['context_snippet'] = _card
-del _fixture, _card
-
-
-def _search_use_test_results() -> bool:
-    """Sample hits only when SEARCH_USE_TEST_RESULTS is explicitly enabled (local UI dev)."""
-    flag = (os.getenv('SEARCH_USE_TEST_RESULTS') or '').strip().lower()
-    return flag in ('1', 'true', 'yes', 'on')
-
-
-def _test_result_haystack(row: Dict[str, Any]) -> str:
-    parts = [
-        row.get('title'),
-        row.get('ingested_summary'),
-        row.get('path'),
-        row.get('doc_id'),
-        row.get('akten_id'),
-        row.get('type'),
-    ]
-    return ' '.join(str(p) for p in parts if p).lower()
-
-
-def _build_test_search_results(query: str, limit: int) -> Dict[str, Any]:
-    """Deterministic sample search payload for local development."""
-    q = (query or '').strip().lower()
-    terms = [t for t in re.split(r'\s+', q) if len(t) >= 2]
-    rows: List[Dict[str, Any]] = []
-    for fixture in _TEST_SEARCH_FIXTURES:
-        hay = _test_result_haystack(fixture)
-        if not q or not terms or all(term in hay for term in terms):
-            rows.append({k: v for k, v in fixture.items() if k != 'client_open_unc'})
-    if not rows and q:
-        rows = [{k: v for k, v in fixture.items() if k != 'client_open_unc'}
-                for fixture in _TEST_SEARCH_FIXTURES[:2]]
-    rows = rows[: max(1, limit)]
-    pointers = [str(r.get('doc_id') or '') for r in rows if r.get('doc_id')]
-    return {
-        'results': rows,
-        'total': len(rows),
-        'semantix': {
-            'status': 'test_data',
-            'message': 'Beispieltreffer für lokale Entwicklung (Knovas API nicht verwendet)',
-            'result_count': len(rows),
-            'pointers': pointers,
-            'query_session_id': 'local-test-session-0001',
-        },
-    }
-
-
-def _apply_test_open_hints(
-    results: List[Dict[str, Any]],
-    browser_client_open_enabled: bool,
-    companion_enabled: bool,
-    companion_uri_scheme: str,
-) -> None:
-    """Mark sample hits as openable for UI development without a real AutoDoc mount."""
-    by_id = {str(f.get('doc_id') or ''): f for f in _TEST_SEARCH_FIXTURES}
-    for result in results:
-        if result.get('external_url'):
-            result['file_exists'] = True
-            result['can_open'] = True
-            result['open_mode'] = 'external'
-            continue
-        fixture = by_id.get(str(result.get('doc_id') or ''))
-        result['can_open'] = True
-        result['file_exists'] = None
-        unc = fixture.get('client_open_unc') if fixture else None
-        if browser_client_open_enabled and unc:
-            result['open_via_browser'] = True
-            result['client_open_unc'] = unc
-        if companion_enabled and unc:
-            result['open_via_companion'] = True
-            result['companion_scheme'] = companion_uri_scheme
 
 
 # Bump when search UI / open behaviour changes — visible in footer and GET /api/version
@@ -1101,8 +710,8 @@ def create_app(config_path: Optional[str] = None):
         logger.warning(
             "Company login is enabled but COMPANY_LOGIN_NAME or COMPANY_LOGIN_PASSWORD is missing."
         )
-    # Unconditional: SECRET_KEY signs both the session cookie AND the single-use
-    # open tokens, so a weak/default secret is exploitable even with login disabled.
+    # Unconditional: SECRET_KEY signs the session cookie, which carries the
+    # CSRF token whether or not login is enabled.
     if web_secret_key in weak_secret_values:
         raise RuntimeError('WEB_SECRET_KEY must be set to a strong random value.')
     # Only meaningful for the legacy shared credential. With per-user accounts
@@ -1116,41 +725,21 @@ def create_app(config_path: Optional[str] = None):
     # download or render. Every hit opens and previews in Microsoft 365.
     m365_mode = str(config.get('documents.source', 'files') or 'files').strip().lower() == 'm365'
     browser_client_open_enabled = config.get_bool('open.browser_client_path', True)
-    companion_enabled = config.get_bool('open.companion_enabled', False)
-    open_token_ttl = max(30, config.get_int('open.token_ttl_seconds', 120))
-    open_token_store_path = str(open_section.get('token_store_path') or '').strip()
-    if not open_token_store_path:
-        # Shared cross-worker store under the app data dir (default 2 gunicorn
-        # workers each get their own process, so an in-process cache is not enough).
+    # A store under the app data dir that every worker shares: gunicorn runs
+    # several worker processes, and a grant written while serving the search
+    # has to be visible to the worker that serves the thumbnail.
+    document_grant_store_path = str(open_section.get('grant_store_path') or '').strip()
+    if not document_grant_store_path:
         data_dir = os.path.dirname(
             str(config.get('sync.last_sync_file', '/app/data/last_sync.txt')) or ''
         ) or '/app/data'
-        open_token_store_path = os.path.join(data_dir, 'open_tokens.sqlite3')
-    open_token_manager = OpenTokenManager(
-        str(app.config['SECRET_KEY']),
-        max_age_seconds=open_token_ttl,
-        store_path=open_token_store_path,
-    )
-    # Same shape and the same reason as the open-token store above: several
-    # gunicorn workers, and a grant written while serving the search has to be
-    # visible to the worker that serves the thumbnail.
-    document_grant_store_path = str(open_section.get('grant_store_path') or '').strip()
-    if not document_grant_store_path:
-        document_grant_store_path = os.path.join(
-            os.path.dirname(open_token_store_path) or '/app/data',
-            'document_grants.sqlite3',
-        )
+        document_grant_store_path = os.path.join(data_dir, 'document_grants.sqlite3')
     document_grants = DocumentGrantStore(
         document_grant_store_path,
         ttl_seconds=config.get_int('open.grant_ttl_seconds', GRANT_TTL_DEFAULT),
     )
     pdf_inline_in_browser = config.get_bool('open.pdf_inline_in_browser', True)
-    allow_server_side_startfile = config.get_bool('open.allow_server_side_startfile', False)
     allow_degraded_download_open = config.get_bool('open.allow_degraded_download_open', False)
-    companion_uri_scheme = str(open_section.get('companion_uri_scheme') or 'semantix-doc').strip()
-    public_base_url_config = str(open_section.get('public_base_url') or '').strip().rstrip('/')
-    if not public_base_url_config:
-        public_base_url_config = (os.getenv('KNOVAS_PLATFORM_URL') or '').strip().rstrip('/')
 
     client_local_root = normalize_client_local_root(str(open_section.get('client_local_root') or ''))
 
@@ -1228,9 +817,6 @@ def create_app(config_path: Optional[str] = None):
             if p:
                 return p
         return None
-
-    def _can_open_via_companion(full_path: str) -> bool:
-        return bool(_unc_for_resolved_path(full_path) or _client_path_for_resolved_path(full_path))
 
     def _client_open_targets(full_path: str) -> Dict[str, str]:
         """Client-visible paths the user's OS can open (UNC on Windows, mount path on Linux)."""
@@ -1369,8 +955,6 @@ def create_app(config_path: Optional[str] = None):
             'stats',
             'api_version',
             'health',
-            'open_token_redeem',
-            'open_tokens_spec',
         }:
             return None
         if session.get('company_login_ok') is True:
@@ -1381,8 +965,6 @@ def create_app(config_path: Optional[str] = None):
 
     # Endpoints exempt from the uniform X-CSRF-Token gate below:
     #   login / logout   -> form-based csrf_token, validated in the handler
-    #   open_token_mint  -> in-handler X-CSRF-Token check (returns 400), kept as-is
-    #   open_token_redeem-> companion Bearer token, no browser session/CSRF
     #   static           -> asset serving
     _CSRF_EXEMPT_ENDPOINTS = frozenset({
         'static',
@@ -1392,8 +974,11 @@ def create_app(config_path: Optional[str] = None):
         # validates it in the handler, exactly as login/logout do. Leaving it
         # in the header gate would reject the form before it was read.
         'account_password',
-        'open_token_mint',
-        'open_token_redeem',
+        # The ask page's form (PMVP-22a, assistant_routes.py): the same, a hidden csrf_token checked in the handler.
+        'assistant.ask',
+        # A chat's two forms (PMVP-23): the follow-up and the delete, each checked in its handler the same way.
+        'assistant.follow_up',
+        'assistant.delete_chat',
     })
 
     @app.before_request
@@ -1403,8 +988,8 @@ def create_app(config_path: Optional[str] = None):
         valid X-CSRF-Token header matching the session token. Registered after the login
         gate so unauthenticated callers still get 401 first. Safe methods (GET/HEAD/
         OPTIONS), unknown routes, and the exempt endpoints above are not gated — the
-        exempt endpoints perform their own token validation (login/logout/mint) or use a
-        separate auth scheme (redeem).
+        exempt endpoints perform their own token validation (login/logout and the
+        form posts that carry a hidden csrf_token).
         """
         if request.method in ('GET', 'HEAD', 'OPTIONS'):
             return None
@@ -1731,36 +1316,81 @@ def create_app(config_path: Optional[str] = None):
     # Navigationspunkt. Ueber die Umgebung abschaltbar (leer = kein Punkt).
     feedback_url = os.getenv('FEEDBACK_URL', 'https://knovas.atlassian.net/jira/software/form/b05bdd7b-936a-4d3a-b92b-15b89773e6cf?atlOrigin=eyJpIjoiNGJlM2Y4YTMzNTE5NDFmZjg5M2RhMDQ5ZGRhNzM3NTQiLCJwIjoiaiJ9')
 
-    def _console_url():
-        """Link zur Verwaltung -- je nach Rolle, sonst None.
+    #: The Admin pages in the order the menu shows them: the key the page's
+    #: template sets as ``admin_tab``, the name the page has, its route, and
+    #: whether the entry is drawn only while Knovas offers document fields.
+    #: Who may open a page is not listed here: it is read from the route's gate.
+    admin_menu = (
+        ('people', 'Personen', 'admin.people', False),
+        ('roles', 'Rollen', 'admin.roles', False),
+        ('agents', 'Agenten', 'admin.agents', False),
+        ('access', 'Zugriff', 'admin.access', False),
+        ('documents', 'Dokumente', 'admin.documents', False),
+        ('access_groups', 'Zugriffsgruppen', 'admin.access_groups', False),
+        ('doc_fields', 'Dokumentfelder', 'admin.doc_fields', True),
+        ('ingestion', 'Ingestion', 'admin.ingestion', False),
+        ('system', 'System', 'admin.system', False),
+        ('approvals', 'Freigaben', 'admin.approvals', False),
+    )
 
-        Der Link ist Darstellung; ``require_admin``/``require_approver`` auf
-        der jeweiligen Route bleibt die Kontrolle (REQ-A1/REQ-A2). Ein
-        Administrator landet auf Personen, ein reiner Freigeber (Rolle
-        'approver' ohne 'admin') auf Freigaben -- sonst gibt es keinen Link.
-        Faellt die Identitaetsdatenbank aus, verschwindet der Link, statt dass
-        die Suchseite bricht.
+    def _gate_roles(endpoint: str) -> Optional[frozenset]:
+        """The roles the route's own gate lets in, or None.
+
+        The console's gate (``admin._require_roles``) puts the set it checks
+        on the view it returns, as ``allowed_roles``. Reading it from the
+        registered view keeps one list of roles, the route's. A route that is
+        not registered (Ingestion without Knovas Connector) or a view without
+        that attribute gives None, and then no link is drawn.
+        """
+        allowed = getattr(app.view_functions.get(endpoint), 'allowed_roles', None)
+        return allowed if isinstance(allowed, frozenset) else None
+
+    def _admin_pages() -> List[Dict[str, Any]]:
+        """The Admin pages the signed-in person may open, in the menu's order.
+
+        The one function that decides "may open" for the area Verwaltung: a
+        page is offered when the person holds a role its route's gate lets in
+        (``_gate_roles``), so the menu and the refusal cannot drift apart and
+        no role is named here. Presentation only -- ``require_admin``,
+        ``require_approver`` and ``require_ingestion`` on the routes stay the
+        control (REQ-A1/REQ-A2) -- so a failure empties the menu instead of
+        breaking the page.
         """
         if identity_gate is None:
-            return None
+            return []
         try:
             user = identity_gate.current_user()
         except Exception as exc:  # noqa: BLE001 - die Leiste darf nie 500en
-            logger.warning('Verwaltungslink nicht ermittelbar: %s', exc)
-            return None
+            # The kind of failure, not its text: a log line carries nothing a
+            # database error might quote about a person.
+            logger.warning('Verwaltungslink nicht ermittelbar: %s', type(exc).__name__)
+            return []
         if user is None:
             logger.info('Verwaltungslink: keine angemeldete Person in dieser Anfrage')
-            return None
-        roles = getattr(user, 'roles', None) or ()
-        if 'admin' in roles:
-            return url_for('admin.people')
-        if 'approver' in roles:
-            return url_for('admin.approvals')
-        # Not drawing the link is indistinguishable from a broken menu from the
-        # outside, so say whose roles were read and what they were.
-        logger.info('Verwaltungslink ausgeblendet: %s hat die Rollen %s',
-                    getattr(user, 'email', '?'), sorted(roles) or ['-'])
-        return None
+            return []
+        held = set(getattr(user, 'roles', None) or ())
+        pages = []
+        for key, label, endpoint, if_doc_fields in admin_menu:
+            allowed = _gate_roles(endpoint)
+            if allowed and held & allowed:
+                pages.append({'key': key, 'label': label, 'url': url_for(endpoint),
+                              'if_doc_fields': if_doc_fields})
+        if not pages:
+            # Not drawing the link is indistinguishable from a broken menu from
+            # the outside, so say whose roles were read and what they were --
+            # by id: a log line carries no address and no name.
+            logger.info('Verwaltungslink ausgeblendet: Person %s hat die Rollen %s',
+                        getattr(user, 'id', '?'), sorted(held) or ['-'])
+        return pages
+
+    def _console_url(pages: List[Dict[str, Any]]) -> Optional[str]:
+        """Link zur Verwaltung: the first Admin page the person may open, sonst None.
+
+        An administrator lands on Personen, a pure approver on Freigaben. An
+        entry that depends on what Knovas offers (Dokumentfelder) is never the
+        landing page.
+        """
+        return next((page['url'] for page in pages if not page['if_doc_fields']), None)
 
     def _experiments_nav() -> bool:
         """Whether the sidebar offers Experimente: module on and the signed-in
@@ -1827,11 +1457,20 @@ def create_app(config_path: Optional[str] = None):
             return False
 
     def _sidebar_context() -> Dict[str, Any]:
-        """Gemeinsame Werte der Plattform-Leiste."""
+        """Gemeinsame Werte der Plattform-Leiste.
+
+        The navigation shows one area (PMVP-11): a page under /admin is in
+        'admin' and gets the Admin pages the person may open; every other page
+        is in 'work' and gets the links to Verwaltung and to the Builder, each
+        only for a person who may open a page there.
+        """
+        admin_pages = _admin_pages()
         return {
             'company_name': login_company_name,
             'feedback_url': feedback_url,
-            'console_url': _console_url(),
+            'nav_area': 'admin' if request.blueprint == 'admin' else 'work',
+            'admin_pages': admin_pages,
+            'console_url': _console_url(admin_pages),
             'cortex_enabled': cortex_enabled,
             'experiments_nav': _experiments_nav(),
             'custom_views_nav': _custom_views_nav(),
@@ -1849,7 +1488,6 @@ def create_app(config_path: Optional[str] = None):
             app_title=web_app_title,
             brand=web_brand,
             csrf_token=_ensure_csrf_token(),
-            companion_enabled=companion_enabled,
             browser_client_open_enabled=browser_client_open_enabled,
             allow_degraded_download_open=_download_open_enabled(),
             open_mapping_configured=_open_mapping_configured(),
@@ -1941,6 +1579,22 @@ def create_app(config_path: Optional[str] = None):
                 'ingestion_enabled': rc_client is not None,
             },
         ))
+
+        # The shell's own page: /styleguide, administrators only (PMVP-10).
+        from web_interface.shell_routes import create_shell_blueprint
+
+        app.register_blueprint(create_shell_blueprint(identity_gate, page_context=lambda: {
+            **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+            'asset_version': _static_asset_version()}))
+
+        # The ask page of the Knovas Assistent: POST /fragen, off unless switched on (PMVP-22a).
+        from web_interface.assistant_routes import install_assistant
+
+        install_assistant(app, client=api_client, identity_gate=identity_gate, split=experiments_search.split,
+                          csrf_valid=_csrf_token_is_valid, grant=_grant_for_current_user,
+                          pdf_preview=lambda: pdf_inline_in_browser, page_context=lambda: {
+                              **_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+                              'csrf_token': _ensure_csrf_token(), 'asset_version': _static_asset_version()})
 
         from builder.publisher import BrainRunnerEngine
         from builder.store import WorkspaceStore
@@ -2194,7 +1848,7 @@ def create_app(config_path: Optional[str] = None):
             ))
 
     def _apply_open_hints(rows: List[Dict[str, Any]]) -> None:
-        """How the browser may open each row's file: client path, UNC, companion.
+        """How the browser may open each row's file: client path or UNC.
 
         Not "and not enrichment_loaded": a mirrored OneDrive corpus has an
         enrichment file and still holds documents with no webUrl, which are
@@ -2213,9 +1867,6 @@ def create_app(config_path: Optional[str] = None):
                             result['client_open_unc'] = targets['unc']
                         if targets.get('path'):
                             result['client_open_path'] = targets['path']
-                    if companion_enabled and _open_mapping_configured():
-                        result['open_via_companion'] = True
-                        result['companion_scheme'] = companion_uri_scheme
 
     def _apply_onedrive_links(rows: List[Dict[str, Any]]) -> None:
         """Only a document that actually resolved to a webUrl can be opened in
@@ -2321,33 +1972,23 @@ def create_app(config_path: Optional[str] = None):
                     'error': f'Suchbegriff muss mindestens {min_qlen} Zeichen haben.',
                 }), 400
 
-            use_test_results = _search_use_test_results()
             plan = doc_fields_routes.search_plan(
                 api_client, where, doc_fields_routes.user_key_for(identity_gate),
-                enabled=not use_test_results,
             )
             if plan.refusal is not None:
                 body, status = plan.refusal
                 return jsonify(body), status
-            if use_test_results:
-                logger.info("Search using local test fixtures (SEARCH_USE_TEST_RESULTS=true)")
+            # exact_match is decided here, after Knovas answers. /secured/query
+            # reads no filters at all (the client leaves them out, spec F7).
+            knovas_filters = {k: v for k, v in (filters or {}).items()
+                              if k not in _LOCAL_ONLY_FILTERS}
 
-                def ask(n: int) -> Dict[str, Any]:
-                    return _build_test_search_results(query=query, limit=n)
-            else:
-                # exact_match is decided here, after Knovas answers. /secured/query
-                # reads no filters at all (the client leaves them out, spec F7);
-                # only the legacy GET forwards them, as query parameters, so a
-                # local-only key stays here.
-                knovas_filters = {k: v for k, v in (filters or {}).items()
-                                  if k not in _LOCAL_ONLY_FILTERS}
-
-                def ask(n: int) -> Dict[str, Any]:
-                    # Document fields: the plan's where/return_fields go out
-                    # with every question, the wider second one included
-                    # (a filtered search is never asked unfiltered, H3).
-                    return doc_fields_routes.run_search(
-                        api_client, plan, query=query, limit=n, filters=knovas_filters)
+            def ask(n: int) -> Dict[str, Any]:
+                # Document fields: the plan's where/return_fields go out
+                # with every question, the wider second one included
+                # (a filtered search is never asked unfiltered, H3).
+                return doc_fields_routes.run_search(
+                    api_client, plan, query=query, limit=n, filters=knovas_filters)
 
             # Experiment documents (Experimente) are taken out for everyone,
             # with the module on or off, pointers in the semantix block
@@ -2355,10 +1996,9 @@ def create_app(config_path: Optional[str] = None):
             # only for people allowed to see them. Knovas is asked for more
             # than the page, so the places they held go to the documents
             # ranked below them rather than being lost; the documents are cut
-            # back to the page here, before anything is granted. The local
-            # fixtures hold no experiment documents and are asked as they are.
+            # back to the page here, before anything is granted.
             results, experiment_hits, has_more = _fetch_search_page(
-                ask, experiments_search.split, limit, over_fetch=not use_test_results)
+                ask, experiments_search.split, limit)
 
             semantix_meta = results.get('semantix')
             if not isinstance(semantix_meta, dict):
@@ -2372,21 +2012,9 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify(body), status
             filtered = plan.where is not None
 
-            is_test_data = use_test_results or (
-                isinstance(results.get('semantix'), dict)
-                and results['semantix'].get('status') == 'test_data'
-            )
-
             enhanced_results = _enhance_search_results(results, file_handler, config, query)
             enrichment_loaded = bool(_unique_enrichment_records())
             _apply_open_hints(enhanced_results.get('results') or [])
-            if is_test_data:
-                _apply_test_open_hints(
-                    enhanced_results.get('results') or [],
-                    browser_client_open_enabled,
-                    companion_enabled,
-                    companion_uri_scheme,
-                )
             # H3: under a filter, the client score thresholds and the filename
             # supplement stay out -- the rows are the ones the filter decided.
             # Without one, both run as always, even when Knovas reports its
@@ -2512,7 +2140,7 @@ def create_app(config_path: Optional[str] = None):
                 'upstream_status': status,
             }), 502
         except Exception as e:
-            logger.error(f"Search error: {e}", exc_info=True)
+            logger.error("Search error: %s", type(e).__name__, exc_info=True)
             return jsonify({
                 'success': False,
                 'error': _GENERIC_ERROR_MESSAGE
@@ -2540,73 +2168,6 @@ def create_app(config_path: Optional[str] = None):
             
         except Exception as e:
             logger.error(f"Error retrieving document: {e}", exc_info=True)
-            return jsonify({
-                'success': False,
-                'error': _GENERIC_ERROR_MESSAGE
-            }), 500
-    
-    @app.route('/api/document/<path:doc_id>/open', methods=['POST'])
-    def open_document(doc_id: str):
-        """
-        Legacy: open on server host (os.startfile). Disabled when companion open is mandatory.
-
-        Prefer POST /api/open-tokens/mint + Semantix Open Companion (UNC, no temp copy).
-        """
-        try:
-            data = request.get_json() or {}
-            file_path = data.get('path')
-
-            if not file_path:
-                return jsonify({
-                    'success': False,
-                    'error': 'Document path required'
-                }), 400
-
-            full_path = _resolve_autodoc_path(file_path)
-            if not full_path:
-                return jsonify({
-                    'success': False,
-                    'error': 'Document path not allowed'
-                }), 400
-
-            if not allow_server_side_startfile:
-                hint = (
-                    'Server-seitiges Öffnen ist deaktiviert. Dateien werden auf dem Client-PC geöffnet.'
-                )
-                if browser_client_open_enabled:
-                    hint += ' Bitte „Öffnen“ in der Suchoberfläche verwenden (Browser-Client-Pfad).'
-                elif companion_enabled:
-                    hint += ' Bitte Companion-Open (POST /api/open-tokens/mint).'
-                return jsonify({
-                    'success': False,
-                    'error': hint,
-                    'use_browser_client_path': browser_client_open_enabled,
-                    'use_companion': companion_enabled,
-                }), 410
-
-            if not os.path.exists(full_path):
-                return jsonify({
-                    'success': False,
-                    'error': 'Document file not found'
-                }), 404
-
-            logger.info(f"Opening document (server-side): {full_path}")
-
-            success = _open_file_external(full_path, config)
-
-            if success:
-                return jsonify({
-                    'success': True,
-                    'message': f'Document opened: {doc_id}'
-                })
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Failed to open document'
-                }), 500
-
-        except Exception as e:
-            logger.error(f"Error opening document: {e}", exc_info=True)
             return jsonify({
                 'success': False,
                 'error': _GENERIC_ERROR_MESSAGE
@@ -2883,7 +2444,7 @@ def create_app(config_path: Optional[str] = None):
     def document_client_path(doc_id: str):
         """
         Return UNC and/or POSIX path for opening on the user's machine (session required).
-        The browser uses this to launch the OS default app — no companion install.
+        The browser uses this to launch the OS default app.
         """
         if not browser_client_open_enabled:
             return jsonify({'success': False, 'error': 'Browser client-path open disabled'}), 503
@@ -2997,160 +2558,6 @@ def create_app(config_path: Optional[str] = None):
             return jsonify({'success': False, 'error': 'Keine Vorschau f\u00fcr dieses Dokument.'}), 502
         return jsonify(body)
 
-    @app.route('/api/open-tokens/mint', methods=['POST'])
-    def open_token_mint():
-        """Mint a short-lived signed token for companion redeem (browser must send CSRF)."""
-        if not companion_enabled:
-            return jsonify({'success': False, 'error': 'Companion open disabled'}), 503
-        if not _open_mapping_configured():
-            return jsonify({
-                'success': False,
-                'error': (
-                    'Open mapping not configured (open.unc_root / open.unc_roots '
-                    'and/or open.client_local_root + open.local_root)'
-                ),
-            }), 503
-        csrf_header = str(request.headers.get('X-CSRF-Token', '') or '')
-        if not _csrf_token_is_valid(csrf_header):
-            return jsonify({'success': False, 'error': 'CSRF token invalid or missing'}), 400
-        try:
-            data = request.get_json() or {}
-            doc_id = str(data.get('doc_id') or '').strip()
-            file_path = data.get('path')
-            if not doc_id or not file_path:
-                return jsonify({'success': False, 'error': 'doc_id and path required'}), 400
-            full_path = _resolve_autodoc_path(str(file_path).strip())
-            if not full_path or not os.path.exists(full_path):
-                return jsonify({'success': False, 'error': 'Document path not allowed or missing'}), 400
-            if not _can_open_via_companion(full_path):
-                return jsonify({'success': False, 'error': 'No open mapping for this file'}), 503
-            rel = str(file_path).strip()
-            # The uniform content gate keys on a doc_id in the URL; this route
-            # carries it in the body, so the wall is applied here explicitly.
-            # Minting is the moment a document leaves the session's protection.
-            subject = ''
-            if identity_gate is not None:
-                minter = identity_gate.current_user()
-                if minter is None:
-                    return jsonify({'success': False, 'error': 'Not found'}), 404
-                subject = str(minter.id)
-                if not document_grants.granted(
-                    subject, doc_id, _rel_path_for_autodoc(str(doc_id))
-                ):
-                    return jsonify({'success': False, 'error': 'Not found'}), 404
-            token = open_token_manager.mint(rel, doc_id, subject=subject)
-            api_base = public_base_url_config or request.url_root.rstrip('/')
-            redeem_url = f"{api_base}/api/open-tokens/redeem"
-            companion_href = (
-                f"{companion_uri_scheme}:open?token={quote(token, safe='')}"
-                f"&apiBase={quote(api_base, safe='')}"
-            )
-            return jsonify({
-                'success': True,
-                'token': token,
-                'redeem_url': redeem_url,
-                'companion_href': companion_href,
-                'doc_id': doc_id,
-            })
-        except Exception as e:
-            logger.error(f"open_token_mint: {e}", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
-
-    @app.route('/api/open-tokens/redeem', methods=['POST'])
-    def open_token_redeem():
-        """
-        Redeem token → UNC and/or client-local path. No login (companion calls with Bearer).
-        """
-        if not companion_enabled:
-            return jsonify({'success': False, 'error': 'Companion open disabled'}), 503
-        try:
-            auth = str(request.headers.get('Authorization', '') or '')
-            token = ''
-            if auth.lower().startswith('bearer '):
-                token = auth[7:].strip()
-            if not token:
-                body = request.get_json(silent=True) or {}
-                token = str(body.get('token') or '').strip()
-            if not token:
-                return jsonify({'success': False, 'error': 'Bearer token required'}), 400
-            payload = open_token_manager.verify_and_consume(token, consume=True)
-            if not payload:
-                return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
-            # This route is exempt from the session and CSRF gates by necessity
-            # -- the companion has no browser session -- which is exactly why it
-            # cannot also be exempt from the wall. Re-check the minting subject
-            # rather than trusting the token alone, so a person whose access was
-            # withdrawn cannot spend a token they were holding.
-            if identity_gate is not None:
-                subject = payload.get('sub') or ''
-                if not subject:
-                    logger.warning("Refusing an open token minted without a subject")
-                    return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
-                if not document_grants.granted(
-                    subject, payload['doc'], _rel_path_for_autodoc(str(payload['doc']))
-                ):
-                    return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
-            full_path = _resolve_autodoc_path(payload['rel'])
-            if not full_path or not os.path.exists(full_path):
-                return jsonify({'success': False, 'error': 'File no longer available'}), 410
-            unc = _unc_for_resolved_path(full_path)
-            client_path = _client_path_for_resolved_path(full_path)
-            if not unc and not client_path:
-                return jsonify({'success': False, 'error': 'No open mapping'}), 503
-            body: Dict[str, Any] = {'success': True}
-            if unc:
-                body['unc'] = unc
-            if client_path:
-                body['path'] = client_path
-            return jsonify(body)
-        except Exception as e:
-            logger.error(f"open_token_redeem: {e}", exc_info=True)
-            return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
-
-    @app.route('/api/open-tokens/spec', methods=['GET'])
-    def open_tokens_spec():
-        """Minimal OpenAPI 3 description for mint/redeem (unauthenticated read)."""
-        spec = {
-            'openapi': '3.0.3',
-            'info': {
-                'title': 'DocBridge open tokens',
-                'version': '1.0.0',
-            },
-            'paths': {
-                '/api/open-tokens/mint': {
-                    'post': {
-                        'summary': 'Mint signed open token (session + X-CSRF-Token)',
-                        'requestBody': {
-                            'required': True,
-                            'content': {
-                                'application/json': {
-                                    'schema': {
-                                        'type': 'object',
-                                        'required': ['doc_id', 'path'],
-                                        'properties': {
-                                            'doc_id': {'type': 'string'},
-                                            'path': {
-                                                'type': 'string',
-                                                'description': 'Relative path under AutoDoc root',
-                                            },
-                                        },
-                                    }
-                                }
-                            },
-                        },
-                        'responses': {'200': {'description': 'token payload'}},
-                    }
-                },
-                '/api/open-tokens/redeem': {
-                    'post': {
-                        'summary': 'Redeem token for UNC (Authorization: Bearer)',
-                        'responses': {'200': {'description': '{success, unc}'}},
-                    }
-                },
-            },
-        }
-        return jsonify(spec)
-
     @app.route('/api/health', methods=['GET'])
     def health():
         """Health check endpoint."""
@@ -3173,7 +2580,6 @@ def create_app(config_path: Optional[str] = None):
             js_flags = {
                 'onedrive_external_open': 'externalOpenHref' in js_text,
                 'match_locations': '_buildMatchLocationsHtml' in js_text,
-                'open_document_legacy_shim': 'pathOrBrowserFlag' in js_text,
             }
         except OSError:
             js_flags = {'readable': False}
@@ -3289,6 +2695,15 @@ def create_app(config_path: Optional[str] = None):
         # Once a sync from GitHub succeeded, the views read its bundle unless a source is configured (KC-0.2).
         defaults={'views.config_source': lambda: _sync_default()})
     app.extensions['platform_settings'] = settings_resolver
+
+    # External agents' signed claims for the Core's MCP gateway (RB-7, CR-R5): app.extensions['agents'] and the
+    # job that pushes them every minute in one worker, behind agents.core_gateway (off by default). Nothing is sent
+    # at start. Only with accounts on: agents are members of roles.
+    if identity_gate is not None:
+        from identity.agent_delivery import install_agent_delivery
+
+        install_agent_delivery(app, gate=identity_gate, client=api_client, signer=broker_signer,
+                               tenant_id=str(api_client.customer_id), settings=settings_resolver)
 
     # Sync from GitHub (KC-0.2): the tenant's Brain from its knowledge base through the installed brain-runner
     # package, read-only token from the settings, written with the tenant's certificate. Per tenant storage under
@@ -3461,6 +2876,15 @@ def create_app(config_path: Optional[str] = None):
             csrf_valid=_csrf_token_is_valid,
         ))
 
+    # Brain views (PMVP-30a): the dossier of one thing, read as the person signed in; off unless brain_views.enabled.
+    from web_interface.brain_views_routes import create_brain_views_blueprint
+    app.register_blueprint(create_brain_views_blueprint(
+        identity_gate, client=lambda: api_client, settings=lambda: settings_resolver, grant=_grant_for_current_user,
+        split=experiments_search.split, enhance=_enhance_listing_rows, pdf_inline=pdf_inline_in_browser,
+        download_allowed=_download_open_enabled,
+        page_context=lambda: {**_sidebar_context(), 'app_title': web_app_title, 'brand': web_brand,
+                              'asset_version': _static_asset_version()}))
+
     @app.route('/api/ontology/summary', methods=['GET'])
     def ontology_summary():
         try:
@@ -3470,6 +2894,8 @@ def create_app(config_path: Optional[str] = None):
                             'types': payload['types'],
                             'relations': payload['relations']})
         except Exception:
+            # The traceback names no URL, query or id of a failed Knovas call: the client raises its errors with the
+            # route's template only (RB-FIX-2); the routes below log no path id of their own either.
             logger.error("Ontology summary error", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
@@ -3502,7 +2928,7 @@ def create_app(config_path: Optional[str] = None):
                     detail['doc_field_links'] = links
             return jsonify({'success': True, **detail})
         except Exception:
-            logger.error("Ontology entity detail error for %s", entity_id, exc_info=True)
+            logger.error("Ontology entity detail error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     # Kuratieren: Der Wissensgraph wird vom Anwender gepflegt, Knovas leitet
@@ -3646,7 +3072,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Typ nicht gespeichert'}), 404
             return jsonify({'success': True, 'type': updated})
         except Exception:
-            logger.error("Ontology type update error for %s", type_id, exc_info=True)
+            logger.error("Ontology type update error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/types/<type_id>', methods=['DELETE'])
@@ -3656,7 +3082,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Typ nicht gefunden'}), 404
             return jsonify({'success': True})
         except Exception:
-            logger.error("Ontology type delete error for %s", type_id, exc_info=True)
+            logger.error("Ontology type delete error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['PATCH'])
@@ -3673,7 +3099,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Entität nicht gespeichert'}), 404
             return jsonify({'success': True, 'entity': updated})
         except Exception:
-            logger.error("Ontology entity update error for %s", entity_id, exc_info=True)
+            logger.error("Ontology entity update error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/entities/<entity_id>', methods=['DELETE'])
@@ -3683,7 +3109,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Entität nicht gefunden'}), 404
             return jsonify({'success': True})
         except Exception:
-            logger.error("Ontology entity delete error for %s", entity_id, exc_info=True)
+            logger.error("Ontology entity delete error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     # Filter (Req 2.2): echtes Passagen-Matching + permanente Rejection-
@@ -3720,7 +3146,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Filter nicht gefunden'}), 404
             return jsonify({'success': True, **detail})
         except Exception:
-            logger.error("Ontology filter detail error for %s", filter_id, exc_info=True)
+            logger.error("Ontology filter detail error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     @app.route('/api/ontology/filters/<filter_id>/decision', methods=['POST'])
@@ -3738,7 +3164,7 @@ def create_app(config_path: Optional[str] = None):
                 return jsonify({'success': False, 'error': 'Vorschlag nicht gefunden'}), 404
             return jsonify({'success': True, 'proposal': proposal})
         except Exception:
-            logger.error("Ontology filter decision error for %s", filter_id, exc_info=True)
+            logger.error("Ontology filter decision error (route id not logged)", exc_info=True)
             return jsonify({'success': False, 'error': _GENERIC_ERROR_MESSAGE}), 500
 
     return app
@@ -3772,19 +3198,6 @@ _LOCAL_ONLY_FILTERS = frozenset({'exact_match'})
 # /secured/query answers 422 above 50 (query_pipeline.py); "Mehr laden"
 # doubled past it and every second page failed.
 _SEARCH_LIMIT_MAX = 50
-
-
-def _clamp_search_limit(raw: Any, default: int) -> int:
-    """The browser's ``limit`` as an int in 1..50; the default when it is
-    not a number."""
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        try:
-            value = int(default)
-        except (TypeError, ValueError):
-            value = 20
-    return max(1, min(_SEARCH_LIMIT_MAX, value))
 
 
 def _search_result_haystack(result: Dict[str, Any]) -> str:
@@ -4366,7 +3779,6 @@ def _apply_external_open_mode(result: Dict[str, Any], url: str) -> None:
     result["can_open"] = True
     result["open_mode"] = "external"
     result.pop("open_via_browser", None)
-    result.pop("open_via_companion", None)
     result.pop("client_open_unc", None)
     result.pop("client_open_path", None)
 
@@ -4628,40 +4040,6 @@ def _enhance_search_results(
             )
 
     return enhanced_results
-
-
-def _open_file_external(file_path: str, config) -> bool:
-    """
-    Open file with external application.
-    
-    Args:
-        file_path: Path to file
-        config: Configuration object
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        system = platform.system()
-        
-        external_app = config.get('web.document_handler.external_app')
-        
-        if external_app and os.path.exists(external_app):
-            subprocess.Popen([external_app, file_path])
-            return True
-        
-        if system == 'Windows':
-            os.startfile(file_path)
-        elif system == 'Darwin':
-            subprocess.Popen(['open', file_path])
-        else:
-            subprocess.Popen(['xdg-open', file_path])
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error opening file externally: {e}")
-        return False
 
 
 def main():

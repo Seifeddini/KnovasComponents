@@ -232,7 +232,7 @@ def search_plan(client: Any, where: Optional[Dict[str, Any]], user_key: Any, *,
     """H1: ``where`` only under ``filters``; ``return_fields`` under
     ``filters`` and ``listing_only``, from ``card_return_fields``.
 
-    ``enabled=False`` (the local test fixtures) treats the feature as off.
+    ``enabled=False`` treats the feature as off.
     A filter the capability cannot carry is refused here, before anything is
     sent. A registry that cannot be read leaves ``return_fields`` out: the
     search still runs (``fields_unavailable``), and a filter still goes out

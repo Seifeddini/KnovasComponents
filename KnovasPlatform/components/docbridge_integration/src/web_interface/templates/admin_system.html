@@ -10,6 +10,7 @@
 </head>
 <body class="admin-page">
 <div class="app-shell">
+{% set admin_tab = 'system' %}
 {% include '_sidebar.html' %}
 <div class="app-content">
 
@@ -26,9 +27,6 @@
             </p>
         </div>
     </header>
-
-    {% set admin_tab = 'system' %}
-    {% include '_admin_tabs.html' %}
 
     <div class="status-banner status-{{ summary.state }}">
         <span class="status-dot" aria-hidden="true"></span>

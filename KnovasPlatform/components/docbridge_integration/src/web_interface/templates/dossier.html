@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="de">
+{# The dossier (PMVP-30a, plan B-02, B-04): what the Brain knows about one thing, for a member of the Workspace.
+   brain_views_routes.py hands in `dossier` (brain_views.dossier.Dossier), the tabs, and every address, built there
+   with url_for: open_href (by a document's pointer: the route that opens it by its place in the list) and ref_href
+   (another thing's dossier, by its id). Without a dossier the page is one message (message_title, message). Nothing
+   here makes an address out of what the Brain or a document says, and nothing is marked safe: names, values and
+   pointers reach the page as text. Built from the page parts (_parts.html); brain_views.css holds the little the
+   parts do not (the fact line, the fact that opens its source, the list's form and pages), with tokens only.
+   PMVP-30b: one tab per kind of related thing with its count; `kind` and `listing` (the list's page, form fields
+   and page links) for a kind's list and for «Dokumente»; `near_failed` when the related things could not be read.
+   PMVP-32a: `running` (the step the thing is in, its process and the address of its line) for the card «Läuft
+   gerade» on the Überblick. The marks of PMVP-34: data-bv-node on what is drawn (the thing, the card that stands for
+   its step), data-bv-row on each row of a list. #}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if dossier %}{{ dossier.name }}{% else %}{{ message_title or "Akte" }}{% endif %} · {{ brand }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/brain_views.css') }}?v={{ asset_version }}">
+</head>
+<body>
+{% import "_parts.html" as parts %}
+{% import "_brain_views_list.html" as lists %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+
+    <div class="app-content">
+        <main class="bv-main">
+        {% call parts.page() %}
+            {% if not dossier %}
+            {{ parts.page_head(message_title or "Akte nicht geladen", lede=message or "Der Brain hat gerade nicht geantwortet. Bitte versuchen Sie es in einem Moment noch einmal.") }}
+            {% else %}
+            <div data-bv-node>{{ parts.page_head(dossier.name, eyebrow=dossier.kind, lede=dossier.description) }}</div>
+            {{ parts.tabs(tabs, tab) }}
+            {% if near_failed %}
+            <p class="bv-unavailable k-muted k-small" role="status">Verbundene Einträge sind gerade nicht verfügbar.</p>
+            {% endif %}
+
+            {% if tab == 'dokumente' %}
+            {% call parts.section("Dokumente") %}
+                {% if dossier.documents %}
+                {{ lists.list_form(listing, "Dokumente") }}
+                {% if listing.page.items %}
+                <div class="bv-list">
+                    {% for document in listing.page.items %}
+                    {% call parts.rowline() %}
+                    <div class="bv-doc" data-bv-row>
+                        <span class="bv-doc-name">{{ document.name }}</span>
+                        {% if document.folder %}<span class="bv-doc-folder k-muted k-small">{{ document.folder }}</span>{% endif %}
+                    </div>
+                    {{ parts.link("Öffnen", open_href[document.pointer]) }}
+                    {% endcall %}
+                    {% endfor %}
+                </div>
+                {{ lists.list_pages(listing) }}
+                {% else %}
+                <p class="bv-empty k-muted k-small">Kein Eintrag passt zu diesem Filter.</p>
+                {% endif %}
+                {% else %}
+                <p class="k-muted k-small">Diesem Eintrag ist kein Dokument zugeordnet, das Sie öffnen können.</p>
+                {% endif %}
+            {% endcall %}
+            {% elif kind %}
+            {% call parts.section(kind.name) %}
+                {{ lists.list_form(listing, kind.name) }}
+                {% if listing.rows %}
+                <div class="bv-list">
+                    {% for row in listing.rows %}
+                    {% call parts.rowline() %}
+                    <div class="bv-thing" data-bv-row>
+                        {{ parts.link(row.name, row.href, dotted=True) }}
+                        {% if row.relation %}<span class="bv-thing-relation k-muted k-small">{{ row.relation }}</span>{% endif %}
+                    </div>
+                    <span class="bv-thing-open k-muted" aria-hidden="true">→</span>
+                    {% endcall %}
+                    {% endfor %}
+                </div>
+                {{ lists.list_pages(listing) }}
+                {% else %}
+                <p class="bv-empty k-muted k-small">Kein Eintrag passt zu diesem Filter.</p>
+                {% endif %}
+            {% endcall %}
+            {% else %}
+            {% if running %}
+            {% call parts.card(now=True) %}
+            <div class="bv-running" data-bv-node>
+                <div>
+                    <h2 class="bv-running-head k-section-title">Läuft gerade</h2>
+                    {{ parts.link(running.step, running.href) }}{% if running.process %}<span class="k-muted k-small"> · Ablauf «{{ running.process }}»</span>{% endif %}
+                </div>
+                <span class="k-muted" aria-hidden="true">→</span>
+            </div>
+            {% endcall %}
+            {% endif %}
+            {% call parts.section("Angaben") %}
+                {% if dossier.facts %}
+                <div class="bv-facts">
+                    {% for fact in dossier.facts %}
+                    {% if fact.source %}
+                    <details class="bv-fact" data-fact="{{ fact.id }}">
+                        <summary class="bv-fact-summary">
+                            {% call parts.rowline() %}
+                            <div class="bv-fact-line" data-bv-row>
+                                <span class="bv-fact-label">{{ fact.label }}</span>
+                                <span class="bv-fact-value">{{ fact.value }}</span>
+                            </div>
+                            <span class="bv-fact-open" aria-hidden="true">›</span>
+                            {% endcall %}
+                        </summary>
+                        <div class="bv-source">
+                            {% call parts.card() %}
+                            <p class="bv-source-head k-muted k-small">Quelle</p>
+                            <p class="bv-source-doc">{{ parts.link(fact.source.name, open_href[fact.source.pointer]) }}</p>
+                            {% if fact.source.folder %}<p class="bv-doc-folder k-muted k-small">{{ fact.source.folder }}</p>{% endif %}
+                            {% endcall %}
+                        </div>
+                    </details>
+                    {% else %}
+                    <div class="bv-fact" data-fact="{{ fact.id }}">
+                        {% call parts.rowline() %}
+                        <div class="bv-fact-line" data-bv-row>
+                            <span class="bv-fact-label">{{ fact.label }}</span>
+                            <span class="bv-fact-value">{% if fact.ref_node_id %}{{ parts.link(fact.value, ref_href[fact.ref_node_id], dotted=True) }}{% else %}{{ fact.value }}{% endif %}</span>
+                        </div>
+                        {{ parts.tag("ohne Beleg", kind="warn") }}
+                        {% endcall %}
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                <p class="bv-note k-muted k-small">Ein Klick auf eine Angabe zeigt das Dokument, aus dem sie stammt.
+                    «ohne Beleg» heisst: Zu dieser Angabe ist hier keine Stelle in einem Dokument hinterlegt, die Sie öffnen können.</p>
+                {% else %}
+                <p class="k-muted k-small">Zu diesem Eintrag sind keine Angaben hinterlegt.</p>
+                {% endif %}
+            {% endcall %}
+            {% endif %}
+            {% endif %}
+        {% endcall %}
+        </main>
+    </div>
+</div>
+</body>
+</html>

@@ -174,22 +174,25 @@ class TestTheWindow:
         page = firm["http"].get(f"/builder/zugriff?person={firm['partner'].id}").get_data(as_text=True)
         assert page.count("is-lit") == 3        # Partner, Meier, Huber
 
-    def test_switching_enforcement_takes_a_second_administrator(self, firm):
+    def test_the_builder_no_longer_records_a_switch_request(self, firm):
+        """PMVP-42 (FU-20): one administrator switches under Verwaltung › Zugriff; the Builder's request and its
+        approval answer 410 and record nothing (the store and its table stay)."""
         http = firm["http"]
-        assert http.post("/builder/api/access/posture", json={"mode": "enforcing"}).status_code == 201
-        [req] = firm["store"].posture_requests(TENANT)
-        assert http.post(f"/builder/api/access/posture/{req['id']}/approve").status_code == 403
+        for mode in ("enforcing", "disabled"):
+            answer = http.post("/builder/api/access/posture", json={"mode": mode})
+            assert answer.status_code == 410 and "Verwaltung › Zugriff" in answer.get_json()["error"]
         firm["gate"].user = firm["second"]
-        assert http.post(f"/builder/api/access/posture/{req['id']}/approve").status_code == 200
-        assert firm["store"].posture_requests(TENANT)[0]["approved_by_name"] == "Bruno Zweitadmin"
+        assert http.post("/builder/api/access/posture/any-request/approve").status_code == 410
+        assert firm["store"].posture_requests(TENANT) == []
 
-    def test_enforcing_waits_for_the_backfill(self, firm):
-        firm["brain"].posture_state["backfill_complete"] = False
-        firm["http"].post("/builder/api/access/posture", json={"mode": "enforcing"})
-        [req] = firm["store"].posture_requests(TENANT)
-        firm["gate"].user = firm["second"]
-        answer = firm["http"].post(f"/builder/api/access/posture/{req['id']}/approve")
-        assert answer.status_code == 409 and "Nachführung" in answer.get_json()["error"]
+    def test_the_posture_part_shows_the_position_read_only(self, firm):
+        """PMVP-42: the part «Durchsetzung» names the position the Core reports and points to Verwaltung › Zugriff;
+        it offers no switch of its own."""
+        for mode, words in (("disabled", "«Aus»"), ("brokered", "«Ein»"), ("enforcing", "eine Ausnahme")):
+            firm["brain"].posture_state["mode"] = mode
+            page = firm["http"].get("/builder/zugriff").get_data(as_text=True)
+            assert f'data-ax-mode="{mode}"' in page and words in page, mode
+            assert "data-ax-posture=" not in page and "Verwaltung › Zugriff" in page
 
     def test_the_live_tree_is_for_administrators_only(self, firm):
         firm["gate"].user = StandInUser({"builder_author"})

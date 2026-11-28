@@ -160,17 +160,6 @@ def test_split_with_another_prefix_keeps_foreign_experiment_pointers():
     assert hits == [] and len(cleaned["results"]) == 1
 
 
-def test_split_of_the_local_test_fixtures_payload():
-    """The app's SEARCH_USE_TEST_RESULTS payload must pass through untouched."""
-    from web_interface.app import _build_test_search_results
-
-    payload = _build_test_search_results("vertrag", 5)
-    cleaned, hits = integration().split(payload)
-    assert hits == []
-    assert cleaned["results"] == payload["results"]
-    assert cleaned["semantix"] == payload["semantix"]
-
-
 # -- rows ----------------------------------------------------------------------------------
 
 

@@ -1,0 +1,34 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><link rel="stylesheet" href="assets/knovas-fonts.css"><link rel="stylesheet" href="assets/knovas-tokens.css"><link rel="stylesheet" href="app.css">
+<style>
+.stage{position:relative;width:400px;height:430px;flex:none}
+.stage svg{position:absolute;inset:0}
+.bub{position:absolute;transform:translate(-50%,-50%);font-size:.8rem;color:var(--k-gray-600);line-height:1.25;width:130px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.bub.up{flex-direction:column-reverse}
+.bub b{display:grid;place-items:center;width:58px;height:58px;border-radius:50%;background:#fff;border:1.5px solid var(--k-color-border-strong);font-size:1.15rem;color:var(--k-navy);font-weight:600}
+.bub.on{color:var(--k-blue);font-weight:600}
+.bub.on b{background:var(--k-blue);border-color:var(--k-blue);color:#fff;box-shadow:0 0 0 6px var(--k-color-accent-soft)}
+.mid{position:absolute;left:200px;top:205px;transform:translate(-50%,-50%);background:var(--k-navy);color:#fff;border-radius:var(--k-radius-full);padding:9px 16px;font-size:.84rem;font-weight:600;white-space:nowrap}
+.who2{font-size:.98rem;color:var(--k-navy);font-weight:600}
+</style></head><body data-area="work" data-on="Kündigung Mietvertrag Seefeldstrasse">
+<main><div class="wrap wide">
+  <div><span class="eyebrow">Vertrag</span><h1>Mietvertrag Seefeldstrasse 48</h1><p class="lede">Was hängt damit zusammen?</p></div>
+  <div style="display:flex;gap:28px;align-items:center">
+    <div class="stage">
+      <svg viewBox="0 0 400 430" fill="none" stroke="#CBD5E1" stroke-width="1.5"><path d="M200 205L200 58M200 205L338 122M200 205L338 288M200 205L200 352M200 205L62 288M200 205L62 122"/><path d="M200 205L200 58" stroke="#2C4AC2" stroke-width="2"/></svg>
+      <div class="bub on up" style="left:200px;top:56px"><b>2</b>Parteien</div>
+      <div class="bub" style="left:338px;top:130px"><b>2</b>Nachträge</div>
+      <div class="bub" style="left:338px;top:296px"><b>1</b>Mandat</div>
+      <div class="bub" style="left:200px;top:366px"><b>12</b>Ähnliche Verträge</div>
+      <div class="bub" style="left:62px;top:296px"><b>30</b>Dokumente</div>
+      <div class="bub" style="left:62px;top:130px"><b>6</b>Personen</div>
+      <span class="mid">Mietvertrag</span>
+    </div>
+    <div class="card" style="flex:1;min-width:0">
+      <h2>Parteien · 2</h2>
+      <div class="rowline"><div><div class="who2">Limmat Immobilien AG</div><div class="muted small">Vermieterin</div></div><span class="muted">→</span></div>
+      <div class="rowline"><div><div class="who2">Seefeld Gastro GmbH</div><div class="muted small">Mieterin</div></div><span class="muted">→</span></div>
+    </div>
+  </div>
+  <p class="small muted" style="margin-top:-6px">Ein Kreis steht für eine Gruppe. Ein Klick zeigt, was darin ist. <span class="link">Verbindung zu einem anderen Eintrag suchen</span></p>
+</div></main>
+<script src="shell.js"></script></body></html>

@@ -94,6 +94,14 @@ def _repo_path(value: str) -> None:
         raise SettingError(f"{value!r}: ein Pfad im Repository zur brain-config.yaml (relativ, ohne ..).")
 
 
+def _gateway_url(value: str) -> None:
+    from assistant.providers import brain_mcp_url_problem
+
+    problem = brain_mcp_url_problem(value)
+    if problem:
+        raise SettingError(problem)
+
+
 def _bundle_source(value: str) -> None:
     from graph_views.bundle import BundleError, parse_source
 
@@ -168,6 +176,77 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
             "Liest das Definitionsbündel und öffnet Änderungsanträge. Rechte: Contents und Pull requests auf "
             "dem Repository der Wissensbasis, sonst nichts. Wird nur geschrieben, nie angezeigt.",
             "secret", "tenant", env=("KB_GITHUB_TOKEN",), file_key="views.change_requests.github_token_file"),
+    # The Knovas Assistent (PMVP-25): the switch and the language model the customer chooses. Read through the
+    # Resolver per request (src/assistant/core.py make_service), so a change applies without a restart.
+    Setting("assistant.enabled", "Knovas Assistent",
+            "an oder aus (Standard: aus). Aus: Der Knovas Assistent beantwortet nichts, und seine Seiten weisen "
+            "Fragen ab.",
+            "choice", "installation", env=("ASSISTANT_ENABLED",), choices=("aus", "an"), fallback="aus"),
+    Setting("assistant.provider", "Sprachmodell des Knovas Assistenten",
+            "Wer die Antworten schreibt. knovas (Standard): das Sprachmodell der Knovas-Instanz. anthropic: Claude von "
+            "Anthropic, mit dem Schlüssel unten; dann gehen die Frage, der bisherige Chat und die Textstellen, die "
+            "die Suche der fragenden Person geliefert hat, an Anthropic, sonst nichts.",
+            "choice", "installation", env=("ASSISTANT_PROVIDER",), choices=("knovas", "anthropic"),
+            fallback="knovas"),
+    Setting("assistant.model", "Claude-Modell des Knovas Assistenten",
+            "Nur mit anthropic. Preise von Anthropic je Million Tokens (Eingabe / Ausgabe, US-Dollar, Stand November "
+            "2026): claude-opus-5-5 4 / 20, der Standard und am genauesten; claude-sonnet-5-5 2 / 10; "
+            "claude-haiku-5-5 0,10 / 0,50, am g\u00fcnstigsten; claude-haiku-4-5 1 / 5, \u00e4ltere Generation, zum "
+            "Vergleich mit einem kleineren Modell.",
+            "choice", "installation", env=("ASSISTANT_MODEL",),
+            choices=("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-haiku-4-5"),
+            fallback="claude-opus-5-5"),
+    Setting("assistant.anthropic_api_key", "Schlüssel für die Claude API (Knovas Assistent)",
+            "Nur mit anthropic. Ein eigener Schlüssel, nicht der des Ansichten-Assistenten: Dieser hier bekommt "
+            "Textstellen aus den Dokumenten des Mandanten. Wird nur geschrieben, nie angezeigt. „Verbindung testen“ "
+            "schickt eine erfundene Frage, nie einen Text des Mandanten.",
+            "secret", "installation"),
+    # \u00abBrain-Werkzeuge\u00bb (PMVP-20 brain-mcp): Claude reads the Brain itself through the Knovas MCP gateway, with the
+    # company's gateway key (src/assistant/brain_tools.py). Only with anthropic; the settings page warns under the mode.
+    # \u00abWissensgraph\u00bb (PMVP-20 brain-graph): Claude reads the tenant's knowledge graph with tools the Platform runs
+    # (src/assistant/brain_graph.py, graph_reads.py). Only with anthropic; the same warning line names it.
+    Setting("assistant.mode", "Antwortweise des Knovas Assistenten",
+            "passages (Standard): Der Knovas Assistent sucht mit den Rechten der fragenden Person und gibt dem "
+            "Sprachmodell die gefundenen Textstellen. brain_mcp (\u00abBrain-Werkzeuge\u00bb): Claude sucht und liest selbst "
+            "\u00fcber das MCP-Gateway von Knovas, mit dem Gateway-Schl\u00fcssel unten; nur mit anthropic. brain_graph "
+            "(\u00abWissensgraph\u00bb): Claude liest den Wissensgraphen Ihres Unternehmens (z\u00e4hlen, vollst\u00e4ndige Listen, "
+            "Pr\u00fcfungen \u00fcber alle Eintr\u00e4ge) und sucht in den Dokumenten; die Plattform f\u00fchrt die Abfragen mit "
+            "dem Zertifikat des Unternehmens aus; nur mit anthropic.",
+            "choice", "installation", env=("ASSISTANT_MODE",), choices=("passages", "brain_mcp", "brain_graph"),
+            fallback="passages"),
+    Setting("assistant.brain_mcp_url", "Adresse des Knovas-Gateways (Brain-Werkzeuge)",
+            "Nur mit brain_mcp. Das MCP-Gateway von Knovas, das Claude f\u00fcr Sie aufruft (Standard: "
+            "https://mcp.knovas.ch/mcp). Nur https und nur Adressen unter knovas.ch: Anthropic schickt den "
+            "Gateway-Schl\u00fcssel an diese Adresse.",
+            "text", "installation", env=("ASSISTANT_BRAIN_MCP_URL",), check=_gateway_url,
+            fallback="https://mcp.knovas.ch/mcp"),
+    Setting("assistant.brain_mcp_key", "Schl\u00fcssel des Knovas-Gateways (Brain-Werkzeuge)",
+            "Nur mit brain_mcp. Der Gateway-Schl\u00fcssel Ihres Unternehmens (knovas_gw_\u2026), von Knovas ausgegeben. "
+            "Anthropic bekommt ihn mit jeder Frage, um das Gateway aufzurufen. Wird nur geschrieben, nie angezeigt.",
+            "secret", "installation"),
+    # <<Ohne Beleg>> (the founder, 2026-11-28): the statements the check removed, shown apart and marked under an
+    # answer. Read per request by web_interface/assistant_routes.py (stored only while on, shown only while on).
+    Setting("assistant.show_unchecked", "Nicht belegte Aussagen anzeigen",
+            "an oder aus (Standard: aus). An: Aussagen, die die Pr\u00fcfung nicht bestanden haben (Quelle, w\u00f6rtliches "
+            "Zitat oder Zahl nicht in der Quelle gefunden), erscheinen unter der Antwort getrennt im zugeklappten "
+            "Block \u00abOhne Beleg\u00bb, als \u00abnicht belegt\u00bb markiert und mit dem Grund; sie sind nie Teil der "
+            "Antwort und \u00f6ffnen kein Dokument. Aus: Sie werden wie bisher nur gez\u00e4hlt, nicht gespeichert und "
+            "nicht angezeigt.",
+            "choice", "installation", env=("ASSISTANT_SHOW_UNCHECKED",), choices=("aus", "an"), fallback="aus"),
+    # External agents (RB-7): the Platform hands the Core's MCP gateway each external agent's signed claims
+    # (identity/agent_delivery.py), read through the Resolver on every push. Off until the Core has CR-R5 and, on a
+    # client's installation, until enforcement is «Ein» (founder, 2026-11-21: "only after «Ein»").
+    Setting("agents.core_gateway", "Agenten über das Knovas-Gateway",
+            "an oder aus (Standard: aus). An: Die Plattform gibt dem MCP-Gateway von Knovas jede Minute die "
+            "signierten Rechte jedes externen Agenten (je 20, gültig höchstens 5 Minuten). Erst einschalten, wenn "
+            "Knovas das unterstützt und die Rechte bei Knovas wirken («Ein»). Aus: Externe Agenten lesen über das "
+            "Gateway nichts.",
+            "choice", "installation", env=("AGENTS_CORE_GATEWAY",), choices=("aus", "an"), fallback="aus"),
+    # Brain views (PMVP-30a): the members' dossier. Off by default; "an" or BRAIN_VIEWS_ENABLED=true switches it on.
+    Setting("brain_views.enabled", "Brain-Ansichten (Dossier)",
+            "Zeigt Mitgliedern unter /dossier/<id> die Angaben und Dokumente zu einem Eintrag des Brain, gelesen "
+            "mit ihren eigenen Rechten. Aus: die Adresse antwortet 404.",
+            "choice", "installation", env=("BRAIN_VIEWS_ENABLED",), choices=("aus", "an"), fallback="aus"),
 )}
 
 

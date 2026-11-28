@@ -246,32 +246,6 @@ services:
     networks:
       - knovas-internal
 
-  # Offline demo API, so the search UI can be shown without a Knovas tenant.
-  # Profile-gated: `docker compose --profile mock up -d --build`, never part of
-  # a default start. See KnovasPlatform/docs/demo.md.
-  knovas-mock:
-    build:
-      context: ./KnovasPlatform/mock_knovas_api
-      dockerfile: Dockerfile
-    environment:
-      # Which Knovas document-fields state the mock plays: off (an old server,
-      # the default), values or filters. The compose demo runs the Platform in
-      # legacy mode, which never reaches doc fields; the tests use the modes.
-      MOCK_DOC_FIELDS: ${MOCK_DOC_FIELDS:-off}
-    expose:
-      - "5000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
-      timeout: 10s
-      interval: 20s
-      retries: 5
-      start_period: 5s
-    restart: unless-stopped
-    profiles:
-      - mock
-    networks:
-      - knovas-internal
-
   # Sandbox for user-written Python and Julia evaluators of the Experiments
   # module (Experimente). Profile-gated: COMPOSE_PROFILES=experiments in
   # knovas.env (plus EXPERIMENTS_RUNNER_URL, see knovas.env.example) builds

@@ -136,10 +136,6 @@ def normal_cdf(x) -> float:
     return 0.5 * math.erfc(-x / _SQRT2)
 
 
-def _normal_sf(x: float) -> float:
-    return 0.5 * math.erfc(x / _SQRT2)
-
-
 def _poly(coefficients: Sequence[float], r: float) -> float:
     total = 0.0
     for c in coefficients:

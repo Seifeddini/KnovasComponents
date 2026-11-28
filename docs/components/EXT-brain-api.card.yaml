@@ -70,7 +70,8 @@ operations:
   entrance: http
   ref: /secured/graph/{path}
 - id: access-routes
-  name: /secured/access_groups, /secured/folder_rules and the RBAC posture - the access window's backend
+  name: /secured/access_groups, /secured/folder_rules and the RBAC posture (GET and PUT /secured/rbac/posture, CR-R1a
+    and CR-R8; the client's rbac_posture and set_rbac_posture, PMVP-42) - the access window's backend
   entrance: http
   ref: /secured/access_groups
 - id: ingest-routes
@@ -175,7 +176,10 @@ contract:
     promises:
     - id: EXT-BRAIN-API/access-routes/P-1
       statement: Lists, creates, renames, deletes and moves (PATCH with parent) access groups and folder rules; a Brain
-        that cannot move groups answers so (move_unsupported).
+        that cannot move groups answers so (move_unsupported). Once CR-R1a and CR-R8 are built, GET /secured/rbac/posture
+        reports the tenant's mode, not_ready and tenant_switch, and PUT /secured/rbac/posture switches brokered or
+        disabled for the tenant or refuses with 409 and a short error_code (no_broker_key, backfill_incomplete,
+        rights_runs_missing); until then both answer 404, which the client reads as None.
       risk_class: standard
   ingest-routes:
     promises:
@@ -195,3 +199,7 @@ review:
 - at: /operations
   why: Aggregated where this repository relies on a family of routes (graph, access, ingest); the Brain's card lists
     them one by one.
+- at: EXT-BRAIN-API/access-routes/P-1
+  why: 'Changed for PMVP-42 (2026-11-22): the posture read and the tenant''s own switch (CR-R1a, CR-R8) that the client
+    now calls; both routes are requests to the Core (docs/platform-mvp/core-requests.md), not yet built. A person marks
+    the change compatible or not.'

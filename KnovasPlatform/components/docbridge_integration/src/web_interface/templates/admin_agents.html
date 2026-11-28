@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agenten · {{ app_title }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ asset_version }}">
+</head>
+<body class="admin-page">
+<div class="app-shell">
+{% set admin_tab = 'agents' %}
+{% include '_sidebar.html' %}
+<div class="app-content">
+{% import "_parts.html" as parts %}
+{# RB-7 (plan FEAT-2026-11-19-platform-mvp), in the look of PMVP-40: one column of the shared page parts. An agent is
+   a member of roles that is not a person: the Knovas Assistent, or an external agent an administrator registers
+   here. Whom it acts for, its id (Knovas binds the gateway key to it, CR-R6) and its roles; it joins roles on the
+   role page. The Platform holds no agent key: nothing on this page is a secret. #}
+
+<main class="admin admin-column">
+{% call parts.page(wide=True) %}
+    <div class="k-head">
+        <div class="admin-head-text">
+            {{ parts.page_head("Agenten", lede="Agenten sind Mitglieder von Rollen, die keine Personen sind: der Knovas Assistent und externe Agenten wie Claude Code oder Copilot. Ein Agent liest, was seine Rollen erlauben; handelt er für eine Person, nur, was auch diese Person lesen darf.") }}
+        </div>
+        {{ parts.link("Agent registrieren", "#create-agent") }}
+    </div>
+
+    {% if error %}<p class="msg error" role="alert">{{ error }}</p>{% endif %}
+    {% if notice %}<p class="msg ok" role="status">{{ notice }}</p>{% endif %}
+    {% if created %}
+    <div class="msg ok agent-created" role="status">
+        <p>Kennung des Agenten: <code>{{ created }}</code></p>
+        <p class="k-small">Knovas stellt den Schlüssel für das MCP-Gateway (<code>https://mcp.knovas.ch/mcp</code>)
+            für diese Kennung aus: Schicken Sie sie Knovas. Wie Sie den Agenten damit verbinden, steht in
+            <code>{{ how_to_connect }}</code>. Die Plattform kennt den Schlüssel nie.</p>
+    </div>
+    {% endif %}
+
+    <p class="k-small k-muted agents-switch" data-agents-switch="{{ 'an' if switch_on else ('aus' if switch_on is not none else 'unbekannt') }}">
+        Übergabe an das Knovas-Gateway:
+        {% if switch_on %}<strong>an</strong>{% elif switch_on is none %}<strong>nicht lesbar</strong>{% else %}<strong>aus</strong>{% endif %}
+        (Einstellung «Agenten über das Knovas-Gateway»).
+        Was ein Agent lesen darf, wirkt mit «Ein»: Solange Knovas die Rechte nicht durchsetzt, lesen Agenten wie
+        Personen alles, und externe Agenten bleiben bei Kunden ausgeschaltet.
+    </p>
+
+    {% call parts.section("Agenten") %}
+        {% call parts.card() %}
+        {% for a in agents %}
+            {% call parts.rowline() %}
+            <div class="agent-summary" data-agent-id="{{ a.id }}">
+                <p><strong>{{ a.name }}</strong>
+                    {{ parts.tag(a.kind_words, "acc" if a.kind == "assistant" else "") }}
+                    {% if a.revoked %}{{ parts.tag("widerrufen", "bad") }}{% endif %}
+                </p>
+                <p class="k-small"><span class="k-muted">Handelt für:</span> {{ a.acts_for }}</p>
+                <p class="k-small"><span class="k-muted">Kennung:</span> <code>{{ a.id }}</code></p>
+                <p class="k-small"><span class="k-muted">Rollen:</span>
+                    {% if a.roles %}{{ a.roles|join(', ') }}{% else %}<span class="k-muted">keine</span>{% endif %}
+                </p>
+            </div>
+            <div class="agent-actions">
+            {% if a.kind != 'assistant' and not a.revoked %}
+                <form method="post" class="inline" action="{{ url_for('admin.revoke_agent', agent_id=a.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn-outline">Widerrufen</button>
+                </form>
+            {% endif %}
+            </div>
+            {% endcall %}
+        {% endfor %}
+        {% endcall %}
+        <p class="k-small k-muted">Den Knovas Assistenten schalten Sie in den Einstellungen ein und aus. Aus einer
+            Rolle nehmen Sie ihn (oder einen externen Agenten) auf der Seite der Rolle, unter «Mitglieder». Kein
+            Agent gehört zur Administration.</p>
+    {% endcall %}
+
+    <div id="create-agent">
+    {% call parts.section("Agent registrieren") %}
+        {% call parts.card() %}
+        <form class="access-form" method="post" action="{{ url_for('admin.create_agent') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>Name
+                <input type="text" name="name" maxlength="80" placeholder="z. B. Claude Code Sekretariat" required>
+            </label>
+            <label>Handelt für
+                <select name="on_behalf_of">
+                    <option value="">niemanden: selbständig, nur mit den Rechten seiner Rollen</option>
+                    {% for p in people %}
+                    <option value="{{ p.id }}">{{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <p class="k-small k-muted">Ein Agent, der für eine Person handelt, liest nur, was auch sie lesen darf,
+                und hat keine Rechte mehr, sobald sie deaktiviert ist. Die Person lässt sich später nicht ändern.
+                Ein neuer Agent hat noch keine Rolle.</p>
+            <button type="submit">Agent registrieren</button>
+        </form>
+        {% endcall %}
+    {% endcall %}
+    </div>
+{% endcall %}
+</main>
+</div>
+</div>
+</body>
+</html>

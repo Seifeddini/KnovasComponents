@@ -40,8 +40,7 @@ person, this starts enforcing per person, with no change here.
 
 Storage
 -------
-SQLite under the app data dir, for the same reason ``open_tokens`` uses one:
-gunicorn runs several worker processes by default, and a grant written while
+SQLite under the app data dir: gunicorn runs several worker processes by default, and a grant written while
 serving the search must be visible to the worker that serves the thumbnail.
 An unusable path degrades to an in-process dict, which on a multi-worker
 deployment means some requests miss — noisy, but it fails closed, never open.
@@ -91,7 +90,7 @@ class DocumentGrantStore:
     @staticmethod
     def _looks_unusable(path: str) -> bool:
         """A POSIX-absolute path on Windows is a container path; don't create
-        stray drive-root directories on a dev host (same rule as open_tokens)."""
+        stray drive-root directories on a dev host."""
         return os.name == "nt" and path.startswith("/")
 
     def _connect(self) -> sqlite3.Connection:

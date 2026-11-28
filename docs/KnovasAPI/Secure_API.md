@@ -7,8 +7,8 @@ for it. The public guides at <https://knovas.ch/en/docs/> cover the upload,
 search and delete flow in short form.
 
 This copy was a second, diverging version of that page and has been retired
-rather than kept in sync by hand — the same way `KnovasPlatform/knovas-docs/`
-was retired before it. By October 2026 it was a third of the canonical page's
+rather than kept in sync by hand, as an older copy in `KnovasPlatform/` was
+before it. By October 2026 it was a third of the canonical page's
 length: it lacked the document-fields keys (init `fields`, query `where` and
 `return_fields`), the honesty keys of a query answer, the `/secured/llm/*` and
 document-listing routes, and the rate limits now served by

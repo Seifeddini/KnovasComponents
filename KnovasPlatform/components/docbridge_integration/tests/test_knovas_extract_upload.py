@@ -23,7 +23,7 @@ pytest.importorskip("knovas_extract")
 
 import knovas_extract_upload as m  # noqa: E402
 from context_store import sidecar_path_for_pointer  # noqa: E402
-from knovas_extract_upload import ExtractedContent, ExtractedParts, parts_from_base64  # noqa: E402
+from knovas_extract_upload import ExtractedContent, parts_from_base64  # noqa: E402
 
 _ENV = (
     "RC_PDF_TEXT_MODE", "RC_OCR_ENGINE", "RC_OCR_DPI", "RC_OCR_WORKERS", "RC_OCR_MAX_PAGES",
@@ -608,21 +608,6 @@ def test_a_complete_document_has_no_partial_note(monkeypatch):
     monkeypatch.setattr(m, "extract_guarded", lambda *a, **k: ExtractedContent(text="Alles da."))
     out = m.extract_parts_from_base64(_b64(b"%PDF stub"), "pdf", write_sidecar=False)
     assert out.partial is None and out.parts
-
-
-def test_the_client_surfaces_the_partial_note(monkeypatch):
-    import knovas_client
-
-    monkeypatch.setattr(
-        m, "extract_parts_from_base64",
-        lambda *a, **k: ExtractedParts(parts=[{"snippet": "x", "sentence_number": 1}], partial={"ocr_pages_skipped": 3}),
-    )
-    parts, init_fields, partial = knovas_client._secured_transmit_parts_from_document(
-        {"doc_id": "corpus/a.pdf", "content_base64": _b64(b"x"), "type": "pdf"}
-    )
-    assert parts == [{"snippet": "x", "sentence_number": 1}]
-    assert partial == {"ocr_pages_skipped": 3}
-    assert init_fields
 
 
 # --- the guarded child: wall clock, nice, RLIMIT_AS -----------------------------

@@ -159,14 +159,31 @@ class TestDisabling:
         assert len(rows) == 1
 
 
+def _role(identity_repo, name, functions):
+    """A role of the tenant's own (RB-4: the people page offers roles, by id)."""
+    from identity.roles import RoleStore
+
+    return RoleStore(identity_repo._conn).create_role(name=name, functions=set(functions))
+
+
+def _two(identity_repo):
+    from identity.roles import RoleStore
+
+    store = RoleStore(identity_repo._conn)
+    return store.administration(), store.mitglied()
+
+
 class TestRolesAndGroups:
+    # RB-4: the form sends role ids (role_id), no longer keys (roles).
     def test_granting_a_role_takes_effect(self, as_admin, member, identity_repo):
+        freigabe = _role(identity_repo, "Freigabe", {"approver"})
         _post(as_admin, "/admin/people/roles", user_id=str(member.id),
-              roles=["approver", "member"])
+              role_id=[str(_two(identity_repo)[1].id), str(freigabe.id)])
         assert "approver" in identity_repo.roles_of(member.id)
 
     def test_roles_are_replaced_not_merged(self, as_admin, member, identity_repo):
-        _post(as_admin, "/admin/people/roles", user_id=str(member.id), roles=["approver"])
+        freigabe = _role(identity_repo, "Freigabe", {"approver"})
+        _post(as_admin, "/admin/people/roles", user_id=str(member.id), role_id=[str(freigabe.id)])
         assert identity_repo.roles_of(member.id) == {"approver"}
 
     def test_assigning_access_groups_takes_effect(self, as_admin, member, identity_repo):
@@ -206,3 +223,103 @@ class TestResettingAPassword:
         _post(as_admin, "/admin/people/reset-password", user_id=str(member.id),
               password="ein-ganz-neues-passwort")
         assert other.get("/").status_code == 302
+
+
+# --- PMVP-40: roles on the page; RB-4: every role of the Rollen page, by id, never a key --------------------------
+
+import re  # noqa: E402
+
+
+def _details(html: str, person_id) -> str:
+    """The details section of one person (up to the next one)."""
+    start = html.index(f'data-person-detail="{person_id}"')
+    end = html.find("data-person-detail=", start + 1)
+    return html[start:end if end != -1 else len(html)]
+
+
+def _roles_form(html: str, person_id) -> str:
+    section = _details(html, person_id)
+    start = section.index('action="/admin/people/roles"')
+    return section[start:section.index("</form>", start)]
+
+
+def _as_the_browser_sends_it(form: str, uncheck=()) -> list[str]:
+    """The role ids the form sends: its ticked boxes, less those unticked here."""
+    ticked = re.findall(r'<input type="checkbox" name="role_id" value="([^"]+)"\s*checked>', form)
+    return [r for r in ticked if r not in {str(u) for u in uncheck}]
+
+
+class TestTheRolesOnThePage:
+    """RB-4 (replacing PMVP-40's two boxes of keys): the page offers every role of the Rollen page by name, each
+    person's checked; the form sends role ids and the person's roles become exactly the checked ones. No key is
+    offered anywhere. No gate changes."""
+
+    def test_every_role_is_a_box_and_no_key_is(self, as_admin, member, identity_repo):
+        from identity.roles import RoleStore
+
+        identity_repo.grant_role(member.id, "approver")          # a key granted the old way: a role of its own
+        html = as_admin.get("/admin/people").data.decode("utf-8")
+        roles = RoleStore(identity_repo._conn).list_roles()
+        boxes = re.findall(r'<input type="checkbox" name="role_id" value="([^"]+)"', html)
+        assert set(boxes) == {str(r.id) for r in roles}
+        assert set(re.findall(r'<span class="role-choice-name">([^<]*)</span>', html)) == {r.name for r in roles}
+        assert 'name="roles"' not in html and 'value="approver"' not in html
+
+    def test_the_filter_offers_the_roles_and_the_search_matches_their_names(self, as_admin, admin, member,
+                                                                            identity_repo):
+        administration, mitglied = _two(identity_repo)
+        html = as_admin.get("/admin/people").data.decode("utf-8")
+        select = html[html.index('<select id="people-role-filter">'):]
+        select = select[:select.index("</select>")]
+        assert re.findall(r'<option value="([^"]*)">([^<]*)</option>', select) == [
+            ("", "Alle Rollen"), (str(administration.id), "Administration"), (str(mitglied.id), "Mitglied")]
+        rows = dict(re.findall(r'data-person-id="([^"]+)"\s*data-search="([^"]*)"', html))
+        assert "Mitglied" in rows[str(member.id)]
+        assert "Administration" in rows[str(admin.id)]
+
+    def test_saving_as_drawn_keeps_every_other_role(self, as_admin, member, identity_repo):
+        for role in ("approver", "ingestion_manager", "experimenter", "experiments_manager"):
+            identity_repo.grant_role(member.id, role)
+        administration, mitglied = _two(identity_repo)
+        form = _roles_form(as_admin.get("/admin/people").data.decode("utf-8"), member.id)
+        # The administrator makes the member an administrator too, through the page's own form.
+        _post(as_admin, "/admin/people/roles", user_id=str(member.id),
+              role_id=_as_the_browser_sends_it(form) + [str(administration.id)])
+        assert identity_repo.roles_of(member.id) == {"admin", "member", "approver", "ingestion_manager",
+                                                     "experimenter", "experiments_manager"}
+        # ... and takes both away again: the others stay.
+        form = _roles_form(as_admin.get("/admin/people").data.decode("utf-8"), member.id)
+        _post(as_admin, "/admin/people/roles", user_id=str(member.id),
+              role_id=_as_the_browser_sends_it(form, uncheck=(administration.id, mitglied.id)))
+        assert identity_repo.roles_of(member.id) == {"approver", "ingestion_manager", "experimenter",
+                                                     "experiments_manager"}
+
+    def test_a_persons_role_is_a_checked_box_and_named_in_the_list(self, as_admin, identity_repo):
+        from conftest import _person
+        from identity.roles import RoleStore
+
+        approver = _person(identity_repo, "pruefer@kanzlei.ch", "Pruefer", "approver")
+        role, = RoleStore(identity_repo._conn).roles_of_user(approver.id)
+        html = as_admin.get("/admin/people").data.decode("utf-8")
+        assert _as_the_browser_sends_it(_roles_form(html, approver.id)) == [str(role.id)]
+        assert "data-other-roles" not in _details(html, approver.id)      # nothing read only any more
+        row = html[html.index(f'data-person-id="{approver.id}"'):]
+        row = row[:row.index("Verwalten")]
+        assert re.search(r"Rollen:</span>\s*" + re.escape(role.name), row)
+
+    def test_a_builder_role_is_a_role_like_any_other(self, as_admin, member, identity_repo):
+        """A Builder function comes from a role the page shows: saving as drawn keeps it, unticking it takes it."""
+        identity_repo.grant_role(member.id, "approver")
+        identity_repo.grant_role(member.id, "builder_author")
+        administration, mitglied = _two(identity_repo)
+        form = _roles_form(as_admin.get("/admin/people").data.decode("utf-8"), member.id)
+        _post(as_admin, "/admin/people/roles", user_id=str(member.id),
+              role_id=_as_the_browser_sends_it(form) + [str(administration.id)])
+        assert identity_repo.roles_of(member.id) == {"admin", "member", "approver", "builder_author"}
+        form = _roles_form(as_admin.get("/admin/people").data.decode("utf-8"), member.id)
+        _post(as_admin, "/admin/people/roles", user_id=str(member.id),
+              role_id=_as_the_browser_sends_it(form, uncheck=(administration.id,)))
+        assert identity_repo.roles_of(member.id) == {"member", "approver", "builder_author"}
+        # The route alone, sent nothing but Mitglied: the person's roles are exactly that one.
+        _post(as_admin, "/admin/people/roles", user_id=str(member.id), role_id=[str(mitglied.id)])
+        assert identity_repo.roles_of(member.id) == {"member"}

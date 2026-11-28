@@ -3,7 +3,9 @@
  * Each setting shows its current value and where it comes from (Installation, Seite, Standard).
  * A value the installation pins is read-only. A secret is a write-only field: the page only says
  * whether it is set. Save sends the changed values with the CSRF token; "Zurücksetzen" removes
- * the page's value. The bundle source and the token each have a Test.
+ * the page's value. The bundle source and the token each have a Test; the Knovas Assistent's key has
+ * "Verbindung testen" (PMVP-25), and the page says when anthropic is chosen without a key. Under the answer mode
+ * stands one warning line (state.warnings, PMVP-20 brain-mcp); a refused save shows the server's own words.
  */
 (function () {
     'use strict';
@@ -53,15 +55,15 @@
 
     function showResult(target, r) {
         target.textContent = r.ok
-            ? (r.counts ? `Geladen: Format ${r.format_version}, ${r.content_hash}, ${r.counts.types} Typen, ${r.counts.processes} Prozesse, ${r.counts.profiles} Profile.`
+            ? (r.message ? r.message : r.counts ? `Geladen: Format ${r.format_version}, ${r.content_hash}, ${r.counts.types} Typen, ${r.counts.processes} Prozesse, ${r.counts.profiles} Profile.`
                 : `Lesezugriff auf ${r.repository}: ja${r.write ? ', Schreibrecht: ja' : ''}.`)
             : `Fehler: ${r.error}`;
         target.className = r.ok ? 'platform-settings-ok' : 'platform-settings-error';
     }
 
-    function testButton(s, read) {
+    function testButton(s, read, label) {
         const out = el('span', { role: 'status' });
-        const button = el('button', { type: 'button', class: 'btn btn-outline', text: 'Test', onclick: async () => {
+        const button = el('button', { type: 'button', class: 'btn btn-outline', text: label || 'Test', onclick: async () => {
             out.textContent = 'wird geprüft …';
             try { showResult(out, await call(`/api/settings/platform/test/${encodeURIComponent(s.key)}`, { value: read() })); }
             catch (err) { showResult(out, { ok: false, error: err.message }); }
@@ -77,7 +79,7 @@
                 oninput: (e) => { if (e.target.value) pending[s.key] = e.target.value; else delete pending[s.key]; } });
             const said = !s.set ? 'nicht gesetzt' : (s.readable === false ? 'gesetzt, aber mit diesem Schlüssel nicht lesbar – neu eingeben' : 'gesetzt');
             const parts = [input, el('span', { class: 'platform-settings-state', text: said }),
-                ...testButton(s, () => input.value || null)];
+                ...testButton(s, () => input.value || null, s.key === 'assistant.anthropic_api_key' ? 'Verbindung testen' : null)];
             if (!s.secrets) parts.push(el('p', { class: 'platform-settings-error', text: s.secrets_reason }));
             return parts;
         }
@@ -126,7 +128,9 @@
             list.appendChild(el('div', { class: 'platform-setting', 'data-key': s.key }, [
                 el('label', { class: 'platform-setting-label', text: s.label }),
                 el('p', { class: 'platform-settings-note', text: s.help }),
+                state.problems && state.problems[s.key] ? el('p', { class: 'platform-settings-error', text: state.problems[s.key] }) : null,
                 el('div', { class: 'platform-setting-field' }, [...field(s), reset]),
+                state.warnings && state.warnings[s.key] ? el('p', { class: 'platform-settings-warning', role: 'note', text: state.warnings[s.key] }) : null,
                 el('p', { class: 'platform-setting-origin mono', text: `${origin(s)}${s.scope === 'installation' ? ' · für die ganze Installation' : ' · für diesen Mandanten'}` }),
             ]));
         });

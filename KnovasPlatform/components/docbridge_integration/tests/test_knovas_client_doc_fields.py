@@ -147,12 +147,11 @@ class TestSearchBody:
     @pytest.mark.parametrize("kw", [{"where": {"doc_type": "invoice"}},
                                     {"return_fields": ["title"]},
                                     {"return_fields": False}])
-    def test_legacy_mode_refuses_the_new_keys_and_sends_nothing(self, kw):
-        for client in (make_client(use_secured_api=False, allow_legacy_api_fallback=True),
-                       make_client(use_secured_api=True)):
-            client._session = FakeSession(lambda *a, **k: pytest.fail("sent"))
-            with pytest.raises(ValueError):
-                client.search_documents("q", limit=5, **kw)
+    def test_without_mtls_the_new_keys_are_refused_and_nothing_is_sent(self, kw):
+        client = make_client()  # no mTLS paths configured
+        client._session = FakeSession(lambda *a, **k: pytest.fail("sent"))
+        with pytest.raises(RuntimeError):
+            client.search_documents("q", limit=5, **kw)
 
 
 class TestQueryRejected:
@@ -478,7 +477,8 @@ class TestDocFieldsAnswers:
             client.patch_doc_values("a.pdf", 6, set={"title": "x"})
         err = caught.value
         assert (err.status, err.error_code) == (409, "version_conflict")
-        assert err.message == "The document values changed since they were read"
+        # RB-FIX-2: the Core's text is not kept (it can quote what was sent); the page says it from the code.
+        assert err.message == "" and "changed since" not in str(err)
         assert err.details == {"current_version": 7}
         assert isinstance(err, GraphError)
 
@@ -560,18 +560,21 @@ class TestDocFieldsAnswers:
 
 
 class TestGraphErrorReadsError:
-    def test_message_falls_back_to_error_and_keeps_details(self):
+    def test_neither_message_nor_error_is_kept_and_details_are(self):
+        # RB-FIX-2 (was: the message falls back to "error"): the Core's text is kept in neither field.
         client = secured(Resp(422, {"error_code": "key_looks_personal",
                                     "error": "The field key looks like personal data",
                                     "path": "aliases[0]"}))
         with pytest.raises(GraphError) as caught:
             client.graph_node("n1")
-        assert caught.value.message == "The field key looks like personal data"
+        assert caught.value.message == "" and "personal data" not in str(caught.value)
+        assert caught.value.error_code == "key_looks_personal"
         assert caught.value.details == {"path": "aliases[0]"}
 
     def test_the_constructor_stays_compatible(self):
+        # RB-FIX-2: a message is still accepted, and not kept.
         err = GraphError(500, None, "boom")
-        assert (err.status, err.error_code, err.message, err.details) == (500, None, "boom", {})
+        assert (err.status, err.error_code, err.message, err.details) == (500, None, "", {})
 
 
 class TestGraphNodeName:

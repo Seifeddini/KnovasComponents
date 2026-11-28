@@ -126,6 +126,163 @@ components:
     why: >-
       The release workflow and its only helper. The CI workflow (ci.yml) and the other files in scripts/ci/ check
       pull requests; they release nothing and stay outside.
+  # --- L1-WORKSPACE: the Platform's user-facing parts (the founder, 2026-11-19, DEC-0083; carded by PMVP-01 of
+  # FEAT-2026-11-19-platform-mvp). Each component is a set of files inside the Platform's web app: the longest path
+  # wins, so the rest of web_interface/ and identity/ stays with not_carded below.
+  L2-PLATFORM-ASSISTANT:
+    card: L2-platform-assistant.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/assistant
+      - KnovasPlatform/components/docbridge_integration/src/identity/chats.py
+      - KnovasPlatform/components/docbridge_integration/src/identity/migrations/0026_assistant_chats.sql
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/assistant_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ask.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/ask.css
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/ask.js
+    why: >-
+      The Knovas Assistent: its service package (src/assistant/: the service, the check, the switch and, since
+      PMVP-25, the provider module that calls Claude when the customer chose it) and its chat storage. chats.py and migration 0026 sit in identity/ because the
+      Platform's migrations run from there, but they exist only for the assistant's past chats (PMVP-21; since PMVP-23
+      also their deletion after 90 days) and only the assistant's pages read them; the rest of identity/ is sign-in, roles and audit. The ask page (PMVP-22a: assistant_routes.py, ask.html,
+      ask.css, ask.js; since PMVP-23 also the chat pages and the data of the sidebar's chat block, which the shell's
+      partial draws) is here, though in web_interface/, because it exists only for the assistant; the search page
+      it is reached from (index.html) and the wiring in app.py stay with the web app. knovas_client.py, which the service calls and which imports its error types, stays with the
+      web app, and so does the settings page (settings_routes.py), which shows the assistant's entries, calls its
+      connection test and, since PMVP-20 brain-mcp, its warning and its refusal of «Brain-Werkzeuge» (brain_tools.py:
+      Claude reads through the Knovas MCP gateway).
+  L2-PLATFORM-BRAIN-VIEWS:
+    card: L2-platform-brain-views.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/__init__.py
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/limit.py
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/reads.py
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/lists.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/brain_views_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_brain_views_list.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/brain_views.css
+    why: >-
+      The members' views (dossier, evidence trail, process line) are a new module (plan § 5.2), written by PMVP-30a
+      to PMVP-34. This card keeps what they share: the blueprint with its switch and gate (brain_views_routes.py), the
+      25-node limit every view draws through (PMVP-34, brain_views/limit.py) and the stylesheet. PMVP-32a split the
+      dossier (L2-PLATFORM-DOSSIER) and the process line (L2-PLATFORM-PROCESS-LINE) off for the context budget; their
+      routes hang on this blueprint. The web app registers the blueprint (one call in app.py) and keeps the switch's
+      registry entry (platform_settings.py); both stay with it. The modellers' views (graph_views/, views_routes.py,
+      ontology_graph.py, custom_views/) are not part of it: they read the tenant's whole edge list and have no
+      25-node limit, which this card's promises forbid.
+  L2-PLATFORM-DOSSIER:
+    card: L2-platform-dossier.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/dossier.py
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/related.py
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/plurals.json
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/dossier_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/dossier.html
+    why: >-
+      The dossier of one thing (PMVP-30a), its related things by kind (PMVP-30b) and the card «Läuft gerade»
+      (PMVP-32a): the reading in brain_views/, the routes in their own file, the template. Split from
+      L2-PLATFORM-BRAIN-VIEWS by PMVP-32a the way RB-FIX-1 split Rollen and Agenten: one card for all views was over
+      the context budget. Its routes hang on that card's blueprint and gate.
+  L2-PLATFORM-PROCESS-LINE:
+    card: L2-platform-process-line.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/brain_views/process_line.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/process_line_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ablauf.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/ablauf_alle.html
+    why: >-
+      The process line of one thing (PMVP-32a, plan B-06; «fehlt noch» and the list of the others, PMVP-32b), built per thing on the Client Zero convention (decision
+      PMVP-32): the reading, its route and its template. A card of its own from the start, as the coordinator split
+      the Brain views for the context budget; its route hangs on L2-PLATFORM-BRAIN-VIEWS's blueprint and gate. The
+      modellers' Ablauf view (graph_views/) is not reused (FU-19).
+  L2-PLATFORM-SHELL:
+    card: L2-platform-shell.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_sidebar.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/style.css
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/shell.css
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/knovas-tokens.css
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/fonts
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/img
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/shell_routes.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/styleguide.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_parts.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/parts.css
+    why: >-
+      The frame every page shares: the navigation partial and its own stylesheet (shell.css, PMVP-11), the one
+      stylesheet every page loads (it also holds the styles of pages no card holds yet), the brand tokens they take
+      their values from (PMVP-10), the self-hosted fonts and the logo; the shell's one route file, shell_routes.py,
+      with the styleguide page; and the shared page parts every new screen is built from (PMVP-12): the macros of
+      _parts.html and their rules in parts.css. Which links a person gets is still computed in app.py, which stays
+      with the web app.
+  L2-PLATFORM-ADMIN:
+    card: L2-platform-admin.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_approvals.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/guarded.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_people.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_approvals.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_people.js
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/css/admin.css
+    why: >-
+      The console's blueprint with its role gates (admin.py), the people page and the approvals that PMVP-40 to
+      PMVP-42 change, and guarded.py, which only console modules call. The other console modules mounted on the same
+      blueprint (admin_ingestion.py, admin_doc_fields.py, admin_system.py) and their pages are not changed by the plan
+      and stay with the web app for now; admin.css styles them too. The access groups, folder rules and documents
+      (admin_documents.py and their pages) are L2-PLATFORM-ACCESS since PMVP-40 split the card: together the two were
+      over the context budget, the code alone (16,724 tokens) over 16,000. The role builder's pages are
+      L2-PLATFORM-ROLES and L2-PLATFORM-AGENTS since RB-FIX-1 split them off the same way (FU-44).
+  L2-PLATFORM-ROLES:
+    card: L2-platform-roles.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_roles.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_roles.html
+    why: >-
+      The role builder's Rollen page (RB-3, RB-4): a role's functions, its people and its Core group. Split from
+      L2-PLATFORM-ADMIN by RB-FIX-1 (context budget: together the card was 33,409 tokens); its routes hang on that
+      card's blueprint and gate. The role store and the claim's groups it calls stay in identity/, which has no card.
+  L2-PLATFORM-ROLE-DATA:
+    card: L2-platform-role-data.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_role_data.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/_role_data.html
+    why: >-
+      What a role may read (RB-5): «Darf lesen», its dry runs, four eyes, adopting a group and moving direct grants.
+      Split from L2-PLATFORM-ROLES the way RB-FIX-1 split Rollen and Agenten: one card for both was over the context
+      budget. Its routes hang on the console's blueprint and gate and answer with the Rollen page.
+  L2-PLATFORM-AGENTS:
+    card: L2-platform-agents.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_agents.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_agents.html
+    why: >-
+      The role builder's Agenten page and a role's agents (RB-6, RB-7). Split from L2-PLATFORM-ADMIN by RB-FIX-1 with
+      L2-PLATFORM-ROLES; one card for both would still have been over the context budget. Its routes hang on the
+      console's blueprint and gate; the agent store, the claim and the delivery to the Core's gateway stay in
+      identity/, which has no card.
+  L2-PLATFORM-ACCESS:
+    card: L2-platform-access.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_documents.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access_groups.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_documents.html
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/static/js/admin_documents.js
+    why: >-
+      Who may read what (A-03, A-04): the access groups as a tree, the folder rules and a document's access groups,
+      written through the Brain's access routes; the Dokumente page with its fields drawer and the erasing of the
+      corpus. Split from L2-PLATFORM-ADMIN by PMVP-40 (context budget); its routes hang on that card's blueprint and
+      gate, and its guarded writes go through that card's run_guarded.
+  L2-PLATFORM-ACCESS-CHECK:
+    card: L2-platform-access-check.card.yaml
+    paths:
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/admin_access.py
+      - KnovasPlatform/components/docbridge_integration/src/web_interface/templates/admin_access.html
+    why: >-
+      The page «Zugriff» (PMVP-41, «Was sieht …?»; PMVP-42, the enforcement position and its switch): what a person,
+      a role or an agent reads, one document yes or no, a search as it. A card of its own, the way RB-5 split
+      «Rollendaten»:
+      with it L2-PLATFORM-ACCESS would be over the context budget. Its routes hang on the console's blueprint and gate;
+      it reads the Core through RB-5's readers (L2-PLATFORM-ROLE-DATA).
   EXT-BRAIN-API:
     card: EXT-brain-api.card.yaml
     paths: []
@@ -140,6 +297,17 @@ components:
     card: EXT-github-api.card.yaml
     paths: []
     why: External - GitHub's REST API, read and written with a source's own credential.
+  EXT-ANTHROPIC-API:
+    card: EXT-anthropic-api.card.yaml
+    paths: []
+    why: External - Anthropic's Messages API, called through the official SDK with the key the customer saved in the
+      Platform's settings (PMVP-25).
+  EXT-MCP-GATEWAY:
+    card: EXT-mcp-gateway.card.yaml
+    paths: []
+    why: External - the Core's MCP gateway for external agents and the Secure API's pool of each agent's
+      Platform-signed claims (CR-R5, CR-R6; RB-7), not built in the Core yet. Since PMVP-20 brain-mcp Anthropic's MCP
+      connector also calls the gateway (live) for the Knovas Assistent, with the company's key.
   EXT-JIRA-API:
     card: EXT-jira-api.card.yaml
     paths: []
@@ -150,13 +318,16 @@ components:
 # reader reports what it offers as held by no card (map-check's `unowned`).
 not_carded:
   - path: KnovasPlatform/components/docbridge_integration/src/web_interface
-    why: The Platform's web app (search, documents, settings, admin); it registers the Builder's blueprints. Touched to
-      wire the Builder and to name no tenant in its defaults.
+    why: The Platform's web app (search, documents, settings, the other console pages, the views' routes); it registers
+      the Builder's and the console's blueprints and computes the sidebar's links. Touched to wire the Builder and to
+      name no tenant in its defaults. The shell's and the console's files are carded (L1-WORKSPACE, PMVP-01).
   - path: KnovasPlatform/components/docbridge_integration/src/identity
     why: Sign-in, roles, audit and the migration ledger the Builder's migrations run in. Touched by the defaults change
-      and an audit fix (beside the Builder's own migrations, which the Builder's card holds).
+      and an audit fix (beside the Builder's own migrations, which the Builder's card holds, and the assistant's chat
+      storage, which the assistant's card holds).
   - path: KnovasPlatform/components/docbridge_integration/src/graph_views
-    why: The views (Ansichten). Touched only so that their defaults name no tenant.
+    why: The views (Ansichten), for people who model the Brain. Touched only so that their defaults name no tenant.
+      Not the members' Brain views (L2-PLATFORM-BRAIN-VIEWS), whose promises their whole-edge-list read could not keep.
   - path: KnovasPlatform/components/docbridge_integration/src/brain_sync
     why: The Platform's own sync of a configuration package (the GitHub runner the Builder shows through an adapter).
       Touched by an audit fix.
