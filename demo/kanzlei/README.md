@@ -58,6 +58,7 @@ After a change to the people or groups in the generator: `./reset.sh --all && ./
 | `<work>/site/` | `directory.json`, `acl.json`, `db/*.sql`: what the site is built from |
 | `<work>/truth/` | `questions.jsonl`, `rights.csv`, `people.json`, `processes.json` (the contract with the Platform plan, §6); `inventory.json`; `sources.json` and `records/<TABLE>.jsonl` (for the connection layer) |
 | `<work>/manifest.jsonl` | every file on the share: hash, kind, matter, mess |
+| `brain/` | the firm's Brain (ontology, Weisungen, mappings, profiles) for tenant 817f2330; rule checks cover the 60 electronic matters: [report](reports/2026-11-28-quarzfels-brain.md) |
 | `<work>/site/changes/tag-1/` | one working day: `db.sql`, `share/` (new and saved-over files), `delete.txt` |
 | `<work>/truth/changes/tag-1/` | the state after that day: `records/`, `manifest.jsonl`, and `changes.json` (what changed, the question it makes answerable, the rights of the new files) |
 | [`site/`](site/README.md) | the containers, their scripts, the accounts |

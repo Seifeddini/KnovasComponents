@@ -22,9 +22,11 @@ matter) and `moeglicherweise_identisch` (two addresses in one same-name group). 
 of each Weisung that applies to it (mappings `kanzleidb-ablauf-*`): the first step whose evidence is missing, else the
 last. The views show what is missing there (requirement paths in `processes.yaml`).
 
-Scope of the rule checks: Weisung 1 for matters opened since its date (11 March 2023) and kept electronically;
-Weisungen 3, 4, 5 for electronic matters (5: closed ones); Weisung 2 for every open deadline that is not itself a
-Wiedervorlage. The 1,440 matters held only as records have no documents to check, so they are not checked.
+**Scope of the rule checks: 60 of the 1,500 matters.** Weisung 1 for matters opened since its date (11 March 2023)
+and kept electronically; Weisungen 3, 4, 5 for electronic matters (5: closed ones); Weisung 2 for every open deadline
+that is not itself a Wiedervorlage. The 1,440 matters held only as records have no evidence documents (the generator
+did not write them), so they are not checked. Why, the numbers and what would lift it:
+[`../reports/2026-11-28-quarzfels-brain.md`](../reports/2026-11-28-quarzfels-brain.md), section 2.
 
 ## Files
 
@@ -53,8 +55,8 @@ venv/bin/brain-runner bundle --config config/brain-config.yaml --out run/bundle.
 cp run/bundle.json ~/demo-kanzlei/brain/bundle.json   # the Platform reads it (VIEWS_CONFIG_SOURCE)
 ```
 
-A full first load is about 200,000 requests (one per fact; the Core has no bulk write) at about 8 a second for the
-tenant: 6 to 7 hours. A later run writes only what changed. During a load the Platform's search shares the tenant's
+A full first load is about 200,000 requests (one per fact; the Core has no bulk write) at 6 to 8 a second for the
+tenant: 7 to 10 hours. A later run writes only what changed. During a load the Platform's search shares the tenant's
 rate limit and may answer 429.
 
 brain-runner is 0.3.3 from KnowledgeBase `develop` (8c25ae1a3), installed in `venv`. The Core accepts the datatypes
