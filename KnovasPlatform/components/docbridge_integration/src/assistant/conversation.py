@@ -73,6 +73,10 @@ NEAREST_PASSAGES = 5
 MIN_NAME_LETTERS = 2
 #: The least letters of a part of a compound ("Miet|vertrag").
 _MIN_PART = 3
+#: The assistant's own names (folded), which a reply about itself may use even where a passage holds them (the
+#: founder, 2026-11-28: "Ja, ich arbeite mit Knovas"): Knovas, Brain, Platform, Plattform, Assistent. The residual
+#: risk: in a company whose documents name "Knovas", a reply may name it too; it names nothing else of them.
+OWN_NAMES = frozenset({"knovas", "brain", "platform", "plattform", "assistent", "assistant"})
 
 
 @dataclass(frozen=True)
@@ -363,6 +367,8 @@ def names_a_passage(text: str, names: FrozenSet[str]) -> bool:
         if len(word) < MIN_NAME_LETTERS:
             continue
         folded = fold(word)
+        if folded in OWN_NAMES:
+            continue                      # the assistant's own names, also where a passage holds them
         if folded in names or (folded.endswith("s") and folded[:-1] in names):
             return True
         if not is_common(word) and _key(folded) in names:
