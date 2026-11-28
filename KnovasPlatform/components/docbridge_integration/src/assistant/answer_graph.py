@@ -196,11 +196,18 @@ def build_graph(session: Any, passages: Sequence[Any]) -> Optional[Dict[str, Any
 # The assistant's selection (the founder, 2026-11-28: "enable that the agent could show and hide edges and nodes")
 # ---------------------------------------------------------------------------------------------------------------------
 
-#: The most nodes and edges of the selection, the longest edge label and caption.
-MAX_VIEW_NODES = 15
+#: The most nodes and edges of the selection, the longest edge label and caption. A selection is a selection
+#: (the founder after the live deploy, 2026-11-28: Claude had chosen all 11 nodes): at most ``MAX_VIEW_NODES``,
+#: the focus first, then the cited nodes in citation order, then the rest of Claude's list.
+MAX_VIEW_NODES = 8
 MAX_VIEW_EDGES = 30
 MAX_LABEL_CHARS = 30
 MAX_CAPTION_CHARS = 160
+#: Who chose the view: Claude's line, or the default for a graph larger than ``MAX_VIEW_NODES`` without one.
+BY_ASSISTANT = "assistant"
+BY_DEFAULT = "default"
+#: The fewest nodes a default view tries to show around its focus when the cited nodes alone are fewer.
+DEFAULT_VIEW_MIN = 3
 
 
 def _plain_text(value: Any, limit: int) -> str:
@@ -219,6 +226,15 @@ def graph_specs(text: str) -> List[Any]:
     return [value["graph"] for value in check.read_answer(text) if check.is_graph_spec(value)]
 
 
+def _ordered(chosen: Sequence[str], focus: str, nodes: Mapping[str, Mapping[str, Any]]) -> List[str]:
+    """The view's nodes in the order they are kept: the focus, the cited nodes by their passage number, the rest as
+    listed; at most ``MAX_VIEW_NODES``."""
+    cited = sorted((n for n in chosen if n != focus and nodes[n].get("cited")),
+                   key=lambda n: (nodes[n].get("passage") or 2 ** 31, chosen.index(n)))
+    rest = [n for n in chosen if n != focus and n not in cited]
+    return ([focus] + cited + rest)[:MAX_VIEW_NODES]
+
+
 def curate(session: Any, graph: Optional[Dict[str, Any]], specs: Sequence[Any],
            passages: Sequence[Any]) -> Tuple[Optional[Dict[str, Any]], int]:
     """``(graph, dropped)``: ``graph`` with ``"view"``, the first of ``specs`` that holds, and how many specs were
@@ -226,22 +242,59 @@ def curate(session: Any, graph: Optional[Dict[str, Any]], specs: Sequence[Any],
     passage of this answer (by the number Claude saw), a node passage not yet in the graph is added to it (as a read
     node, the name rule of ``build_graph``), a count passage only when its count node is in the graph (it was
     cited); an edge is kept only when the graph holds one between those two nodes (the topology, either direction,
-    with its real relation and direction; for a count, its own edge). The view: ``focus``, ``nodes`` (ids),
-    ``edges`` (``from``, ``to``, ``relation``, ``label``), ``caption``. ``graph`` may be None (the selection may
-    then make one, from two nodes up). Never raises for a malformed spec."""
-    if not specs:
-        return graph, 0
+    with its real relation and direction; for a count, its own edge). At most ``MAX_VIEW_NODES`` (``_ordered``).
+    Without a spec that holds, a graph of more than ``MAX_VIEW_NODES`` nodes gets ``default_view``. The view:
+    ``focus``, ``nodes`` (ids), ``edges`` (``from``, ``to``, ``relation``, ``label``), ``caption``, ``by``.
+    ``graph`` may be None (the selection may then make one, from two nodes up). Never raises for a malformed spec."""
     topo = session.topology_if_read()
-    if topo is None:
-        return graph, len(specs)
-    base = {"nodes": [dict(n) for n in (graph or {}).get("nodes", [])],
-            "edges": [dict(e) for e in (graph or {}).get("edges", [])]}
-    for spec in specs:
-        view = _view(session, topo, base, spec, passages)
+    if topo is not None and specs:
+        base = {"nodes": [dict(n) for n in (graph or {}).get("nodes", [])],
+                "edges": [dict(e) for e in (graph or {}).get("edges", [])]}
+        for spec in specs:
+            view = _view(session, topo, base, spec, passages)
+            if view is not None:
+                base["view"] = view
+                return base, len(specs) - 1
+    if graph is not None and len(graph.get("nodes", [])) > MAX_VIEW_NODES:
+        view = default_view(graph)
         if view is not None:
-            base["view"] = view
-            return base, len(specs) - 1
+            return dict(graph, view=view), len(specs)
     return graph, len(specs)
+
+
+def default_view(graph: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """The view of a graph without Claude's choice: the most connected cited node as the focus, the other cited
+    nodes by their passage number, then the nodes the graph joins to two or more of them (the most joined first),
+    and, while fewer than ``DEFAULT_VIEW_MIN``, the focus's neighbours; at most ``MAX_VIEW_NODES``; the graph's edges
+    among them, labelled with their relation. None when it would not be smaller than the graph."""
+    nodes = {n["id"]: n for n in graph.get("nodes", [])}
+    edges = list(graph.get("edges", []))
+    near: Dict[str, Set[str]] = {n: set() for n in nodes}
+    for edge in edges:
+        a, b = edge.get("from"), edge.get("to")
+        if a in nodes and b in nodes and a != b:
+            near[a].add(b)
+            near[b].add(a)
+    cited = sorted((n for n in nodes if nodes[n].get("cited")), key=lambda n: nodes[n].get("passage") or 2 ** 31)
+    if not cited:
+        return None
+    focus = max(cited, key=lambda n: (len(near[n]), -(nodes[n].get("passage") or 2 ** 31)))
+    chosen = _ordered(cited, focus, nodes)
+    joins = sorted((n for n in nodes if n not in chosen and len(near[n] & set(chosen)) >= 2),
+                   key=lambda n: (-len(near[n] & set(chosen)), n))
+    for other in joins:
+        if len(chosen) >= MAX_VIEW_NODES:
+            break
+        chosen.append(other)
+    for other in sorted(near[focus] - set(chosen), key=lambda n: (-len(near[n]), n)):
+        if len(chosen) >= min(DEFAULT_VIEW_MIN, MAX_VIEW_NODES):
+            break
+        chosen.append(other)
+    if len(chosen) < 2 or len(chosen) >= len(nodes):
+        return None
+    kept = [{"from": e["from"], "to": e["to"], "relation": e.get("relation", ""), "label": ""}
+            for e in edges if e.get("from") in chosen and e.get("to") in chosen][:MAX_VIEW_EDGES]
+    return {"focus": focus, "nodes": chosen, "edges": kept, "caption": "", "by": BY_DEFAULT}
 
 
 def _view(session: Any, topo: Any, base: Dict[str, Any], spec: Any,
@@ -255,8 +308,10 @@ def _view(session: Any, topo: Any, base: Dict[str, Any], spec: Any,
     for passage in passages:
         reply_number.setdefault((getattr(passage, "pointer", None), getattr(passage, "text", None)), passage.number)
     nodes = {n["id"]: n for n in base["nodes"]}
+    pending: Dict[str, Dict[str, Any]] = {}
 
     def node_for(number: Any) -> Optional[str]:
+        """The id of the node or count a passage number stands for; a node not yet drawn waits in ``pending``."""
         if not isinstance(number, int) or isinstance(number, bool) or number not in by_number:
             return None
         passage = by_number[number]
@@ -269,25 +324,36 @@ def _view(session: Any, topo: Any, base: Dict[str, Any], spec: Any,
         node_id = gr.node_of_pointer(passage.pointer)
         if node_id is None or node_id not in topo.nodes:
             return None
-        if node_id not in nodes:
-            if len(nodes) >= MAX_NODES:
-                return None
+        if node_id not in nodes and node_id not in pending:
             name = topo.nodes[node_id].name
-            entry = {"id": node_id, "name": _cut(name if any(name in t for t in shown_texts) else "", MAX_NAME_CHARS),
-                     "type": _cut(topo.type_name.get(topo.nodes[node_id].type_id, ""), MAX_NAME_CHARS),
-                     "cited": False}
-            nodes[node_id] = entry
-            base["nodes"].append(entry)
+            pending[node_id] = {"id": node_id,
+                                "name": _cut(name if any(name in t for t in shown_texts) else "", MAX_NAME_CHARS),
+                                "type": _cut(topo.type_name.get(topo.nodes[node_id].type_id, ""), MAX_NAME_CHARS),
+                                "cited": False}
         return node_id
 
-    chosen: List[str] = []
-    for number in spec["nodes"][:MAX_VIEW_NODES * 2]:
+    listed: List[str] = []
+    for number in spec["nodes"][:MAX_NODES * 2]:
         node_id = node_for(number)
-        if node_id is not None and node_id not in chosen and len(chosen) < MAX_VIEW_NODES:
-            chosen.append(node_id)
+        if node_id is not None and node_id not in listed:
+            listed.append(node_id)
+    if len(listed) < 2:
+        return None
+    every = dict(nodes, **pending)
+    focus = node_for(spec.get("focus"))
+    if focus not in listed:
+        cited = [n for n in listed if every[n].get("cited")]
+        focus = cited[0] if cited else listed[0]
+    chosen = _ordered(listed, focus, every)
+    for node_id in chosen:                     # a node passage not yet drawn joins the graph, within its caps
+        if node_id in pending:
+            if len(nodes) >= MAX_NODES:
+                chosen = [n for n in chosen if n != node_id]
+                continue
+            nodes[node_id] = pending[node_id]
+            base["nodes"].append(pending[node_id])
     if len(chosen) < 2:
         return None
-    focus = node_for(spec.get("focus"))
     if focus not in chosen:
         focus = chosen[0]
 
@@ -320,7 +386,7 @@ def _view(session: Any, topo: Any, base: Dict[str, Any], spec: Any,
         edges.append({"from": source, "to": target, "relation": _cut(relation, MAX_NAME_CHARS),
                       "label": _plain_text(item.get("label"), MAX_LABEL_CHARS)})
     return {"focus": focus, "nodes": chosen, "edges": edges,
-            "caption": _plain_text(spec.get("caption"), MAX_CAPTION_CHARS)}
+            "caption": _plain_text(spec.get("caption"), MAX_CAPTION_CHARS), "by": BY_ASSISTANT}
 
 
 def clean_view(data: Any, nodes: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
@@ -344,8 +410,9 @@ def clean_view(data: Any, nodes: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
         if source in chosen and target in chosen and source != target and isinstance(relation, str):
             edges.append({"from": source, "to": target, "relation": _cut(relation, MAX_NAME_CHARS),
                           "label": _plain_text(item.get("label"), MAX_LABEL_CHARS)})
+    by = data.get("by") if data.get("by") in (BY_ASSISTANT, BY_DEFAULT) else BY_ASSISTANT
     return {"focus": focus, "nodes": chosen, "edges": edges,
-            "caption": _plain_text(data.get("caption"), MAX_CAPTION_CHARS)}
+            "caption": _plain_text(data.get("caption"), MAX_CAPTION_CHARS), "by": by}
 
 
 def _text(value: Any, limit: int) -> str:
@@ -401,4 +468,5 @@ def clean_graph(data: Any) -> Optional[Dict[str, Any]]:
 
 __all__: Sequence[str] = ("ABOUT_RELATION", "COUNT_ID_PREFIX", "MATCH_RELATION", "MAX_CAPTION_CHARS", "MAX_EDGES",
                           "MAX_LABEL_CHARS", "MAX_NODES", "MAX_VIEW_EDGES", "MAX_VIEW_NODES", "SMALL_COUNT",
-                          "build_graph", "clean_graph", "clean_view", "count_label", "curate", "graph_specs")
+                          "BY_ASSISTANT", "BY_DEFAULT", "build_graph", "clean_graph", "clean_view", "count_label", "curate",
+                          "default_view", "graph_specs")

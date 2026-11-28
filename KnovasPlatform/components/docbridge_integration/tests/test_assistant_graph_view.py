@@ -191,7 +191,7 @@ def test_claude_chooses_the_selection_in_the_loop_and_the_log_names_nothing(capl
                               "label": "verantwortlich fuer"}]
     assert view["caption"] == "Die offenen Akten von Dr. Markus Baer."
     line = [r.getMessage() for r in caplog.records if "brain graph status=" in r.getMessage()][-1]
-    assert "graph_view=2 graph_spec_dropped=0" in line
+    assert "graph_view=2 graph_view_default=0 graph_spec_dropped=0" in line
     for secret in ("verantwortlich fuer", "offenen Akten", "Markus"):
         assert secret not in line
 
@@ -208,13 +208,14 @@ def test_a_broken_graph_line_in_the_loop_is_counted_and_the_answer_stands(caplog
     reply = service(FakeAnthropic(*find_then_count(answer))).answer(QUESTION)
     assert reply.status == "answered" and reply.removed == 0 and "view" not in reply.graph
     line = [r.getMessage() for r in caplog.records if "brain graph status=" in r.getMessage()][-1]
-    assert "graph_view=0 graph_spec_dropped=1" in line
+    assert "graph_view=0 graph_view_default=0 graph_spec_dropped=1" in line
 
 
 def test_the_instruction_teaches_the_graph_line():
     instruction = brain_graph.GRAPH_SYSTEM_INSTRUCTION
     assert '{"graph": {"focus": 3, "nodes": [3, 5, 8], "edges": [{"from": 3, "to": 5, "label": "..."}], ' in instruction
-    assert "usually 3 to 12" in instruction and "the one in the middle" in instruction
+    assert "usually 3 to 7, at most 8, never all nodes of a larger graph" in instruction
+    assert "the one in the middle" in instruction and "label every one" in instruction
     assert "This line is no statement" in instruction and "vertreten gegen" in instruction
 
 
@@ -228,3 +229,73 @@ def test_the_script_switches_between_the_selection_and_the_whole_graph_and_toggl
         assert words in source, words
     # a toggle is a button: keyboard operable without a handler of its own
     assert re.search(r"var button = document\.createElement\('button'\);\s*button\.type = 'button';", source)
+
+
+# --- a selection is a selection (the founder after the live deploy, 2026-11-28: all 11 nodes were chosen) ----------
+
+
+ALL = ["ma-1", "ma-2", "akte-1", "akte-2", "akte-3", "akte-4", "p-1", "p-2", "p-3", "dok-1", "dok-2", "re-1", "re-2"]
+
+
+def every_node_session():
+    session = session_for(FakeCore())
+    for node_id in ALL:                               # 1..13 in this order
+        session.read_node(node_id)
+    return session
+
+
+def test_a_selection_of_every_node_is_cut_to_eight_focus_first_then_the_cited_in_citation_order():
+    session = every_node_session()
+    passages = cite(session, 4, 3, 7)                 # akte-2, akte-1, p-1 cited (reply numbers 1, 2, 3)
+    graph = ag.build_graph(session, passages)
+    spec = {"focus": 3, "nodes": list(range(1, 14)), "edges": [{"from": 3, "to": 7, "label": "gegen"}]}
+    curated, dropped = ag.curate(session, graph, [spec], passages)
+    view = curated["view"]
+    assert dropped == 0 and len(view["nodes"]) == ag.MAX_VIEW_NODES == 8
+    assert view["nodes"][:3] == ["akte-1", "akte-2", "p-1"]            # focus, then cited by passage number
+    assert view["nodes"][3:] == ["ma-1", "ma-2", "akte-3", "akte-4", "p-2"]   # then Claude's list in its order
+    assert view["focus"] == "akte-1" and view["by"] == ag.BY_ASSISTANT
+    assert len(view["nodes"]) < len(curated["nodes"])
+
+
+def test_without_a_line_a_larger_graph_gets_a_default_view_smaller_than_the_whole():
+    nodes = [{"id": f"n{i}", "name": f"N{i}", "type": "T", "cited": i < 3, **({"passage": i + 1} if i < 3 else {})}
+             for i in range(12)]
+    edges = ([{"from": "n0", "to": f"n{i}", "relation": "r"} for i in range(1, 12)]
+             + [{"from": "n5", "to": "n1", "relation": "s"}, {"from": "n5", "to": "n2", "relation": "s"}])
+    graph = {"nodes": nodes, "edges": edges}
+    view = ag.default_view(graph)
+    assert view["by"] == ag.BY_DEFAULT and view["focus"] == "n0"
+    assert view["nodes"][:3] == ["n0", "n1", "n2"] and "n5" in view["nodes"]   # a connector between cited ones
+    assert 2 <= len(view["nodes"]) <= ag.MAX_VIEW_NODES and len(view["nodes"]) < len(nodes)
+    assert all(e["label"] == "" and e["from"] in view["nodes"] and e["to"] in view["nodes"] for e in view["edges"])
+    session = session_for(FakeCore())
+    curated, dropped = ag.curate(session, graph, [], [])
+    assert curated["view"] == view and dropped == 0
+    curated, dropped = ag.curate(session, graph, ["kaputt"], [])
+    assert curated["view"] == view and dropped == 1
+
+
+def test_one_cited_node_gets_its_neighbours_in_the_default_view():
+    nodes = [{"id": "c", "name": "C", "type": "T", "cited": True, "passage": 1}] + [
+        {"id": f"r{i}", "name": "", "type": "T", "cited": False} for i in range(10)]
+    edges = [{"from": "c", "to": f"r{i}", "relation": "r"} for i in range(10)]
+    view = ag.default_view({"nodes": nodes, "edges": edges})
+    assert view["nodes"][0] == "c" and len(view["nodes"]) == ag.DEFAULT_VIEW_MIN
+
+
+def test_a_small_graph_gets_no_default_view():
+    session = session_for(FakeCore())
+    graph = {"nodes": [{"id": f"n{i}", "name": "", "type": "T", "cited": True, "passage": i + 1} for i in range(8)],
+             "edges": []}
+    assert ag.curate(session, graph, [], []) == (graph, 0)
+    assert ag.default_view({"nodes": [], "edges": []}) is None
+
+
+def test_the_default_view_is_stored_and_logged_as_a_count():
+    graph = {"nodes": [{"id": f"n{i}", "name": "", "type": "T", "cited": i == 0, **({"passage": 1} if i == 0 else {})}
+                       for i in range(10)],
+             "edges": [{"from": "n0", "to": f"n{i}", "relation": "r"} for i in range(1, 10)]}
+    view = ag.default_view(graph)
+    assert ag.clean_graph(dict(graph, view=view))["view"] == view
+    assert ag.clean_view(dict(view, by="elsewhere"), {n["id"]: n for n in graph["nodes"]})["by"] == ag.BY_ASSISTANT

@@ -225,9 +225,10 @@ GRAPH_SYSTEM_INSTRUCTION = (
     "one line that chooses what it shows first:\n"
     '{"graph": {"focus": 3, "nodes": [3, 5, 8], "edges": [{"from": 3, "to": 5, "label": "..."}], '
     '"caption": "..."}}\n'
-    "nodes: the numbers of the node or count passages that answer the question, usually 3 to 12, nothing else; "
-    "focus: the one in the middle. edges: only links between those nodes that the tool results showed, each with a "
-    "short plain German label of at most " + str(answer_graph.MAX_LABEL_CHARS) + " characters (\"vertreten gegen\", "
+    "nodes: only the node or count passages needed to see the answer: the focus and the ones your statements name, "
+    "cited passages first, usually 3 to 7, at most " + str(answer_graph.MAX_VIEW_NODES) + ", never all nodes of a "
+    "larger graph. focus: the one in the middle. edges: only links between those nodes that the tool results showed; "
+    "label every one with a short plain German label of at most " + str(answer_graph.MAX_LABEL_CHARS) + " characters (\"vertreten gegen\", "
     "\"verantwortlich f\u00fcr\", \"Mandantin\"). caption: one German sentence of at most "
     + str(answer_graph.MAX_CAPTION_CHARS) + " characters that says what the selection shows. This line is no "
     "statement: it needs no quote, and a link the graph does not hold is left out.\n"
@@ -413,6 +414,7 @@ class BrainGraphService:
             stats.graph_spec_dropped = len(specs)
         if graph is not None and graph.get("view"):
             stats.graph_view = len(graph["view"]["nodes"])
+            stats.graph_view_default = int(graph["view"].get("by") == answer_graph.BY_DEFAULT)
         if graph is None:
             return reply
         stats.graph_nodes, stats.graph_edges = len(graph["nodes"]), len(graph["edges"])
@@ -600,6 +602,7 @@ class _Stats:
     graph_edges: int = 0
     #: Claude's selection: how many nodes it kept, how many graph lines were not used (counts only).
     graph_view: int = 0
+    graph_view_default: int = 0
     graph_spec_dropped: int = 0
 
     def log(self, reply: Reply, started: float) -> None:
@@ -608,12 +611,13 @@ class _Stats:
             "Knovas Assistent: brain graph status=%s messages=%s stop=%s rounds=%d tool_calls=%d calls=%s errors=%s "
             "passages=%d pointers=%d not_numbered=%d question_bytes=%d history_sent=%d answer_bytes=%d statements=%d "
             "removed=%d %s cited_passages=%d graph_reads=%d fact_nodes=%d waits=%d total_ms=%d reply=%s "
-            "graph_nodes=%d graph_edges=%d graph_view=%d graph_spec_dropped=%d",
+            "graph_nodes=%d graph_edges=%d graph_view=%d graph_view_default=%d graph_spec_dropped=%d",
             reply.status, ",".join(self.message_ids) or "-", self.stop, self.rounds, sum(self.calls.values()),
             _codes(self.calls), _codes(self.errors), len(book.passages), book.documents, book.not_numbered,
             self.question_bytes, self.history_sent, self.answer_bytes, len(reply.sentences), reply.removed,
             " ".join(f"{reason}={reply.removed_by.get(reason, 0)}" for reason in check.REASONS),
             len(reply.passages), _count(self.port, "calls"), _count(self.port, "nodes_with_facts"),
             _count(self.port, "busy"), int((time.monotonic() - started) * 1000), self.reply,
-            self.graph_nodes, self.graph_edges, self.graph_view, self.graph_spec_dropped,
+            self.graph_nodes, self.graph_edges, self.graph_view, self.graph_view_default,
+            self.graph_spec_dropped,
         )

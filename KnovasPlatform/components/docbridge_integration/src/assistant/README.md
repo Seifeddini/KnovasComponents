@@ -355,16 +355,24 @@ A read node not linked to a cited node stays out.
 that the agent could show and hide edges and nodes, to answer the question the user wanted to see? Maybe even name
 the edges and nodes in the visible graph?"). `GRAPH_SYSTEM_INSTRUCTION` offers one optional line after the
 statements: `{"graph": {"focus": <passage>, "nodes": [<passages>], "edges": [{"from", "to", "label"}], "caption"}}`
-(usually 3 to 12 nodes, the focus in the middle, plain German edge labels, one German sentence). It is no statement
+(only the nodes needed to see the answer: the focus and the ones the statements name, cited passages first,
+usually 3 to 7, never all nodes of a larger graph; every chosen edge labelled in plain German; one German
+sentence). It is no statement
 (`check.is_graph_spec`: `check_answer` neither shows nor counts it, in every mode; `removed` is unchanged).
 `answer_graph.curate` keeps the first line that holds and invents nothing: a node is a node passage or a cited count
 passage of this answer (by the number Claude saw); a node passage not yet drawn joins the graph as a read node (the
 name rule above); an edge is kept only when the graph holds one between the two nodes (the topology, either
 direction, with the real relation and direction; for a count, its own edge), any other is dropped; labels (at most
 `MAX_LABEL_CHARS` 30) and the caption (`MAX_CAPTION_CHARS` 160) lose control and format characters; at most
-`MAX_VIEW_NODES` 15 nodes and `MAX_VIEW_EDGES` 30 edges. It is stored as `graph.view` (`focus`, `nodes`, `edges`
-with `relation` and `label`, `caption`) and read back by `clean_view` (a broken one is left out, the graph stands;
-an older graph has none). The log line counts `graph_view` (nodes kept) and `graph_spec_dropped` (lines not used);
+`MAX_VIEW_EDGES` 30 edges. **A selection is a selection** (live, 2026-11-28: Claude chose all 11 nodes): at most
+`MAX_VIEW_NODES` 8 nodes, kept in this order: the focus, the cited nodes by their passage number, then the rest of
+Claude's list (`_ordered`). Without a line that holds, a graph of more than 8 nodes gets `default_view`: the most
+connected cited node as the focus, the other cited nodes, the nodes the graph joins to two or more of them, and
+(while fewer than 3) the focus's neighbours, at most 8, its edges labelled with their relation; so the first picture
+is always smaller than «Alles zeigen». A graph of at most 8 nodes without a line shows whole, as before. It is stored
+as `graph.view` (`focus`, `nodes`, `edges` with `relation` and `label`, `caption`, `by`: `assistant` or `default`)
+and read back by `clean_view` (a broken one is left out, the graph stands; an older graph has none). The log line
+counts `graph_view` (nodes kept), `graph_view_default` (1 for the default) and `graph_spec_dropped` (lines not used);
 never a label or the caption.
 
 The page: the caption stands under the block's title as «Auswahl des Assistenten: …» (autoescaped text, never a
