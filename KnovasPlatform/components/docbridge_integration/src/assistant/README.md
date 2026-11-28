@@ -344,6 +344,21 @@ the neighbours do not ease along (the optional relaxation was left out to keep t
 focus dimming is unchanged. The pure parts (`isDrag`, `keyStep`, `keepInside`, `layout`) are on
 `globalThis.knovasAskGraph` for the tests, which run them in node.
 
+**Labels that cover nothing** (the founder after the live deploy, 2026-11-28: "the texts and edges overlap"). No
+library. The drawing's height grows with the nodes (`boxHeight`: 320 to 760 units); the force layout pushes harder
+(`REPULSION` 1.35) and its ideal edge length grows with the labels' widths. Then `placeLabels` (pure, deterministic)
+places every label: a node's below its node, else above, right or left; an edge's at a spot of its curve (the
+middle first, then a little off the line, then along it); a spot that covers another label or a node, or leaves the
+drawing, is taken only when no other is free, and crossing an edge line counts far less (the edge labels have a halo
+in the card's colour, `paint-order: stroke`, so a line never cuts through their text). Two or more edges between the
+same two nodes are slight arcs (`arcBend`, quadratic curves), each label on its arc. Long labels are cut (30
+characters in the selection, 22 for relation names in the whole graph), the full words in the tooltip. In the
+selection every edge label shows; in the whole graph («Alles zeigen») a label with no free spot waits for hover or
+focus (`is-crowded`). Widths are measured on the page (`getComputedTextLength`) once the drawing is shown, else
+estimated. During a drag a label moves with its node or edge; after the drag, a key move, «Anordnung zurücksetzen»
+and a legend toggle the labels are placed again. Checked in headless Chrome on a selection of 7 nodes and 10 edges and
+a whole graph of 20 nodes and 30 edges, also after a drag: no text over another text or a node, none outside.
+
 **The read nodes beside a cited one** (live demo, 2026-11-28: Claude read seven nodes with `read_node` and cited one,
 so no graph was drawn). After the connectors above, `build_graph` adds the nodes this answer read (node passages,
 cited or not) that an edge of the topology joins to a cited node, the most joined first, within the caps, with

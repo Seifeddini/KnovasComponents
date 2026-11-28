@@ -429,3 +429,64 @@ def test_the_layout_stays_the_same_picture_for_the_same_graph():
                  "var two = g.layout(graph.nodes, graph.edges, 640, 320);\n"
                  "console.log(JSON.stringify([one, two]));")
     assert seen[0] == seen[1] and len(seen[0]) == 3
+
+
+# --- the labels where they cover nothing (the founder, 2026-11-28: "the texts and edges overlap") ----------------
+
+
+def _overlap(a, b):
+    w = min(a["x2"], b["x2"]) - max(a["x1"], b["x1"])
+    h = min(a["y2"], b["y2"]) - max(a["y1"], b["y1"])
+    return w > 0 and h > 0
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_crowded_node_labels_move_to_free_sides_and_stay_inside_the_drawing():
+    geo = {"width": 400, "height": 300,
+           "nodes": [{"x": 150 + 40 * i, "y": 150, "r": 7, "half": 7, "w": 110, "hidden": False} for i in range(3)]
+           + [{"x": 8, "y": 292, "r": 7, "half": 7, "w": 120, "hidden": False}],
+           "edges": []}
+    placed = _node(f"console.log(JSON.stringify(g.placeLabels({json.dumps(geo)})));")
+    boxes = [spot["box"] for spot in placed["nodes"]]
+    assert [spot["side"] for spot in placed["nodes"]][:3] == ["below", "above", "right"]
+    assert not any(_overlap(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1:])
+    assert all(b["x1"] >= 1 and b["y1"] >= 1 and b["x2"] <= 399 and b["y2"] <= 299 for b in boxes)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_an_edge_label_avoids_node_labels_and_waits_for_hover_only_in_the_whole_graph():
+    node = {"x": 200, "y": 100, "r": 7, "half": 7, "w": 80, "hidden": False}
+    other = {"x": 200, "y": 200, "r": 7, "half": 7, "w": 80, "hidden": False}
+    edge = {"p": {"x": 200, "y": 100}, "c": {"x": 200, "y": 150}, "q": {"x": 200, "y": 200}, "w": 70, "hidden": False}
+    geo = {"width": 400, "height": 300, "nodes": [node, other], "edges": [dict(edge, keep=False)]}
+    placed = _node(f"console.log(JSON.stringify(g.placeLabels({json.dumps(geo)})));")
+    spot = placed["edges"][0]
+    assert spot["crowded"] is False
+    assert not any(_overlap(spot["box"], n["box"]) for n in placed["nodes"])
+    # no free spot at all: the whole graph waits for hover, the selection shows it where it covers least
+    tight = {"width": 60, "height": 60, "nodes": [], "edges": [dict(edge, p={"x": 5, "y": 30}, c={"x": 30, "y": 30},
+                                                                      q={"x": 55, "y": 30}, w=200, keep=False)]}
+    assert _node(f"console.log(JSON.stringify(g.placeLabels({json.dumps(tight)})));")["edges"][0]["crowded"] is True
+    tight["edges"][0]["keep"] = True
+    assert _node(f"console.log(JSON.stringify(g.placeLabels({json.dumps(tight)})));")["edges"][0]["crowded"] is False
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_the_geometry_helpers():
+    seen = _node("var box = {x1: 10, y1: 10, x2: 20, y2: 20};\n"
+                 "console.log(JSON.stringify([g.segmentHitsBox(0, 15, 30, 15, box), g.segmentHitsBox(0, 0, 5, 30, box),"
+                 " g.segmentHitsBox(12, 12, 13, 13, box), g.arcBend(0, 1), g.arcBend(0, 2), g.arcBend(1, 2),"
+                 " g.boxHeight(3), g.boxHeight(8), g.boxHeight(20), g.boxHeight(60),"
+                 " g.quadPoint({x: 0, y: 0}, {x: 10, y: 10}, {x: 20, y: 0}, 0.5),"
+                 " g.curveControl({x: 0, y: 0}, {x: 20, y: 0}, 0), g.curveControl({x: 0, y: 0}, {x: 20, y: 0}, 11)]));")
+    assert seen[:6] == [True, False, True, 0, -11, 11]
+    assert seen[6:10] == [320, 420, 760, 760]                         # taller for more nodes, capped
+    assert seen[10] == {"x": 10, "y": 5}
+    assert seen[11] == {"x": 10, "y": 0} and seen[12] == {"x": 10, "y": 22}
+
+
+def test_the_script_places_labels_again_after_a_drag_a_key_a_reset_and_a_toggle():
+    source = GRAPH_JS.read_text(encoding="ascii")
+    assert re.search(r"if \(dragged\) relabel\(\);", source)
+    assert source.count("relabel();") >= 4 and "state.scene.relabel();" in source
+    assert "' Q'" in source and "make('path', { 'class': 'ask-graph-line'" in source      # edges are curves now

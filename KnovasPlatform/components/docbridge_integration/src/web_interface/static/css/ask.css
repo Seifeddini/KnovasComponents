@@ -248,15 +248,16 @@
 .ask-graph-item { min-width: 0; overflow-wrap: anywhere; }
 
 /* The edges: a quiet line, its relation's name on hover or focus of a node (always with few edges). */
-.ask-graph-line { stroke: var(--k-color-border-strong); stroke-width: 1.4; }
-.ask-graph-hit { stroke: transparent; stroke-width: 10; }
+.ask-graph-line { fill: none; stroke: var(--k-color-border-strong); stroke-width: 1.4; }
+.ask-graph-hit { fill: none; stroke: transparent; stroke-width: 10; }
 .ask-graph-arrow { fill: var(--k-color-border-strong); }
 .ask-graph-edge-label {
     font-size: var(--k-text-2xs);
     fill: var(--k-color-text-muted);
     paint-order: stroke;
-    stroke: var(--k-color-surface);
-    stroke-width: 3;
+    stroke: var(--k-color-surface);     /* the halo: a line that crosses the label never cuts through its text */
+    stroke-width: 4;
+    stroke-linejoin: round;
     opacity: 0;
     pointer-events: none;
 }

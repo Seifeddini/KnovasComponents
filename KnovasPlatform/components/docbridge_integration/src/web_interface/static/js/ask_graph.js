@@ -14,7 +14,15 @@
 
    Each node is focusable with an accessible name. A node with an address (its dossier, built by the route with
    url_for while the Brain views are on) is a link that opens it in a new tab; any other address is refused. Hover
-   or focus on a node shows its edges' relation names; with few edges they always show.
+   or focus on a node brings out its edges and their labels.
+
+   Labels (the founder, 2026-11-28: "the texts and edges overlap"): the drawing is taller for more nodes (boxHeight),
+   the layout pushes harder and keeps edges as long as the labels need; then placeLabels puts every label where it
+   covers nothing: a node's below, above, right or left of it, an edge's at a spot along its curve, a little off it,
+   never outside the drawing. Two or more edges between the same nodes are slight arcs, each label on its arc. An
+   edge label has a halo in the card's colour, so a crossing line never cuts through it. In the selection every
+   label shows; in the whole graph a label with no free spot waits for hover or focus. After a drag, a key move, a
+   reset and a toggle the labels are placed again; during a drag they move with their node and edge.
 
    Moving the nodes (the founder, 2026-11-28): a node is dragged with a mouse, a pen or a finger (Pointer Events, the
    pointer captured by the node; touch-action none on the SVG, so the page does not scroll while dragging); its
@@ -35,7 +43,6 @@
     var LABEL_CHARS = 26;
     // The longest edge label of the assistant's selection (answer_graph.MAX_LABEL_CHARS).
     var LABEL_EDGE_CHARS = 30;
-    var FEW_EDGES = 8;
     var STEPS = 300;
     // A press that moves less than this (CSS pixels) is a click, not a drag.
     var DRAG_PX = 4;
@@ -97,6 +104,185 @@
         return node.cited ? 13 : 7;
     };
 
+    /* Placing the labels (2026-11-28: "the texts and edges overlap"). Plain geometry, no library: boxes in SVG units,
+       a label's width measured on the page or estimated from its letters (CHAR_W a letter, TEXT_H a line). */
+    var CHAR_W = 6.2;
+    var TEXT_H = 15;
+    var LABEL_GAP = 3;
+    var LABEL_ROOM = 5;
+    // How strongly the nodes push one another apart (the force layout's repulsion; 1 is Fruchterman-Reingold's).
+    var REPULSION = 1.35;
+    // The longest relation name shown on an edge of the whole graph (the full words in its tooltip).
+    var RELATION_CHARS = 22;
+    // How far apart two edges of the same pair arc, and how far an edge label may stand off its line.
+    var ARC_STEP = 22;
+    var EDGE_OFFSET = 10;
+    // The spots tried for an edge label, in order: (place along the curve, side of it: 0 on the line).
+    var EDGE_SPOTS = [[0.5, 0], [0.5, 1], [0.5, -1], [0.4, 0], [0.6, 0], [0.4, 1], [0.6, -1], [0.4, -1], [0.6, 1],
+        [0.3, 0], [0.7, 0], [0.3, 1], [0.7, -1], [0.3, -1], [0.7, 1]];
+    // The sides tried for a node's label, in order.
+    var NODE_SIDES = ['below', 'above', 'right', 'left'];
+
+    var textWidth = function (words) { return String(words || '').length * CHAR_W + 6; };
+    // The drawing's height: taller for more nodes.
+    var boxHeight = function (count) { return Math.min(760, Math.max(320, 180 + count * 30)); };
+    var round1 = function (value) { return Math.round(value * 10) / 10; };
+    // Half the width of a count's box (its text decides it).
+    var boxHalf = function (node) { return Math.round(cut(node.label, 24).length * 7 + 26) / 2; };
+    // The point ``distance`` from ``p`` towards ``q``.
+    var towards = function (p, q, distance) {
+        var lx = q.x - p.x, ly = q.y - p.y;
+        var length = Math.sqrt(lx * lx + ly * ly) || 1;
+        return { x: p.x + (lx / length) * distance, y: p.y + (ly / length) * distance };
+    };
+    // The control point of an edge's curve between ``p`` and ``q`` (the pair's own order): its middle ``bend`` units
+    // off the straight line (0: straight).
+    var curveControl = function (p, q, bend) {
+        var lx = q.x - p.x, ly = q.y - p.y;
+        var length = Math.sqrt(lx * lx + ly * ly) || 1;
+        return { x: (p.x + q.x) / 2 - (ly / length) * bend * 2, y: (p.y + q.y) / 2 + (lx / length) * bend * 2 };
+    };
+    var quadPoint = function (p, c, q, t) {
+        var u = 1 - t;
+        return { x: u * u * p.x + 2 * u * t * c.x + t * t * q.x, y: u * u * p.y + 2 * u * t * c.y + t * t * q.y };
+    };
+    // The bend of the k-th of ``total`` edges between the same two nodes: 0 for one, else spread around the line.
+    var arcBend = function (k, total) { return total <= 1 ? 0 : (k - (total - 1) / 2) * ARC_STEP; };
+    var overlapArea = function (a, b) {
+        var w = Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1), h = Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1);
+        return w > 0 && h > 0 ? w * h : 0;
+    };
+    // Whether the segment (x1, y1)-(x2, y2) crosses or touches the box (Liang-Barsky clipping).
+    var segmentHitsBox = function (x1, y1, x2, y2, box) {
+        var t0 = 0, t1 = 1, dx = x2 - x1, dy = y2 - y1;
+        var p = [-dx, dx, -dy, dy], q = [x1 - box.x1, box.x2 - x1, y1 - box.y1, box.y2 - y1];
+        for (var k = 0; k < 4; k += 1) {
+            if (p[k] === 0) {
+                if (q[k] < 0) return false;
+            } else {
+                var r = q[k] / p[k];
+                if (p[k] < 0) {
+                    if (r > t1) return false;
+                    if (r > t0) t0 = r;
+                } else {
+                    if (r < t0) return false;
+                    if (r < t1) t1 = r;
+                }
+            }
+        }
+        return true;
+    };
+    var insideBox = function (box, width, height) {
+        return box.x1 >= 1 && box.y1 >= 1 && box.x2 <= width - 1 && box.y2 <= height - 1;
+    };
+    // The box moved (horizontally, then vertically) as little as needed to stand inside the drawing.
+    var shiftInside = function (box, width, height) {
+        var dx = box.x1 < 1 ? 1 - box.x1 : (box.x2 > width - 1 ? width - 1 - box.x2 : 0);
+        var dy = box.y1 < 1 ? 1 - box.y1 : (box.y2 > height - 1 ? height - 1 - box.y2 : 0);
+        return { x1: box.x1 + dx, x2: box.x2 + dx, y1: box.y1 + dy, y2: box.y2 + dy };
+    };
+    // An edge label at a spot of the curve p-c-q: ``t`` along it, ``off`` (-1, 0, 1) to a side of it; its box and
+    // its text's position (``x`` the middle, ``baseline``), kept inside the drawing.
+    var edgeSpot = function (p, c, q, t, off, w, width, height) {
+        var at = quadPoint(p, c, q, t);
+        var tx = 2 * (1 - t) * (c.x - p.x) + 2 * t * (q.x - c.x), ty = 2 * (1 - t) * (c.y - p.y) + 2 * t * (q.y - c.y);
+        var length = Math.sqrt(tx * tx + ty * ty) || 1;
+        var mx = at.x - (ty / length) * off * EDGE_OFFSET, my = at.y + (tx / length) * off * EDGE_OFFSET;
+        var box = shiftInside({ x1: mx - w / 2, x2: mx + w / 2, y1: my - TEXT_H / 2, y2: my + TEXT_H / 2 },
+            width, height || Infinity);
+        return { box: box, x: (box.x1 + box.x2) / 2, baseline: box.y2 - 4 };
+    };
+    // A node label on one side of its node: its box (in the drawing) and its text's place in the node's frame.
+    var nodeLabelSpot = function (node, side, width, height) {
+        var w = node.w, r = node.r, box, anchor = 'middle';
+        if (side === 'below') {
+            box = { x1: node.x - w / 2, x2: node.x + w / 2, y1: node.y + r + LABEL_GAP, y2: node.y + r + LABEL_GAP + TEXT_H };
+        } else if (side === 'above') {
+            box = { x1: node.x - w / 2, x2: node.x + w / 2, y1: node.y - r - LABEL_GAP - TEXT_H, y2: node.y - r - LABEL_GAP };
+        } else if (side === 'right') {
+            box = { x1: node.x + r + LABEL_GAP, x2: node.x + r + LABEL_GAP + w, y1: node.y - TEXT_H / 2,
+                y2: node.y + TEXT_H / 2 };
+            anchor = 'start';
+        } else {
+            box = { x1: node.x - r - LABEL_GAP - w, x2: node.x - r - LABEL_GAP, y1: node.y - TEXT_H / 2,
+                y2: node.y + TEXT_H / 2 };
+            anchor = 'end';
+        }
+        if (anchor === 'middle') box = shiftInside(box, width, height);   // never outside the drawing
+        var x = anchor === 'middle' ? (box.x1 + box.x2) / 2 - node.x : (anchor === 'start' ? box.x1 : box.x2) - node.x;
+        return { box: box, x: x, y: box.y2 - 4 - node.y, anchor: anchor, side: side };
+    };
+
+    /* Every label where it covers nothing, deterministically. ``geo``: width, height, order (the nodes' order),
+       nodes [{x, y, r, half, w (0: no label), hidden}], edges [{p, c, q, w, keep, hidden}]. A node label tries
+       NODE_SIDES, an edge label EDGE_SPOTS; the first spot that covers no label, no node, no edge line and stays
+       inside wins, else the one that covers least (crossing an edge line counts far less than covering a label or a
+       node: the halo keeps the line out of the text). An edge label that covers a label or a node wherever it goes
+       is ``crowded`` unless ``keep`` (it then shows where it covers least). Returns {nodes: [{x, y, anchor, side, box}], edges: [{t, off,
+       crowded, box}]} (null where there is no label). */
+    var placeLabels = function (geo) {
+        var width = geo.width, height = geo.height;
+        var discs = geo.nodes.map(function (n) {
+            return n.hidden ? null : { x1: n.x - n.half - 2, x2: n.x + n.half + 2, y1: n.y - n.r - 2, y2: n.y + n.r + 2 };
+        });
+        var segments = [];
+        geo.edges.forEach(function (e, k) {
+            if (e.hidden) return;
+            var previous = e.p;
+            for (var s = 1; s <= 4; s += 1) {
+                var point = quadPoint(e.p, e.c, e.q, s / 4);
+                segments.push([previous.x, previous.y, point.x, point.y, k]);
+                previous = point;
+            }
+        });
+        // Labels keep a little room between them (LABEL_ROOM across, 1 up and down).
+        var taken = [];
+        var keep = function (box) {
+            taken.push({ x1: box.x1 - LABEL_ROOM, x2: box.x2 + LABEL_ROOM, y1: box.y1 - 1, y2: box.y2 + 1 });
+        };
+        // What a box covers: ``hard`` (outside the drawing, another label, a node), ``soft`` (edge lines it crosses:
+        // allowed, the label's halo keeps the line out of the text, but a free spot is better).
+        var cost = function (box, ownNode, ownEdge) {
+            var hard = insideBox(box, width, height) ? 0 : 1e6, soft = 0;
+            taken.forEach(function (other) { hard += overlapArea(box, other); });
+            discs.forEach(function (disc, i) { if (disc && i !== ownNode) hard += overlapArea(box, disc); });
+            segments.forEach(function (segment) {
+                if (segment[4] !== ownEdge && segmentHitsBox(segment[0], segment[1], segment[2], segment[3], box)) {
+                    soft += 1;
+                }
+            });
+            return { hard: hard, soft: soft, total: hard * 1000 + soft };
+        };
+        var nodesOut = geo.nodes.map(function () { return null; });
+        (geo.order || geo.nodes.map(function (n, i) { return i; })).forEach(function (i) {
+            var node = geo.nodes[i];
+            if (!node || node.hidden || !node.w) return;
+            var best = null;
+            NODE_SIDES.forEach(function (side) {
+                var spot = nodeLabelSpot(node, side, width, height);
+                spot.cost = cost(spot.box, i, -1).total;
+                if (best === null || spot.cost < best.cost) best = spot;
+            });
+            keep(best.box);
+            nodesOut[i] = best;
+        });
+        var edgesOut = geo.edges.map(function (e, k) {
+            if (e.hidden || !e.w) return null;
+            var best = null;
+            EDGE_SPOTS.forEach(function (pair) {
+                var spot = edgeSpot(e.p, e.c, e.q, pair[0], pair[1], e.w, width, height);
+                var spotCost = cost(spot.box, -1, k);
+                if (best === null || spotCost.total < best.cost) {
+                    best = { t: pair[0], off: pair[1], box: spot.box, cost: spotCost.total, hard: spotCost.hard };
+                }
+            });
+            best.crowded = best.hard > 0 && !e.keep;
+            if (!best.crowded) keep(best.box);
+            return best;
+        });
+        return { nodes: nodesOut, edges: edgesOut };
+    };
+
     /* Positions for the nodes in a box of width x height: rings around the centre, then the force steps. */
     var layout = function (nodes, edges, width, height, centreId) {
         var count = nodes.length;
@@ -150,8 +336,13 @@
                 y[member] = cy + ry * share * Math.sin(turn);
             });
         }
-        // The force steps (Fruchterman-Reingold, cooling), the centre held, every node kept inside the box.
-        var ideal = Math.sqrt((width * height) / Math.max(count, 1)) * 0.6;
+        // The force steps (Fruchterman-Reingold, cooling), the centre held, every node kept inside the box. The ideal
+        // edge length grows with the labels (2026-11-28: texts and edges overlapped), the repulsion is stronger.
+        var widths = nodes.map(function (node) {
+            return node.kind === 'count' ? boxHalf(node) * 2 : textWidth(cut(node.label, LABEL_CHARS));
+        });
+        var meanWidth = widths.reduce(function (sum, w) { return sum + w; }, 0) / Math.max(count, 1);
+        var ideal = Math.max(Math.sqrt((width * height) / Math.max(count, 1)) * 0.75, meanWidth * 0.6 + 36);
         for (var step = 0; step < STEPS; step += 1) {
             var heat = (width / 12) * (1 - step / STEPS) + 0.5;
             var dx = nodes.map(function () { return 0; });
@@ -160,7 +351,7 @@
                 for (var j = i + 1; j < count; j += 1) {
                     var ex = x[i] - x[j], ey = y[i] - y[j];
                     var d = Math.sqrt(ex * ex + ey * ey) || 0.01;
-                    var push = (ideal * ideal) / d;
+                    var push = (REPULSION * ideal * ideal) / d;
                     dx[i] += (ex / d) * push; dy[i] += (ey / d) * push;
                     dx[j] -= (ex / d) * push; dy[j] -= (ey / d) * push;
                 }
@@ -187,7 +378,7 @@
         // Fit: the drawing's middle in the box's middle, grown (at most 2.5 times) or shrunk to fill it.
         var left = Math.min.apply(null, x), right = Math.max.apply(null, x);
         var top = Math.min.apply(null, y), bottom = Math.max.apply(null, y);
-        var top0 = 26, bottom0 = height - 30;
+        var top0 = 30, bottom0 = height - 34;
         var scale = Math.min((width - 2 * padX) / Math.max(right - left, 1),
             (bottom0 - top0) / Math.max(bottom - top, 1), 2.5);
         var midX = (left + right) / 2, midY = (top + bottom) / 2;
@@ -209,11 +400,9 @@
         return words;
     };
 
-    // Half the width of a count's box (its text decides it).
-    var boxHalf = function (node) { return Math.round(cut(node.label, 24).length * 7 + 26) / 2; };
-
-    // What an edge shows: the assistant's label when it gave one, else the relation's name.
-    var edgeWords = function (edge) { return edge.label ? cut(edge.label, LABEL_EDGE_CHARS) : cut(edge.relation, 22); };
+    // What an edge shows: the assistant's label when it gave one, else the relation's name, cut to ``most``; the
+    // full words stand in its tooltip.
+    var edgeWords = function (edge, most) { return cut(edge.label || edge.relation, most); };
     // The edge's tooltip and accessible name: the label with the real relation, or the relation.
     var edgeName = function (edge, from, to) {
         var words = edge.label ? edge.label + ' (Relation: ' + edge.relation + ')' : edge.relation;
@@ -221,19 +410,21 @@
     };
 
     /* One drawing of a set of nodes and edges (the whole graph, or the assistant's selection): its own layout, its own
-       positions. ``options``: width, centre (a node id for the middle), labelled (every edge label shown where it
-       fits). Returns the SVG, reset() and hide(types, relations). */
+       positions. ``options``: width, centre (a node id for the middle), labelled (every edge label shown: the
+       selection; else a label that finds no free place waits for hover or focus). Returns the SVG, reset(),
+       hide(types, relations) and relabel(). */
     var scene = function (nodes, edges, options) {
         drawn += 1;
         var width = options.width;
-        var height = nodes.length <= 6 ? 320 : (nodes.length <= 15 ? 380 : 420);
+        var height = boxHeight(nodes.length);
         var home = layout(nodes, edges, width, height, options.centre);
         var points = home.map(function (p) { return { x: p.x, y: p.y }; });
         var at = {};
         nodes.forEach(function (node, i) { at[node.id] = i; });
+        var edgeChars = options.labelled ? LABEL_EDGE_CHARS : RELATION_CHARS;
 
         var svg = make('svg', {
-            'class': 'ask-graph-svg' + (options.labelled || edges.length <= FEW_EDGES ? ' is-few' : ''),
+            'class': 'ask-graph-svg is-few',
             viewBox: '0 0 ' + width + ' ' + height, width: '100%', height: height,
             preserveAspectRatio: 'xMidYMid meet', role: 'group',
             'aria-label': 'Ausschnitt aus dem Wissensgraphen: ' + nodes.length + ' Knoten, ' + edges.length +
@@ -249,6 +440,7 @@
         var nodeLayer = make('g', { 'class': 'ask-graph-nodes' }, svg);
         var edgeEls = [];
         var nodeEls = [];
+        var labelEls = nodes.map(function () { return null; });
         // Where each node may go: inside the box, its label too.
         var bounds = nodes.map(function (node) {
             var side = node.kind === 'count' ? boxHalf(node) + 2 : radius(node) + 2;
@@ -256,23 +448,29 @@
                 bottom: radius(node) + (node.kind === 'count' ? 2 : 18) };
         });
 
-        // An edge between its two nodes' points: the line from rim to rim and its label in the middle; an edge
-        // shorter than the two rims is not shown.
+        // An edge's curve: straight, or a slight arc when two or more edges join the same two nodes (``bend``,
+        // taken across the pair in one direction, so opposite edges part too).
+        var curveOf = function (edge) {
+            var lo = Math.min(edge.a, edge.b), hi = Math.max(edge.a, edge.b);
+            return { a: points[edge.a], b: points[edge.b], c: curveControl(points[lo], points[hi], edge.bend) };
+        };
+        // An edge between its two nodes: the curve from rim to rim and its label at its place (``t``, ``off``); an
+        // edge shorter than the two rims is not shown.
         var placeEdge = function (edge) {
-            var p = points[edge.a], q = points[edge.b];
-            var lx = q.x - p.x, ly = q.y - p.y;
-            var length = Math.sqrt(lx * lx + ly * ly) || 1;
+            var g = curveOf(edge), p = g.a, q = g.b, c = g.c;
+            var length = Math.sqrt((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y)) || 1;
             var ra = radius(nodes[edge.a]) + 2, rb = radius(nodes[edge.b]) + 4;
             var short = length <= ra + rb;
             edge.el.classList.toggle('is-short', short);
-            var ends = { x1: p.x + (lx / length) * ra, y1: p.y + (ly / length) * ra,
-                x2: q.x - (lx / length) * rb, y2: q.y - (ly / length) * rb };
-            [edge.hit, edge.line].forEach(function (line) {
-                Object.keys(ends).forEach(function (key) { line.setAttribute(key, String(ends[key])); });
-            });
+            var start = towards(p, c, ra), end = towards(q, c, rb);
+            var d = 'M' + round1(start.x) + ',' + round1(start.y) + ' Q' + round1(c.x) + ',' + round1(c.y) + ' ' +
+                round1(end.x) + ',' + round1(end.y);
+            edge.hit.setAttribute('d', d);
+            edge.line.setAttribute('d', d);
             if (edge.label) {
-                edge.label.setAttribute('x', String(Math.round((p.x + q.x) / 2)));
-                edge.label.setAttribute('y', String(Math.round((p.y + q.y) / 2) - 4));
+                var spot = edgeSpot(p, c, q, edge.t, edge.off, edge.width, width);
+                edge.label.setAttribute('x', String(round1(spot.x)));
+                edge.label.setAttribute('y', String(round1(spot.baseline)));
             }
             return !short;
         };
@@ -284,46 +482,83 @@
             placeNode(i);
             edgeEls.forEach(function (edge) { if (edge.a === i || edge.b === i) placeEdge(edge); });
         };
-
-        // Boxes already taken (each node with its label, then each edge label shown): an edge label that would
-        // cover one waits for hover or focus (is-crowded), so no text is drawn over another. Decided once, for the
-        // layout's picture.
-        var taken = nodes.map(function (node, i) {
-            var r = node.kind === 'count' ? Math.round(cut(node.label, 24).length * 3.5 + 15) : radius(node);
-            var half = Math.max(r, (node.kind === 'count' ? 0 : cut(node.label, LABEL_CHARS).length * 2.9));
-            return { x1: points[i].x - half, x2: points[i].x + half, y1: points[i].y - radius(node) - 2,
-                y2: points[i].y + radius(node) + (node.kind === 'count' ? 2 : 18) };
-        });
-        var free = function (box) {
-            return taken.every(function (t) {
-                return box.x2 < t.x1 || box.x1 > t.x2 || box.y2 < t.y1 || box.y1 > t.y2;
-            });
+        // The width of a drawn text: measured once the drawing is on the page, else estimated.
+        var widthOf = function (el, words) {
+            var measured = 0;
+            try { measured = el.getComputedTextLength ? el.getComputedTextLength() : 0; } catch (err) { measured = 0; }
+            return measured > 0 ? measured + 4 : textWidth(words);
         };
+
+        // The edges, with a bend for each edge that shares its pair of nodes with another.
+        var pairs = {};
         edges.forEach(function (edge) {
             var a = at[edge.from], b = at[edge.to];
             if (a === undefined || b === undefined || a === b) return;
+            var key = Math.min(a, b) + ':' + Math.max(a, b);
+            (pairs[key] = pairs[key] || []).push(edge);
+        });
+        edges.forEach(function (edge) {
+            var a = at[edge.from], b = at[edge.to];
+            if (a === undefined || b === undefined || a === b) return;
+            var group = pairs[Math.min(a, b) + ':' + Math.max(a, b)];
             var g = make('g', { 'class': 'ask-graph-edge' }, edgeLayer);
             g.setAttribute('aria-label', edgeName(edge, nodes[a], nodes[b]));
             say(make('title', {}, g), edgeName(edge, nodes[a], nodes[b]));
+            var words = edgeWords(edge, edgeChars);
             var drawnEdge = { el: g, a: a, b: b, relation: edge.relation || '',
-                hit: make('line', { 'class': 'ask-graph-hit' }, g),
-                line: make('line', { 'class': 'ask-graph-line', 'marker-end': 'url(#' + arrow + ')' }, g),
-                label: null };
-            var words = edgeWords(edge);
+                bend: arcBend(group.indexOf(edge), group.length),
+                hit: make('path', { 'class': 'ask-graph-hit' }, g),
+                line: make('path', { 'class': 'ask-graph-line', 'marker-end': 'url(#' + arrow + ')' }, g),
+                label: null, words: words, t: 0.5, off: 0, width: textWidth(words) };
             if (words) {
                 drawnEdge.label = say(make('text', { 'class': 'ask-graph-edge-label' + (edge.label ? ' is-named' : ''),
                     'text-anchor': 'middle' }, g), words);
             }
-            var shown = placeEdge(drawnEdge);
-            if (drawnEdge.label && shown) {
-                var mx = Math.round((points[a].x + points[b].x) / 2), my = Math.round((points[a].y + points[b].y) / 2) - 4;
-                var box = { x1: mx - words.length * 2.8, x2: mx + words.length * 2.8, y1: my - 10, y2: my + 3 };
-                var room = free(box);
-                if (room) taken.push(box);
-                else drawnEdge.label.classList.add('is-crowded');
-            }
+            placeEdge(drawnEdge);
             edgeEls.push(drawnEdge);
         });
+
+        var degree = nodes.map(function () { return 0; });
+        edgeEls.forEach(function (edge) { degree[edge.a] += 1; degree[edge.b] += 1; });
+        // Labels are placed in this order: cited nodes first, then by their number of edges.
+        var order = nodes.map(function (node, i) { return i; }).sort(function (a, b) {
+            return (nodes[b].cited ? 1 : 0) - (nodes[a].cited ? 1 : 0) || degree[b] - degree[a] || a - b;
+        });
+        // Every label where it covers nothing (placeLabels): a node's below, above, right or left of it, an edge's at
+        // a spot of its curve; with no free spot the selection shows it where it covers least, the whole graph
+        // keeps it for hover or focus (is-crowded).
+        var relabel = function () {
+            var geo = {
+                width: width, height: height, order: order,
+                nodes: nodes.map(function (node, i) {
+                    return { x: points[i].x, y: points[i].y, r: radius(node),
+                        half: node.kind === 'count' ? boxHalf(node) : radius(node),
+                        w: labelEls[i] ? widthOf(labelEls[i], cut(node.label, LABEL_CHARS)) : 0,
+                        hidden: nodeEls[i].classList.contains('is-hidden') };
+                }),
+                edges: edgeEls.map(function (edge) {
+                    var g = curveOf(edge);
+                    edge.width = edge.label ? widthOf(edge.label, edge.words) : 0;
+                    return { p: g.a, c: g.c, q: g.b, w: edge.width, keep: !!options.labelled,
+                        hidden: edge.el.classList.contains('is-hidden') || edge.el.classList.contains('is-short') };
+                })
+            };
+            var placed = placeLabels(geo);
+            placed.nodes.forEach(function (spot, i) {
+                if (!spot || !labelEls[i]) return;
+                labelEls[i].setAttribute('x', String(round1(spot.x)));
+                labelEls[i].setAttribute('y', String(round1(spot.y)));
+                labelEls[i].setAttribute('text-anchor', spot.anchor);
+            });
+            placed.edges.forEach(function (spot, k) {
+                var edge = edgeEls[k];
+                if (!spot || !edge.label) return;
+                edge.t = spot.t;
+                edge.off = spot.off;
+                edge.label.classList.toggle('is-crowded', spot.crowded);
+                placeEdge(edge);
+            });
+        };
 
         var focus = function (i, on) {
             svg.classList.toggle('is-focus', on);
@@ -380,8 +615,9 @@
             }
             if (node.kind !== 'count') {
                 var unnamed = node.type && node.label === node.type;
-                say(make('text', { 'class': 'ask-graph-label' + (unnamed ? ' is-unnamed' : ''),
-                    y: radius(node) + 14, 'text-anchor': 'middle' }, item), cut(node.label, LABEL_CHARS));
+                labelEls[i] = say(make('text', { 'class': 'ask-graph-label' + (unnamed ? ' is-unnamed' : ''),
+                    y: radius(node) + LABEL_GAP + TEXT_H - 4, 'text-anchor': 'middle' }, item),
+                    cut(node.label, LABEL_CHARS));
             }
             ['mouseenter', 'focus'].forEach(function (name) {
                 item.addEventListener(name, function () { focus(i, true); });
@@ -390,7 +626,8 @@
                 item.addEventListener(name, function () { focus(i, false); });
             });
 
-            // Dragging: the node follows the pointer once it moved DRAG_PX; a shorter press stays a click.
+            // Dragging: the node follows the pointer once it moved DRAG_PX; a shorter press stays a click. Its label
+            // moves with it, the edge labels with their edges; after the drag every label is placed again.
             var press = null;
             var dragged = false;
             item.addEventListener('pointerdown', function (event) {
@@ -416,6 +653,7 @@
                 dragged = press.moving;
                 press = null;
                 svg.classList.remove('is-dragging');
+                if (dragged) relabel();
             };
             item.addEventListener('pointerup', release);
             item.addEventListener('pointercancel', release);
@@ -430,26 +668,31 @@
                 if (!step) return;                                   // Enter and the rest as before
                 event.preventDefault();
                 moveTo(i, points[i].x + step[0], points[i].y + step[1]);
+                relabel();
             });
         });
         // A link's own drag (of its address) would start instead of moving the node.
         svg.addEventListener('dragstart', function (event) { event.preventDefault(); });
+        relabel();
 
         return {
             svg: svg,
+            relabel: relabel,
             // Every node back where the layout placed it.
             reset: function () {
                 nodes.forEach(function (node, i) { points[i] = { x: home[i].x, y: home[i].y }; placeNode(i); });
                 edgeEls.forEach(placeEdge);
+                relabel();
             },
             // Hide the nodes of the hidden types (COUNT_KEY: the counts) and the edges of the hidden relations;
-            // a hidden node hides its edges too.
+            // a hidden node hides its edges too. The labels are placed again for what is left.
             hide: function (types, relations) {
                 var gone = nodes.map(function (node) { return hiddenNode(node, types); });
                 nodeEls.forEach(function (el, i) { el.classList.toggle('is-hidden', gone[i]); });
                 edgeEls.forEach(function (edge) {
                     edge.el.classList.toggle('is-hidden', !!relations[edge.relation] || gone[edge.a] || gone[edge.b]);
                 });
+                relabel();
             }
         };
     };
@@ -592,6 +835,7 @@
             current = state;
             while (stage.firstChild) stage.removeChild(stage.firstChild);
             stage.appendChild(state.scene.svg);
+            state.scene.relabel();                   // on the page now: the labels' real widths
             if (keys) under.removeChild(keys);
             keys = legend(state.nodes, state.edges, state, function () {
                 state.scene.hide(state.types, state.relations);
@@ -629,7 +873,9 @@
 
     // The pure parts, for the tests (node runs this file with a stub document).
     globalThis.knovasAskGraph = { isDrag: isDrag, keyStep: keyStep, keepInside: keepInside, layout: layout,
-        DRAG_PX: DRAG_PX };
+        DRAG_PX: DRAG_PX, placeLabels: placeLabels, segmentHitsBox: segmentHitsBox, overlapArea: overlapArea,
+        quadPoint: quadPoint, curveControl: curveControl, arcBend: arcBend, boxHeight: boxHeight, edgeSpot: edgeSpot,
+        nodeLabelSpot: nodeLabelSpot, textWidth: textWidth, TEXT_H: TEXT_H };
 
     Array.prototype.forEach.call(document.querySelectorAll('.ask-graph'), function (block) {
         if (block.open) start(block);
