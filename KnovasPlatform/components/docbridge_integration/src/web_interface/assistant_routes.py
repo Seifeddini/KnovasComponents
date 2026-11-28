@@ -329,6 +329,8 @@ def shown_graph(graph: Any) -> Tuple[Optional[Dict[str, Any]], str]:
             href = url_for("brain_views.dossier", node_id=node["id"])
         nodes.append({**node, "label": node["name"] or node["type"] or "Knoten", "href": href})
     shown = {"nodes": nodes, "edges": cleaned["edges"]}
+    if cleaned.get("view"):  # the assistant's selection (answer_graph.curate): plain text, autoescaped, never safe
+        shown["view"] = cleaned["view"]
     return shown, json.dumps(shown, ensure_ascii=False, separators=(",", ":"))
 
 

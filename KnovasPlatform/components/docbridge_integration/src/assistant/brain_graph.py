@@ -221,6 +221,17 @@ GRAPH_SYSTEM_INSTRUCTION = (
     "specific or say that nothing fits. When the tool results do not answer the question, write no statement but one "
     "reply, kind clarify, that says what you looked for and asks one helpful follow-up question.\n"
     "\n"
+    "Under an answer the page draws the part of the knowledge graph it stands on. After your statements you may add "
+    "one line that chooses what it shows first:\n"
+    '{"graph": {"focus": 3, "nodes": [3, 5, 8], "edges": [{"from": 3, "to": 5, "label": "..."}], '
+    '"caption": "..."}}\n'
+    "nodes: the numbers of the node or count passages that answer the question, usually 3 to 12, nothing else; "
+    "focus: the one in the middle. edges: only links between those nodes that the tool results showed, each with a "
+    "short plain German label of at most " + str(answer_graph.MAX_LABEL_CHARS) + " characters (\"vertreten gegen\", "
+    "\"verantwortlich f\u00fcr\", \"Mandantin\"). caption: one German sentence of at most "
+    + str(answer_graph.MAX_CAPTION_CHARS) + " characters that says what the selection shows. This line is no "
+    "statement: it needs no quote, and a link the graph does not hold is left out.\n"
+    "\n"
     "Rules:\n"
     "1. Use only the tool results. Add no outside knowledge, no assumptions and no advice that they do not support.\n"
     "2. Write numbers, amounts, dates, keys and names exactly as the passage writes them. Do not convert, round or "
@@ -385,13 +396,23 @@ class BrainGraphService:
         reply = finished(sentences, removed_by, said, answered_passages=passages,
                          nearest_passages=closest(book.passages)[:CLOSEST_PASSAGES], make=GraphReply)
         reply = with_unchecked(reply, text, book.passages)
+        specs = answer_graph.graph_specs(text)
         if reply.status != "answered":
+            stats.graph_spec_dropped = len(specs)
             return reply
         try:
             graph = answer_graph.build_graph(run.session, reply.passages)
         except Exception as exc:  # noqa: BLE001 - the answer stands without its graph
             logger.warning("Knovas Assistent: brain graph drawing failed (%s)", type(exc).__name__)
             graph = None
+        # Claude's selection of what the graph shows (one optional line; no statement, no count, no quote).
+        try:
+            graph, stats.graph_spec_dropped = answer_graph.curate(run.session, graph, specs, reply.passages)
+        except Exception as exc:  # noqa: BLE001 - the graph stands without a selection
+            logger.warning("Knovas Assistent: brain graph selection failed (%s)", type(exc).__name__)
+            stats.graph_spec_dropped = len(specs)
+        if graph is not None and graph.get("view"):
+            stats.graph_view = len(graph["view"]["nodes"])
         if graph is None:
             return reply
         stats.graph_nodes, stats.graph_edges = len(graph["nodes"]), len(graph["edges"])
@@ -577,6 +598,9 @@ class _Stats:
     reply: str = "-"
     graph_nodes: int = 0
     graph_edges: int = 0
+    #: Claude's selection: how many nodes it kept, how many graph lines were not used (counts only).
+    graph_view: int = 0
+    graph_spec_dropped: int = 0
 
     def log(self, reply: Reply, started: float) -> None:
         book = self.book or gr.PassageBook()
@@ -584,12 +608,12 @@ class _Stats:
             "Knovas Assistent: brain graph status=%s messages=%s stop=%s rounds=%d tool_calls=%d calls=%s errors=%s "
             "passages=%d pointers=%d not_numbered=%d question_bytes=%d history_sent=%d answer_bytes=%d statements=%d "
             "removed=%d %s cited_passages=%d graph_reads=%d fact_nodes=%d waits=%d total_ms=%d reply=%s "
-            "graph_nodes=%d graph_edges=%d",
+            "graph_nodes=%d graph_edges=%d graph_view=%d graph_spec_dropped=%d",
             reply.status, ",".join(self.message_ids) or "-", self.stop, self.rounds, sum(self.calls.values()),
             _codes(self.calls), _codes(self.errors), len(book.passages), book.documents, book.not_numbered,
             self.question_bytes, self.history_sent, self.answer_bytes, len(reply.sentences), reply.removed,
             " ".join(f"{reason}={reply.removed_by.get(reason, 0)}" for reason in check.REASONS),
             len(reply.passages), _count(self.port, "calls"), _count(self.port, "nodes_with_facts"),
             _count(self.port, "busy"), int((time.monotonic() - started) * 1000), self.reply,
-            self.graph_nodes, self.graph_edges,
+            self.graph_nodes, self.graph_edges, self.graph_view, self.graph_spec_dropped,
         )

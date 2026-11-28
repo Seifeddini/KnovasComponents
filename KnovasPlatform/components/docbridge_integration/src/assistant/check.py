@@ -187,7 +187,7 @@ def check_answer_keeping(text: str, passages: Mapping[int, str]
     for value in read_answer(text):
         if isinstance(value, dict) and value.get("no_answer") is True:
             continue
-        if is_reply(value):
+        if is_reply(value) or is_graph_spec(value):
             continue
         statement = check_form(value, passages)
         if statement is None:
@@ -237,6 +237,13 @@ def _removed_form(value: Any, passages: Container[int]) -> Optional[Removed]:
     if not isinstance(source, int) or isinstance(source, bool) or source not in passages:
         source = None
     return Removed(text=shown, reason=NOT_A_STATEMENT, source=source)
+
+
+def is_graph_spec(value: Any) -> bool:
+    """Whether a decoded line is the assistant's choice of what the graph under the answer shows (<<Wissensgraph>>,
+    the founder, 2026-11-28): an object with the key ``graph`` and neither ``statement`` nor ``reply``. It is no
+    statement: neither shown nor counted here; ``assistant.answer_graph.curate`` reads it."""
+    return isinstance(value, dict) and "graph" in value and "statement" not in value and "reply" not in value
 
 
 def is_reply(value: Any) -> bool:

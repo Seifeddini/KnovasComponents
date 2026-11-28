@@ -10,7 +10,8 @@
               that opens the document); then, under an answer of «Wissensgraph» that has one (PMVP-20 brain-graph),
               the block «Im Wissensgraphen» (open; static/js/ask_graph.js draws its data-graph as a small SVG with
               a legend and hides the list, which stands without JavaScript: each node, its passage number, its
-              dossier link while the Brain views are on); then the passages.
+              dossier link while the Brain views are on; with the assistant's selection its caption as text under
+              the title, «Auswahl des Assistenten: …»); then the passages.
               «Ohne Beleg» (the founder, 2026-11-28; only while assistant.show_unchecked is on): under the line of
               removed statements, before the graph, a closed block of the statements the check removed, each marked
               «nicht belegt» with its reason and «behauptete Quelle n» as plain text when it named a passage the
@@ -65,6 +66,7 @@
 {% macro graph_block(t) %}
 <details class="ask-graph" open>
     <summary class="ask-graph-title">Im Wissensgraphen</summary>
+    {%- if t.graph.view and t.graph.view.caption %}<p class="ask-graph-caption" dir="auto">Auswahl des Assistenten: {{ t.graph.view.caption }}</p>{% endif %}
     <div class="ask-graph-canvas" data-graph="{{ t.graph_json }}"></div>
     <ul class="ask-graph-list">
         {% for node in t.graph.nodes %}

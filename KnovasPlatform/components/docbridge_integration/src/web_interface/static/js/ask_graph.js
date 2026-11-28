@@ -33,6 +33,8 @@
         '#be123c', '#4d7c0f', '#0369a1', '#7c2d12', '#a21caf', '#334155'
     ];
     var LABEL_CHARS = 26;
+    // The longest edge label of the assistant's selection (answer_graph.MAX_LABEL_CHARS).
+    var LABEL_EDGE_CHARS = 30;
     var FEW_EDGES = 8;
     var STEPS = 300;
     // A press that moves less than this (CSS pixels) is a click, not a drag.
@@ -96,7 +98,7 @@
     };
 
     /* Positions for the nodes in a box of width x height: rings around the centre, then the force steps. */
-    var layout = function (nodes, edges, width, height) {
+    var layout = function (nodes, edges, width, height, centreId) {
         var count = nodes.length;
         var index = {};
         nodes.forEach(function (node, i) { index[node.id] = i; });
@@ -113,6 +115,7 @@
         nodes.forEach(function (node, i) {
             if (node.cited && near[i].length > best) { best = near[i].length; centre = i; }
         });
+        if (centreId !== undefined && centreId !== null && index[centreId] !== undefined) centre = index[centreId];
         var depth = nodes.map(function () { return -1; });
         var parent = nodes.map(function () { return -1; });
         depth[centre] = 0;
@@ -209,19 +212,28 @@
     // Half the width of a count's box (its text decides it).
     var boxHalf = function (node) { return Math.round(cut(node.label, 24).length * 7 + 26) / 2; };
 
-    var draw = function (canvas, graph) {
-        var nodes = graph.nodes, edges = graph.edges || [];
+    // What an edge shows: the assistant's label when it gave one, else the relation's name.
+    var edgeWords = function (edge) { return edge.label ? cut(edge.label, LABEL_EDGE_CHARS) : cut(edge.relation, 22); };
+    // The edge's tooltip and accessible name: the label with the real relation, or the relation.
+    var edgeName = function (edge, from, to) {
+        var words = edge.label ? edge.label + ' (Relation: ' + edge.relation + ')' : edge.relation;
+        return words + ': ' + from.label + ' \u2192 ' + to.label;
+    };
+
+    /* One drawing of a set of nodes and edges (the whole graph, or the assistant's selection): its own layout, its own
+       positions. ``options``: width, centre (a node id for the middle), labelled (every edge label shown where it
+       fits). Returns the SVG, reset() and hide(types, relations). */
+    var scene = function (nodes, edges, options) {
         drawn += 1;
-        var width = Math.max(canvas.clientWidth || 0, 280);
-        if (width < 300) width = 640;
+        var width = options.width;
         var height = nodes.length <= 6 ? 320 : (nodes.length <= 15 ? 380 : 420);
-        var home = layout(nodes, edges, width, height);
+        var home = layout(nodes, edges, width, height, options.centre);
         var points = home.map(function (p) { return { x: p.x, y: p.y }; });
         var at = {};
         nodes.forEach(function (node, i) { at[node.id] = i; });
 
         var svg = make('svg', {
-            'class': 'ask-graph-svg' + (edges.length <= FEW_EDGES ? ' is-few' : ''),
+            'class': 'ask-graph-svg' + (options.labelled || edges.length <= FEW_EDGES ? ' is-few' : ''),
             viewBox: '0 0 ' + width + ' ' + height, width: '100%', height: height,
             preserveAspectRatio: 'xMidYMid meet', role: 'group',
             'aria-label': 'Ausschnitt aus dem Wissensgraphen: ' + nodes.length + ' Knoten, ' + edges.length +
@@ -291,17 +303,19 @@
             var a = at[edge.from], b = at[edge.to];
             if (a === undefined || b === undefined || a === b) return;
             var g = make('g', { 'class': 'ask-graph-edge' }, edgeLayer);
-            say(make('title', {}, g), edge.relation + ': ' + nodes[a].label + ' \u2192 ' + nodes[b].label);
-            var drawnEdge = { el: g, a: a, b: b, hit: make('line', { 'class': 'ask-graph-hit' }, g),
+            g.setAttribute('aria-label', edgeName(edge, nodes[a], nodes[b]));
+            say(make('title', {}, g), edgeName(edge, nodes[a], nodes[b]));
+            var drawnEdge = { el: g, a: a, b: b, relation: edge.relation || '',
+                hit: make('line', { 'class': 'ask-graph-hit' }, g),
                 line: make('line', { 'class': 'ask-graph-line', 'marker-end': 'url(#' + arrow + ')' }, g),
                 label: null };
-            if (edge.relation) {
-                drawnEdge.label = say(make('text', { 'class': 'ask-graph-edge-label', 'text-anchor': 'middle' }, g),
-                    cut(edge.relation, 22));
+            var words = edgeWords(edge);
+            if (words) {
+                drawnEdge.label = say(make('text', { 'class': 'ask-graph-edge-label' + (edge.label ? ' is-named' : ''),
+                    'text-anchor': 'middle' }, g), words);
             }
             var shown = placeEdge(drawnEdge);
             if (drawnEdge.label && shown) {
-                var words = cut(edge.relation, 22);
                 var mx = Math.round((points[a].x + points[b].x) / 2), my = Math.round((points[a].y + points[b].y) / 2) - 4;
                 var box = { x1: mx - words.length * 2.8, x2: mx + words.length * 2.8, y1: my - 10, y2: my + 3 };
                 var room = free(box);
@@ -421,33 +435,70 @@
         // A link's own drag (of its address) would start instead of moving the node.
         svg.addEventListener('dragstart', function (event) { event.preventDefault(); });
 
-        var reset = document.createElement('button');
-        reset.type = 'button';
-        reset.className = 'ask-graph-reset';
-        say(reset, 'Anordnung zur\u00fccksetzen');
-        reset.addEventListener('click', function () {
-            nodes.forEach(function (node, i) { points[i] = { x: home[i].x, y: home[i].y }; placeNode(i); });
-            edgeEls.forEach(placeEdge);
-        });
-
-        canvas.appendChild(svg);
-        var under = document.createElement('div');
-        under.className = 'ask-graph-under';
-        under.appendChild(legend(nodes));
-        under.appendChild(reset);
-        canvas.appendChild(under);
+        return {
+            svg: svg,
+            // Every node back where the layout placed it.
+            reset: function () {
+                nodes.forEach(function (node, i) { points[i] = { x: home[i].x, y: home[i].y }; placeNode(i); });
+                edgeEls.forEach(placeEdge);
+            },
+            // Hide the nodes of the hidden types (COUNT_KEY: the counts) and the edges of the hidden relations;
+            // a hidden node hides its edges too.
+            hide: function (types, relations) {
+                var gone = nodes.map(function (node) { return hiddenNode(node, types); });
+                nodeEls.forEach(function (el, i) { el.classList.toggle('is-hidden', gone[i]); });
+                edgeEls.forEach(function (edge) {
+                    edge.el.classList.toggle('is-hidden', !!relations[edge.relation] || gone[edge.a] || gone[edge.b]);
+                });
+            }
+        };
     };
 
-    var legend = function (nodes) {
+    // The key of the counts among the type toggles (no type is called so: it holds a NUL).
+    var COUNT_KEY = '\u0000count';
+    var hiddenNode = function (node, types) {
+        return node.kind === 'count' ? !!types[COUNT_KEY] : !!types[node.type];
+    };
+
+    /* The legend: the types (and the counts) and the relations are toggle buttons (aria-pressed: shown) that hide and
+       show those nodes and edges; the other keys are plain. ``state.types`` / ``state.relations`` hold what is
+       hidden; ``changed()`` is called after each toggle. */
+    var legend = function (nodes, edges, state, changed) {
+        var box = document.createElement('div');
+        box.className = 'ask-graph-keys';
         var list = document.createElement('ul');
         list.className = 'ask-graph-legend';
-        var entry = function (swatchClass, tint, words) {
-            var item = document.createElement('li');
+        box.appendChild(list);
+        var swatchOf = function (swatchClass, tint) {
             var swatch = document.createElement('span');
             swatch.className = 'ask-graph-swatch ' + swatchClass;
             swatch.setAttribute('aria-hidden', 'true');
             if (tint) swatch.style.backgroundColor = tint;
-            item.appendChild(swatch);
+            return swatch;
+        };
+        var toggle = function (target, hidden, key, swatch, words, what) {
+            var item = document.createElement('li');
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'ask-graph-key';
+            var sync = function () {
+                button.setAttribute('aria-pressed', hidden[key] ? 'false' : 'true');
+                button.title = (hidden[key] ? what + ' einblenden' : what + ' ausblenden');
+            };
+            if (swatch) button.appendChild(swatch);
+            say(button, words);
+            sync();
+            button.addEventListener('click', function () {
+                hidden[key] = !hidden[key];
+                sync();
+                changed();
+            });
+            item.appendChild(button);
+            target.appendChild(item);
+        };
+        var plain = function (swatchClass, words) {
+            var item = document.createElement('li');
+            item.appendChild(swatchOf(swatchClass, ''));
             say(item, words);
             list.appendChild(item);
         };
@@ -455,12 +506,110 @@
         nodes.forEach(function (node) {
             if (node.kind === 'count' || !node.type || seen[node.type]) return;
             seen[node.type] = true;
-            entry('', colour(node.type), node.type);
+            toggle(list, state.types, node.type, swatchOf('', colour(node.type)), node.type, node.type);
         });
-        entry('is-cited-key', '', 'zitiert (Nummer der Quelle)');
-        if (nodes.some(function (node) { return !node.cited; })) entry('is-read-key', '', 'verbindet');
-        if (nodes.some(function (node) { return node.kind === 'count'; })) entry('is-count-key', '', 'Abfrage (Anzahl)');
-        return list;
+        if (nodes.some(function (node) { return node.kind === 'count'; })) {
+            toggle(list, state.types, COUNT_KEY, swatchOf('is-count-key', ''), 'Abfrage (Anzahl)', 'Abfragen');
+        }
+        plain('is-cited-key', 'zitiert (Nummer der Quelle)');
+        if (nodes.some(function (node) { return !node.cited; })) plain('is-read-key', 'verbindet');
+        var relations = [];
+        edges.forEach(function (edge) {
+            if (edge.relation && relations.indexOf(edge.relation) === -1) relations.push(edge.relation);
+        });
+        if (relations.length) {
+            var row = document.createElement('ul');
+            row.className = 'ask-graph-legend is-relations';
+            var head = document.createElement('li');
+            head.className = 'ask-graph-legend-head';
+            say(head, 'Verbindungen:');
+            row.appendChild(head);
+            relations.forEach(function (relation) {
+                var named = edges.filter(function (edge) { return edge.relation === relation && edge.label; });
+                var words = named.length ? cut(named[0].label, LABEL_EDGE_CHARS) + ' (' + relation + ')' : relation;
+                toggle(row, state.relations, relation, null, words, 'Verbindung ' + relation);
+            });
+            box.appendChild(row);
+        }
+        return box;
+    };
+
+    var button = function (className, words) {
+        var element = document.createElement('button');
+        element.type = 'button';
+        element.className = className;
+        say(element, words);
+        return element;
+    };
+
+    /* The block's drawing: the assistant's selection (graph.view) by default when there is one, else the whole graph;
+       \u00abAlles zeigen\u00bb / \u00abAuswahl zeigen\u00bb switches; each has its own layout, positions and hidden keys. \u00abAnordnung
+       zuruecksetzen\u00bb resets the drawing shown. */
+    var draw = function (canvas, graph) {
+        var width = Math.max(canvas.clientWidth || 0, 280);
+        if (width < 300) width = 640;
+        var byId = {};
+        graph.nodes.forEach(function (node) { byId[node.id] = node; });
+        var states = {
+            all: { nodes: graph.nodes, edges: (graph.edges || []).map(function (edge) {
+                return { from: edge.from, to: edge.to, relation: edge.relation, label: '' };
+            }), centre: null, labelled: false }
+        };
+        var view = graph.view;
+        if (view && Array.isArray(view.nodes)) {
+            var picked = view.nodes.map(function (id) { return byId[id]; }).filter(Boolean);
+            if (picked.length >= 2) {
+                states.view = { nodes: picked, edges: (view.edges || []).filter(function (edge) {
+                    return byId[edge.from] && byId[edge.to];
+                }), centre: view.focus, labelled: true };
+            }
+        }
+        var block = canvas.parentNode;
+        var caption = block && block.querySelector ? block.querySelector('.ask-graph-caption') : null;
+        var stage = document.createElement('div');
+        stage.className = 'ask-graph-stage';
+        canvas.appendChild(stage);
+        var under = document.createElement('div');
+        under.className = 'ask-graph-under';
+        canvas.appendChild(under);
+        var keys = null;
+        var buttons = document.createElement('div');
+        buttons.className = 'ask-graph-buttons';
+        under.appendChild(buttons);
+        var switcher = states.view ? button('ask-graph-switch', 'Alles zeigen') : null;
+        var reset = button('ask-graph-reset', 'Anordnung zur\u00fccksetzen');
+        if (switcher) buttons.appendChild(switcher);
+        buttons.appendChild(reset);
+        var current = null;
+        var show = function (name) {
+            var state = states[name];
+            if (!state.scene) {
+                state.types = {};
+                state.relations = {};
+                state.scene = scene(state.nodes, state.edges, { width: width, centre: state.centre,
+                    labelled: state.labelled });
+            }
+            current = state;
+            while (stage.firstChild) stage.removeChild(stage.firstChild);
+            stage.appendChild(state.scene.svg);
+            if (keys) under.removeChild(keys);
+            keys = legend(state.nodes, state.edges, state, function () {
+                state.scene.hide(state.types, state.relations);
+            });
+            under.insertBefore(keys, buttons);
+            state.scene.hide(state.types, state.relations);
+            if (caption) caption.hidden = name !== 'view';
+            if (switcher) {
+                switcher.textContent = name === 'view' ? 'Alles zeigen' : 'Auswahl zeigen';
+                switcher.setAttribute('aria-pressed', name === 'all' ? 'true' : 'false');
+            }
+            canvas.setAttribute('data-state', name);
+        };
+        if (switcher) {
+            switcher.addEventListener('click', function () { show(current === states.view ? 'all' : 'view'); });
+        }
+        reset.addEventListener('click', function () { if (current) current.scene.reset(); });
+        show(states.view ? 'view' : 'all');
     };
 
     var start = function (block) {

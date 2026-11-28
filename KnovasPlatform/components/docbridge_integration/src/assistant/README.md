@@ -344,8 +344,40 @@ the neighbours do not ease along (the optional relaxation was left out to keep t
 focus dimming is unchanged. The pure parts (`isDrag`, `keyStep`, `keepInside`, `layout`) are on
 `globalThis.knovasAskGraph` for the tests, which run them in node.
 
+**The read nodes beside a cited one** (live demo, 2026-11-28: Claude read seven nodes with `read_node` and cited one,
+so no graph was drawn). After the connectors above, `build_graph` adds the nodes this answer read (node passages,
+cited or not) that an edge of the topology joins to a cited node, the most joined first, within the caps, with
+their edges to the nodes drawn; when fewer than two nodes qualified before, they make the graph. The name rule is
+unchanged: such a node shows its name only when it stands in the text of a cited passage, else its type (italic).
+A read node not linked to a cited node stays out.
+
+**The assistant's selection** (the founder, 2026-11-28: "the graph is somewhat not easy to understand. Can you enable
+that the agent could show and hide edges and nodes, to answer the question the user wanted to see? Maybe even name
+the edges and nodes in the visible graph?"). `GRAPH_SYSTEM_INSTRUCTION` offers one optional line after the
+statements: `{"graph": {"focus": <passage>, "nodes": [<passages>], "edges": [{"from", "to", "label"}], "caption"}}`
+(usually 3 to 12 nodes, the focus in the middle, plain German edge labels, one German sentence). It is no statement
+(`check.is_graph_spec`: `check_answer` neither shows nor counts it, in every mode; `removed` is unchanged).
+`answer_graph.curate` keeps the first line that holds and invents nothing: a node is a node passage or a cited count
+passage of this answer (by the number Claude saw); a node passage not yet drawn joins the graph as a read node (the
+name rule above); an edge is kept only when the graph holds one between the two nodes (the topology, either
+direction, with the real relation and direction; for a count, its own edge), any other is dropped; labels (at most
+`MAX_LABEL_CHARS` 30) and the caption (`MAX_CAPTION_CHARS` 160) lose control and format characters; at most
+`MAX_VIEW_NODES` 15 nodes and `MAX_VIEW_EDGES` 30 edges. It is stored as `graph.view` (`focus`, `nodes`, `edges`
+with `relation` and `label`, `caption`) and read back by `clean_view` (a broken one is left out, the graph stands;
+an older graph has none). The log line counts `graph_view` (nodes kept) and `graph_spec_dropped` (lines not used);
+never a label or the caption.
+
+The page: the caption stands under the block's title as «Auswahl des Assistenten: …» (autoescaped text, never a
+statement). `ask_graph.js` draws the selection first, the focus in the middle, each edge with Claude's label (its
+tooltip and accessible name «label (Relation: relation): from → to»); «Alles zeigen» / «Auswahl zeigen» switches to
+the whole graph and back (each with its own layout and positions; the caption shows with the selection only). In
+both, the legend's types (and «Abfrage (Anzahl)») and a row «Verbindungen:» of the relations are toggle buttons
+(`aria-pressed`; buttons, so the keyboard works) that hide and show those nodes and edges; a hidden node hides its
+edges. Dragging works in both; «Anordnung zurücksetzen» resets the drawing shown. Without a selection the block is
+the whole graph with the toggles. Tests: `tests/test_assistant_graph_view.py`.
+
 **The logs.** One line per answer (`brain graph status=… rounds=… tool_calls=… calls=<tool>:<n> errors=<code>:<n>
-passages=… graph_reads=… fact_nodes=… waits=… graph_nodes=… graph_edges=…`, the check's counts, Anthropic's message
+passages=… graph_reads=… fact_nodes=… waits=… graph_nodes=… graph_edges=… graph_view=… graph_spec_dropped=…`, the check's counts, Anthropic's message
 ids, durations) and the provider's line per request. Never a question, a tool's input, a node's name, a fact, a passage, an answer or a key;
 `graph_reads` logs nothing, `knovas_client.graph_read` is quiet.
 

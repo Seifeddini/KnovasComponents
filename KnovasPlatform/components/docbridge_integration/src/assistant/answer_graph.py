@@ -28,6 +28,7 @@ None. Nothing here logs. This module imports neither Flask nor the app. It is AS
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from assistant import graph_reads as gr
@@ -163,9 +164,188 @@ def build_graph(session: Any, passages: Sequence[Any]) -> Optional[Dict[str, Any
         for source, relation, target in links:
             add_edge(source, target, relation)
 
+    # 5. the nodes this answer read (node passages, cited or not) joined by an edge to a node held: connectors after
+    #    those above, the most joined first; when fewer than two nodes qualified above, they make the graph (the live
+    #    demo of 2026-11-28: Claude read seven nodes and cited one, and no graph was drawn). Names as above.
+    held_set = {n for n in nodes if n in topo.nodes}
+    cited_set = {n for n in held_set if nodes[n].get("cited")}
+    near: Dict[str, Set[str]] = {}
+    for other in read:
+        if other is None or other in nodes or other not in topo.nodes:
+            continue
+        for _relation, neighbour in list(topo.out.get(other, ())) + list(topo.inc.get(other, ())):
+            if neighbour in cited_set:
+                near.setdefault(other, set()).add(neighbour)
+    for other in sorted(near, key=lambda n: (-len(near[n]), topo.nodes[n].name.casefold(), n)):
+        if len(nodes) >= MAX_NODES or len(edges) >= MAX_EDGES:
+            break
+        add_read(other)
+        for relation, target in topo.out.get(other, ()):
+            if target in held_set:
+                add_edge(other, target, relation)
+        for relation, source in topo.inc.get(other, ()):
+            if source in held_set:
+                add_edge(source, other, relation)
+
     if len(nodes) < 2:
         return None
     return {"nodes": list(nodes.values()), "edges": edges}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The assistant's selection (the founder, 2026-11-28: "enable that the agent could show and hide edges and nodes")
+# ---------------------------------------------------------------------------------------------------------------------
+
+#: The most nodes and edges of the selection, the longest edge label and caption.
+MAX_VIEW_NODES = 15
+MAX_VIEW_EDGES = 30
+MAX_LABEL_CHARS = 30
+MAX_CAPTION_CHARS = 160
+
+
+def _plain_text(value: Any, limit: int) -> str:
+    """A label or caption as plain text: no control or format characters, white space single, at most ``limit``."""
+    if not isinstance(value, str):
+        return ""
+    kept = "".join(" " if char.isspace() else char for char in value if char.isspace()
+                   or unicodedata.category(char)[0] != "C")
+    return _cut(kept, limit)
+
+
+def graph_specs(text: str) -> List[Any]:
+    """The values of the answer's graph lines (``check.is_graph_spec``), in order."""
+    from assistant import check
+
+    return [value["graph"] for value in check.read_answer(text) if check.is_graph_spec(value)]
+
+
+def curate(session: Any, graph: Optional[Dict[str, Any]], specs: Sequence[Any],
+           passages: Sequence[Any]) -> Tuple[Optional[Dict[str, Any]], int]:
+    """``(graph, dropped)``: ``graph`` with ``"view"``, the first of ``specs`` that holds, and how many specs were
+    not used (malformed, nothing valid in them, or a second one). Nothing is invented: a node is a node or count
+    passage of this answer (by the number Claude saw), a node passage not yet in the graph is added to it (as a read
+    node, the name rule of ``build_graph``), a count passage only when its count node is in the graph (it was
+    cited); an edge is kept only when the graph holds one between those two nodes (the topology, either direction,
+    with its real relation and direction; for a count, its own edge). The view: ``focus``, ``nodes`` (ids),
+    ``edges`` (``from``, ``to``, ``relation``, ``label``), ``caption``. ``graph`` may be None (the selection may
+    then make one, from two nodes up). Never raises for a malformed spec."""
+    if not specs:
+        return graph, 0
+    topo = session.topology_if_read()
+    if topo is None:
+        return graph, len(specs)
+    base = {"nodes": [dict(n) for n in (graph or {}).get("nodes", [])],
+            "edges": [dict(e) for e in (graph or {}).get("edges", [])]}
+    for spec in specs:
+        view = _view(session, topo, base, spec, passages)
+        if view is not None:
+            base["view"] = view
+            return base, len(specs) - 1
+    return graph, len(specs)
+
+
+def _view(session: Any, topo: Any, base: Dict[str, Any], spec: Any,
+          passages: Sequence[Any]) -> Optional[Dict[str, Any]]:
+    if not isinstance(spec, Mapping) or not isinstance(spec.get("nodes"), list):
+        return None
+    book = session.book
+    by_number = {p.number: p for p in book.passages}
+    shown_texts = [p.text for p in passages if isinstance(getattr(p, "text", None), str)]
+    reply_number = {}
+    for passage in passages:
+        reply_number.setdefault((getattr(passage, "pointer", None), getattr(passage, "text", None)), passage.number)
+    nodes = {n["id"]: n for n in base["nodes"]}
+
+    def node_for(number: Any) -> Optional[str]:
+        if not isinstance(number, int) or isinstance(number, bool) or number not in by_number:
+            return None
+        passage = by_number[number]
+        if number in session.counts:
+            shown = reply_number.get((passage.pointer, passage.text))
+            count_id = f"{COUNT_ID_PREFIX}{shown}" if shown is not None else None
+            return count_id if count_id in nodes else None
+        if isinstance(passage.text, str) and passage.text.startswith(gr.COUNT_HEAD):
+            return None
+        node_id = gr.node_of_pointer(passage.pointer)
+        if node_id is None or node_id not in topo.nodes:
+            return None
+        if node_id not in nodes:
+            if len(nodes) >= MAX_NODES:
+                return None
+            name = topo.nodes[node_id].name
+            entry = {"id": node_id, "name": _cut(name if any(name in t for t in shown_texts) else "", MAX_NAME_CHARS),
+                     "type": _cut(topo.type_name.get(topo.nodes[node_id].type_id, ""), MAX_NAME_CHARS),
+                     "cited": False}
+            nodes[node_id] = entry
+            base["nodes"].append(entry)
+        return node_id
+
+    chosen: List[str] = []
+    for number in spec["nodes"][:MAX_VIEW_NODES * 2]:
+        node_id = node_for(number)
+        if node_id is not None and node_id not in chosen and len(chosen) < MAX_VIEW_NODES:
+            chosen.append(node_id)
+    if len(chosen) < 2:
+        return None
+    focus = node_for(spec.get("focus"))
+    if focus not in chosen:
+        focus = chosen[0]
+
+    def relation_between(a: str, b: str) -> Optional[Tuple[str, str, str]]:
+        for relation, other in topo.out.get(a, ()):
+            if other == b:
+                return a, b, relation
+        for relation, other in topo.out.get(b, ()):
+            if other == a:
+                return b, a, relation
+        for edge in base["edges"]:
+            if {edge.get("from"), edge.get("to")} == {a, b}:
+                return edge["from"], edge["to"], edge.get("relation", "")
+        return None
+
+    edges: List[Dict[str, str]] = []
+    seen: Set[Tuple[str, str, str]] = set()
+    raw_edges = spec.get("edges", [])
+    for item in raw_edges[:MAX_VIEW_EDGES * 2] if isinstance(raw_edges, list) else []:
+        if len(edges) >= MAX_VIEW_EDGES or not isinstance(item, Mapping):
+            continue
+        a, b = node_for(item.get("from")), node_for(item.get("to"))
+        if a is None or b is None or a == b or a not in chosen or b not in chosen:
+            continue
+        found = relation_between(a, b)
+        if found is None or found in seen:
+            continue                       # an edge the graph does not hold: dropped, never drawn
+        seen.add(found)
+        source, target, relation = found
+        edges.append({"from": source, "to": target, "relation": _cut(relation, MAX_NAME_CHARS),
+                      "label": _plain_text(item.get("label"), MAX_LABEL_CHARS)})
+    return {"focus": focus, "nodes": chosen, "edges": edges,
+            "caption": _plain_text(spec.get("caption"), MAX_CAPTION_CHARS)}
+
+
+def clean_view(data: Any, nodes: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """A stored selection read back against its graph's ``nodes`` (by id): the shape ``curate`` writes, within its
+    caps, or None. Never raises."""
+    if not isinstance(data, Mapping) or not isinstance(data.get("nodes"), list):
+        return None
+    chosen: List[str] = []
+    for node_id in data["nodes"]:
+        if isinstance(node_id, str) and node_id in nodes and node_id not in chosen and len(chosen) < MAX_VIEW_NODES:
+            chosen.append(node_id)
+    if len(chosen) < 2:
+        return None
+    focus = data.get("focus") if data.get("focus") in chosen else chosen[0]
+    edges: List[Dict[str, str]] = []
+    raw_edges = data.get("edges", [])
+    for item in raw_edges if isinstance(raw_edges, list) else []:
+        if len(edges) >= MAX_VIEW_EDGES or not isinstance(item, Mapping):
+            continue
+        source, target, relation = item.get("from"), item.get("to"), item.get("relation", "")
+        if source in chosen and target in chosen and source != target and isinstance(relation, str):
+            edges.append({"from": source, "to": target, "relation": _cut(relation, MAX_NAME_CHARS),
+                          "label": _plain_text(item.get("label"), MAX_LABEL_CHARS)})
+    return {"focus": focus, "nodes": chosen, "edges": edges,
+            "caption": _plain_text(data.get("caption"), MAX_CAPTION_CHARS)}
 
 
 def _text(value: Any, limit: int) -> str:
@@ -212,8 +392,13 @@ def clean_graph(data: Any) -> Optional[Dict[str, Any]]:
         return None
     if len(nodes) < 2:
         return None
-    return {"nodes": list(nodes.values()), "edges": edges}
+    cleaned: Dict[str, Any] = {"nodes": list(nodes.values()), "edges": edges}
+    view = clean_view(data.get("view"), nodes)          # an older graph has none; a broken one is left out
+    if view is not None:
+        cleaned["view"] = view
+    return cleaned
 
 
-__all__: Sequence[str] = ("ABOUT_RELATION", "COUNT_ID_PREFIX", "MATCH_RELATION", "MAX_EDGES", "MAX_NODES",
-                          "SMALL_COUNT", "build_graph", "clean_graph", "count_label")
+__all__: Sequence[str] = ("ABOUT_RELATION", "COUNT_ID_PREFIX", "MATCH_RELATION", "MAX_CAPTION_CHARS", "MAX_EDGES",
+                          "MAX_LABEL_CHARS", "MAX_NODES", "MAX_VIEW_EDGES", "MAX_VIEW_NODES", "SMALL_COUNT",
+                          "build_graph", "clean_graph", "clean_view", "count_label", "curate", "graph_specs")

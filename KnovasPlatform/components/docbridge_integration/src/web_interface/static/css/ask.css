@@ -173,7 +173,9 @@
     justify-content: space-between;
     gap: var(--k-space-2xs) var(--k-space-md);
 }
-.ask-graph-reset {
+.ask-graph-buttons { display: flex; flex-wrap: wrap; gap: var(--k-space-2xs); }
+.ask-graph-reset,
+.ask-graph-switch {
     margin: var(--k-space-xs) 0 0;
     padding: var(--k-space-3xs) var(--k-space-xs);
     border: 1px solid var(--k-color-border);
@@ -184,8 +186,41 @@
     color: var(--k-color-text-muted);
     cursor: pointer;
 }
-.ask-graph-reset:hover { color: var(--k-color-text); border-color: var(--k-color-border-strong); }
-.ask-graph-reset:focus-visible { outline: 2px solid var(--k-color-accent); outline-offset: 1px; }
+.ask-graph-switch { color: var(--k-color-text); border-color: var(--k-color-border-strong); }
+.ask-graph-reset:hover,
+.ask-graph-switch:hover { color: var(--k-color-text); border-color: var(--k-color-accent); }
+.ask-graph-reset:focus-visible,
+.ask-graph-switch:focus-visible { outline: 2px solid var(--k-color-accent); outline-offset: 1px; }
+/* The assistant's selection (the founder, 2026-11-28): its description, its edge labels; hidden keys. */
+.ask-graph-caption {
+    margin: var(--k-space-2xs) 0 0;
+    font-size: var(--k-text-sm);
+    font-style: italic;
+    color: var(--k-color-text-muted);
+    overflow-wrap: anywhere;
+}
+.ask-graph-edge-label.is-named { fill: var(--k-color-text); font-weight: var(--k-weight-semibold); }
+.ask-graph-node.is-hidden,
+.ask-graph-edge.is-hidden { display: none; }
+/* The legend's keys of types, counts and relations are toggle buttons: pressed is shown. */
+.ask-graph-keys { min-width: 0; flex: 1 1 auto; }
+.ask-graph-key {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--k-space-2xs);
+    padding: 0 var(--k-space-2xs);
+    border: 1px solid transparent;
+    border-radius: var(--k-radius-sm);
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+}
+.ask-graph-key:hover { border-color: var(--k-color-border); }
+.ask-graph-key:focus-visible { outline: 2px solid var(--k-color-accent); outline-offset: 1px; }
+.ask-graph-key[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
+.ask-graph-legend.is-relations { margin-top: var(--k-space-2xs); }
+.ask-graph-legend-head { font-weight: var(--k-weight-semibold); }
 .ask-graph-list {
     display: flex;
     flex-wrap: wrap;
