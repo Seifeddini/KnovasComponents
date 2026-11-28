@@ -70,7 +70,7 @@ searched, as before. `AsTheAssistant` passes it on.
 
 `removed` counts what the check took out (also on `no_answer`); `removed_by` gives the count for each reason
 (`not_a_statement`, `unknown_source`, `quote_not_found`, `number_not_found`, `too_long`, `reply_dropped`; every key
-is always there).
+is always there). `unchecked` holds the removed statements themselves for the opt-in display «Ohne Beleg» (below).
 
 ### The reply (PMVP-20 conversation)
 
@@ -342,6 +342,41 @@ ids, durations) and the provider's line per request. Never a question, a tool's 
 **Tests:** `tests/test_assistant_brain_graph.py` (a fake Core with an invented graph, a fake client with the SDK's
 block types, and the real SDK over an in-process transport); `tests/test_assistant_answer_graph.py` (the graph under
 the answer: building, caps, names, storing and reading back, the page and the script).
+
+## «Ohne Beleg»: the removed statements, shown apart on request (founder, 2026-11-28)
+
+The founder, 2026-11-28: "why are «Aussagen ohne Beleg» not shown? I want to be able to show them." An opt-in
+display; with the default nothing changes.
+
+| Entry | Values | Default | Pinned by |
+|---|---|---|---|
+| `assistant.show_unchecked` («Nicht belegte Aussagen anzeigen», installation) | `aus`, `an` (the environment also takes `true`, `on`, `yes`, `ja`, `1`) | `aus` | `ASSISTANT_SHOW_UNCHECKED` |
+
+- **The check is unchanged.** `check.check_answer` decides what is shown and counted, as before. Only when it
+  removed a statement, `check.removed_statements` reads the answer a second time (`check_answer_keeping`, the same
+  steps) and returns each removed statement: its text as the page would show it, the reason it is counted under, and
+  the passage number it named when that is a passage of the answer. Kept: every object with a text under
+  `statement`; not kept (counted only): prose, broken lines, a statement that only says nothing was found.
+- **All three modes** (passages, `brain_mcp`, `brain_graph`) put them on the reply as `Reply.unchecked`
+  (`service.with_unchecked`): at most `MAX_UNCHECKED` (10), each cut to `MAX_UNCHECKED_CHARS` (500), NUL removed.
+  A statement's source is the number of the same passage among the reply's own passages (renumbered in the Brain
+  modes; the nearest five under a `no_answer`), else none. `unchecked` is left out of the reply's equality and repr.
+  `removed`, `removed_by`, the status and the log lines are unchanged: everything removed still `no_answer`.
+- **Stored only while on** (`assistant_routes.show_unchecked`, read per request): `stored_answer(reply,
+  keep_unchecked=True)` adds `"unchecked": [{"text", "reason", "source"}]` to the answer's JSON; off, the JSON is
+  byte for byte what it was. `stored_reply` reads it back through `service.clean_unchecked` (caps, known reasons
+  only; anything else is left out and the answer stands); an older answer has none.
+- **Shown only while on**, also for stored answers (an administrator who turns it off hides them again): under the
+  line «n Aussagen ohne Beleg ausgelassen», before «Im Wissensgraphen» and the sources (under a `no_answer` before
+  «Die nächsten Stellen»), a closed `<details>` «Ohne Beleg (n)», muted and dashed, each statement marked «nicht
+  belegt» with its reason: `unknown_source` «Quelle nicht unter den gefundenen Textstellen», `quote_not_found` «Zitat
+  steht nicht wörtlich in der Quelle», `number_not_found` «Zahl steht nicht in der Quelle», `too_long` «zu lang»,
+  others «nicht prüfbar»; and «behauptete Quelle n» as plain text when it named a passage the turn lists.
+- **Never part of the answer**: no chip, no quote, no link, no grant (the grants are the reply's passages), no node
+  of the graph (`build_graph` reads the cited passages), no line of a follow-up's history (`history_of` reads the
+  statements), never a reason to call an answer `answered`. No statement text in any log line.
+
+Tests: `tests/test_assistant_unchecked.py`.
 
 ## The design: statements with a source and a quote
 
@@ -803,7 +838,7 @@ is before a centred chunk begins: the model would see the text before the hit bu
   are the reply's passages with their text (decision D2: owner only, deleted with the chat, never sent again). A
   follow-up's history is the chat's turns as text: a question as typed, an answer as its statements, one per line,
   a `no_answer` as its reply (PMVP-20 conversation; the stored JSON keeps `reply` and `kind`; an answer of
-  «Wissensgraph» also `graph`, drawn again, never sent), else as
+  «Wissensgraph» also `graph`, drawn again, never sent; with «Ohne Beleg» on, `unchecked`, never sent), else as
   `NO_ANSWER_TEXT`; never a quote, a passage or the JSON. The route hands over the whole chat; the
   service fits it (above). The instruction tells the model to keep the form even where earlier answers look
   different.

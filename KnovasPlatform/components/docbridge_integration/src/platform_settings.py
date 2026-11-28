@@ -224,6 +224,15 @@ REGISTRY: Dict[str, Setting] = {s.key: s for s in (
             "Nur mit brain_mcp. Der Gateway-Schl\u00fcssel Ihres Unternehmens (knovas_gw_\u2026), von Knovas ausgegeben. "
             "Anthropic bekommt ihn mit jeder Frage, um das Gateway aufzurufen. Wird nur geschrieben, nie angezeigt.",
             "secret", "installation"),
+    # <<Ohne Beleg>> (the founder, 2026-11-28): the statements the check removed, shown apart and marked under an
+    # answer. Read per request by web_interface/assistant_routes.py (stored only while on, shown only while on).
+    Setting("assistant.show_unchecked", "Nicht belegte Aussagen anzeigen",
+            "an oder aus (Standard: aus). An: Aussagen, die die Pr\u00fcfung nicht bestanden haben (Quelle, w\u00f6rtliches "
+            "Zitat oder Zahl nicht in der Quelle gefunden), erscheinen unter der Antwort getrennt im zugeklappten "
+            "Block \u00abOhne Beleg\u00bb, als \u00abnicht belegt\u00bb markiert und mit dem Grund; sie sind nie Teil der "
+            "Antwort und \u00f6ffnen kein Dokument. Aus: Sie werden wie bisher nur gez\u00e4hlt, nicht gespeichert und "
+            "nicht angezeigt.",
+            "choice", "installation", env=("ASSISTANT_SHOW_UNCHECKED",), choices=("aus", "an"), fallback="aus"),
     # External agents (RB-7): the Platform hands the Core's MCP gateway each external agent's signed claims
     # (identity/agent_delivery.py), read through the Resolver on every push. Off until the Core has CR-R5 and, on a
     # client's installation, until enforcement is «Ein» (founder, 2026-11-21: "only after «Ein»").

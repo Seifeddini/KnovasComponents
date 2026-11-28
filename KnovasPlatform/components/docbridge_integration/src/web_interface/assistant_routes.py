@@ -74,7 +74,7 @@ from flask import Blueprint, Flask, abort, current_app, g, make_response, redire
 
 from assistant.conversation import KINDS, NEAREST_PASSAGES, clean_title
 from assistant.service import (MAX_QUESTION_BYTES, NO_ANSWER_TEXT, QUESTION_TOO_LONG_TEXT, STATUSES, Passage, Reply,
-                               Sentence, Turn, cut_to_bytes)
+                               Sentence, Turn, clean_unchecked, cut_to_bytes)
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +142,35 @@ def assistant_enabled(settings: Any = None) -> bool:
         return False
 
 
+def show_unchecked(settings: Any = None) -> bool:
+    """Whether <<Ohne Beleg>> is on (the founder, 2026-11-28): the setting ``assistant.show_unchecked`` through the
+    settings' Resolver, read on every request (``ASSISTANT_SHOW_UNCHECKED`` pins it). On, an answer is stored with
+    the statements the check removed and a turn shows them apart; off (the default), nothing of them is stored or
+    shown, also of an answer stored while it was on. Whatever cannot be read counts as off."""
+    from assistant import providers
+
+    if settings is None:
+        settings = current_app.extensions.get("platform_settings")
+    if settings is None:
+        return False
+    try:
+        return providers.is_enabled(settings.value(providers.SETTING_SHOW_UNCHECKED))
+    except Exception as exc:  # noqa: BLE001 - a setting that cannot be read is off
+        logger.warning("Fragen: the setting show_unchecked is not readable (%s)", type(exc).__name__)
+        return False
+
+
+#: Why a statement of <<Ohne Beleg>> did not pass, in the person's words (``assistant.check`` reasons); every other
+#: reason is ``UNCHECKED_OTHER``.
+UNCHECKED_REASON_TEXT = {
+    "unknown_source": "Quelle nicht unter den gefundenen Textstellen",
+    "quote_not_found": "Zitat steht nicht w\u00f6rtlich in der Quelle",
+    "number_not_found": "Zahl steht nicht in der Quelle",
+    "too_long": "zu lang",
+}
+UNCHECKED_OTHER = "nicht pr\u00fcfbar"
+
+
 def removed_line(count: int) -> str:
     """The small line under an answer: how many statements the check left out (counts only, never their text)."""
     if count <= 0:
@@ -194,6 +223,17 @@ class ShownStatement:
 
 
 @dataclass(frozen=True)
+class ShownUnchecked:
+    """A statement the check removed, as <<Ohne Beleg>> lists it: its text, the reason in plain German, and the
+    number of the reply's passage it named (None when it named none the turn lists). Plain text only: no chip, no
+    link, no quote."""
+
+    text: str
+    reason: str
+    source: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class ShownTurn:
     """One question and its answer as ``ask.html`` draws them.
 
@@ -217,6 +257,8 @@ class ShownTurn:
     reply: str = ""
     graph: Optional[Dict[str, Any]] = None
     graph_json: str = ""
+    #: <<Ohne Beleg>>: the statements the check removed, only while ``assistant.show_unchecked`` is on.
+    unchecked: List[ShownUnchecked] = field(default_factory=list)
 
 
 def _open_href(passage: Passage, pdf_preview: bool) -> str:
@@ -291,7 +333,7 @@ def shown_graph(graph: Any) -> Tuple[Optional[Dict[str, Any]], str]:
 
 
 def shown_reply(reply: Reply, pdf_preview: bool, *, turn: Optional[int] = None,
-                href: Optional[Callable[[Passage], str]] = None) -> Dict[str, Any]:
+                href: Optional[Callable[[Passage], str]] = None, unchecked: bool = False) -> Dict[str, Any]:
     """What ``ask.html`` draws of a reply: plain values, the addresses built here.
 
     ``turn``: the answer's place in its chat (1 is the first); the quote ids are then ``zitat-<turn>-<i>``, unique
@@ -300,6 +342,9 @@ def shown_reply(reply: Reply, pdf_preview: bool, *, turn: Optional[int] = None,
     ``opens_directly`` False: read with the company's key, never granted): then no address, and the page shows the
     title alone. A passage of the knowledge graph (<<Wissensgraph>>, ``brain:<node id>``) always opens as the node's
     dossier while the Brain views are on (the dossier reads as the person), else shows its title alone.
+    ``unchecked`` (``show_unchecked()``): the dict also holds ``"unchecked"``, the reply's removed statements
+    (<<Ohne Beleg>>), each with its reason and, when it named a passage this turn lists, that number; never a
+    chip, an address or a grant. Without it the dict is as before.
     """
     if href is not None:
         document_href = href
@@ -326,8 +371,19 @@ def shown_reply(reply: Reply, pdf_preview: bool, *, turn: Optional[int] = None,
         statements.append(ShownStatement(head=head, stop=stop, number=number, quote=sentence.quote,
                                          quote_id=quote_id, passage=by_number.get(number)))
     graph, graph_json = shown_graph(getattr(reply, "graph", None)) if reply.status == "answered" else (None, "")
-    return {"statements": statements, "passages": passages, "removed": removed_line(reply.removed),
-            "reply": getattr(reply, "reply_text", "") or "", "graph": graph, "graph_json": graph_json}
+    shown = {"statements": statements, "passages": passages, "removed": removed_line(reply.removed),
+             "reply": getattr(reply, "reply_text", "") or "", "graph": graph, "graph_json": graph_json}
+    if unchecked:
+        kept = clean_unchecked([_unchecked_item(u) for u in getattr(reply, "unchecked", ()) or ()])
+        shown["unchecked"] = [ShownUnchecked(text=u.text, reason=UNCHECKED_REASON_TEXT.get(u.reason, UNCHECKED_OTHER),
+                                             source=u.source if u.source in by_number else None)
+                              for u in kept]
+    return shown
+
+
+def _unchecked_item(item: Any) -> Dict[str, Any]:
+    return {"text": getattr(item, "text", ""), "reason": getattr(item, "reason", ""),
+            "source": getattr(item, "source", None)}
 
 
 def _plain(status: str, message: str) -> Reply:
@@ -362,14 +418,16 @@ def chat_title(question: str) -> str:
     return head.rstrip() + ELLIPSIS
 
 
-def stored_answer(reply: Reply) -> Tuple[str, List[Dict[str, Any]]]:
+def stored_answer(reply: Reply, *, keep_unchecked: bool = False) -> Tuple[str, List[Dict[str, Any]]]:
     """The assistant message of an ``answered`` or ``no_answer`` reply as it is stored: ``(text, references)``.
 
     ``text`` is one JSON object, the answer as shown: ``{"v": 1, "status", "statements": [{"text", "source",
     "quote"}], "removed", "sentences": {"<passage number>": <sentence number>}}``, and ``"reply"`` and ``"kind"``
     when the assistant gave a checked reply (PMVP-20 conversation; an older reader ignores them), and ``"graph"``
     (``{"nodes", "edges"}``, ``assistant.answer_graph``) under an ``answered`` reply of <<Wissensgraph>> that has
-    one (PMVP-20 brain-graph). ``references`` are
+    one (PMVP-20 brain-graph), and ``"unchecked"`` (``[{"text", "reason", "source"}]``, at most
+    ``service.MAX_UNCHECKED``) only with ``keep_unchecked`` (``assistant.show_unchecked`` on at answer time) and
+    when the check removed a statement it can list (<<Ohne Beleg>>, the founder, 2026-11-28). ``references`` are
     the reply's
     passages: number, pointer, page, title and the passage text as search returned it (D2). Cleaned first (FU-01):
     no NUL anywhere, a page outside 1 to 2^31-1 as no page, a reference without a pointer left out.
@@ -399,6 +457,10 @@ def stored_answer(reply: Reply) -> Tuple[str, List[Dict[str, Any]]]:
         graph = clean_graph(reply.graph)
         if graph is not None:
             stored["graph"] = graph
+    if keep_unchecked:
+        kept = clean_unchecked([_unchecked_item(u) for u in getattr(reply, "unchecked", ()) or ()])
+        if kept:
+            stored["unchecked"] = [{"text": u.text, "reason": u.reason, "source": u.source} for u in kept]
     return json.dumps(stored, ensure_ascii=False), references
 
 
@@ -441,9 +503,12 @@ def stored_reply(message: Any) -> Reply:
         from assistant.answer_graph import clean_graph
 
         graph = clean_graph(data["graph"])  # a graph not in the stored shape draws nothing; the answer stands
+    # <<Ohne Beleg>>: an older answer has none; one not in the stored shape is left out, the answer stands.
+    unchecked = clean_unchecked(data.get("unchecked"))
     return Reply(status=status, sentences=sentences if status == "answered" else [], passages=passages,
                  removed=max(0, _int_value(data.get("removed", 0))), message=message_text,
-                 reply_text=said, reply_kind=kind if said and kind in KINDS else "", graph=graph)
+                 reply_text=said, reply_kind=kind if said and kind in KINDS else "", graph=graph,
+                 unchecked=unchecked)
 
 
 def _read_stored(message: Any) -> Optional[Reply]:
@@ -641,7 +706,7 @@ def create_assistant_blueprint(*, csrf_valid: Callable[[str], bool], grant: Call
     def shown_turn(question: str, reply: Reply, *, turn: int, href: Optional[Callable[[Passage], str]] = None,
                    anchor: str = "", notice: str = "") -> ShownTurn:
         if reply.status in STORED_STATUSES:
-            shown = shown_reply(reply, bool(pdf_preview()), turn=turn, href=href)
+            shown = shown_reply(reply, bool(pdf_preview()), turn=turn, href=href, unchecked=show_unchecked())
         else:
             shown = {}
         return ShownTurn(question=question, status=reply.status, message=reply.message, anchor=anchor,
@@ -677,7 +742,7 @@ def create_assistant_blueprint(*, csrf_valid: Callable[[str], bool], grant: Call
     def save(person: Any, question: str, reply: Reply, chat_id: Any = None) -> Optional[str]:
         """Store the question and its answer (and a new chat) in one transaction: the chat's id, or None when the
         write failed (logged by the error's type; nothing is left half stored)."""
-        text, references = stored_answer(reply)
+        text, references = stored_answer(reply, keep_unchecked=show_unchecked())
         try:
             chats = store()
             with gate.connection().transaction():
@@ -946,6 +1011,6 @@ def install_assistant(app: Flask, *, client: Any, identity_gate: Any, split: Cal
 __all__: Sequence[str] = (
     "EXPIRED_TEXT", "NOT_SAVED_TEXT", "SWITCH_ENV", "AsTheAssistant", "ShownTurn", "SidebarChats",
     "assistant_enabled", "chat_title", "create_assistant_blueprint", "follow_up_search_text", "group_label",
-    "history_of", "install_assistant", "removed_line", "shown_graph", "shown_reply", "split_tail", "stored_answer",
-    "stored_reply",
+    "history_of", "install_assistant", "removed_line", "show_unchecked", "shown_graph", "shown_reply", "split_tail",
+    "stored_answer", "stored_reply",
 )

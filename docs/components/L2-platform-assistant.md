@@ -285,6 +285,7 @@ None stated.
 |---|---|
 | `FU-14` | No Alloy model for POST-02 (the founder, 2026-11-19): the assistant gets document content only through the Brain's search, which enforces access. |
 | `PMVP-20-context` | The founder, 2026-11-22 ("Yes, with limits"): the assistant may read the Core's document-text route for the documents the person's own search just returned, under five limits (only those documents; the Core decides every read and any failure keeps the snippet; as the person; bounded; no text in logs). POST-02 is amended to them; Core request CR-1 is not needed for the pilot. |
+| `PMVP-20-unchecked` | The founder's request of 2026-11-28 ("why are «Aussagen ohne Beleg» not shown? I want to be able to show them"): an opt-in display beside POST-01. With the installation setting assistant.show_unchecked «an» (default «aus», ASSISTANT_SHOW_UNCHECKED pins it) the statements the check removed are stored with the answer (at most 10, each at most 500 characters) and shown apart under it in a closed block «Ohne Beleg (n)», each marked «nicht belegt» with its reason and at most «behauptete Quelle n» as plain text. They are never statements of the answer: no reference chip, no quote, no link, no grant, no node of the graph, no history, no effect on the status or the counts. POST-01 holds for every reference shown, which these are not. «aus» stores and shows nothing of them, as before. |
 
 ### Risks
 

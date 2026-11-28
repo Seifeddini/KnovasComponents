@@ -83,6 +83,9 @@ SETTING_API_KEY = "assistant.anthropic_api_key"
 SETTING_MODE = "assistant.mode"
 SETTING_BRAIN_MCP_URL = "assistant.brain_mcp_url"
 SETTING_BRAIN_MCP_KEY = "assistant.brain_mcp_key"
+#: <<Ohne Beleg>> (the founder, 2026-11-28): whether the statements the check removed are stored and shown apart
+#: (``an``; the environment also takes ``true`` and the other values of ``ON_VALUES``) or only counted (``aus``).
+SETTING_SHOW_UNCHECKED = "assistant.show_unchecked"
 
 MODE_PASSAGES = "passages"
 MODE_BRAIN_MCP = "brain_mcp"

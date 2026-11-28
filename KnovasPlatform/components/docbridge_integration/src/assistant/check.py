@@ -157,8 +157,33 @@ def check_answer(text: str, passages: Mapping[int, str]) -> Tuple[List[Statement
     (``is_reply``) is no statement and is not counted here: its own rules
     are ``assistant.conversation``'s (PMVP-20 conversation).
     """
+    shown, removed_by, _removed = check_answer_keeping(text, passages)
+    return shown, removed_by
+
+
+@dataclass(frozen=True)
+class Removed:
+    """A statement the check took out, kept for the opt-in display <<Ohne Beleg>> (the founder, 2026-11-28).
+
+    ``text`` is the statement as the page would show it (``shown_text``); ``reason`` the reason it is counted under;
+    ``source`` the number of the passage it named, when that is a passage of this answer (else None). Only an object
+    with a text under ``statement`` is kept: a line of prose, a broken object and a statement that only says nothing
+    was found (``says_no_answer``) are counted, never kept. Nothing here is weaker than the check: the same reasons,
+    the same counts.
+    """
+
+    text: str
+    reason: str
+    source: Optional[int] = None
+
+
+def check_answer_keeping(text: str, passages: Mapping[int, str]
+                         ) -> Tuple[List[Statement], Dict[str, int], List[Removed]]:
+    """``check_answer``, and the statements it removed (``Removed``, in the order of the answer). The shown
+    statements and the counts are exactly ``check_answer``'s."""
     shown: List[Statement] = []
     removed_by = dict.fromkeys(REASONS, 0)
+    removed: List[Removed] = []
     for value in read_answer(text):
         if isinstance(value, dict) and value.get("no_answer") is True:
             continue
@@ -167,20 +192,51 @@ def check_answer(text: str, passages: Mapping[int, str]) -> Tuple[List[Statement
         statement = check_form(value, passages)
         if statement is None:
             removed_by[NOT_A_STATEMENT] += 1
+            kept = _removed_form(value, passages)
+            if kept is not None:
+                removed.append(kept)
             continue
         if not check_source(statement, passages):
             removed_by[UNKNOWN_SOURCE] += 1
+            removed.append(Removed(text=statement.text, reason=UNKNOWN_SOURCE))
             continue
         found = check_quote(statement, passages)
+        reason = None
         if found is None:
-            removed_by[QUOTE_NOT_FOUND] += 1
+            reason = QUOTE_NOT_FOUND
         elif not check_numbers(found, passages):
-            removed_by[NUMBER_NOT_FOUND] += 1
+            reason = NUMBER_NOT_FOUND
         elif not check_length(found):
-            removed_by[TOO_LONG] += 1
+            reason = TOO_LONG
         else:
             shown.append(found)
-    return shown, removed_by
+        if reason is not None:
+            removed_by[reason] += 1
+            removed.append(Removed(text=statement.text, reason=reason, source=statement.source))
+    return shown, removed_by, removed
+
+
+def removed_statements(text: str, passages: Mapping[int, str]) -> List[Removed]:
+    """The statements ``check_answer`` removes from ``text``, as ``Removed``: a second reading, after
+    ``check_answer`` itself has decided what is shown and counted (so that stays the one unchanged check)."""
+    return check_answer_keeping(text, passages)[2]
+
+
+def _removed_form(value: Any, passages: Container[int]) -> Optional[Removed]:
+    """The statement of a line that failed the form, when it holds a text under ``statement`` that says more than
+    that nothing was found; its source only when that is a passage of this answer."""
+    if not isinstance(value, dict) or not isinstance(value.get("statement"), str):
+        return None
+    shown = shown_text(value["statement"], passages)
+    if not shown or says_no_answer(shown):
+        return None
+    source = value.get("source")
+    if isinstance(source, str):
+        digits = source.strip(" \t")
+        source = int(digits) if _SOURCE_DIGITS.fullmatch(digits) else None
+    if not isinstance(source, int) or isinstance(source, bool) or source not in passages:
+        source = None
+    return Removed(text=shown, reason=NOT_A_STATEMENT, source=source)
 
 
 def is_reply(value: Any) -> bool:

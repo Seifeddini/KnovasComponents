@@ -403,6 +403,9 @@ assistant:
   # The gateway key is a secret of the registry (assistant.brain_mcp_key), never a value here.
   mode: "${ASSISTANT_MODE:-passages}"
   brain_mcp_url: "${ASSISTANT_BRAIN_MCP_URL:-https://mcp.knovas.ch/mcp}"
+  # «Ohne Beleg» (the founder, 2026-11-28): aus (the default) only counts the statements the check removed; an
+  # stores them with the answer and shows them apart, marked «nicht belegt».
+  show_unchecked: "${ASSISTANT_SHOW_UNCHECKED:-aus}"
 
 open:
   browser_client_path: "${OPEN_BROWSER_CLIENT_PATH:-true}"

@@ -11,6 +11,10 @@
               the block «Im Wissensgraphen» (open; static/js/ask_graph.js draws its data-graph as a small SVG with
               a legend and hides the list, which stands without JavaScript: each node, its passage number, its
               dossier link while the Brain views are on); then the passages.
+              «Ohne Beleg» (the founder, 2026-11-28; only while assistant.show_unchecked is on): under the line of
+              removed statements, before the graph, a closed block of the statements the check removed, each marked
+              «nicht belegt» with its reason and «behauptete Quelle n» as plain text when it named a passage the
+              turn lists; never a chip, a quote, a link or part of the answer. Also under a no_answer.
    no_answer: the assistant's reply when it gave one (PMVP-20 conversation), else the service's sentence; then the
               nearest passages, at most five (none under a reply of kind chat: the service sends none).
    A reply is the assistant speaking (ask-reply: its name and the label «Hinweis – ohne Quelle» over its words), never
@@ -71,6 +75,21 @@
     </ul>
 </details>
 {% endmacro %}
+{% macro unchecked_block(items) %}
+<details class="ask-unchecked">
+    <summary class="ask-unchecked-title">Ohne Beleg ({{ items|length }})</summary>
+    <p class="ask-unchecked-note">Diese Aussagen hat die Prüfung entfernt. Sie sind nicht Teil der Antwort.</p>
+    <ul class="ask-unchecked-list">
+        {% for u in items %}
+        <li class="ask-unchecked-item">
+            <span class="ask-unchecked-label">nicht belegt</span>
+            <span class="ask-unchecked-text" dir="auto">{{ u.text }}</span>
+            <span class="ask-unchecked-why">{{ u.reason }}{% if u.source %} · behauptete Quelle {{ u.source }}{% endif %}</span>
+        </li>
+        {% endfor %}
+    </ul>
+</details>
+{% endmacro -%}
 {% macro answer(t) %}
 {% if t.status == 'answered' %}
 {% if t.reply %}{{ said(t.reply) }}{% endif %}
@@ -94,6 +113,7 @@
     {% endfor %}
 </div>
 {% if t.removed %}<p class="ask-removed k-muted k-small">{{ t.removed }}</p>{% endif %}
+{%- if t.unchecked %}{{ unchecked_block(t.unchecked) }}{% endif %}
 {% if t.graph %}{{ graph_block(t) }}{% endif %}
 {% if t.passages %}
 {% call parts.section('Quellen') %}{{ sources(t.passages) }}{% endcall %}
@@ -101,6 +121,7 @@
 {% elif t.status == 'no_answer' %}
 {% if t.reply %}{{ said(t.reply) }}{% else %}<p class="ask-message">{{ t.message }}</p>{% endif %}
 {% if t.removed %}<p class="ask-removed k-muted k-small">{{ t.removed }}</p>{% endif %}
+{%- if t.unchecked %}{{ unchecked_block(t.unchecked) }}{% endif %}
 {% if t.passages %}
 {% call parts.section('Die nächsten Stellen') %}{{ sources(t.passages) }}{% endcall %}
 {% endif %}

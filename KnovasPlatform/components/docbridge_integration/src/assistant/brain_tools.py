@@ -59,7 +59,8 @@ from assistant.errors import CoreBusy
 from assistant.conversation import NEAREST_PASSAGES, Seen, check_replies
 from assistant.service import (BUSY_TEXT, CORE_MAX_MESSAGES, DEFAULT_PROMPT_BUDGET_BYTES, FAILED_TEXT,
                                MAX_QUESTION_BYTES, MAX_QUOTE_WORDS, MAX_STATEMENTS, NO_ANSWER_TEXT,
-                               QUESTION_TOO_LONG_TEXT, Passage, Reply, Sentence, _fit_history, _usable_turns, finished)
+                               QUESTION_TOO_LONG_TEXT, Passage, Reply, Sentence, _fit_history, _usable_turns, finished,
+                               with_unchecked)
 
 logger = logging.getLogger(__name__)
 
@@ -285,13 +286,15 @@ class BrainToolsService:
             stats.reply = said.kind if said is not None else "-"
             return finished([], removed_by, said, answered_passages=(), nearest_passages=(), make=ToolsReply)
         numbered = {p.number: p.text for p in found.passages}
-        statements, removed_by = check.check_answer(resolve_sources(text, found.passages), numbered)
+        resolved = resolve_sources(text, found.passages)
+        statements, removed_by = check.check_answer(resolved, numbered)
         sentences, passages = cited(statements, found.passages)
         said, dropped = check_replies(text, list(found.passages) + found.seen, statements_shown=len(sentences))
         removed_by[check.REPLY_DROPPED] += dropped
         stats.reply = (said.kind or "lead_in") if said is not None else "-"
-        return finished(sentences, removed_by, said, answered_passages=passages,
-                        nearest_passages=closest(found.passages), make=ToolsReply)
+        reply = finished(sentences, removed_by, said, answered_passages=passages,
+                         nearest_passages=closest(found.passages), make=ToolsReply)
+        return with_unchecked(reply, resolved, found.passages)
 
 
 # ---------------------------------------------------------------------------

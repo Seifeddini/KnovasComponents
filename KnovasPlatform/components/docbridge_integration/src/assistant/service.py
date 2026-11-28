@@ -56,12 +56,13 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 # NO_ANSWER_TEXT is defined beside the check that must recognise it; the page
 # and the tests take it from this module.
-from assistant.check import MIN_QUOTE_WORDS, NO_ANSWER_TEXT, REASONS, REPLY_DROPPED, check_answer
+from assistant.check import (MIN_QUOTE_WORDS, NO_ANSWER_TEXT, REASONS, REPLY_DROPPED, check_answer,
+                             removed_statements)
 from assistant.context import widen_passages
 from assistant.conversation import KIND_CLARIFY, Said, check_replies, nearest
 from assistant.errors import CoreBusy
@@ -309,6 +310,94 @@ class Reply:
     reply_text: str = ""
     reply_kind: str = ""
     graph: Optional[Dict[str, Any]] = None
+    #: The statements the check removed (``Unchecked``, at most ``MAX_UNCHECKED``), for the opt-in display
+    #: <<Ohne Beleg>> (the founder, 2026-11-28; setting ``assistant.show_unchecked``). Never a statement of the
+    #: answer: no chip, no grant, no graph, no history. Left out of equality and repr, so a reply compares and
+    #: prints as before.
+    unchecked: Tuple["Unchecked", ...] = field(default=(), compare=False, repr=False)
+
+
+#: The most removed statements a reply keeps for <<Ohne Beleg>>, and the most characters of each.
+MAX_UNCHECKED = 10
+MAX_UNCHECKED_CHARS = 500
+
+
+@dataclass(frozen=True)
+class Unchecked:
+    """A statement the check removed, as <<Ohne Beleg>> lists it: ``text`` (cut to ``MAX_UNCHECKED_CHARS``),
+    ``reason`` (one of ``assistant.check.REASONS``) and ``source``, the number of the reply's own passage it named
+    (None when it named none, or one the reply does not list)."""
+
+    text: str
+    reason: str
+    source: Optional[int] = None
+
+
+def _cut_unchecked(text: str) -> str:
+    text = " ".join(str(text).replace("\x00", "").split())
+    if len(text) <= MAX_UNCHECKED_CHARS:
+        return text
+    head = text[:MAX_UNCHECKED_CHARS - 1]
+    if " " in head:
+        head = head[:head.rindex(" ")]
+    return head.rstrip() + "\u2026"
+
+
+def unchecked_of(removed: Sequence[Any], numbered: Sequence[Passage],
+                 shown: Sequence[Passage]) -> Tuple[Unchecked, ...]:
+    """The removed statements (``check.Removed``) as the reply keeps them: at most ``MAX_UNCHECKED``, each cut to
+    ``MAX_UNCHECKED_CHARS``. ``numbered`` are the passages the check read (their numbers), ``shown`` the reply's
+    passages (perhaps renumbered, perhaps fewer): a statement's source becomes the number of the same passage
+    (pointer and text) among ``shown``, else None."""
+    where: Dict[Tuple[str, str], int] = {}
+    for passage in shown:
+        where.setdefault((passage.pointer, passage.text), passage.number)
+    by_number = {p.number: p for p in numbered}
+    out: List[Unchecked] = []
+    for item in removed:
+        if len(out) >= MAX_UNCHECKED:
+            break
+        text = _cut_unchecked(getattr(item, "text", "") or "")
+        reason = getattr(item, "reason", "")
+        if not text or reason not in REASONS:
+            continue
+        claimed = by_number.get(getattr(item, "source", None))
+        number = where.get((claimed.pointer, claimed.text)) if claimed is not None else None
+        out.append(Unchecked(text=text, reason=reason, source=number))
+    return tuple(out)
+
+
+def with_unchecked(reply: "Reply", text: str, numbered: Sequence[Passage]) -> "Reply":
+    """``reply`` with the statements the check removed from ``text`` (``Reply.unchecked``), read against the
+    passages the check read (``numbered``). Read only when the check removed a statement; the reply is otherwise
+    unchanged (status, statements, passages, counts)."""
+    if not any(reply.removed_by.get(reason, 0) for reason in REASONS if reason != REPLY_DROPPED):
+        return reply
+    removed = removed_statements(text, {p.number: p.text for p in numbered})
+    unchecked = unchecked_of(removed, numbered, reply.passages)
+    return replace(reply, unchecked=unchecked) if unchecked else reply
+
+
+def clean_unchecked(data: Any) -> Tuple[Unchecked, ...]:
+    """Stored <<Ohne Beleg>> statements read back (``assistant_routes.stored_reply``): the shape
+    ``stored_answer`` writes, within the caps, NUL removed; anything else is left out. Never raises."""
+    if not isinstance(data, list):
+        return ()
+    out: List[Unchecked] = []
+    for item in data:
+        if len(out) >= MAX_UNCHECKED:
+            break
+        if not isinstance(item, Mapping) or not isinstance(item.get("text"), str):
+            continue
+        text = _cut_unchecked(item["text"])
+        reason = item.get("reason")
+        if not text or not isinstance(reason, str) or reason not in REASONS:
+            continue
+        source = item.get("source")
+        if not isinstance(source, int) or isinstance(source, bool) or not 0 < source < 2 ** 31:
+            source = None
+        out.append(Unchecked(text=text, reason=reason, source=source))
+    return tuple(out)
 
 
 SearchFn = Callable[[str, int], List[Mapping[str, Any]]]
@@ -463,9 +552,11 @@ class AssistantService:
         removed_by[REPLY_DROPPED] += dropped
         stats.reply = (said.kind or "lead_in") if said is not None else "-"
 
-        # 5. Reply.
-        return finished(sentences, removed_by, said, answered_passages=passages,
-                        nearest_passages=nearest(passages))
+        # 5. Reply (with the removed statements for <<Ohne Beleg>>: the route stores and shows them only when
+        #    ``assistant.show_unchecked`` is on).
+        reply = finished(sentences, removed_by, said, answered_passages=passages,
+                         nearest_passages=nearest(passages))
+        return with_unchecked(reply, text, passages)
 
 
 def finished(sentences: List[Sentence], removed_by: Dict[str, int], said: Optional[Said], *,

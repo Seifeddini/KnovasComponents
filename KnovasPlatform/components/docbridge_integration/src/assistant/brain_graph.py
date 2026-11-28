@@ -62,7 +62,7 @@ from assistant.errors import CoreBusy, CoreError
 from assistant.service import (BUSY_TEXT, CORE_MAX_MESSAGES, DEFAULT_PROMPT_BUDGET_BYTES, FAILED_TEXT,
                                MAX_QUESTION_BYTES, MAX_QUOTE_WORDS, MAX_STATEMENTS, NO_ANSWER_TEXT,
                                QUESTION_TOO_LONG_TEXT, Reply, _fit_history, _usable_turns, finished,
-                               passages_from_rows)
+                               passages_from_rows, with_unchecked)
 
 logger = logging.getLogger(__name__)
 
@@ -383,6 +383,7 @@ class BrainGraphService:
         stats.reply = (said.kind or "lead_in") if said is not None else "-"
         reply = finished(sentences, removed_by, said, answered_passages=passages,
                          nearest_passages=closest(book.passages)[:CLOSEST_PASSAGES], make=GraphReply)
+        reply = with_unchecked(reply, text, book.passages)
         if reply.status != "answered":
             return reply
         try:
