@@ -1,0 +1,32 @@
+id: kanzleidb-ablauf-rechtsschrift
+version: 1
+description: >-
+  Weisung 3 (Rechtsschrift erstellen und einreichen) against every electronic matter with a filed Rechtsschrift
+  (Klage, Klageantwort, Eingabe, Stellungnahme): the first step whose evidence is missing, else eingereicht.
+edit_policy: source_owned
+freshness: {window: 7 d}
+deletion_guard: {max_retire_share: 0.2}
+source: {extractor: records, glob: "*", select: "@", as: r, options: {record_kind: akte}}
+emits:
+- type: Akte
+  identify: [key]
+  key: >-
+    r.fields.elektronisch == 'ja' && (contains(r.fields.belege || `[]`, 'Klage') || contains(r.fields.belege || `[]`, 'Klageantwort')
+    || contains(r.fields.belege || `[]`, 'Eingabe') || contains(r.fields.belege || `[]`, 'Stellungnahme')) && r.external_id || null
+  name: left(str(r.fields.name), `500`)
+  relations:
+  - {relation: instance_of, to_type: Process, to_key: "'PROC-rechtsschrift'"}
+  state:
+    step: >-
+      !contains(r.fields.belege || `[]`, 'Aktennotiz') && 'sachverhalt' ||
+      !(contains(r.fields.belege || `[]`, 'Abmahnung') || contains(r.fields.belege || `[]`, 'Brief-Gegenanwalt') || contains(r.fields.belege || `[]`, 'E-Mail-Gegenpartei')) && 'aussergerichtlich' ||
+      !contains(r.fields.belege || `[]`, 'Entwurf') && 'entwurf' ||
+      !(contains(r.fields.belege || `[]`, 'Brief-Gericht') || contains(r.fields.belege || `[]`, 'E-Mail-Gericht')) && 'versandnachweis' ||
+      'eingereicht'
+    relation: in_state
+    to_type: ProcessStep
+    to_key: "join('', ['STEP-rechtsschrift-', step])"
+    origin: logical
+    fact: rechtsschrift_schritt
+    history_fact: rechtsschrift_verlauf
+    priority: 10

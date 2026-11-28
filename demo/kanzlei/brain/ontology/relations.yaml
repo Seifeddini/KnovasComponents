@@ -1,0 +1,65 @@
+# Quarzfels Advokatur: how the things the Brain knows are connected.
+# A party's role in a matter is its own relation (edges carry no attributes): mandant, gegenpartei, ...
+# Evidence the Weisungen ask for is its own relation too (konfliktpruefung_zu, vollmacht_zu, ...), so a
+# process step can require exactly that evidence and the views can show what is missing.
+relations:
+
+# The firm's structure
+- {name: gehoert_zu, domain: [Rechtsgebiet, Mitarbeiter], range: [Kanzlei], reason: "Teil der Kanzlei."}
+- {name: rechtsgebiet, domain: [Akte], range: [Rechtsgebiet], reason: "Rechtsgebiet der Akte (AKTEN.RgID)."}
+
+# Who works on a matter
+- {name: verantwortlich, domain: [Akte, Frist], range: [Mitarbeiter], reason: "Verantwortlicher Anwalt einer Akte (AKTEN.VerantwAnwalt); verantwortliche Person einer Frist (FRISTEN.Verantwortlich)."}
+- {name: sachbearbeitung, domain: [Akte], range: [Mitarbeiter], reason: "Sachbearbeitung der Akte (AKTEN.Sachbearbeiter)."}
+- {name: mandatsteam, domain: [Akte], range: [Mitarbeiter], reason: "Sperrakte: nur das Mandatsteam darf die Akte öffnen (AKTENRECHTE, Recht Z)."}
+- {name: ausgeschlossen, domain: [Akte], range: [Mitarbeiter], reason: "Informationsschranke: die Person ist von der Akte ausgeschlossen (AKTENRECHTE, Recht X)."}
+- {name: teilnehmer, domain: [Termin], range: [Mitarbeiter], reason: "Wer den Termin wahrnimmt (TERMINE.Kuerzel)."}
+
+# The parties of a matter, one relation per role (AKTENBETEILIGTE.RolleID; ROLLEN)
+- {name: mandant, domain: [Akte], range: [Partei], reason: "Mandantschaft der Akte."}
+- {name: gegenpartei, domain: [Akte], range: [Partei], reason: "Gegenpartei (GP)."}
+- {name: gegenanwalt, domain: [Akte], range: [Partei], reason: "Gegenanwalt oder Gegenanwältin (GA)."}
+- {name: gericht_behoerde, domain: [Akte], range: [Partei], reason: "Gericht oder Behörde der Akte."}
+- {name: versicherung, domain: [Akte], range: [Partei], reason: "Versicherung, etwa die Rechtsschutzversicherung (RSV)."}
+- {name: zeuge, domain: [Akte], range: [Partei], reason: "Zeugin oder Zeuge."}
+- {name: experte, domain: [Akte], range: [Partei], reason: "Expertin oder Experte, Gutachter."}
+
+# Same name, maybe the same party (derived for the conflict check)
+- {name: gleicher_name, domain: [Partei], range: [Namensgruppe], reason: "Der Name der Adresse in Normalform."}
+- {name: moeglicherweise_identisch, domain: [Partei], range: [Partei], reason: "Zwei Adressen mit gleichem Namen in Normalform: vermutlich dieselbe Partei, zweimal erfasst (vom Runner abgeleitet)."}
+- {name: moeglicherweise_identisch_mit, domain: [Partei], range: [Partei], reason: "Die Gegenrichtung von moeglicherweise_identisch."}
+
+# Across matters (derived for the conflict check)
+- {name: vertreten_gegen, domain: [Partei], range: [Partei], reason: "Die Kanzlei hat die erste Partei als Mandantschaft gegen die zweite vertreten (abgeleitet: mandant und gegenpartei derselben Akte)."}
+- {name: auch_vertreten_gegen, domain: [Partei], range: [Partei], reason: "Die Gegenrichtung von vertreten_gegen, wenn beide Parteien je einmal Mandantschaft gegen die andere waren."}
+
+# What belongs to a matter
+- {name: frist_von, domain: [Frist], range: [Akte], reason: "Die Frist gehört zur Akte."}
+- {name: termin_von, domain: [Termin], range: [Akte], reason: "Der Termin gehört zur Akte."}
+- {name: rechnung_von, domain: [Rechnung], range: [Akte], reason: "Die Rechnung gehört zur Akte."}
+- {name: dokument_von, domain: [Dokument], range: [Akte], reason: "Das Dokument liegt in der Akte."}
+- {name: erstellt_von, domain: [Dokument], range: [Mitarbeiter], reason: "Wer das Dokument erstellt hat."}
+
+# The evidence the Weisungen ask for (one relation per kind of evidence)
+- {name: konfliktpruefung_zu, domain: [Dokument], range: [Akte], reason: "Weisung 1, Schritt 1: Ergebnis der Konfliktprüfung in der Akte."}
+- {name: mandatsvereinbarung_zu, domain: [Dokument], range: [Akte], reason: "Weisung 1, Schritt 2: unterzeichnete Mandatsvereinbarung."}
+- {name: vollmacht_zu, domain: [Dokument], range: [Akte], reason: "Weisung 1, Schritt 3: Vollmacht."}
+- {name: kostenvorschuss_zu, domain: [Rechnung, Dokument], range: [Akte], reason: "Weisung 1, Schritt 4: Kostenvorschuss in Rechnung gestellt."}
+- {name: honorarnote_zu, domain: [Rechnung], range: [Akte], reason: "Weisung 4: Honorarnote der Akte."}
+- {name: aktennotiz_zu, domain: [Dokument], range: [Akte], reason: "Weisung 3, Schritt 1: Sachverhalt in einer Aktennotiz."}
+- {name: aussergerichtlich_zu, domain: [Dokument], range: [Akte], reason: "Weisung 3, Schritt 2: Abmahnung oder Schreiben an die Gegenseite."}
+- {name: entwurf_zu, domain: [Dokument], range: [Akte], reason: "Weisung 3, Schritt 3: Entwurf an die Mandantschaft."}
+- {name: rechtsschrift_zu, domain: [Dokument], range: [Akte], reason: "Weisung 3, Schritt 5: eingereichte Rechtsschrift (Klage, Klageantwort, Eingabe, Stellungnahme)."}
+- {name: versandnachweis_zu, domain: [Dokument], range: [Akte], reason: "Weisung 3, Schritt 6: Begleitmail oder Postquittung zur Rechtsschrift."}
+- {name: erledigung_zu, domain: [Dokument], range: [Akte], reason: "Weisung 5, Schritt 1: Erledigung (Urteil, Entscheid, Vergleich, Abschreibung)."}
+- {name: abschlussmitteilung_zu, domain: [Dokument], range: [Akte], reason: "Weisung 5, Schritt 2: Abschlussmitteilung an die Mandantschaft."}
+
+# Processes (the product's process model: the views read exactly these names)
+- {name: has_step, domain: [Process], range: [ProcessStep], reason: "Die Schritte einer Weisung."}
+- {name: transitions_to, domain: [ProcessStep], range: [ProcessStep], reason: "Der nächste Schritt."}
+- {name: reworks_to, domain: [ProcessStep], range: [ProcessStep], reason: "Zurück zu einem früheren Schritt."}
+- {name: instance_of, domain: [Akte, Frist], range: [Process], reason: "Die Akte (oder Frist) läuft nach dieser Weisung."}
+- {name: in_state, domain: [Akte, Frist], range: [ProcessStep], reason: "Der Schritt, in dem die Akte (oder Frist) steht."}
+
+# Glossary
+- {name: begriff_von, domain: [Begriff], range: [Kanzlei], reason: "Begriff aus dem Kanzlei-ABC."}

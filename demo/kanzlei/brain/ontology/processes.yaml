@@ -1,0 +1,207 @@
+# The five Weisungen of Quarzfels Advokatur (Gemeinsam/Kanzlei/02-Organisation/Weisungen) as processes.
+#
+# Each step names the evidence the Weisung asks for (`requires`, a path from the matter); the views show
+# what a matter is missing at its step. A matter's step is set by the mappings (kanzleidb-ablauf-*.yaml):
+# the first step whose evidence is not in the matter, else the final one. Steps the sources cannot evidence
+# (Gegenlesen, Mandatsbestätigung) are in the description, not invented as checks.
+version: 1
+processes:
+
+- key: PROC-mandatsannahme
+  name: "Weisung 1: Mandatsannahme"
+  weisung: Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 01 Mandatsannahme.docx
+  stand: 2023-03-11
+  description: >-
+    Kein Mandat wird bearbeitet, bevor Konflikte geprüft, die Vertragspartei identifiziert und das Honorar
+    vereinbart ist. Gilt für Akten, die seit dem Stand der Weisung (11.3.2023) eröffnet und elektronisch geführt
+    werden. Schritte 5 und 6 der Weisung (Akte eröffnen, Mandatsbestätigung) belegt die Praxissoftware nicht.
+  instance_types: [Akte]
+  owner_role: verantwortlicher Partner
+  governing_fact: annahme_schritt
+  steps:
+  - id: konfliktpruefung
+    name: Konfliktprüfung
+    description: Konfliktprüfung gegen alle Parteien durchführen und das Ergebnis in der Akte ablegen.
+    requires:
+    - {type: Dokument, required: true, note: "Ergebnis der Konfliktprüfung (KP) in der Akte",
+       path: [{relation: konfliktpruefung_zu, direction: in, to_type: Dokument}]}
+  - id: mandatsvereinbarung
+    name: Mandatsvereinbarung
+    description: Mandatsvereinbarung mit Honoraransatz unterzeichnen lassen.
+    requires:
+    - {type: Dokument, required: true, note: "Unterzeichnete Mandatsvereinbarung (MV)",
+       path: [{relation: mandatsvereinbarung_zu, direction: in, to_type: Dokument}]}
+  - id: vollmacht
+    name: Vollmacht
+    description: Vollmacht einholen.
+    requires:
+    - {type: Dokument, required: true, note: "Vollmacht (VM)",
+       path: [{relation: vollmacht_zu, direction: in, to_type: Dokument}]}
+  - id: kostenvorschuss
+    name: Kostenvorschuss
+    description: Kostenvorschuss in Rechnung stellen; Arbeit über die Erstberatung hinaus erst nach Eingang.
+    requires:
+    - {type: Rechnung, required: true, note: "Kostenvorschuss (KV) in Rechnung gestellt",
+       path: [{relation: kostenvorschuss_zu, direction: in, to_type: Rechnung}],
+       alternative: {type: Dokument, path: [{relation: kostenvorschuss_zu, direction: in, to_type: Dokument}]}}
+  - id: angenommen
+    name: Angenommen
+    description: Alle Belege der Weisung liegen in der Akte.
+    resting: true
+  transitions:
+  - [konfliktpruefung, mandatsvereinbarung]
+  - [mandatsvereinbarung, vollmacht]
+  - [vollmacht, kostenvorschuss]
+  - [kostenvorschuss, angenommen]
+  final: [angenommen]
+
+- key: PROC-fristenkontrolle
+  name: "Weisung 2: Fristenkontrolle"
+  weisung: Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 02 Fristenkontrolle.pdf
+  description: >-
+    Keine Frist wird verpasst. Jede Frist wird am Tag des Eingangs mit Art, Datum und verantwortlicher Person
+    erfasst; die Wiedervorlage (WV) fünf Arbeitstage vor Ablauf gesetzt; die Frist in die Pendenzenliste der
+    Akte aufgenommen. Gilt für jede unerledigte Frist.
+  instance_types: [Frist]
+  owner_role: Sekretariat
+  governing_fact: kontroll_schritt
+  steps:
+  - id: erfasst
+    name: Erfasst, ohne Wiedervorlage
+    description: Frist mit Art, Datum und verantwortlicher Person erfasst; die Wiedervorlage fünf Arbeitstage vor Ablauf fehlt noch.
+    requires:
+    - {type: Mitarbeiter, required: true, note: "Verantwortliche Person der Frist",
+       path: [{relation: verantwortlich, direction: out, to_type: Mitarbeiter}]}
+    - {type: Akte, required: true, note: "Akte der Frist",
+       path: [{relation: frist_von, direction: out, to_type: Akte}]}
+  - id: ueberwacht
+    name: Überwacht (Wiedervorlage gesetzt)
+    description: Die Wiedervorlage liegt spätestens fünf Arbeitstage vor Ablauf.
+    resting: true
+    requires:
+    - {type: Mitarbeiter, required: true, note: "Verantwortliche Person der Frist",
+       path: [{relation: verantwortlich, direction: out, to_type: Mitarbeiter}]}
+  - id: erledigt
+    name: Erledigt
+  transitions:
+  - [erfasst, ueberwacht]
+  - [ueberwacht, erledigt]
+  - [erfasst, erledigt]
+  final: [erledigt]
+
+- key: PROC-rechtsschrift
+  name: "Weisung 3: Rechtsschrift erstellen und einreichen"
+  weisung: Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 03 Rechtsschrift erstellen und einreichen.docx
+  stand: 2023-05-13
+  description: >-
+    Rechtsschriften verlassen die Kanzlei geprüft, vollständig und rechtzeitig. Gilt für elektronisch geführte
+    Akten mit einer eingereichten Rechtsschrift. Das Gegenlesen durch den Partner (Schritt 4) belegt keine Quelle.
+  instance_types: [Akte]
+  owner_role: Sachbearbeitung
+  governing_fact: rechtsschrift_schritt
+  steps:
+  - id: sachverhalt
+    name: Sachverhalt
+    description: Sachverhalt mit der Mandantschaft klären und in einer Aktennotiz festhalten.
+    requires:
+    - {type: Dokument, required: true, note: "Aktennotiz (AN) zum Sachverhalt",
+       path: [{relation: aktennotiz_zu, direction: in, to_type: Dokument}]}
+  - id: aussergerichtlich
+    name: Aussergerichtlich
+    description: Aussergerichtliche Erledigung versuchen (Abmahnung oder Schreiben an die Gegenseite).
+    requires:
+    - {type: Dokument, required: true, note: "Abmahnung oder Schreiben an die Gegenseite",
+       path: [{relation: aussergerichtlich_zu, direction: in, to_type: Dokument}]}
+  - id: entwurf
+    name: Entwurf
+    description: Entwurf an die Mandantschaft zur Durchsicht senden.
+    requires:
+    - {type: Dokument, required: true, note: "Entwurf der Rechtsschrift",
+       path: [{relation: entwurf_zu, direction: in, to_type: Dokument}]}
+  - id: versandnachweis
+    name: Versandnachweis
+    description: Rechtsschrift mit Beilagenverzeichnis einreichen; Versandnachweis (Begleitmail oder Postquittung) in der Akte ablegen.
+    requires:
+    - {type: Dokument, required: true, note: "Eingereichte Rechtsschrift",
+       path: [{relation: rechtsschrift_zu, direction: in, to_type: Dokument}]}
+    - {type: Dokument, required: true, note: "Versandnachweis (Begleitmail oder Postquittung an das Gericht)",
+       path: [{relation: versandnachweis_zu, direction: in, to_type: Dokument}]}
+  - id: eingereicht
+    name: Eingereicht und belegt
+    resting: true
+  transitions:
+  - [sachverhalt, aussergerichtlich]
+  - [aussergerichtlich, entwurf]
+  - [entwurf, versandnachweis]
+  - [versandnachweis, eingereicht]
+  final: [eingereicht]
+
+- key: PROC-fakturierung
+  name: "Weisung 4: Fakturierung"
+  weisung: Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 04 Fakturierung.pdf
+  description: >-
+    Leistungen täglich erfassen; Honorarnote erstellen und vom Partner freigeben lassen; an die Mandantschaft
+    senden; Zahlungseingang kontrollieren und nach 30 Tagen mahnen. Gilt für elektronisch geführte Akten.
+  instance_types: [Akte]
+  owner_role: verantwortlicher Partner
+  governing_fact: faktura_schritt
+  steps:
+  - id: leistungen
+    name: Leistungen erfasst, nicht verrechnet
+    description: Leistungen täglich in der Praxissoftware erfassen; Auszug zur Honorarnote ablegen.
+  - id: zahlungskontrolle
+    name: Zahlungskontrolle
+    description: Honorarnote versandt; Zahlungseingang kontrollieren, nach 30 Tagen mahnen.
+    requires:
+    - {type: Rechnung, required: true, note: "Honorarnote (HN) der Akte",
+       path: [{relation: honorarnote_zu, direction: in, to_type: Rechnung}]}
+  - id: bezahlt
+    name: Bezahlt
+    resting: true
+    requires:
+    - {type: Rechnung, required: true, note: "Honorarnote (HN) der Akte",
+       path: [{relation: honorarnote_zu, direction: in, to_type: Rechnung}]}
+  transitions:
+  - [leistungen, zahlungskontrolle]
+  - [zahlungskontrolle, bezahlt]
+  - [bezahlt, leistungen]
+  final: [bezahlt]
+
+- key: PROC-aktenabschluss
+  name: "Weisung 5: Aktenabschluss"
+  weisung: Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 05 Aktenabschluss.docx
+  stand: 2023-07-15
+  description: >-
+    Abgeschlossene Akten sind vollständig, abgerechnet und zehn Jahre auffindbar. Gilt für abgeschlossene,
+    elektronisch geführte Akten.
+  instance_types: [Akte]
+  owner_role: Sachbearbeitung, Sekretariat
+  governing_fact: abschluss_schritt
+  steps:
+  - id: erledigung
+    name: Erledigung
+    description: Erledigung (Urteil, Vergleich oder Abschreibung) in der Akte ablegen.
+    requires:
+    - {type: Dokument, required: true, note: "Urteil, Entscheid oder Vergleich",
+       path: [{relation: erledigung_zu, direction: in, to_type: Dokument}]}
+  - id: abschlussmitteilung
+    name: Abschlussmitteilung
+    description: Abschlussmitteilung an die Mandantschaft senden; Originale zurückgeben.
+    requires:
+    - {type: Dokument, required: true, note: "Brief an die Mandantschaft nach der Erledigung",
+       path: [{relation: abschlussmitteilung_zu, direction: in, to_type: Dokument}]}
+  - id: schlussrechnung
+    name: Schlussrechnung
+    description: Schlussrechnung stellen.
+    requires:
+    - {type: Rechnung, required: true, note: "Honorarnote der Akte",
+       path: [{relation: honorarnote_zu, direction: in, to_type: Rechnung}]}
+  - id: archiviert
+    name: Archiviert
+    description: Akte in der Praxissoftware abschliessen; Aufbewahrungsfrist zehn Jahre.
+    resting: true
+  transitions:
+  - [erledigung, abschlussmitteilung]
+  - [abschlussmitteilung, schlussrechnung]
+  - [schlussrechnung, archiviert]
+  final: [archiviert]

@@ -1,0 +1,89 @@
+id: kanzleidb-akteninhalt
+version: 1
+description: What belongs to a matter - FRISTEN, TERMINE, RECHNUNGEN and the DOKUMENTE of the electronic matters, each with its evidence relation.
+edit_policy: source_owned
+freshness: {window: 7 d}
+deletion_guard: {max_retire_share: 0.05}
+source: {extractor: records, glob: "*", select: "@", as: r}
+emits:
+- type: Frist
+  identify: [key]
+  key: "r.record_kind == 'frist' && r.external_id || null"
+  name: left(str(r.fields.name), `500`)
+  description: "left(join('', [str(r.fields.fristart), ' am ', str(r.fields.datum), ': ', str(r.fields.text || '-'), r.fields.erledigt == 'ja' && ' (erledigt)' || '']), `2000`)"
+  facts:
+    datum: {value: r.fields.datum, priority: 10}
+    fristart: {value: r.fields.fristart, priority: 10}
+    text: {value: r.fields.text, priority: 10}
+    erledigt: {value: r.fields.erledigt, priority: 10}
+    erledigt_am: {value: r.fields.erledigt_am, priority: 10}
+    erfasst_am: {value: r.fields.erfasst_am, priority: 10}
+    rot: {value: r.fields.rot, priority: 10}
+    verpasst: {value: r.fields.verpasst, priority: 10}
+    source: {value: "'KanzleiDB FRISTEN'", priority: 10}
+  relations:
+  - {relation: frist_von, to_type: Akte, to_key: "r.links[?relation=='frist_von'].external_id"}
+  - {relation: verantwortlich, to_type: Mitarbeiter, to_key: "r.links[?relation=='verantwortlich'].external_id"}
+- type: Termin
+  identify: [key]
+  key: "r.record_kind == 'termin' && r.external_id || null"
+  name: left(str(r.fields.name), `500`)
+  facts:
+    beginn: {value: r.fields.beginn, priority: 10}
+    zeit: {value: r.fields.zeit, priority: 10}
+    ende: {value: r.fields.ende, priority: 10}
+    terminart: {value: r.fields.terminart, priority: 10}
+    betreff: {value: r.fields.betreff, priority: 10}
+    ort: {value: r.fields.ort, priority: 10}
+    source: {value: "'KanzleiDB TERMINE'", priority: 10}
+  relations:
+  - {relation: termin_von, to_type: Akte, to_key: "r.links[?relation=='termin_von'].external_id"}
+  - {relation: teilnehmer, to_type: Mitarbeiter, to_key: "r.links[?relation=='teilnehmer'].external_id"}
+- type: Rechnung
+  identify: [key]
+  key: "r.record_kind == 'rechnung' && r.external_id || null"
+  name: left(str(r.fields.name), `500`)
+  description: "join('', [str(r.fields.rechnungsart), ' vom ', str(r.fields.datum), ' über CHF ', str(r.fields.total), ', ', str(r.fields.zahlstatus)])"
+  facts:
+    rechnungsart: {value: r.fields.rechnungsart, priority: 10}
+    datum: {value: r.fields.datum, priority: 10}
+    honorar: {value: r.fields.honorar, priority: 10}
+    auslagen: {value: r.fields.auslagen, priority: 10}
+    mwst_satz: {value: r.fields.mwst_satz, priority: 10}
+    total: {value: r.fields.total, priority: 10}
+    zahlstatus: {value: r.fields.zahlstatus, priority: 10}
+    bezahlt_am: {value: r.fields.bezahlt_am, priority: 10}
+    tage_offen: {value: r.fields.tage_offen, priority: 10}
+    source: {value: "'KanzleiDB RECHNUNGEN'", priority: 10}
+  relations:
+  - {relation: rechnung_von, to_type: Akte, to_key: "r.links[?relation=='rechnung_von'].external_id"}
+  - {relation: honorarnote_zu, to_type: Akte, to_key: "r.links[?relation=='honorarnote_zu'].external_id"}
+  - {relation: kostenvorschuss_zu, to_type: Akte, to_key: "r.links[?relation=='kostenvorschuss_zu'].external_id"}
+- type: Dokument
+  identify: [key]
+  key: "r.record_kind == 'dokument' && r.external_id || null"
+  name: left(str(r.fields.name), `500`)
+  description: "join('', [str(r.fields.doktyp), ', erstellt ', str(r.fields.erstellt_am), ' (', str(r.fields.dateiname), ')'])"
+  facts:
+    doktyp: {value: r.fields.doktyp, priority: 10}
+    bezeichnung: {value: r.fields.bezeichnung, priority: 10}
+    dateiname: {value: r.fields.dateiname, priority: 10}
+    pfad: {value: r.fields.pfad, priority: 10}
+    erstellt_am: {value: r.fields.erstellt_am, priority: 10}
+    groesse: {value: r.fields.groesse, priority: 10}
+    lesbar: {value: r.fields.lesbar, priority: 10}
+    source: {value: "'KanzleiDB DOKUMENTE'", priority: 10}
+  relations:
+  - {relation: dokument_von, to_type: Akte, to_key: "r.links[?relation=='dokument_von'].external_id"}
+  - {relation: erstellt_von, to_type: Mitarbeiter, to_key: "r.links[?relation=='erstellt_von'].external_id"}
+  - {relation: konfliktpruefung_zu, to_type: Akte, to_key: "r.links[?relation=='konfliktpruefung_zu'].external_id"}
+  - {relation: mandatsvereinbarung_zu, to_type: Akte, to_key: "r.links[?relation=='mandatsvereinbarung_zu'].external_id"}
+  - {relation: vollmacht_zu, to_type: Akte, to_key: "r.links[?relation=='vollmacht_zu'].external_id"}
+  - {relation: kostenvorschuss_zu, to_type: Akte, to_key: "r.links[?relation=='kostenvorschuss_zu'].external_id"}
+  - {relation: aktennotiz_zu, to_type: Akte, to_key: "r.links[?relation=='aktennotiz_zu'].external_id"}
+  - {relation: aussergerichtlich_zu, to_type: Akte, to_key: "r.links[?relation=='aussergerichtlich_zu'].external_id"}
+  - {relation: entwurf_zu, to_type: Akte, to_key: "r.links[?relation=='entwurf_zu'].external_id"}
+  - {relation: rechtsschrift_zu, to_type: Akte, to_key: "r.links[?relation=='rechtsschrift_zu'].external_id"}
+  - {relation: versandnachweis_zu, to_type: Akte, to_key: "r.links[?relation=='versandnachweis_zu'].external_id"}
+  - {relation: erledigung_zu, to_type: Akte, to_key: "r.links[?relation=='erledigung_zu'].external_id"}
+  - {relation: abschlussmitteilung_zu, to_type: Akte, to_key: "r.links[?relation=='abschlussmitteilung_zu'].external_id"}

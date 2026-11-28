@@ -1,0 +1,32 @@
+id: anwalt
+audience: Anwältin, Anwalt
+description: Bearbeitet Akten. Sieht rote Akten, offene Fristen und Rechtsschriften, deren Belege fehlen.
+delivered_through: Platform
+lens:
+  spines: [SPINE-kanzlei]
+  types: [Rechtsgebiet, Mitarbeiter, Partei, Akte, Frist, Termin, Rechnung, Dokument, Begriff, Process, ProcessStep]
+  relations: [rechtsgebiet, verantwortlich, sachbearbeitung, mandatsteam, teilnehmer, mandant, gegenpartei, gegenanwalt, gericht_behoerde, versicherung, zeuge, experte, frist_von, termin_von, rechnung_von, dokument_von, aktennotiz_zu, aussergerichtlich_zu, entwurf_zu, rechtsschrift_zu, versandnachweis_zu, instance_of, in_state, has_step]
+views:
+  - id: rote-akten
+    label: Rote Akten
+    render: list
+    definition:
+      description: "Akten mit einer Frist in den nächsten zehn Tagen."
+      root_types: [Akte]
+      where: {fact: ampel, in: [rot]}
+      columns: [naechste_frist, naechste_frist_art, status]
+      order_by: {fact: naechste_frist}
+  - id: rechtsschrift
+    label: "Weisung 3: Rechtsschriften"
+    render: board
+    definition:
+      description: Akten mit eingereichter Rechtsschrift, im ersten Schritt der Weisung, dessen Beleg fehlt.
+      process: PROC-rechtsschrift
+      root_types: [Akte]
+      columns: [status]
+pages: [PAGE-akte, PAGE-partei, PAGE-mitarbeiter]
+actions: []
+context_packs: []
+rights:
+  read: ["*"]
+  write: none

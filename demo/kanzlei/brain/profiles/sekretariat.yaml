@@ -1,0 +1,50 @@
+id: sekretariat
+audience: Sekretariat
+description: Führt die Fristenkontrolle und die Fakturierung. Sieht die Montagsliste, Fristen ohne Wiedervorlage und offene Rechnungen.
+delivered_through: Platform
+lens:
+  spines: []
+  types: [Mitarbeiter, Akte, Frist, Rechnung, Process, ProcessStep]
+  relations: [verantwortlich, frist_von, rechnung_von, honorarnote_zu, kostenvorschuss_zu, instance_of, in_state, has_step]
+views:
+  - id: montagsliste
+    label: Montagsliste
+    render: list
+    definition:
+      description: "Kanzlei-ABC: die offenen Fristen, die in den nächsten zehn Tagen ablaufen."
+      root_types: [Frist]
+      where: {fact: rot, in: ['ja']}
+      columns: [datum, fristart, text]
+      order_by: {fact: datum}
+  - id: verpasst
+    label: Verpasste Fristen
+    render: list
+    definition:
+      description: Unerledigte Fristen, deren Datum vorbei ist.
+      root_types: [Frist]
+      where: {fact: verpasst, in: ['ja']}
+      columns: [datum, fristart, text]
+      order_by: {fact: datum}
+  - id: fristenkontrolle
+    label: "Weisung 2: Fristenkontrolle"
+    render: board
+    definition:
+      description: Jede offene Frist, ob ihre Wiedervorlage fünf Arbeitstage vorher gesetzt ist.
+      process: PROC-fristenkontrolle
+      root_types: [Frist]
+      columns: [datum, fristart, rot]
+  - id: offene-rechnungen
+    label: Offene Rechnungen
+    render: list
+    definition:
+      description: Offene und gemahnte Rechnungen, die ältesten zuerst.
+      root_types: [Rechnung]
+      where: {fact: zahlstatus, in: [offen, gemahnt]}
+      columns: [rechnungsart, datum, total, zahlstatus, tage_offen]
+      order_by: {fact: datum}
+pages: [PAGE-akte, PAGE-mitarbeiter]
+actions: []
+context_packs: []
+rights:
+  read: ["*"]
+  write: none

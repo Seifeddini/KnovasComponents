@@ -1,0 +1,16 @@
+# How the firm is laid out: the firm -> its fields of law -> the matters in each.
+spines:
+- key: SPINE-kanzlei
+  description: 'Die Kanzlei nach Rechtsgebieten: Kanzlei → Rechtsgebiet → Akte.'
+  levels:
+  - id: L1
+    name: Kanzlei
+    types: [Kanzlei]
+  - id: L2
+    name: Rechtsgebiet
+    types: [Rechtsgebiet]
+    link_to_parent: {relation: gehoert_zu, direction: out}
+  - id: L3
+    name: Akte
+    types: [Akte]
+    link_to_parent: {relation: rechtsgebiet, direction: out}

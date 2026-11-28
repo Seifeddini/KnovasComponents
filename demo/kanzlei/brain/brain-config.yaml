@@ -1,0 +1,49 @@
+# The Brain of Quarzfels Advokatur (demo law firm, tenant 817f2330, invented data).
+#
+# Two sources:
+#   kanzleidb   the practice database (SQL Server) and the Kanzlei-ABC, read by export/kanzleidb_stream.py
+#               into one record stream (connector protocol 2.0): mappings/kanzleidb-*.yaml
+#   definitions this folder: the Weisungen as processes (ontology/processes.yaml -> generated JSON):
+#               mappings/weisungen.yaml
+# Run order (README.md): ontology apply, definitions, records.
+version: 1
+company:
+  key: QUARZFELS
+  name: Quarzfels Advokatur
+  kind: law firm
+ontology:
+  terms: ontology/terms.yaml
+  relations: ontology/relations.yaml
+  descriptions: ontology/descriptions.yaml
+  node_descriptions: ontology/node-descriptions.yaml
+processes: ontology/processes.yaml
+spines: ontology/spines.yaml
+pages: ontology/page-definitions.yaml
+owners: ontology/owners.yaml
+edit_sources: ontology/edit-sources.yaml
+generated:
+  processes: ontology/generated/process-definitions.json
+mappings: mappings/*.yaml
+profiles: profiles/*.yaml
+health: health.yaml
+sources:
+  kanzleidb: {description: "KanzleiDB (SQL Server) und Kanzlei-ABC, als Record-Stream gelesen"}
+  definitions: {description: "Dieser Ordner: die Weisungen als Abläufe"}
+runner:
+  state: .brain-runner/state.json
+  evaluate:
+    derived_edges:
+      - relation: moeglicherweise_identisch
+        reverse_relation: moeglicherweise_identisch_mit
+        from_type: Partei
+        path:
+          - {relation: gleicher_name, direction: out, to_type: Namensgruppe}
+          - {relation: gleicher_name, direction: in, to_type: Partei}
+        description: Zwei Adressen, deren Namen in Normalform gleich lauten, sind vermutlich dieselbe Partei.
+      - relation: vertreten_gegen
+        reverse_relation: auch_vertreten_gegen
+        from_type: Partei
+        path:
+          - {relation: mandant, direction: in, to_type: Akte}
+          - {relation: gegenpartei, direction: out, to_type: Partei}
+        description: Die Kanzlei hat die Partei als Mandantschaft gegen die andere vertreten (dieselbe Akte).

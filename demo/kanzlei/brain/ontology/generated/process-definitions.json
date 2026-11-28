@@ -1,0 +1,648 @@
+{
+ "version": 1,
+ "generated_at": "from ontology/processes.yaml",
+ "source": "ontology/processes.yaml",
+ "rules": [],
+ "report_rules": [],
+ "processes": [
+  {
+   "key": "PROC-mandatsannahme",
+   "name": "Weisung 1: Mandatsannahme",
+   "description": "Kein Mandat wird bearbeitet, bevor Konflikte geprüft, die Vertragspartei identifiziert und das Honorar vereinbart ist. Gilt für Akten, die seit dem Stand der Weisung (11.3.2023) eröffnet und elektronisch geführt werden. Schritte 5 und 6 der Weisung (Akte eröffnen, Mandatsbestätigung) belegt die Praxissoftware nicht. Quelle: Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 01 Mandatsannahme.docx. Stand 2023-03-11.",
+   "instance_types": [
+    "Akte"
+   ],
+   "owner_role": "verantwortlicher Partner",
+   "governing_fact": "annahme_schritt",
+   "status_map": {
+    "Akte": {}
+   },
+   "change_classes": {
+    "minor": [],
+    "substantive": [],
+    "on_substantive": null
+   },
+   "steps": [
+    {
+     "id": "konfliktpruefung",
+     "key": "STEP-mandatsannahme-konfliktpruefung",
+     "order": 1,
+     "name": "Konfliktprüfung",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Dokument",
+       "required": true,
+       "note": "Ergebnis der Konfliktprüfung (KP) in der Akte",
+       "path": [
+        {
+         "relation": "konfliktpruefung_zu",
+         "direction": "in",
+         "to_type": "Dokument"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Konfliktprüfung gegen alle Parteien durchführen und das Ergebnis in der Akte ablegen."
+    },
+    {
+     "id": "mandatsvereinbarung",
+     "key": "STEP-mandatsannahme-mandatsvereinbarung",
+     "order": 2,
+     "name": "Mandatsvereinbarung",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Dokument",
+       "required": true,
+       "note": "Unterzeichnete Mandatsvereinbarung (MV)",
+       "path": [
+        {
+         "relation": "mandatsvereinbarung_zu",
+         "direction": "in",
+         "to_type": "Dokument"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Mandatsvereinbarung mit Honoraransatz unterzeichnen lassen."
+    },
+    {
+     "id": "vollmacht",
+     "key": "STEP-mandatsannahme-vollmacht",
+     "order": 3,
+     "name": "Vollmacht",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Dokument",
+       "required": true,
+       "note": "Vollmacht (VM)",
+       "path": [
+        {
+         "relation": "vollmacht_zu",
+         "direction": "in",
+         "to_type": "Dokument"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Vollmacht einholen."
+    },
+    {
+     "id": "kostenvorschuss",
+     "key": "STEP-mandatsannahme-kostenvorschuss",
+     "order": 4,
+     "name": "Kostenvorschuss",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Rechnung",
+       "required": true,
+       "note": "Kostenvorschuss (KV) in Rechnung gestellt",
+       "path": [
+        {
+         "relation": "kostenvorschuss_zu",
+         "direction": "in",
+         "to_type": "Rechnung"
+        }
+       ],
+       "alternative": {
+        "type": "Dokument",
+        "path": [
+         {
+          "relation": "kostenvorschuss_zu",
+          "direction": "in",
+          "to_type": "Dokument"
+         }
+        ]
+       }
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Kostenvorschuss in Rechnung stellen; Arbeit über die Erstberatung hinaus erst nach Eingang."
+    },
+    {
+     "id": "angenommen",
+     "key": "STEP-mandatsannahme-angenommen",
+     "order": 5,
+     "name": "Angenommen",
+     "resting": true,
+     "requires": [],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Alle Belege der Weisung liegen in der Akte."
+    }
+   ],
+   "transitions": [
+    {
+     "from": "konfliktpruefung",
+     "to": "mandatsvereinbarung"
+    },
+    {
+     "from": "mandatsvereinbarung",
+     "to": "vollmacht"
+    },
+    {
+     "from": "vollmacht",
+     "to": "kostenvorschuss"
+    },
+    {
+     "from": "kostenvorschuss",
+     "to": "angenommen"
+    }
+   ],
+   "final": [
+    "angenommen"
+   ]
+  },
+  {
+   "key": "PROC-fristenkontrolle",
+   "name": "Weisung 2: Fristenkontrolle",
+   "description": "Keine Frist wird verpasst. Jede Frist wird am Tag des Eingangs mit Art, Datum und verantwortlicher Person erfasst; die Wiedervorlage (WV) fünf Arbeitstage vor Ablauf gesetzt; die Frist in die Pendenzenliste der Akte aufgenommen. Gilt für jede unerledigte Frist. Quelle: Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 02 Fristenkontrolle.pdf.",
+   "instance_types": [
+    "Frist"
+   ],
+   "owner_role": "Sekretariat",
+   "governing_fact": "kontroll_schritt",
+   "status_map": {
+    "Frist": {}
+   },
+   "change_classes": {
+    "minor": [],
+    "substantive": [],
+    "on_substantive": null
+   },
+   "steps": [
+    {
+     "id": "erfasst",
+     "key": "STEP-fristenkontrolle-erfasst",
+     "order": 1,
+     "name": "Erfasst, ohne Wiedervorlage",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Mitarbeiter",
+       "required": true,
+       "note": "Verantwortliche Person der Frist",
+       "path": [
+        {
+         "relation": "verantwortlich",
+         "direction": "out",
+         "to_type": "Mitarbeiter"
+        }
+       ]
+      },
+      {
+       "type": "Akte",
+       "required": true,
+       "note": "Akte der Frist",
+       "path": [
+        {
+         "relation": "frist_von",
+         "direction": "out",
+         "to_type": "Akte"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Frist mit Art, Datum und verantwortlicher Person erfasst; die Wiedervorlage fünf Arbeitstage vor Ablauf fehlt noch."
+    },
+    {
+     "id": "ueberwacht",
+     "key": "STEP-fristenkontrolle-ueberwacht",
+     "order": 2,
+     "name": "Überwacht (Wiedervorlage gesetzt)",
+     "resting": true,
+     "requires": [
+      {
+       "type": "Mitarbeiter",
+       "required": true,
+       "note": "Verantwortliche Person der Frist",
+       "path": [
+        {
+         "relation": "verantwortlich",
+         "direction": "out",
+         "to_type": "Mitarbeiter"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Die Wiedervorlage liegt spätestens fünf Arbeitstage vor Ablauf."
+    },
+    {
+     "id": "erledigt",
+     "key": "STEP-fristenkontrolle-erledigt",
+     "order": 3,
+     "name": "Erledigt",
+     "resting": false,
+     "requires": [],
+     "produces": [],
+     "exit_criteria": []
+    }
+   ],
+   "transitions": [
+    {
+     "from": "erfasst",
+     "to": "ueberwacht"
+    },
+    {
+     "from": "ueberwacht",
+     "to": "erledigt"
+    },
+    {
+     "from": "erfasst",
+     "to": "erledigt"
+    }
+   ],
+   "final": [
+    "erledigt"
+   ]
+  },
+  {
+   "key": "PROC-rechtsschrift",
+   "name": "Weisung 3: Rechtsschrift erstellen und einreichen",
+   "description": "Rechtsschriften verlassen die Kanzlei geprüft, vollständig und rechtzeitig. Gilt für elektronisch geführte Akten mit einer eingereichten Rechtsschrift. Das Gegenlesen durch den Partner (Schritt 4) belegt keine Quelle. Quelle: Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 03 Rechtsschrift erstellen und einreichen.docx. Stand 2023-05-13.",
+   "instance_types": [
+    "Akte"
+   ],
+   "owner_role": "Sachbearbeitung",
+   "governing_fact": "rechtsschrift_schritt",
+   "status_map": {
+    "Akte": {}
+   },
+   "change_classes": {
+    "minor": [],
+    "substantive": [],
+    "on_substantive": null
+   },
+   "steps": [
+    {
+     "id": "sachverhalt",
+     "key": "STEP-rechtsschrift-sachverhalt",
+     "order": 1,
+     "name": "Sachverhalt",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Dokument",
+       "required": true,
+       "note": "Aktennotiz (AN) zum Sachverhalt",
+       "path": [
+        {
+         "relation": "aktennotiz_zu",
+         "direction": "in",
+         "to_type": "Dokument"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Sachverhalt mit der Mandantschaft klären und in einer Aktennotiz festhalten."
+    },
+    {
+     "id": "aussergerichtlich",
+     "key": "STEP-rechtsschrift-aussergerichtlich",
+     "order": 2,
+     "name": "Aussergerichtlich",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Dokument",
+       "required": true,
+       "note": "Abmahnung oder Schreiben an die Gegenseite",
+       "path": [
+        {
+         "relation": "aussergerichtlich_zu",
+         "direction": "in",
+         "to_type": "Dokument"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Aussergerichtliche Erledigung versuchen (Abmahnung oder Schreiben an die Gegenseite)."
+    },
+    {
+     "id": "entwurf",
+     "key": "STEP-rechtsschrift-entwurf",
+     "order": 3,
+     "name": "Entwurf",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Dokument",
+       "required": true,
+       "note": "Entwurf der Rechtsschrift",
+       "path": [
+        {
+         "relation": "entwurf_zu",
+         "direction": "in",
+         "to_type": "Dokument"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Entwurf an die Mandantschaft zur Durchsicht senden."
+    },
+    {
+     "id": "versandnachweis",
+     "key": "STEP-rechtsschrift-versandnachweis",
+     "order": 4,
+     "name": "Versandnachweis",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Dokument",
+       "required": true,
+       "note": "Eingereichte Rechtsschrift",
+       "path": [
+        {
+         "relation": "rechtsschrift_zu",
+         "direction": "in",
+         "to_type": "Dokument"
+        }
+       ]
+      },
+      {
+       "type": "Dokument",
+       "required": true,
+       "note": "Versandnachweis (Begleitmail oder Postquittung an das Gericht)",
+       "path": [
+        {
+         "relation": "versandnachweis_zu",
+         "direction": "in",
+         "to_type": "Dokument"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Rechtsschrift mit Beilagenverzeichnis einreichen; Versandnachweis (Begleitmail oder Postquittung) in der Akte ablegen."
+    },
+    {
+     "id": "eingereicht",
+     "key": "STEP-rechtsschrift-eingereicht",
+     "order": 5,
+     "name": "Eingereicht und belegt",
+     "resting": true,
+     "requires": [],
+     "produces": [],
+     "exit_criteria": []
+    }
+   ],
+   "transitions": [
+    {
+     "from": "sachverhalt",
+     "to": "aussergerichtlich"
+    },
+    {
+     "from": "aussergerichtlich",
+     "to": "entwurf"
+    },
+    {
+     "from": "entwurf",
+     "to": "versandnachweis"
+    },
+    {
+     "from": "versandnachweis",
+     "to": "eingereicht"
+    }
+   ],
+   "final": [
+    "eingereicht"
+   ]
+  },
+  {
+   "key": "PROC-fakturierung",
+   "name": "Weisung 4: Fakturierung",
+   "description": "Leistungen täglich erfassen; Honorarnote erstellen und vom Partner freigeben lassen; an die Mandantschaft senden; Zahlungseingang kontrollieren und nach 30 Tagen mahnen. Gilt für elektronisch geführte Akten. Quelle: Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 04 Fakturierung.pdf.",
+   "instance_types": [
+    "Akte"
+   ],
+   "owner_role": "verantwortlicher Partner",
+   "governing_fact": "faktura_schritt",
+   "status_map": {
+    "Akte": {}
+   },
+   "change_classes": {
+    "minor": [],
+    "substantive": [],
+    "on_substantive": null
+   },
+   "steps": [
+    {
+     "id": "leistungen",
+     "key": "STEP-fakturierung-leistungen",
+     "order": 1,
+     "name": "Leistungen erfasst, nicht verrechnet",
+     "resting": false,
+     "requires": [],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Leistungen täglich in der Praxissoftware erfassen; Auszug zur Honorarnote ablegen."
+    },
+    {
+     "id": "zahlungskontrolle",
+     "key": "STEP-fakturierung-zahlungskontrolle",
+     "order": 2,
+     "name": "Zahlungskontrolle",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Rechnung",
+       "required": true,
+       "note": "Honorarnote (HN) der Akte",
+       "path": [
+        {
+         "relation": "honorarnote_zu",
+         "direction": "in",
+         "to_type": "Rechnung"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Honorarnote versandt; Zahlungseingang kontrollieren, nach 30 Tagen mahnen."
+    },
+    {
+     "id": "bezahlt",
+     "key": "STEP-fakturierung-bezahlt",
+     "order": 3,
+     "name": "Bezahlt",
+     "resting": true,
+     "requires": [
+      {
+       "type": "Rechnung",
+       "required": true,
+       "note": "Honorarnote (HN) der Akte",
+       "path": [
+        {
+         "relation": "honorarnote_zu",
+         "direction": "in",
+         "to_type": "Rechnung"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": []
+    }
+   ],
+   "transitions": [
+    {
+     "from": "leistungen",
+     "to": "zahlungskontrolle"
+    },
+    {
+     "from": "zahlungskontrolle",
+     "to": "bezahlt"
+    },
+    {
+     "from": "bezahlt",
+     "to": "leistungen"
+    }
+   ],
+   "final": [
+    "bezahlt"
+   ]
+  },
+  {
+   "key": "PROC-aktenabschluss",
+   "name": "Weisung 5: Aktenabschluss",
+   "description": "Abgeschlossene Akten sind vollständig, abgerechnet und zehn Jahre auffindbar. Gilt für abgeschlossene, elektronisch geführte Akten. Quelle: Gemeinsam/Kanzlei/02-Organisation/Weisungen/Weisung 05 Aktenabschluss.docx. Stand 2023-07-15.",
+   "instance_types": [
+    "Akte"
+   ],
+   "owner_role": "Sachbearbeitung, Sekretariat",
+   "governing_fact": "abschluss_schritt",
+   "status_map": {
+    "Akte": {}
+   },
+   "change_classes": {
+    "minor": [],
+    "substantive": [],
+    "on_substantive": null
+   },
+   "steps": [
+    {
+     "id": "erledigung",
+     "key": "STEP-aktenabschluss-erledigung",
+     "order": 1,
+     "name": "Erledigung",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Dokument",
+       "required": true,
+       "note": "Urteil, Entscheid oder Vergleich",
+       "path": [
+        {
+         "relation": "erledigung_zu",
+         "direction": "in",
+         "to_type": "Dokument"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Erledigung (Urteil, Vergleich oder Abschreibung) in der Akte ablegen."
+    },
+    {
+     "id": "abschlussmitteilung",
+     "key": "STEP-aktenabschluss-abschlussmitteilung",
+     "order": 2,
+     "name": "Abschlussmitteilung",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Dokument",
+       "required": true,
+       "note": "Brief an die Mandantschaft nach der Erledigung",
+       "path": [
+        {
+         "relation": "abschlussmitteilung_zu",
+         "direction": "in",
+         "to_type": "Dokument"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Abschlussmitteilung an die Mandantschaft senden; Originale zurückgeben."
+    },
+    {
+     "id": "schlussrechnung",
+     "key": "STEP-aktenabschluss-schlussrechnung",
+     "order": 3,
+     "name": "Schlussrechnung",
+     "resting": false,
+     "requires": [
+      {
+       "type": "Rechnung",
+       "required": true,
+       "note": "Honorarnote der Akte",
+       "path": [
+        {
+         "relation": "honorarnote_zu",
+         "direction": "in",
+         "to_type": "Rechnung"
+        }
+       ]
+      }
+     ],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Schlussrechnung stellen."
+    },
+    {
+     "id": "archiviert",
+     "key": "STEP-aktenabschluss-archiviert",
+     "order": 4,
+     "name": "Archiviert",
+     "resting": true,
+     "requires": [],
+     "produces": [],
+     "exit_criteria": [],
+     "description": "Akte in der Praxissoftware abschliessen; Aufbewahrungsfrist zehn Jahre."
+    }
+   ],
+   "transitions": [
+    {
+     "from": "erledigung",
+     "to": "abschlussmitteilung"
+    },
+    {
+     "from": "abschlussmitteilung",
+     "to": "schlussrechnung"
+    },
+    {
+     "from": "schlussrechnung",
+     "to": "archiviert"
+    }
+   ],
+   "final": [
+    "archiviert"
+   ]
+  }
+ ]
+}

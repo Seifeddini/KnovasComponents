@@ -1,0 +1,54 @@
+id: kanzleidb-stamm
+version: 1
+description: The firm, its fields of law (RECHTSGEBIETE), its people (MITARBEITER) and the Kanzlei-ABC.
+edit_policy: source_owned
+freshness: {window: 7 d}
+deletion_guard: {max_retire_share: 0.2}
+source: {extractor: records, glob: "*", select: "@", as: r}
+emits:
+- type: Kanzlei
+  identify: [key]
+  key: "r.record_kind == 'kanzlei' && r.external_id || null"
+  name: r.fields.name
+  description: "'Quarzfels Advokatur, Rämistrasse 14, 8001 Zürich: 3 Partner, Anwältinnen und Anwälte, Sekretariat.'"
+  facts:
+    adresse: {value: r.fields.adresse, priority: 10}
+    source: {value: "'KanzleiDB'", priority: 10}
+- type: Rechtsgebiet
+  identify: [key]
+  key: "r.record_kind == 'rechtsgebiet' && r.external_id || null"
+  name: r.fields.name
+  facts:
+    source: {value: "'KanzleiDB RECHTSGEBIETE'", priority: 10}
+  relations:
+  - {relation: gehoert_zu, to_type: Kanzlei, to_key: "r.links[?relation=='gehoert_zu'].external_id"}
+- type: Mitarbeiter
+  identify: [key]
+  key: "r.record_kind == 'mitarbeiter' && r.external_id || null"
+  name: r.fields.name
+  description: "join('', [str(r.fields.funktion), ' (', str(r.fields.kuerzel), ')', r.fields.aktiv == 'nein' && ', ausgetreten' || ''])"
+  facts:
+    kuerzel: {value: r.fields.kuerzel, priority: 10}
+    funktion: {value: r.fields.funktion, priority: 10}
+    rolle: {value: r.fields.rolle, priority: 10}
+    aktiv: {value: r.fields.aktiv, priority: 10}
+    eintritt: {value: r.fields.eintritt, priority: 10}
+    austritt: {value: r.fields.austritt, priority: 10}
+    stundenansatz: {value: r.fields.stundenansatz, priority: 10}
+    offene_akten: {value: r.fields.offene_akten, priority: 10}
+    offene_fristen: {value: r.fields.offene_fristen, priority: 10}
+    source: {value: "'KanzleiDB MITARBEITER'", priority: 10}
+  relations:
+  - {relation: gehoert_zu, to_type: Kanzlei, to_key: "r.links[?relation=='gehoert_zu'].external_id"}
+- type: Begriff
+  identify: [key]
+  key: "r.record_kind == 'begriff' && r.external_id || null"
+  name: r.fields.name
+  description: "left(join('', [str(r.fields.begriff), ': ', str(r.fields.bedeutung)]), `2000`)"
+  facts:
+    begriff: {value: r.fields.begriff, priority: 10}
+    bedeutung: {value: r.fields.bedeutung, priority: 10}
+    stand: {value: r.fields.stand, priority: 10}
+    source: {value: "'Gemeinsam/Kanzlei/02-Organisation/Kanzlei-ABC.docx'", priority: 10}
+  relations:
+  - {relation: begriff_von, to_type: Kanzlei, to_key: "r.links[?relation=='begriff_von'].external_id"}

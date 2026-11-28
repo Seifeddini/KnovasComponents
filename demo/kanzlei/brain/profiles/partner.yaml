@@ -1,0 +1,100 @@
+id: partner
+audience: Partner
+description: Führt die Kanzlei. Sieht alle Akten, wo die Weisungen nicht eingehalten sind, was offen ist und wer gegen wen vertreten wurde.
+delivered_through: Platform
+lens:
+  spines: [SPINE-kanzlei]
+  types: [Kanzlei, Rechtsgebiet, Mitarbeiter, Partei, Namensgruppe, Akte, Frist, Termin, Rechnung, Dokument, Begriff, Process, ProcessStep]
+  relations: [gehoert_zu, rechtsgebiet, verantwortlich, sachbearbeitung, mandatsteam, ausgeschlossen, teilnehmer, mandant, gegenpartei, gegenanwalt, gericht_behoerde, versicherung, zeuge, experte, gleicher_name, moeglicherweise_identisch, moeglicherweise_identisch_mit, vertreten_gegen, auch_vertreten_gegen, frist_von, termin_von, rechnung_von, dokument_von, erstellt_von, konfliktpruefung_zu, mandatsvereinbarung_zu, vollmacht_zu, kostenvorschuss_zu, honorarnote_zu, aktennotiz_zu, aussergerichtlich_zu, entwurf_zu, rechtsschrift_zu, versandnachweis_zu, erledigung_zu, abschlussmitteilung_zu, instance_of, in_state, has_step, transitions_to, begriff_von]
+views:
+  - id: mandatsannahme
+    label: "Weisung 1: Mandatsannahme"
+    render: board
+    definition:
+      description: Jede seit dem 11.3.2023 eröffnete elektronische Akte im Schritt der Mandatsannahme, an dem ihr ein Beleg fehlt.
+      process: PROC-mandatsannahme
+      root_types: [Akte]
+      columns: [status, eroeffnet_am, verrechnet_chf]
+  - id: fakturierung
+    label: "Weisung 4: Fakturierung"
+    render: board
+    definition:
+      description: Elektronische Akten nach Stand der Fakturierung, mit offenen Beträgen.
+      process: PROC-fakturierung
+      root_types: [Akte]
+      columns: [nicht_verrechnet_chf, offen_chf, gemahnt]
+  - id: rechtsschrift
+    label: "Weisung 3: Rechtsschriften"
+    render: board
+    definition:
+      description: Akten mit eingereichter Rechtsschrift, im ersten Schritt der Weisung, dessen Beleg fehlt.
+      process: PROC-rechtsschrift
+      root_types: [Akte]
+      columns: [status, eroeffnet_am]
+  - id: aktenabschluss
+    label: "Weisung 5: Aktenabschluss"
+    render: board
+    definition:
+      description: Abgeschlossene elektronische Akten, im ersten Schritt des Abschlusses, dessen Beleg fehlt.
+      process: PROC-aktenabschluss
+      root_types: [Akte]
+      columns: [abgeschlossen_am, offen_chf]
+  - id: rote-akten
+    label: Rote Akten
+    render: list
+    definition:
+      description: "Kanzlei-ABC: Akten mit einer Frist in den nächsten zehn Tagen."
+      root_types: [Akte]
+      where: {fact: ampel, in: [rot]}
+      columns: [naechste_frist, naechste_frist_art, offene_fristen, status]
+      order_by: {fact: naechste_frist}
+  - id: offene-honorare
+    label: Offene Honorare
+    render: list
+    definition:
+      description: Offene und gemahnte Rechnungen, die ältesten zuerst.
+      root_types: [Rechnung]
+      where: {fact: zahlstatus, in: [offen, gemahnt]}
+      columns: [rechnungsart, datum, total, zahlstatus, tage_offen]
+      order_by: {fact: datum}
+  - id: schranken
+    label: Sperrakten und Informationsschranken
+    render: list
+    definition:
+      description: Akten, die nur das Mandatsteam öffnen darf, und Akten mit einer ausgeschlossenen Person.
+      root_types: [Akte]
+      where: {fact: sperrakte, in: ['ja']}
+      columns: [status, schranke, eroeffnet_am]
+  - id: doppelte-adressen
+    label: Vermutlich doppelt erfasste Parteien
+    render: list
+    definition:
+      description: Adressen mit gleichem Namen in Normalform; die Konfliktprüfung muss alle finden.
+      root_types: [Namensgruppe]
+      columns: [normalform, anzahl_adressen]
+  - id: stammkunden
+    label: Stammkunden
+    render: list
+    definition:
+      description: "Kanzlei-ABC: Mandantschaft mit mehr als drei Akten."
+      root_types: [Partei]
+      where: {fact: stammkunde, in: ['ja']}
+      columns: [als_mandant, anzahl_akten, ort]
+pages: [PAGE-akte, PAGE-partei, PAGE-mitarbeiter, PAGE-rechtsgebiet]
+actions: []
+context_packs:
+  - id: akte
+    description: Eine Akte mit Parteien, Team, Fristen, Rechnungen, Dokumenten und ihrem Stand nach den Weisungen.
+    budget_tokens: 24000
+    include:
+    - {label: Mandantschaft, path: [{relation: mandant, direction: out, to_type: Partei}]}
+    - {label: Gegenpartei, path: [{relation: gegenpartei, direction: out, to_type: Partei}]}
+    - {label: Gegenanwalt, path: [{relation: gegenanwalt, direction: out, to_type: Partei}]}
+    - {label: Team, path: [{relation: verantwortlich, direction: out, to_type: Mitarbeiter}]}
+    - {label: Fristen, path: [{relation: frist_von, direction: in, to_type: Frist}]}
+    - {label: Rechnungen, path: [{relation: rechnung_von, direction: in, to_type: Rechnung}]}
+    - {label: Dokumente, path: [{relation: dokument_von, direction: in, to_type: Dokument}]}
+    - {label: Stand nach den Weisungen, path: [{relation: in_state, direction: out, to_type: ProcessStep}]}
+rights:
+  read: ["*"]
+  write: none
