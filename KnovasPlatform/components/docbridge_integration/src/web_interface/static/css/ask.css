@@ -134,6 +134,21 @@
     overflow-wrap: anywhere;
 }
 .ask-unchecked-why { flex-basis: 100%; font-size: var(--k-text-2xs); color: var(--k-color-text-muted); }
+/* A removed statement at its place in the answer (the founder, 2026-11-28: in the order the model wrote it):
+   muted, dashed, with the label and the reason; never a chip or a quote. */
+.ask-unchecked-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--k-space-3xs) var(--k-space-xs);
+    margin: 0 0 var(--k-space-sm);
+    padding: var(--k-space-2xs) var(--k-space-sm);
+    border: 1px dashed var(--k-color-border-strong);
+    border-radius: var(--k-radius-md);
+    background: var(--k-color-surface-sunken);
+    min-width: 0;
+}
+.ask-answer.is-unchecked-only { margin-top: var(--k-space-sm); }
 
 /* --- «Im Wissensgraphen» under an answer of «Wissensgraph» (PMVP-20 brain-graph) ------------------------------ */
 /* A collapsible block: its title as the parts' section titles read, then the SVG ask_graph.js draws (its size is

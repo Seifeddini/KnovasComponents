@@ -358,3 +358,109 @@ def test_the_setting_is_registered_off_by_default():
     assert (setting.label, setting.kind, setting.scope, setting.choices, setting.fallback, setting.env) == (
         "Nicht belegte Aussagen anzeigen", "choice", "installation", ("aus", "an"), "aus", (SHOW_ENV,))
     assert "nur gez\u00e4hlt" in setting.help and "nicht belegt" in setting.help
+
+
+# --- in the order the model wrote them (the founder, 2026-11-28: "just un-ordered at the end of the message") -------
+
+
+def test_each_removed_statement_knows_how_many_shown_ones_stand_before_it():
+    answer = "\n".join([BAD_QUOTE, GOOD, BAD_NUMBER, GOOD, BAD_SOURCE])
+    removed = check.removed_statements(answer, PASSAGES_BY_NUMBER)
+    assert [(r.reason, r.at) for r in removed] == [("quote_not_found", 0), ("number_not_found", 1),
+                                                  ("unknown_source", 2)]
+    reply = passages_service(answer).answer("Welche Frist?")
+    assert len(reply.sentences) == 2 and [u.at for u in reply.unchecked] == [0, 1, 2]
+
+
+def test_brain_graph_keeps_the_places_too():
+    from test_assistant_brain_graph import QUESTION, FakeAnthropic, find_then_count, lines, service
+
+    def answer(counted):
+        number = counted["count_passage"]["passage"]
+        return lines({"statement": "Er fuehrt 5 offene Akten.", "source": number, "quote": "Anzahl der Treffer: 2"},
+                     {"statement": "Dr. Markus Baer fuehrt 2 offene Akten: 2024-017 und 2024-021.", "source": number,
+                      "quote": "Anzahl der Treffer: 2 Treffer: 2024-017 Huber gegen Rueegg"})
+
+    reply = service(FakeAnthropic(*find_then_count(answer))).answer(QUESTION)
+    assert reply.status == "answered" and [(u.reason, u.at) for u in reply.unchecked] == [("number_not_found", 0)]
+
+
+SENTENCE_2 = Sentence(text="Der Mietzins betraegt CHF 4'200.", refs=(2,), quote="Mietzins betraegt CHF")
+PLACED = (Unchecked(text="Vorher entfernt.", reason="quote_not_found", source=1, at=0),
+          Unchecked(text="Dazwischen entfernt.", reason="unknown_source", at=1),
+          Unchecked(text="Danach entfernt.", reason="number_not_found", source=2, at=2))
+
+
+def two_statements(unchecked=PLACED):
+    return with_unchecked(Reply(status="answered", sentences=[SENTENCE, SENTENCE_2], passages=list(PASSAGES),
+                                removed=3), unchecked)
+
+
+def test_the_place_is_stored_and_read_back_and_an_older_answer_has_none():
+    text, references = stored_answer(two_statements(), keep_unchecked=True)
+    assert [u.get("at") for u in json.loads(text)["unchecked"]] == [0, 1, 2]
+    assert [u.at for u in stored_reply(message_of(text, references)).unchecked] == [0, 1, 2]
+    data = json.loads(text)
+    for item in data["unchecked"]:
+        del item["at"]
+    assert [u.at for u in stored_reply(message_of(json.dumps(data), references)).unchecked] == [None] * 3
+    assert clean_unchecked([{"text": "a", "reason": "too_long", "at": -1}])[0].at is None
+
+
+def test_shown_reply_puts_each_at_its_place():
+    from flask import Flask
+
+    app = Flask(__name__)
+    app.add_url_rule("/download/<path:doc_id>", "download_document", lambda doc_id: doc_id)
+    older = Unchecked(text="Ohne Platz.", reason="too_long")
+    with app.test_request_context("/"):
+        shown = shown_reply(two_statements(PLACED + (older,)), False, unchecked=True)
+        off = shown_reply(two_statements(), False)
+    assert [[u.text for u in group] for group in shown["inline"]] == [["Vorher entfernt."], ["Dazwischen entfernt."],
+                                                                     ["Danach entfernt."]]
+    assert [u.text for u in shown["unchecked"]] == ["Ohne Platz."]
+    assert "inline" not in off and "unchecked" not in off
+
+
+def test_on_the_page_they_stand_in_the_answer_in_the_models_order(alice_client, platform_db, ask_service,
+                                                                   monkeypatch):
+    monkeypatch.setenv(SHOW_ENV, "an")
+    ask_service.reply = two_statements()
+    main = _main_of(alice_client, _asked(alice_client))
+    answer = main[main.index('<div class="ask-answer">'):main.index("ask-removed")]
+    order = [answer.index(words) for words in ("Vorher entfernt.", SENTENCE.text[:-1], "Dazwischen entfernt.",
+                                               "Der Mietzins betraegt CHF", "Danach entfernt.")]
+    assert order == sorted(order)
+    assert answer.count('class="ask-unchecked-inline"') == 3 and answer.count("nicht belegt") == 3
+    assert "behauptete Quelle 1" in answer and "Quelle nicht unter den gefundenen Textstellen" in answer
+    assert '<details class="ask-unchecked"' not in main                   # every one has its place
+    assert "3 Aussagen ohne Beleg ausgelassen" in main
+    inline = re.findall(r'<p class="ask-unchecked-inline">(.*?)</p>', answer)
+    assert all("<a " not in item and "aria-controls" not in item for item in inline)
+    assert main.count('aria-controls="zitat-') == 2                     # the chips are the checked statements'
+
+
+def test_off_the_page_has_no_inline_items(alice_client, platform_db, ask_service):
+    ask_service.reply = two_statements()
+    main = _main_of(alice_client, _asked(alice_client))
+    assert "ask-unchecked" not in main and "entfernt." not in main
+
+
+def test_an_older_answer_without_places_lists_them_after_the_statements(alice_client, platform_db, ask_service,
+                                                                         monkeypatch):
+    monkeypatch.setenv(SHOW_ENV, "an")
+    ask_service.reply = two_statements(tuple(Unchecked(text=u.text, reason=u.reason, source=u.source) for u in PLACED))
+    main = _main_of(alice_client, _asked(alice_client))
+    assert "ask-unchecked-inline" not in main and "Ohne Beleg (3)" in main
+    assert main.index("ask-statement") < main.index('<details class="ask-unchecked"')
+
+
+def test_a_no_answer_shows_its_placed_ones_after_the_message(alice_client, platform_db, ask_service, monkeypatch):
+    monkeypatch.setenv(SHOW_ENV, "an")
+    ask_service.reply = with_unchecked(Reply(status="no_answer", passages=list(PASSAGES), removed=2,
+                                             message="Dazu finde ich nichts in Ihren Quellen"),
+                                       (Unchecked(text="Erste.", reason="quote_not_found", at=0),
+                                        Unchecked(text="Zweite.", reason="too_long", at=0)))
+    main = _main_of(alice_client, _asked(alice_client))
+    assert main.index("Dazu finde ich nichts") < main.index("Erste.") < main.index("Zweite.")
+    assert main.index("Zweite.") < main.index("Die n\u00e4chsten Stellen")

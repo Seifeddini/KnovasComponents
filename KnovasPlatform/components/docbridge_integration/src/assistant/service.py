@@ -334,11 +334,14 @@ MAX_UNCHECKED_CHARS = 500
 class Unchecked:
     """A statement the check removed, as <<Ohne Beleg>> lists it: ``text`` (cut to ``MAX_UNCHECKED_CHARS``),
     ``reason`` (one of ``assistant.check.REASONS``) and ``source``, the number of the reply's own passage it named
-    (None when it named none, or one the reply does not list)."""
+    (None when it named none, or one the reply does not list). ``at``: how many of the reply's
+    statements stand before it in the order the model wrote them (None for an answer stored before 2026-11-28's
+    ordering: the page then lists it after the statements)."""
 
     text: str
     reason: str
     source: Optional[int] = None
+    at: Optional[int] = None
 
 
 def _cut_unchecked(text: str) -> str:
@@ -371,8 +374,13 @@ def unchecked_of(removed: Sequence[Any], numbered: Sequence[Passage],
             continue
         claimed = by_number.get(getattr(item, "source", None))
         number = where.get((claimed.pointer, claimed.text)) if claimed is not None else None
-        out.append(Unchecked(text=text, reason=reason, source=number))
+        at = getattr(item, "at", None)
+        out.append(Unchecked(text=text, reason=reason, source=number, at=at if _position(at) else None))
     return tuple(out)
+
+
+def _position(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 2 ** 31
 
 
 def with_unchecked(reply: "Reply", text: str, numbered: Sequence[Passage]) -> "Reply":
@@ -404,7 +412,8 @@ def clean_unchecked(data: Any) -> Tuple[Unchecked, ...]:
         source = item.get("source")
         if not isinstance(source, int) or isinstance(source, bool) or not 0 < source < 2 ** 31:
             source = None
-        out.append(Unchecked(text=text, reason=reason, source=source))
+        at = item.get("at")
+        out.append(Unchecked(text=text, reason=reason, source=source, at=at if _position(at) else None))
     return tuple(out)
 
 

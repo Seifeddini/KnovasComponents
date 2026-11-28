@@ -77,6 +77,7 @@
     </ul>
 </details>
 {% endmacro %}
+{% macro inline_items(items) %}{% for u in items %}<p class="ask-unchecked-inline"><span class="ask-unchecked-label">nicht belegt</span> <span class="ask-unchecked-text" dir="auto">{{ u.text }}</span> <span class="ask-unchecked-why">{{ u.reason }}{% if u.source %} · behauptete Quelle {{ u.source }}{% endif %}</span></p>{% endfor %}{% endmacro -%}
 {% macro unchecked_block(items) %}
 <details class="ask-unchecked">
     <summary class="ask-unchecked-title">Ohne Beleg ({{ items|length }})</summary>
@@ -97,7 +98,7 @@
 {% if t.reply %}{{ said(t.reply) }}{% endif %}
 <div class="ask-answer">
     {% for s in t.statements %}
-    <p class="ask-statement">{{ s.head }}<span class="ask-tail">{{ parts.ref_chip(s.number, active=True, controls=s.quote_id) }}{{ s.stop }}</span></p>
+    {% if t.inline %}{{ inline_items(t.inline[loop.index0]) }}{% endif %}<p class="ask-statement">{{ s.head }}<span class="ask-tail">{{ parts.ref_chip(s.number, active=True, controls=s.quote_id) }}{{ s.stop }}</span></p>
     <div class="ask-quote" id="{{ s.quote_id }}">
         {% call parts.card() %}
         {% if s.passage %}
@@ -113,7 +114,7 @@
         {% endcall %}
     </div>
     {% endfor %}
-</div>
+{% if t.inline %}{{ inline_items(t.inline[-1]) }}{% endif %}</div>
 {% if t.removed %}<p class="ask-removed k-muted k-small">{{ t.removed }}</p>{% endif %}
 {%- if t.unchecked %}{{ unchecked_block(t.unchecked) }}{% endif %}
 {% if t.graph %}{{ graph_block(t) }}{% endif %}
@@ -123,6 +124,7 @@
 {% elif t.status == 'no_answer' %}
 {% if t.reply %}{{ said(t.reply) }}{% else %}<p class="ask-message">{{ t.message }}</p>{% endif %}
 {% if t.removed %}<p class="ask-removed k-muted k-small">{{ t.removed }}</p>{% endif %}
+{%- if t.inline %}<div class="ask-answer is-unchecked-only">{% for group in t.inline %}{{ inline_items(group) }}{% endfor %}</div>{% endif %}
 {%- if t.unchecked %}{{ unchecked_block(t.unchecked) }}{% endif %}
 {% if t.passages %}
 {% call parts.section('Die nächsten Stellen') %}{{ sources(t.passages) }}{% endcall %}

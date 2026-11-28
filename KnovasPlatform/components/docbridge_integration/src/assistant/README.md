@@ -408,12 +408,17 @@ display; with the default nothing changes.
   keep_unchecked=True)` adds `"unchecked": [{"text", "reason", "source"}]` to the answer's JSON; off, the JSON is
   byte for byte what it was. `stored_reply` reads it back through `service.clean_unchecked` (caps, known reasons
   only; anything else is left out and the answer stands); an older answer has none.
-- **Shown only while on**, also for stored answers (an administrator who turns it off hides them again): under the
-  line «n Aussagen ohne Beleg ausgelassen», before «Im Wissensgraphen» and the sources (under a `no_answer` before
-  «Die nächsten Stellen»), a closed `<details>` «Ohne Beleg (n)», muted and dashed, each statement marked «nicht
-  belegt» with its reason: `unknown_source` «Quelle nicht unter den gefundenen Textstellen», `quote_not_found` «Zitat
-  steht nicht wörtlich in der Quelle», `number_not_found` «Zahl steht nicht in der Quelle», `too_long` «zu lang»,
-  others «nicht prüfbar»; and «behauptete Quelle n» as plain text when it named a passage the turn lists.
+- **Shown only while on**, also for stored answers (an administrator who turns it off hides them again), **in the
+  order the model wrote them** (the founder after the live deploy, 2026-11-28: "now just un-ordered at the end of the
+  message"): each removed statement keeps `at`, how many shown statements stand before it (`check.Removed.at`, kept
+  through the renumbering of the Brain modes, stored as `"at"`), and the answer is one list: the checked statements
+  exactly as before, each removed one at its place (`ask-unchecked-inline`: muted, dashed, the label «nicht belegt»
+  and its reason: `unknown_source` «Quelle nicht unter den gefundenen Textstellen», `quote_not_found` «Zitat steht
+  nicht wörtlich in der Quelle», `number_not_found` «Zahl steht nicht in der Quelle», `too_long` «zu lang», others
+  «nicht prüfbar»; and «behauptete Quelle n» as plain text when it named a passage the turn lists). The line «n
+  Aussagen ohne Beleg ausgelassen» stays. Under a `no_answer` they follow the reply in their order. An answer stored
+  before the ordering (no `at`) lists them after the statements in the closed `<details>` «Ohne Beleg (n)», as first
+  built.
 - **Never part of the answer**: no chip, no quote, no link, no grant (the grants are the reply's passages), no node
   of the graph (`build_graph` reads the cited passages), no line of a follow-up's history (`history_of` reads the
   statements), never a reason to call an answer `answered`. No statement text in any log line.

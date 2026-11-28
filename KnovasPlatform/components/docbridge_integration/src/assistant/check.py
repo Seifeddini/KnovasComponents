@@ -169,12 +169,14 @@ class Removed:
     ``source`` the number of the passage it named, when that is a passage of this answer (else None). Only an object
     with a text under ``statement`` is kept: a line of prose, a broken object and a statement that only says nothing
     was found (``says_no_answer``) are counted, never kept. Nothing here is weaker than the check: the same reasons,
-    the same counts.
+    the same counts. ``at``: how many shown statements stand before it in the answer, so the page can show it in
+    the order the model wrote it (the founder, 2026-11-28).
     """
 
     text: str
     reason: str
     source: Optional[int] = None
+    at: Optional[int] = None
 
 
 def check_answer_keeping(text: str, passages: Mapping[int, str]
@@ -194,11 +196,11 @@ def check_answer_keeping(text: str, passages: Mapping[int, str]
             removed_by[NOT_A_STATEMENT] += 1
             kept = _removed_form(value, passages)
             if kept is not None:
-                removed.append(kept)
+                removed.append(replace(kept, at=len(shown)))
             continue
         if not check_source(statement, passages):
             removed_by[UNKNOWN_SOURCE] += 1
-            removed.append(Removed(text=statement.text, reason=UNKNOWN_SOURCE))
+            removed.append(Removed(text=statement.text, reason=UNKNOWN_SOURCE, at=len(shown)))
             continue
         found = check_quote(statement, passages)
         reason = None
@@ -212,7 +214,7 @@ def check_answer_keeping(text: str, passages: Mapping[int, str]
             shown.append(found)
         if reason is not None:
             removed_by[reason] += 1
-            removed.append(Removed(text=statement.text, reason=reason, source=statement.source))
+            removed.append(Removed(text=statement.text, reason=reason, source=statement.source, at=len(shown)))
     return shown, removed_by, removed
 
 

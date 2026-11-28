@@ -257,8 +257,11 @@ class ShownTurn:
     reply: str = ""
     graph: Optional[Dict[str, Any]] = None
     graph_json: str = ""
-    #: <<Ohne Beleg>>: the statements the check removed, only while ``assistant.show_unchecked`` is on.
+    #: <<Ohne Beleg>>, only while ``assistant.show_unchecked`` is on: ``inline`` holds the removed statements at
+    #: their place in the answer (``inline[i]`` before statement ``i``, the last list after all of them; empty when
+    #: none has a place), ``unchecked`` those stored without a place (older answers), listed after the statements.
     unchecked: List[ShownUnchecked] = field(default_factory=list)
+    inline: List[List[ShownUnchecked]] = field(default_factory=list)
 
 
 def _open_href(passage: Passage, pdf_preview: bool) -> str:
@@ -377,15 +380,23 @@ def shown_reply(reply: Reply, pdf_preview: bool, *, turn: Optional[int] = None,
              "reply": getattr(reply, "reply_text", "") or "", "graph": graph, "graph_json": graph_json}
     if unchecked:
         kept = clean_unchecked([_unchecked_item(u) for u in getattr(reply, "unchecked", ()) or ()])
-        shown["unchecked"] = [ShownUnchecked(text=u.text, reason=UNCHECKED_REASON_TEXT.get(u.reason, UNCHECKED_OTHER),
-                                             source=u.source if u.source in by_number else None)
-                              for u in kept]
+        inline: List[List[ShownUnchecked]] = [[] for _ in range(len(statements) + 1)]
+        apart: List[ShownUnchecked] = []
+        for u in kept:
+            item = ShownUnchecked(text=u.text, reason=UNCHECKED_REASON_TEXT.get(u.reason, UNCHECKED_OTHER),
+                                  source=u.source if u.source in by_number else None)
+            if u.at is None:
+                apart.append(item)
+            else:
+                inline[min(u.at, len(statements))].append(item)
+        shown["unchecked"] = apart
+        shown["inline"] = inline if any(inline) else []
     return shown
 
 
 def _unchecked_item(item: Any) -> Dict[str, Any]:
     return {"text": getattr(item, "text", ""), "reason": getattr(item, "reason", ""),
-            "source": getattr(item, "source", None)}
+            "source": getattr(item, "source", None), "at": getattr(item, "at", None)}
 
 
 def _plain(status: str, message: str) -> Reply:
@@ -462,7 +473,8 @@ def stored_answer(reply: Reply, *, keep_unchecked: bool = False) -> Tuple[str, L
     if keep_unchecked:
         kept = clean_unchecked([_unchecked_item(u) for u in getattr(reply, "unchecked", ()) or ()])
         if kept:
-            stored["unchecked"] = [{"text": u.text, "reason": u.reason, "source": u.source} for u in kept]
+            stored["unchecked"] = [{"text": u.text, "reason": u.reason, "source": u.source,
+                                    **({"at": u.at} if u.at is not None else {})} for u in kept]
     return json.dumps(stored, ensure_ascii=False), references
 
 
