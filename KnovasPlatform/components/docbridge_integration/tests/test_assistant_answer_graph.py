@@ -361,3 +361,71 @@ def test_the_drawing_script_parses():
     result = subprocess.run(["node", "--check", str(GRAPH_JS)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
 
+
+
+# --- moving the nodes (the founder, 2026-11-28) ----------------------------------------------------------------------
+
+
+CSS = WEB / "static" / "css" / "ask.css"
+
+
+def test_the_script_moves_nodes_with_pointer_events_and_the_keyboard_and_resets_the_layout():
+    source = GRAPH_JS.read_text(encoding="ascii")
+    for handler in ("'pointerdown'", "'pointermove'", "'pointerup'", "'pointercancel'", "setPointerCapture",
+                    "'keydown'", "'dragstart'", "'click'"):
+        assert handler in source, handler
+    assert "Anordnung zur" + "\\" + "u00fccksetzen" in source                  # the script is ASCII: an escape
+    # a drag is no click: the click after a drag is stopped, and only then
+    assert re.search(r"if \(dragged\) \{ event\.preventDefault\(\); event\.stopPropagation\(\); \}", source)
+    # positions live in the page only
+    assert "localStorage" not in source and "sessionStorage" not in source and "document.cookie" not in source
+
+
+def test_the_svg_takes_the_touch_so_the_page_does_not_scroll_while_dragging():
+    css = CSS.read_text(encoding="utf-8")
+    rule = re.search(r"\.ask-graph-svg \{ touch-action: none;[^}]*\}", css)
+    assert rule and "user-select: none" in rule.group(0)
+
+
+def _node(script):
+    """Run the drawing script in node with a stub document, then ``script`` with ``g`` = its pure parts."""
+    program = ("globalThis.document = { querySelectorAll: function () { return []; } };\n"
+               f"require({json.dumps(str(GRAPH_JS))});\n"
+               "var g = globalThis.knovasAskGraph;\n" + script)
+    result = subprocess.run(["node", "-e", program], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_a_press_under_four_pixels_is_a_click_and_more_is_a_drag():
+    seen = _node("console.log(JSON.stringify([g.DRAG_PX, g.isDrag(0, 0), g.isDrag(3, 0), g.isDrag(2, 2),"
+                 " g.isDrag(4, 0), g.isDrag(3, 3), g.isDrag(-5, 0)]));")
+    assert seen == [4, False, False, False, True, True, True]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_the_arrow_keys_move_a_node_and_shift_moves_it_further():
+    seen = _node("console.log(JSON.stringify(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'a']"
+                 ".map(function (k) { return [g.keyStep(k, false), g.keyStep(k, true)]; })));")
+    assert seen == [[[-8, 0], [-32, 0]], [[8, 0], [32, 0]], [[0, -8], [0, -32]], [[0, 8], [0, 32]],
+                    [None, None], [None, None]]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_a_dragged_node_stays_inside_the_box():
+    box = {"width": 600, "height": 320, "side": 15, "top": 15, "bottom": 31}
+    seen = _node(f"var box = {json.dumps(box)};\n"
+                 "console.log(JSON.stringify([g.keepInside(-50, -50, box), g.keepInside(900, 900, box),"
+                 " g.keepInside(300.4, 100.6, box)]));")
+    assert seen == [{"x": 15, "y": 15}, {"x": 585, "y": 289}, {"x": 300, "y": 101}]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_the_layout_stays_the_same_picture_for_the_same_graph():
+    graph = json.dumps(GRAPH)
+    seen = _node(f"var graph = {graph};\n"
+                 "var one = g.layout(graph.nodes, graph.edges, 640, 320);\n"
+                 "var two = g.layout(graph.nodes, graph.edges, 640, 320);\n"
+                 "console.log(JSON.stringify([one, two]));")
+    assert seen[0] == seen[1] and len(seen[0]) == 3

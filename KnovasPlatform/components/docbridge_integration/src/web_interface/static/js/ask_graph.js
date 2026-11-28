@@ -16,6 +16,13 @@
    url_for while the Brain views are on) is a link that opens it in a new tab; any other address is refused. Hover
    or focus on a node shows its edges' relation names; with few edges they always show.
 
+   Moving the nodes (the founder, 2026-11-28): a node is dragged with a mouse, a pen or a finger (Pointer Events, the
+   pointer captured by the node; touch-action none on the SVG, so the page does not scroll while dragging); its
+   edges and their labels follow, and it stays inside the box. A press that moves less than DRAG_PX pixels is a
+   click and opens the dossier as before; a drag does not. With the keyboard, the arrow keys move a focused node
+   (KEY_STEP, with Shift BIG_STEP); Enter still opens it. "Anordnung zuruecksetzen" puts every node back where the
+   layout placed it. Positions are kept for this page only, never stored.
+
    No markup is written from text: every element is created, every text is a text node. */
 (function () {
     'use strict';
@@ -28,6 +35,11 @@
     var LABEL_CHARS = 26;
     var FEW_EDGES = 8;
     var STEPS = 300;
+    // A press that moves less than this (CSS pixels) is a click, not a drag.
+    var DRAG_PX = 4;
+    // The arrow keys move a focused node this far (SVG units); with Shift, BIG_STEP.
+    var KEY_STEP = 8;
+    var BIG_STEP = 32;
     var drawn = 0;
 
     var hash = function (text) {
@@ -47,6 +59,24 @@
     var ownAddress = function (href) {
         return typeof href === 'string' && href.charAt(0) === '/' && href.charAt(1) !== '/' &&
             href.indexOf('\\') === -1;
+    };
+
+    // Whether a press moved far enough to be a drag (dx, dy in CSS pixels).
+    var isDrag = function (dx, dy) { return Math.sqrt(dx * dx + dy * dy) >= DRAG_PX; };
+    // The step an arrow key moves a node by, or null for any other key.
+    var keyStep = function (key, shift) {
+        var size = shift ? BIG_STEP : KEY_STEP;
+        if (key === 'ArrowLeft') return [-size, 0];
+        if (key === 'ArrowRight') return [size, 0];
+        if (key === 'ArrowUp') return [0, -size];
+        if (key === 'ArrowDown') return [0, size];
+        return null;
+    };
+    // A point kept inside the box: margin left and right of it, top above it, bottom below it.
+    var keepInside = function (x, y, box) {
+        var left = box.side, right = Math.max(box.width - box.side, left);
+        var top = box.top, bottom = Math.max(box.height - box.bottom, top);
+        return { x: Math.round(Math.min(right, Math.max(left, x))), y: Math.round(Math.min(bottom, Math.max(top, y))) };
     };
 
     var make = function (tag, attrs, parent) {
@@ -176,13 +206,17 @@
         return words;
     };
 
+    // Half the width of a count's box (its text decides it).
+    var boxHalf = function (node) { return Math.round(cut(node.label, 24).length * 7 + 26) / 2; };
+
     var draw = function (canvas, graph) {
         var nodes = graph.nodes, edges = graph.edges || [];
         drawn += 1;
         var width = Math.max(canvas.clientWidth || 0, 280);
         if (width < 300) width = 640;
         var height = nodes.length <= 6 ? 320 : (nodes.length <= 15 ? 380 : 420);
-        var points = layout(nodes, edges, width, height);
+        var home = layout(nodes, edges, width, height);
+        var points = home.map(function (p) { return { x: p.x, y: p.y }; });
         var at = {};
         nodes.forEach(function (node, i) { at[node.id] = i; });
 
@@ -191,7 +225,7 @@
             viewBox: '0 0 ' + width + ' ' + height, width: '100%', height: height,
             preserveAspectRatio: 'xMidYMid meet', role: 'group',
             'aria-label': 'Ausschnitt aus dem Wissensgraphen: ' + nodes.length + ' Knoten, ' + edges.length +
-                ' Verbindungen'
+                ' Verbindungen. Knoten lassen sich verschieben, mit der Maus oder den Pfeiltasten.'
         });
         var arrow = 'ask-graph-arrow-' + drawn;
         var defs = make('defs', {}, svg);
@@ -202,8 +236,46 @@
         var edgeLayer = make('g', { 'class': 'ask-graph-edges' }, svg);
         var nodeLayer = make('g', { 'class': 'ask-graph-nodes' }, svg);
         var edgeEls = [];
+        var nodeEls = [];
+        // Where each node may go: inside the box, its label too.
+        var bounds = nodes.map(function (node) {
+            var side = node.kind === 'count' ? boxHalf(node) + 2 : radius(node) + 2;
+            return { width: width, height: height, side: side, top: radius(node) + 2,
+                bottom: radius(node) + (node.kind === 'count' ? 2 : 18) };
+        });
+
+        // An edge between its two nodes' points: the line from rim to rim and its label in the middle; an edge
+        // shorter than the two rims is not shown.
+        var placeEdge = function (edge) {
+            var p = points[edge.a], q = points[edge.b];
+            var lx = q.x - p.x, ly = q.y - p.y;
+            var length = Math.sqrt(lx * lx + ly * ly) || 1;
+            var ra = radius(nodes[edge.a]) + 2, rb = radius(nodes[edge.b]) + 4;
+            var short = length <= ra + rb;
+            edge.el.classList.toggle('is-short', short);
+            var ends = { x1: p.x + (lx / length) * ra, y1: p.y + (ly / length) * ra,
+                x2: q.x - (lx / length) * rb, y2: q.y - (ly / length) * rb };
+            [edge.hit, edge.line].forEach(function (line) {
+                Object.keys(ends).forEach(function (key) { line.setAttribute(key, String(ends[key])); });
+            });
+            if (edge.label) {
+                edge.label.setAttribute('x', String(Math.round((p.x + q.x) / 2)));
+                edge.label.setAttribute('y', String(Math.round((p.y + q.y) / 2) - 4));
+            }
+            return !short;
+        };
+        var placeNode = function (i) {
+            nodeEls[i].setAttribute('transform', 'translate(' + points[i].x + ',' + points[i].y + ')');
+        };
+        var moveTo = function (i, x, y) {
+            points[i] = keepInside(x, y, bounds[i]);
+            placeNode(i);
+            edgeEls.forEach(function (edge) { if (edge.a === i || edge.b === i) placeEdge(edge); });
+        };
+
         // Boxes already taken (each node with its label, then each edge label shown): an edge label that would
-        // cover one waits for hover or focus (is-crowded), so no text is drawn over another.
+        // cover one waits for hover or focus (is-crowded), so no text is drawn over another. Decided once, for the
+        // layout's picture.
         var taken = nodes.map(function (node, i) {
             var r = node.kind === 'count' ? Math.round(cut(node.label, 24).length * 3.5 + 15) : radius(node);
             var half = Math.max(r, (node.kind === 'count' ? 0 : cut(node.label, LABEL_CHARS).length * 2.9));
@@ -218,30 +290,27 @@
         edges.forEach(function (edge) {
             var a = at[edge.from], b = at[edge.to];
             if (a === undefined || b === undefined || a === b) return;
-            var p = points[a], q = points[b];
-            var lx = q.x - p.x, ly = q.y - p.y;
-            var length = Math.sqrt(lx * lx + ly * ly) || 1;
-            var ra = radius(nodes[a]) + 2, rb = radius(nodes[b]) + 4;
-            if (length <= ra + rb) return;
             var g = make('g', { 'class': 'ask-graph-edge' }, edgeLayer);
             say(make('title', {}, g), edge.relation + ': ' + nodes[a].label + ' \u2192 ' + nodes[b].label);
-            var ends = { x1: p.x + (lx / length) * ra, y1: p.y + (ly / length) * ra,
-                x2: q.x - (lx / length) * rb, y2: q.y - (ly / length) * rb };
-            make('line', Object.assign({ 'class': 'ask-graph-hit' }, ends), g);
-            make('line', Object.assign({ 'class': 'ask-graph-line', 'marker-end': 'url(#' + arrow + ')' }, ends), g);
+            var drawnEdge = { el: g, a: a, b: b, hit: make('line', { 'class': 'ask-graph-hit' }, g),
+                line: make('line', { 'class': 'ask-graph-line', 'marker-end': 'url(#' + arrow + ')' }, g),
+                label: null };
             if (edge.relation) {
+                drawnEdge.label = say(make('text', { 'class': 'ask-graph-edge-label', 'text-anchor': 'middle' }, g),
+                    cut(edge.relation, 22));
+            }
+            var shown = placeEdge(drawnEdge);
+            if (drawnEdge.label && shown) {
                 var words = cut(edge.relation, 22);
-                var mx = Math.round((p.x + q.x) / 2), my = Math.round((p.y + q.y) / 2) - 4;
+                var mx = Math.round((points[a].x + points[b].x) / 2), my = Math.round((points[a].y + points[b].y) / 2) - 4;
                 var box = { x1: mx - words.length * 2.8, x2: mx + words.length * 2.8, y1: my - 10, y2: my + 3 };
                 var room = free(box);
                 if (room) taken.push(box);
-                say(make('text', { 'class': 'ask-graph-edge-label' + (room ? '' : ' is-crowded'), x: mx, y: my,
-                    'text-anchor': 'middle' }, g), words);
+                else drawnEdge.label.classList.add('is-crowded');
             }
-            edgeEls.push({ el: g, a: a, b: b });
+            edgeEls.push(drawnEdge);
         });
 
-        var nodeEls = [];
         var focus = function (i, on) {
             svg.classList.toggle('is-focus', on);
             nodeEls.forEach(function (el, k) { el.classList.toggle('is-me', on && k === i); });
@@ -252,8 +321,12 @@
             });
             if (!on) nodeEls.forEach(function (el) { el.classList.remove('is-near'); });
         };
+        // SVG units per CSS pixel: the viewBox is scaled to the element's width.
+        var unitsPerPixel = function () {
+            var matrix = svg.getScreenCTM && svg.getScreenCTM();
+            return matrix && matrix.a ? 1 / matrix.a : 1;
+        };
         nodes.forEach(function (node, i) {
-            var point = points[i];
             var kind = node.kind === 'count' ? 'is-count' : (node.cited ? 'is-cited' : 'is-read');
             var item;
             if (ownAddress(node.href)) {
@@ -264,12 +337,13 @@
                 item = make('g', { 'class': 'ask-graph-node ' + kind, tabindex: 0, role: 'img' }, nodeLayer);
             }
             item.setAttribute('aria-label', nameOf(node));
-            item.setAttribute('transform', 'translate(' + point.x + ',' + point.y + ')');
+            nodeEls.push(item);
+            placeNode(i);
             say(make('title', {}, item), nameOf(node));
             var tint = colour(node.type);
             if (node.kind === 'count') {
                 var text = cut(node.label, 24);
-                var boxWidth = Math.round(text.length * 7 + 26);
+                var boxWidth = boxHalf(node) * 2;
                 make('rect', { 'class': 'ask-graph-box', x: -boxWidth / 2, y: -14, width: boxWidth, height: 28,
                     rx: 14 }, item);
                 say(make('text', { 'class': 'ask-graph-box-text', y: 0, 'text-anchor': 'middle',
@@ -301,10 +375,67 @@
             ['mouseleave', 'blur'].forEach(function (name) {
                 item.addEventListener(name, function () { focus(i, false); });
             });
-            nodeEls.push(item);
+
+            // Dragging: the node follows the pointer once it moved DRAG_PX; a shorter press stays a click.
+            var press = null;
+            var dragged = false;
+            item.addEventListener('pointerdown', function (event) {
+                if (event.button !== undefined && event.button !== 0) return;
+                press = { id: event.pointerId, sx: event.clientX, sy: event.clientY, x: points[i].x, y: points[i].y,
+                    scale: unitsPerPixel(), moving: false };
+                dragged = false;
+                if (item.setPointerCapture) {
+                    try { item.setPointerCapture(event.pointerId); } catch (err) { /* the press still counts */ }
+                }
+            });
+            item.addEventListener('pointermove', function (event) {
+                if (!press || press.id !== event.pointerId) return;
+                var dx = event.clientX - press.sx, dy = event.clientY - press.sy;
+                if (!press.moving && !isDrag(dx, dy)) return;
+                press.moving = true;
+                svg.classList.add('is-dragging');
+                event.preventDefault();
+                moveTo(i, press.x + dx * press.scale, press.y + dy * press.scale);
+            });
+            var release = function (event) {
+                if (!press || press.id !== event.pointerId) return;
+                dragged = press.moving;
+                press = null;
+                svg.classList.remove('is-dragging');
+            };
+            item.addEventListener('pointerup', release);
+            item.addEventListener('pointercancel', release);
+            // A drag is no click: the dossier opens only for a press that stayed in place.
+            item.addEventListener('click', function (event) {
+                if (dragged) { event.preventDefault(); event.stopPropagation(); }
+                dragged = false;
+            });
+            item.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter') dragged = false;          // Enter opens, whatever a pointer did before
+                var step = keyStep(event.key, event.shiftKey);
+                if (!step) return;                                   // Enter and the rest as before
+                event.preventDefault();
+                moveTo(i, points[i].x + step[0], points[i].y + step[1]);
+            });
         });
+        // A link's own drag (of its address) would start instead of moving the node.
+        svg.addEventListener('dragstart', function (event) { event.preventDefault(); });
+
+        var reset = document.createElement('button');
+        reset.type = 'button';
+        reset.className = 'ask-graph-reset';
+        say(reset, 'Anordnung zur\u00fccksetzen');
+        reset.addEventListener('click', function () {
+            nodes.forEach(function (node, i) { points[i] = { x: home[i].x, y: home[i].y }; placeNode(i); });
+            edgeEls.forEach(placeEdge);
+        });
+
         canvas.appendChild(svg);
-        canvas.appendChild(legend(nodes));
+        var under = document.createElement('div');
+        under.className = 'ask-graph-under';
+        under.appendChild(legend(nodes));
+        under.appendChild(reset);
+        canvas.appendChild(under);
     };
 
     var legend = function (nodes) {
@@ -346,6 +477,10 @@
             while (canvas.firstChild) canvas.removeChild(canvas.firstChild);   // the list stays
         }
     };
+
+    // The pure parts, for the tests (node runs this file with a stub document).
+    globalThis.knovasAskGraph = { isDrag: isDrag, keyStep: keyStep, keepInside: keepInside, layout: layout,
+        DRAG_PX: DRAG_PX };
 
     Array.prototype.forEach.call(document.querySelectorAll('.ask-graph'), function (block) {
         if (block.open) start(block);

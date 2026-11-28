@@ -334,6 +334,16 @@ which also dims the rest. Every node is focusable with an accessible name; a cli
 other address. Colours of lines, texts and surfaces are the brand tokens (`ask.css`), so the block follows the light
 and the dark theme. No block for another mode, a `no_answer`, or fewer than two nodes.
 
+**Moving the nodes** (the founder, 2026-11-28). A node is dragged with a mouse, a pen or a finger (Pointer Events,
+the pointer captured by the node; `touch-action: none` on the SVG, so the page does not scroll while dragging); its
+edges and their labels follow live, and it stays inside the box (`keepInside`, its label too). A press that moves
+less than `DRAG_PX` (4 CSS pixels) is a click and opens the dossier as before; after a drag the click is stopped. A
+focused node moves with the arrow keys (8 units, with Shift 32); Enter still opens it. «Anordnung zurücksetzen»
+under the drawing puts every node back where the layout placed it. Positions live in the page only, never stored;
+the neighbours do not ease along (the optional relaxation was left out to keep the script small). The hover and
+focus dimming is unchanged. The pure parts (`isDrag`, `keyStep`, `keepInside`, `layout`) are on
+`globalThis.knovasAskGraph` for the tests, which run them in node.
+
 **The logs.** One line per answer (`brain graph status=… rounds=… tool_calls=… calls=<tool>:<n> errors=<code>:<n>
 passages=… graph_reads=… fact_nodes=… waits=… graph_nodes=… graph_edges=…`, the check's counts, Anthropic's message
 ids, durations) and the provider's line per request. Never a question, a tool's input, a node's name, a fact, a passage, an answer or a key;
@@ -341,7 +351,7 @@ ids, durations) and the provider's line per request. Never a question, a tool's 
 
 **Tests:** `tests/test_assistant_brain_graph.py` (a fake Core with an invented graph, a fake client with the SDK's
 block types, and the real SDK over an in-process transport); `tests/test_assistant_answer_graph.py` (the graph under
-the answer: building, caps, names, storing and reading back, the page and the script).
+the answer: building, caps, names, storing and reading back, the page and the script, moving the nodes).
 
 ## «Ohne Beleg»: the removed statements, shown apart on request (founder, 2026-11-28)
 

@@ -158,6 +158,34 @@
 .ask-graph-title:focus-visible { outline: 2px solid var(--k-color-accent); outline-offset: 2px; }
 .ask-graph-canvas { min-width: 0; margin-top: var(--k-space-xs); }
 .ask-graph-svg { display: block; width: 100%; overflow: visible; font-family: var(--k-font-sans); }
+/* Nodes are dragged with a mouse, a pen or a finger (the founder, 2026-11-28): the page does not scroll or select
+   text while a finger or the mouse moves one. */
+.ask-graph-svg { touch-action: none; -webkit-user-select: none; user-select: none; }
+.ask-graph-svg .ask-graph-node { cursor: grab; }
+.ask-graph-svg .ask-graph-node.is-link { cursor: pointer; }
+.ask-graph-svg.is-dragging .ask-graph-node { cursor: grabbing; }
+.ask-graph-edge.is-short { display: none; }
+/* Under the drawing: the legend and the button that puts the nodes back. */
+.ask-graph-under {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--k-space-2xs) var(--k-space-md);
+}
+.ask-graph-reset {
+    margin: var(--k-space-xs) 0 0;
+    padding: var(--k-space-3xs) var(--k-space-xs);
+    border: 1px solid var(--k-color-border);
+    border-radius: var(--k-radius-sm);
+    background: var(--k-color-surface);
+    font: inherit;
+    font-size: var(--k-text-xs);
+    color: var(--k-color-text-muted);
+    cursor: pointer;
+}
+.ask-graph-reset:hover { color: var(--k-color-text); border-color: var(--k-color-border-strong); }
+.ask-graph-reset:focus-visible { outline: 2px solid var(--k-color-accent); outline-offset: 1px; }
 .ask-graph-list {
     display: flex;
     flex-wrap: wrap;
